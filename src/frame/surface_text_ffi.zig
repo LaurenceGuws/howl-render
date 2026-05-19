@@ -51,7 +51,7 @@ const OwnedVtSurface = struct {
     }
 };
 
-fn ownerFromHandle(handle: anytype) ?*surface_text.SurfaceTextOwner {
+fn ownerFromHandle(handle: abi.SurfaceTextHandle) ?*surface_text.SurfaceTextOwner {
     const owned = handle orelse return null;
     return @ptrCast(@alignCast(owned));
 }
@@ -279,11 +279,11 @@ fn surfaceMetricsOut(value: Render.RenderMetrics) abi.FfiSurfaceMetrics {
     };
 }
 
-fn executionInputIn(value: anytype) Render.SurfaceText.RenderSurfaceExecutionInput {
+fn executionInputIn(value: abi.FfiSurfaceExecutionInput) Render.SurfaceText.RenderSurfaceExecutionInput {
     return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch }, .uploads_committed = value.uploads_committed, .render_us = value.render_us, .content_valid = value.content_valid != 0 };
 }
 
-fn geometryIn(value: anytype) Render.Geometry {
+fn geometryIn(value: abi.FfiGeometry) Render.Geometry {
     return .{
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
         .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
@@ -313,7 +313,7 @@ fn surfaceQueryOut(value: Render.SurfaceQuery) abi.FfiSurfaceQuery {
     };
 }
 
-fn vtSnapshotIn(value: anytype) ?Render.FrameQueue.VtSnapshot {
+fn vtSnapshotIn(value: abi.FfiVtSnapshot) ?Render.FrameQueue.VtSnapshot {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{
         .cols = value.cols,
@@ -336,7 +336,7 @@ fn vtPublishResultOut(value: Render.FrameQueue.VtPublishResult) abi.FfiVtPublish
     };
 }
 
-fn pendingStateOut(value: anytype) abi.FfiPendingState {
+fn pendingStateOut(value: Render.FrameQueue.PendingState) abi.FfiPendingState {
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .source_pending = @intFromBool(value.source_pending),
@@ -346,7 +346,7 @@ fn pendingStateOut(value: anytype) abi.FfiPendingState {
     };
 }
 
-fn queueMetricsOut(value: anytype) abi.FfiQueueMetrics {
+fn queueMetricsOut(value: Render.FrameQueue.QueueMetrics) abi.FfiQueueMetrics {
     return .{
         .snapshot_publishes = value.snapshot_publishes,
         .snapshot_hidden_drops = value.snapshot_hidden_drops,
@@ -391,7 +391,7 @@ fn preparedFrameOut(value: Render.FramePipeline.PreparedFrame) abi.FfiPreparedFr
     };
 }
 
-fn renderRequestIn(value: anytype) ?Render.FramePipeline.RenderRequest {
+fn renderRequestIn(value: abi.FfiPrepareRequest) ?Render.FramePipeline.RenderRequest {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{
         .token = .{
@@ -406,7 +406,7 @@ fn renderRequestIn(value: anytype) ?Render.FramePipeline.RenderRequest {
     };
 }
 
-fn preparedFrameIn(value: anytype) ?Render.FramePipeline.PreparedFrame {
+fn preparedFrameIn(value: abi.FfiPreparedFrame) ?Render.FramePipeline.PreparedFrame {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq, .required_target_epoch = value.required_target_epoch };
 }
@@ -421,11 +421,11 @@ fn samePreparedFrame(a: Render.FramePipeline.PreparedFrame, b: Render.FramePipel
         a.required_target_epoch == b.required_target_epoch;
 }
 
-fn surfaceQueryIn(value: anytype) Render.SurfaceQuery {
+fn surfaceQueryIn(value: abi.FfiSurfaceQuery) Render.SurfaceQuery {
     return .{ .render_px = .{ .width = value.render_px.width, .height = value.render_px.height }, .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height }, .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height }, .font_size_px = value.font_size_px, .epoch = value.epoch };
 }
 
-fn vtSurfaceIn(allocator: std.mem.Allocator, value: anytype) !OwnedVtSurface {
+fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !OwnedVtSurface {
     const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
     if (value.cells.len != cell_count) return error.InvalidSurfaceSource;
 
@@ -456,7 +456,7 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: anytype) !OwnedVtSurface {
     };
 }
 
-fn dirtyRowsIn(allocator: std.mem.Allocator, rows: u16, span: anytype) ![]bool {
+fn dirtyRowsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiByteSpan) ![]bool {
     if (span.len == 0) return &.{};
     if (span.ptr == null or span.len != rows) return error.InvalidSurfaceSource;
     const out = try allocator.alloc(bool, rows);
@@ -464,13 +464,13 @@ fn dirtyRowsIn(allocator: std.mem.Allocator, rows: u16, span: anytype) ![]bool {
     return out;
 }
 
-fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: anytype) ![]u16 {
+fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiU16Span) ![]u16 {
     if (span.len == 0) return &.{};
     if (span.ptr == null or span.len != rows) return error.InvalidSurfaceSource;
     return try allocator.dupe(u16, span.ptr[0..rows]);
 }
 
-fn cellValueIn(value: anytype) !Render.SurfaceCell {
+fn cellValueIn(value: abi.FfiCell) !Render.SurfaceCell {
     if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
 
     const fg_color = colorIn(value.fg_color) orelse return error.InvalidSurfaceSource;
@@ -500,7 +500,7 @@ fn cellValueIn(value: anytype) !Render.SurfaceCell {
     };
 }
 
-fn colorIn(value: anytype) ?Render.SurfaceColor {
+fn colorIn(value: abi.FfiColor) ?Render.SurfaceColor {
     return switch (value.kind) {
         0 => .{ .kind = .default, .value = 0 },
         1 => blk: {
@@ -524,7 +524,7 @@ fn damageKindIn(value: u8) ?Render.FramePipeline.DamageKind {
     };
 }
 
-fn cursorIn(value: anytype) ?Render.SurfaceCursorInfo {
+fn cursorIn(value: abi.FfiCursor) ?Render.SurfaceCursorInfo {
     const shape = switch (value.shape) {
         0 => Render.SurfaceCursorShape.block,
         1 => .underline,
@@ -546,6 +546,6 @@ fn underlineStyleIn(value: u8) ?Render.UnderlineStyle {
     };
 }
 
-fn pixelIn(value: anytype) surface.PixelSize {
+fn pixelIn(value: abi.FfiPixelSize) surface.PixelSize {
     return .{ .width = value.width, .height = value.height };
 }

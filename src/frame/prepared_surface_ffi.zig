@@ -130,7 +130,7 @@ fn infoOut(owner: *Owner) abi.FfiPreparedSurfaceInfo {
 fn bufferOut(owner: *Owner) abi.FfiPreparedSurfaceBuffer {
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
-        .rgba_pixels = span(abi.FfiByteSpan, owner.rgba_pixels),
+        .rgba_pixels = span(owner.rgba_pixels),
         .uploads_committed = owner.uploads_committed,
     };
 }
@@ -171,6 +171,6 @@ fn freeOwnedSlice(comptime T: type, items: *[]T) void {
     items.* = &.{};
 }
 
-fn span(comptime Span: type, items: anytype) Span {
+fn span(items: []u8) abi.FfiByteSpan {
     return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
 }
