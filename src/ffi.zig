@@ -206,6 +206,14 @@ test "ffi surface session initializes" {
     try std.testing.expect(handle != null);
 }
 
+test "ffi surface session rejects zero font size at init" {
+    const handle = surfaceTextInit(.{
+        .surface_px = .{ .width = 16, .height = 16 },
+        .font_size_px = 0,
+    });
+    try std.testing.expect(handle == null);
+}
+
 test "ffi fallback font paths accept abi limit and reject overflow" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
@@ -291,4 +299,18 @@ test "ffi prepare handle rejects invalid underline style" {
 test "ffi prepare handle rejects extra cells beyond declared grid" {
     const cells = [_]FfiCell{ testCell(), testCell() };
     try expectPrepareHandleFails(testVtSurface(&cells, testCursor(0)));
+}
+
+test "ffi prepare handle rejects missing output pointer" {
+    const handle = testHandle();
+    defer surfaceTextDeinit(handle);
+    try std.testing.expect(handle != null);
+
+    const input = try nextPrepareInput(handle);
+    const cells = [_]FfiCell{testCell()};
+    const vt_surface = testVtSurface(&cells, testCursor(0));
+    try std.testing.expectEqual(
+        HowlRenderPrepareStatus.failed,
+        surfaceTextPrepareHandle(handle, &vt_surface, input.request, input.query, null),
+    );
 }

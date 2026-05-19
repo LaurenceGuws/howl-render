@@ -66,7 +66,8 @@ pub fn deriveFrameLayout(handle: abi.SurfaceTextHandle, render_px: abi.FfiPixelS
 
 pub fn init(config: abi.FfiSurfaceTextConfig) callconv(.c) abi.SurfaceTextHandle {
     if (config.surface_px.width == 0 or config.surface_px.height == 0) return null;
-    const owner = surface_text.SurfaceTextOwner.create(.{ .surface_px = pixelIn(config.surface_px), .font_size_px = @max(config.font_size_px, 1) }) orelse return null;
+    if (config.font_size_px == 0) return null;
+    const owner = surface_text.SurfaceTextOwner.create(.{ .surface_px = pixelIn(config.surface_px), .font_size_px = config.font_size_px }) orelse return null;
     return @ptrCast(owner);
 }
 
@@ -182,6 +183,7 @@ pub fn takeQueueMetrics(handle: abi.SurfaceTextHandle, out: ?*abi.FfiQueueMetric
 pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: ?*const abi.FfiVtSurface, prepare_request: abi.FfiPrepareRequest, query: abi.FfiSurfaceQuery, prepared_handle_out: ?*abi.PreparedSurfaceHandle) callconv(.c) abi.HowlRenderPrepareStatus {
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const vt_surface_value = vt_surface_in orelse return .failed;
+    const prepared_out = prepared_handle_out orelse return .failed;
     const request = renderRequestIn(prepare_request) orelse return .failed;
     var vt_surface = vtSurfaceIn(std.heap.c_allocator, vt_surface_value.*) catch return .failed;
     defer vt_surface.deinit();
@@ -192,10 +194,8 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
         .state = vt_surface.frameData(),
         .target_valid = prepare_request.target_valid != 0,
     }) catch return .failed;
-    if (prepared_handle_out) |out| {
-        const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
-        out.* = @ptrCast(prepared_owner);
-    }
+    const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
+    prepared_out.* = @ptrCast(prepared_owner);
     return .ready;
 }
 

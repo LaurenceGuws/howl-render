@@ -281,8 +281,9 @@ pub const SurfaceTextOwner = struct {
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };
 
     pub fn create(config: SurfaceTextConfig) ?*SurfaceTextOwner {
+        std.debug.assert(config.font_size_px > 0);
         const owner = std.heap.c_allocator.create(SurfaceTextOwner) catch return null;
-        owner.* = .{ .session = SurfaceText.init(), .flow = .{ .font_size_px = @max(config.font_size_px, 1) }, .config = config };
+        owner.* = .{ .session = SurfaceText.init(), .flow = .{ .font_size_px = config.font_size_px }, .config = config };
         return owner;
     }
 
