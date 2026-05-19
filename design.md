@@ -93,6 +93,8 @@ sequenceDiagram
 
 - `howl_render_surface_text_init` and `howl_render_surface_text_deinit` own the opaque render
   session lifecycle.
+- `HOWL_RENDER_MAX_FALLBACK_FONTS` is the header-declared fallback-font path limit for the public
+  text-session configuration contract.
 - `HowlRenderVtSurface` carries VT-surface cells, cursor, viewport, and dirtiness truth into the
   render owner.
 - `howl_render_surface_text_prepare_handle` returns a prepared render-surface handle only; it does

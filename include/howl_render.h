@@ -14,6 +14,8 @@ typedef struct HowlRenderPreparedSurfaceObject HowlRenderPreparedSurfaceObject;
 typedef HowlRenderSurfaceText *HowlRenderSurfaceTextHandle;
 typedef HowlRenderPreparedSurfaceObject *HowlRenderPreparedSurfaceHandle;
 
+#define HOWL_RENDER_MAX_FALLBACK_FONTS 24
+
 typedef enum {
   HOWL_RENDER_CALL_OK = 0,
   HOWL_RENDER_CALL_MISSING_HANDLE = -1,

@@ -75,12 +75,13 @@ pub fn setFallbackFontPaths(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, p
     // leaves dangling fallback pointers in the live owner state.
     var staged = std.ArrayList([:0]u8).empty;
     defer freeOwnedPathList(&staged);
+    if (count > text_support.max_fallback_fonts) return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
     if (count == 0) {
         owner.adoptFallbackFontPaths(&staged);
         return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
     }
     const raw_paths = ptrs orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
-    const path_count: u8 = @intCast(@min(count, text_support.max_fallback_fonts));
+    const path_count: u8 = @intCast(count);
     staged.ensureTotalCapacity(std.heap.c_allocator, path_count) catch return @intFromEnum(Ffi.HowlRenderCallStatus.failed);
     var i: u8 = 0;
     while (i < path_count) : (i += 1) {

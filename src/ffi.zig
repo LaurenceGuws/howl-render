@@ -4,6 +4,7 @@ const SurfaceText = Render.SurfaceText;
 const surface = @import("frame/surface.zig");
 const prepared_surface = @import("frame/prepared_surface_ffi.zig");
 const surface_text_ffi = @import("frame/surface_text_ffi.zig");
+const text_support = @import("text/font/ft_hb/support.zig");
 
 pub const HowlRenderSurfaceText = opaque {};
 pub const HowlRenderPreparedSurfaceObject = opaque {};
@@ -629,4 +630,24 @@ test "ffi surface session initializes" {
     });
     defer surfaceTextDeinit(handle);
     try std.testing.expect(handle != null);
+}
+
+test "ffi fallback font paths accept abi limit and reject overflow" {
+    const handle = surfaceTextInit(.{
+        .surface_px = .{ .width = 16, .height = 16 },
+        .font_size_px = 8,
+    });
+    defer surfaceTextDeinit(handle);
+
+    var ok_paths: [text_support.max_fallback_fonts]?[*]const u8 = [_]?[*]const u8{"font".ptr} ** text_support.max_fallback_fonts;
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.ok),
+        surfaceTextSetFallbackFontPaths(handle, &ok_paths, ok_paths.len),
+    );
+
+    var overflow_paths: [text_support.max_fallback_fonts + 1]?[*]const u8 = [_]?[*]const u8{"font".ptr} ** (text_support.max_fallback_fonts + 1);
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.invalid_argument),
+        surfaceTextSetFallbackFontPaths(handle, &overflow_paths, overflow_paths.len),
+    );
 }
