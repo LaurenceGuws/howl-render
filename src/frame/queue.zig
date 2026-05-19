@@ -691,21 +691,22 @@ test "surface preserves partial snapshot with matching retained base" {
     try std.testing.expectEqual(@as(u64, 9), request.item.known_target_epoch);
 }
 
-test "surface preserves partial snapshot with matching retained base and history growth" {
+test "surface turns partial snapshot full when retained content is invalid" {
     var surface = TerminalSurface{};
     surface.acceptSubmitted(.{
         .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 3, .damage_base_seq = 0, .damage_kind = .full },
         .target_epoch = 9,
-        .content_valid = true,
+        .content_valid = false,
     });
     surface.bindTargetEpoch(9);
 
     _ = surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 3, .damage_base_seq = 1, .damage_kind = .partial }, .opportunistic);
 
     const request = surface.takePrepareEnvelope() orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(pipeline.DamageKind.partial, request.item.token.damage_kind);
-    try std.testing.expectEqual(@as(u64, 1), request.item.token.damage_base_seq);
+    try std.testing.expectEqual(pipeline.DamageKind.full, request.item.token.damage_kind);
+    try std.testing.expectEqual(@as(u64, 0), request.item.token.damage_base_seq);
     try std.testing.expectEqual(@as(u64, 9), request.item.known_target_epoch);
+    try std.testing.expectEqual(@as(u64, 1), surface.metricsSnapshot().prepare_forced_full);
 }
 
 test "surface invalidates retained content when target epoch changes" {
