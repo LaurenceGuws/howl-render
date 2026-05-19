@@ -1,0 +1,117 @@
+# Design
+
+Shared rules: [`../design/design-rules.md`](../design/design-rules.md)
+
+## Purpose
+
+`howl-render` owns renderer-facing contracts and text rendering work for `howl-term`.
+
+It consumes VT-surface input, derives render-surface work, and returns backend-agnostic prepared
+output and submit feedback contracts. It does not own PTY behavior, VT semantics, host term-texture
+resources, or platform presentation.
+
+## Public Surface
+
+- The only shipped embedding contract is `include/howl_render.h` plus `howl_render_*` exported
+  symbols.
+- `src/libhowl_render.zig` is the only public root that may export that contract.
+- `HowlRenderVtSurface` is the renderer-facing VT-surface input contract.
+- `HowlRenderPreparedSurfaceHandle` and related `HowlRenderPreparedSurface*` structs are the
+  prepared render-surface contract.
+- `HowlRenderSurfaceHandle` is a generic host render target handle. It is not a concrete backend
+  object such as a GL texture.
+- Zig root imports are not an embedding surface and are not a preservation target.
+
+```mermaid
+classDiagram
+    class HowlRenderAbi
+    class SurfaceText
+    class PreparedSurface
+    class RenderSurface
+
+    HowlRenderAbi --> SurfaceText
+    SurfaceText --> PreparedSurface
+    PreparedSurface --> RenderSurface
+```
+
+## Ownership Rules
+
+- `frame/surface.zig` owns render-surface contract types and prepared render-surface state.
+- `frame/surface_text.zig` owns prepare/submit text rendering work against VT-surface input.
+- `frame/prepared_surface_ffi.zig` and `frame/surface_text_ffi.zig` translate the render contract to
+  the shipped C ABI only.
+- `howl-render` owns render-surface feedback, target-epoch validation, and retained-frame logic.
+- Hosts own concrete term-texture or backend resource creation, upload, and present.
+- `howl-render` must not name or require concrete backend objects such as GL textures in its public
+  contract.
+
+## Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> SessionReady: surface_text_init
+    SessionReady --> Prepared: prepare_handle
+    Prepared --> SessionReady: submit or release
+    SessionReady --> [*]: surface_text_deinit
+```
+
+## Main Flows
+
+### VT-Surface To Prepared Render-Surface
+
+```mermaid
+sequenceDiagram
+    participant Host
+    participant R as HowlRenderAbi
+    participant S as SurfaceText
+
+    Host->>R: prepare_handle(vt-surface, request, query)
+    R->>S: prepareSurface(...)
+    S-->>R: prepared render-surface
+    R-->>Host: prepared handle
+```
+
+### Host Execution To Render Submit
+
+```mermaid
+sequenceDiagram
+    participant Host
+    participant R as HowlRenderAbi
+    participant S as SurfaceText
+
+    Host->>R: submit(prepared, render-surface execution input)
+    R->>S: submitSurface(...)
+    S-->>R: render-surface feedback
+    R-->>Host: feedback
+```
+
+## API Contracts
+
+- `howl_render_surface_text_init` and `howl_render_surface_text_deinit` own the opaque render
+  session lifecycle.
+- `HowlRenderVtSurface` carries VT-surface cells, cursor, viewport, and dirtiness truth into the
+  render owner.
+- `howl_render_surface_text_prepare_handle` returns a prepared render-surface handle only; it does
+  not allocate or mutate host backend resources.
+- `howl_render_prepared_surface_damage_plan`, `..._buffer`, and `..._diagnostics` expose prepared
+  render-surface output for host consumption.
+- `HowlRenderSurfaceExecutionInput` carries host execution truth back into render using a generic
+  render-surface handle plus upload and timing facts.
+- `HowlRenderSurfaceFeedback` reports the accepted render-surface handle and render metrics.
+- Hosts and embedders consume this repo through the header and exported C ABI only.
+
+## Non-Goals
+
+- PTY or terminal parser behavior.
+- Selection or scrollback semantics.
+- SDL, OpenGL, Vulkan, Metal, or any other concrete host backend lifecycle.
+- Window event loops or presentation cadence.
+
+## Change Rules
+
+- Keep the C ABI first in names, docs, and build roots.
+- Preserve the split `VT-surface -> render-surface -> host term-texture`.
+- Do not reintroduce concrete backend object names into the public render ABI.
+- If host integration needs more data, sharpen the render contract instead of adding a Zig-shaped
+  bypass.

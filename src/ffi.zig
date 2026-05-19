@@ -1,4 +1,3 @@
-
 const std = @import("std");
 const Render = @import("howl_render.zig");
 const SurfaceText = Render.SurfaceText;
@@ -282,7 +281,7 @@ pub const FfiSurfaceMetrics = extern struct {
 };
 
 pub const FfiSurfaceHandle = extern struct {
-    texture_id: u32,
+    host_surface_id: u64,
     width: u16,
     height: u16,
     epoch: u64,
@@ -334,7 +333,7 @@ pub const FfiSurfaceExecutionInput = extern struct {
     reserved1: u16 = 0,
 };
 
-pub const FfiSurfaceSource = extern struct {
+pub const FfiVtSurface = extern struct {
     cells: FfiCellSpan,
     cols: u16,
     rows: u16,
@@ -433,8 +432,8 @@ fn surfaceQueryOut(value: Render.SurfaceQuery) FfiSurfaceQuery {
     };
 }
 
-fn surfaceOut(value: Render.SurfaceHandle) FfiSurfaceHandle {
-    return .{ .texture_id = value.texture_id, .width = value.width, .height = value.height, .epoch = value.epoch };
+fn surfaceOut(value: Render.RenderSurfaceHandle) FfiSurfaceHandle {
+    return .{ .host_surface_id = value.host_surface_id, .width = value.width, .height = value.height, .epoch = value.epoch };
 }
 
 fn colorDrawSpanOut(items: []const FfiColorDraw) FfiColorDrawSpan {
@@ -516,8 +515,8 @@ pub fn surfaceTextSetFallbackFontPaths(handle: SurfaceTextHandle, ptrs: ?[*]cons
     return surface_text_ffi.setFallbackFontPaths(@This(), handle, ptrs, count);
 }
 
-pub fn surfaceTextPrepareHandle(surface_text_handle: SurfaceTextHandle, surface_source_in: ?*const FfiSurfaceSource, prepare_request: FfiPrepareRequest, query: FfiSurfaceQuery, prepared_handle_out: ?*PreparedSurfaceHandle) callconv(.c) HowlRenderPrepareStatus {
-    return surface_text_ffi.prepareHandle(@This(), surface_text_handle, surface_source_in, prepare_request, query, prepared_handle_out);
+pub fn surfaceTextPrepareHandle(surface_text_handle: SurfaceTextHandle, vt_surface_in: ?*const FfiVtSurface, prepare_request: FfiPrepareRequest, query: FfiSurfaceQuery, prepared_handle_out: ?*PreparedSurfaceHandle) callconv(.c) HowlRenderPrepareStatus {
+    return surface_text_ffi.prepareHandle(@This(), surface_text_handle, vt_surface_in, prepare_request, query, prepared_handle_out);
 }
 
 pub fn preparedSurfaceRelease(prepared_surface_handle: PreparedSurfaceHandle) callconv(.c) void {

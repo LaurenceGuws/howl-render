@@ -5,7 +5,7 @@ const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
 
-const OwnedSurfaceSource = struct {
+const OwnedVtSurface = struct {
     allocator: std.mem.Allocator,
     cells: []Render.SurfaceCell,
     dirty_rows: []bool = &.{},
@@ -13,7 +13,7 @@ const OwnedSurfaceSource = struct {
     dirty_cols_end: []u16 = &.{},
     frame: Render.SurfaceFrameData,
 
-    fn deinit(self: *OwnedSurfaceSource) void {
+    fn deinit(self: *OwnedVtSurface) void {
         self.allocator.free(self.cells);
         if (self.dirty_rows.len > 0) self.allocator.free(self.dirty_rows);
         if (self.dirty_cols_start.len > 0) self.allocator.free(self.dirty_cols_start);
@@ -98,15 +98,15 @@ pub fn setFallbackFontPaths(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, p
     return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
 }
 
-pub fn prepareHandle(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, surface_source_in: ?*const Ffi.FfiSurfaceSource, prepare_request: Ffi.FfiPrepareRequest, query: Ffi.FfiSurfaceQuery, prepared_handle_out: ?*Ffi.PreparedSurfaceHandle) Ffi.HowlRenderPrepareStatus {
+pub fn prepareHandle(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, vt_surface_in: ?*const Ffi.FfiVtSurface, prepare_request: Ffi.FfiPrepareRequest, query: Ffi.FfiSurfaceQuery, prepared_handle_out: ?*Ffi.PreparedSurfaceHandle) Ffi.HowlRenderPrepareStatus {
     const owner = ownerFromHandle(Ffi, surface_text_handle) orelse return .failed;
-    const surface_source_value = surface_source_in orelse return .failed;
+    const vt_surface_value = vt_surface_in orelse return .failed;
     var prepare = prepareRequestIn(Ffi, prepare_request);
     prepare.config = owner.config;
     prepare.query = surfaceQueryIn(query);
-    var surface_source = surfaceSourceIn(Ffi, std.heap.c_allocator, surface_source_value.*) catch return .failed;
-    defer surface_source.deinit();
-    prepare.state = surface_source.frame;
+    var vt_surface = vtSurfaceIn(Ffi, std.heap.c_allocator, vt_surface_value.*) catch return .failed;
+    defer vt_surface.deinit();
+    prepare.state = vt_surface.frame;
     const prepared = owner.session.prepareSurface(std.heap.c_allocator, prepare) catch return .failed;
     if (prepared_handle_out) |out| {
         const prepared_owner = prepared_surface.create(Ffi, owner, prepared) catch return .failed;
@@ -128,11 +128,11 @@ pub fn submit(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, pr
     return .rendered;
 }
 
-fn surfaceFeedbackOut(comptime Ffi: type, value: Render.SurfaceFeedback) Ffi.FfiSurfaceFeedback {
+fn surfaceFeedbackOut(comptime Ffi: type, value: Render.RenderSurfaceFeedback) Ffi.FfiSurfaceFeedback {
     return .{
         .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
         .damage_kind = @intFromEnum(value.damageKind()),
-        .surface = .{ .texture_id = value.surface.texture_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch },
+        .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch },
         .metrics = surfaceMetricsOut(Ffi, value.metrics),
     };
 }
@@ -159,8 +159,8 @@ fn surfaceMetricsOut(comptime Ffi: type, value: Render.RenderMetrics) Ffi.FfiSur
     };
 }
 
-fn executionInputIn(value: anytype) Render.SurfaceText.SurfaceExecutionInput {
-    return .{ .surface = .{ .texture_id = value.surface.texture_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch }, .uploads_committed = value.uploads_committed, .render_us = value.render_us, .content_valid = value.content_valid != 0 };
+fn executionInputIn(value: anytype) Render.SurfaceText.RenderSurfaceExecutionInput {
+    return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch }, .uploads_committed = value.uploads_committed, .render_us = value.render_us, .content_valid = value.content_valid != 0 };
 }
 
 fn prepareRequestIn(comptime Ffi: type, value: Ffi.FfiPrepareRequest) Render.SurfaceText.PrepareInput {
@@ -191,7 +191,7 @@ fn surfaceQueryIn(value: anytype) Render.SurfaceQuery {
     return .{ .render_px = .{ .width = value.render_px.width, .height = value.render_px.height }, .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height }, .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height }, .font_size_px = value.font_size_px, .epoch = value.epoch };
 }
 
-fn surfaceSourceIn(comptime Ffi: type, allocator: std.mem.Allocator, value: Ffi.FfiSurfaceSource) !OwnedSurfaceSource {
+fn vtSurfaceIn(comptime Ffi: type, allocator: std.mem.Allocator, value: Ffi.FfiVtSurface) !OwnedVtSurface {
     const cell_count = @as(usize, value.cols) * @as(usize, value.rows);
     if (value.cells.len < cell_count) return error.InvalidSurfaceSource;
     const cells = try allocator.alloc(Render.SurfaceCell, cell_count);
@@ -225,15 +225,30 @@ fn cellValueIn(comptime Ffi: type, value: Ffi.FfiCell) Render.SurfaceCell {
 }
 
 fn colorIn(value: anytype) Render.SurfaceColor {
-    return .{ .kind = switch (value.kind) { 0 => .default, 1 => .indexed, else => .rgb }, .value = @truncate(value.value) };
+    return .{ .kind = switch (value.kind) {
+        0 => .default,
+        1 => .indexed,
+        else => .rgb,
+    }, .value = @truncate(value.value) };
 }
 
 fn cursorIn(value: anytype) Render.SurfaceCursorInfo {
-    return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = switch (value.shape) { 1 => .underline, 2 => .beam, 3 => .hollow_block, else => .block } };
+    return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = switch (value.shape) {
+        1 => .underline,
+        2 => .beam,
+        3 => .hollow_block,
+        else => .block,
+    } };
 }
 
 fn underlineStyleIn(value: u8) Render.UnderlineStyle {
-    return switch (value) { 1 => .double, 2 => .curly, 3 => .dotted, 4 => .dashed, else => .straight };
+    return switch (value) {
+        1 => .double,
+        2 => .curly,
+        3 => .dotted,
+        4 => .dashed,
+        else => .straight,
+    };
 }
 
 fn pixelIn(value: anytype) surface.PixelSize {

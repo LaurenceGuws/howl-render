@@ -43,8 +43,8 @@ pub const SurfaceText = struct {
     pub const PreparedTimings = surface.PrepareMetrics;
     pub const DamageKind = enum { partial, scroll, full };
     pub const SubmittedReport = surface.SurfaceExecutionReport;
-    pub const SurfaceExecutionInput = struct {
-        surface: surface.SurfaceHandle,
+    pub const RenderSurfaceExecutionInput = struct {
+        surface: surface.RenderSurfaceHandle,
         uploads_committed: usize,
         render_us: u64,
         content_valid: bool = true,
@@ -119,11 +119,11 @@ pub const SurfaceText = struct {
         return owned;
     }
 
-    pub fn submitSurface(self: *SurfaceText, prepared: *surface.PreparedSurface, execution: SurfaceExecutionInput) !surface.SurfaceFeedback {
+    pub fn submitSurface(self: *SurfaceText, prepared: *surface.PreparedSurface, execution: RenderSurfaceExecutionInput) !surface.RenderSurfaceFeedback {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         submit_feedback.markRendered(&self.text_preparer.?.atlas, prepared.text_frame.raster_plan.outputs);
-        const submitted = surface.SurfaceFeedback{
+        const submitted = surface.RenderSurfaceFeedback{
             .damage_kind = submit_feedback.damageKind(prepared),
             .uploads_committed = execution.uploads_committed,
             .resolve = prepared.resolve,

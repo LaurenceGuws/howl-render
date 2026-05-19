@@ -225,8 +225,8 @@ pub const FrameData = struct {
     damage: DamageInfo = .{},
 };
 
-pub const SurfaceHandle = struct {
-    texture_id: u32,
+pub const RenderSurfaceHandle = struct {
+    host_surface_id: u64,
     width: u16,
     height: u16,
     epoch: u64,
@@ -290,16 +290,16 @@ pub const PreparedSurface = struct {
     }
 };
 
-pub const SurfaceFeedback = struct {
+pub const RenderSurfaceFeedback = struct {
     damage_kind: pipeline.DamageKind,
     uploads_committed: u64,
     resolve: text_pipeline.ResolveObservability,
-    surface: SurfaceHandle,
+    surface: RenderSurfaceHandle,
     metrics: RenderMetrics,
     render_us: u64,
     content_valid: bool = true,
 
-    pub fn damageKind(self: SurfaceFeedback) pipeline.DamageKind {
+    pub fn damageKind(self: RenderSurfaceFeedback) pipeline.DamageKind {
         return self.damage_kind;
     }
 };

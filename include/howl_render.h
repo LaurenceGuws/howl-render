@@ -255,7 +255,7 @@ typedef struct {
 } HowlRenderSurfaceMetrics;
 
 typedef struct {
-  uint32_t texture_id;
+  uint64_t host_surface_id;
   uint16_t width;
   uint16_t height;
   uint64_t epoch;
@@ -319,7 +319,7 @@ typedef struct {
   HowlRenderU16Span dirty_cols_start;
   HowlRenderU16Span dirty_cols_end;
   HowlRenderCursor cursor;
-} HowlRenderSurfaceSource;
+} HowlRenderVtSurface;
 
 typedef struct {
   int32_t status;
@@ -347,7 +347,7 @@ int howl_render_surface_text_set_font_path(HowlRenderSurfaceTextHandle handle, c
 int howl_render_surface_text_set_fallback_font_paths(HowlRenderSurfaceTextHandle handle, const uint8_t *const *ptrs, size_t count);
 
 /* Owned prepared-surface ABI target. */
-HowlRenderPrepareStatus howl_render_surface_text_prepare_handle(HowlRenderSurfaceTextHandle surface_text_handle, const HowlRenderSurfaceSource *surface_source, HowlRenderPrepareRequest prepare_request, HowlRenderSurfaceQuery query, HowlRenderPreparedSurfaceHandle *prepared_handle_out);
+HowlRenderPrepareStatus howl_render_surface_text_prepare_handle(HowlRenderSurfaceTextHandle surface_text_handle, const HowlRenderVtSurface *vt_surface, HowlRenderPrepareRequest prepare_request, HowlRenderSurfaceQuery query, HowlRenderPreparedSurfaceHandle *prepared_handle_out);
 void howl_render_prepared_surface_release(HowlRenderPreparedSurfaceHandle prepared_surface_handle);
 int howl_render_prepared_surface_describe(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceInfo *info_out);
 int howl_render_prepared_surface_damage_plan(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceDamagePlan *plan_out);
