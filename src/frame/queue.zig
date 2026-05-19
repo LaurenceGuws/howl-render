@@ -23,7 +23,6 @@ pub const SubmitDecision = union(enum) {
 
 pub const QueueMetrics = struct {
     snapshot_publishes: u64 = 0,
-    snapshot_hidden_drops: u64 = 0,
     snapshot_clean_drops: u64 = 0,
     prepare_requests: u64 = 0,
     prepare_coalesces: u64 = 0,

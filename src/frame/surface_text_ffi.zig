@@ -315,7 +315,6 @@ fn pendingStateOut(value: Render.FrameQueue.PendingState) abi.FfiPendingState {
 fn queueMetricsOut(value: Render.FrameQueue.QueueMetrics) abi.FfiQueueMetrics {
     return .{
         .snapshot_publishes = value.snapshot_publishes,
-        .snapshot_hidden_drops = value.snapshot_hidden_drops,
         .snapshot_clean_drops = value.snapshot_clean_drops,
         .prepare_requests = value.prepare_requests,
         .prepare_coalesces = value.prepare_coalesces,

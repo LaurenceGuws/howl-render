@@ -282,7 +282,6 @@ typedef struct {
 
 typedef struct {
   uint64_t snapshot_publishes;
-  uint64_t snapshot_hidden_drops;
   uint64_t snapshot_clean_drops;
   uint64_t prepare_requests;
   uint64_t prepare_coalesces;

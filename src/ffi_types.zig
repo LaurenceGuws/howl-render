@@ -305,7 +305,6 @@ pub const FfiSurfaceMetrics = extern struct {
 
 pub const FfiQueueMetrics = extern struct {
     snapshot_publishes: u64,
-    snapshot_hidden_drops: u64,
     snapshot_clean_drops: u64,
     prepare_requests: u64,
     prepare_coalesces: u64,
