@@ -531,24 +531,108 @@ pub fn surfaceTextSubmit(surface_text_handle: SurfaceTextHandle, prepared_surfac
     return surface_text_ffi.submit(@This(), surface_text_handle, prepared_surface_handle, prepared_frame_in, execution_in, feedback_out);
 }
 
+const TestPrepareInput = struct {
+    query: FfiSurfaceQuery,
+    request: FfiPrepareRequest,
+};
+
+fn testHandle() SurfaceTextHandle {
+    return surfaceTextInit(.{
+        .surface_px = .{ .width = 16, .height = 16 },
+        .font_size_px = 8,
+    });
+}
+
+fn testCell() FfiCell {
+    return .{
+        .codepoint = 'a',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{},
+        .link_id = 0,
+    };
+}
+
+fn testCursor(shape: u8) FfiCursor {
+    return .{ .row = 0, .col = 0, .visible = 1, .shape = shape };
+}
+
+fn testVtSurface(cells: []const FfiCell, cursor: FfiCursor) FfiVtSurface {
+    return .{
+        .cells = .{ .ptr = if (cells.len == 0) null else cells.ptr, .len = cells.len },
+        .cols = 1,
+        .rows = 1,
+        .scroll_row = 0,
+        .is_alternate_screen = 0,
+        .full_damage = 1,
+        .dirty_rows = .{ .ptr = null, .len = 0 },
+        .dirty_cols_start = .{ .ptr = null, .len = 0 },
+        .dirty_cols_end = .{ .ptr = null, .len = 0 },
+        .cursor = cursor,
+    };
+}
+
+fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
+    const render_px = FfiPixelSize{ .width = 16, .height = 16 };
+    const grid_px = FfiPixelSize{ .width = 16, .height = 16 };
+    const layout = surfaceTextDeriveFrameLayout(handle, render_px, grid_px);
+    try std.testing.expectEqual(@as(c_int, 0), layout.status);
+
+    const sync = surfaceTextSyncGeometry(handle, .{
+        .render_px = render_px,
+        .grid_px = grid_px,
+        .cell_px = layout.cell_px,
+    });
+    try std.testing.expectEqual(@as(c_int, 0), sync.status);
+
+    const publish = surfaceTextPublishVtSnapshot(handle, .{
+        .cols = 1,
+        .rows = 1,
+        .is_alternate_screen = 0,
+        .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
+        .scrollback_offset = 0,
+        .snapshot_seq = 1,
+    });
+    try std.testing.expectEqual(@as(c_int, 0), publish.status);
+
+    var request: FfiPrepareRequest = undefined;
+    try std.testing.expectEqual(HowlRenderPrepareStatus.ready, surfaceTextTakePrepareRequest(handle, &request));
+
+    const query = surfaceTextSurfaceQuery(handle);
+    try std.testing.expectEqual(@as(c_int, 0), query.status);
+
+    return .{ .query = query, .request = request };
+}
+
+fn expectPrepareHandleFails(vt_surface: FfiVtSurface) !void {
+    const handle = testHandle();
+    defer surfaceTextDeinit(handle);
+    try std.testing.expect(handle != null);
+
+    const input = try nextPrepareInput(handle);
+    var prepared_handle: PreparedSurfaceHandle = null;
+    try std.testing.expectEqual(
+        HowlRenderPrepareStatus.failed,
+        surfaceTextPrepareHandle(handle, &vt_surface, input.request, input.query, &prepared_handle),
+    );
+    try std.testing.expect(prepared_handle == null);
+}
+
 test "ffi surface session rejects missing handle" {
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), surfaceTextSetFontSizePx(null, 12));
 }
 
 test "ffi surface session initializes" {
-    const handle = surfaceTextInit(.{
-        .surface_px = .{ .width = 16, .height = 16 },
-        .font_size_px = 8,
-    });
+    const handle = testHandle();
     defer surfaceTextDeinit(handle);
     try std.testing.expect(handle != null);
 }
 
 test "ffi fallback font paths accept abi limit and reject overflow" {
-    const handle = surfaceTextInit(.{
-        .surface_px = .{ .width = 16, .height = 16 },
-        .font_size_px = 8,
-    });
+    const handle = testHandle();
     defer surfaceTextDeinit(handle);
 
     var ok_paths: [text_support.max_fallback_fonts]?[*]const u8 = [_]?[*]const u8{"font".ptr} ** text_support.max_fallback_fonts;
@@ -565,10 +649,7 @@ test "ffi fallback font paths accept abi limit and reject overflow" {
 }
 
 test "ffi vt snapshot rejects invalid damage kind" {
-    const handle = surfaceTextInit(.{
-        .surface_px = .{ .width = 16, .height = 16 },
-        .font_size_px = 8,
-    });
+    const handle = testHandle();
     defer surfaceTextDeinit(handle);
 
     const result = surfaceTextPublishVtSnapshot(handle, .{
@@ -583,10 +664,7 @@ test "ffi vt snapshot rejects invalid damage kind" {
 }
 
 test "ffi prepared frame rejects invalid damage kind" {
-    const handle = surfaceTextInit(.{
-        .surface_px = .{ .width = 16, .height = 16 },
-        .font_size_px = 8,
-    });
+    const handle = testHandle();
     defer surfaceTextDeinit(handle);
 
     const prepared = FfiPreparedFrame{
@@ -606,4 +684,36 @@ test "ffi prepared frame rejects invalid damage kind" {
         @intFromEnum(HowlRenderCallStatus.invalid_argument),
         surfaceTextAcceptSubmitted(handle, prepared, .{ .host_surface_id = 1, .width = 1, .height = 1, .epoch = 1 }, 1),
     );
+}
+
+test "ffi prepare handle rejects invalid cell color kind" {
+    var cell = testCell();
+    cell.fg_color.kind = 9;
+    const cells = [_]FfiCell{cell};
+    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(0)));
+}
+
+test "ffi prepare handle rejects rgb value outside u24" {
+    var cell = testCell();
+    cell.fg_color.kind = 2;
+    cell.fg_color.value = std.math.maxInt(u24) + 1;
+    const cells = [_]FfiCell{cell};
+    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(0)));
+}
+
+test "ffi prepare handle rejects invalid cursor shape" {
+    const cells = [_]FfiCell{testCell()};
+    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(9)));
+}
+
+test "ffi prepare handle rejects invalid underline style" {
+    var cell = testCell();
+    cell.underline_style = 9;
+    const cells = [_]FfiCell{cell};
+    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(0)));
+}
+
+test "ffi prepare handle rejects extra cells beyond declared grid" {
+    const cells = [_]FfiCell{ testCell(), testCell() };
+    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(0)));
 }
