@@ -12,8 +12,6 @@ pub const HowlRenderPreparedSurfaceObject = opaque {};
 pub const SurfaceTextHandle = ?*HowlRenderSurfaceText;
 pub const PreparedSurfaceHandle = ?*HowlRenderPreparedSurfaceObject;
 
-const PreparedSurfaceOwner = prepared_surface.Owner(@This());
-
 pub const HowlRenderCallStatus = enum(c_int) {
     ok = 0,
     missing_handle = -1,

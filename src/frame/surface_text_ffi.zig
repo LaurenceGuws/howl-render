@@ -402,7 +402,6 @@ fn renderRequestIn(comptime Ffi: type, value: Ffi.FfiPrepareRequest) ?Render.Fra
         },
         .known_target_epoch = value.known_target_epoch,
         .allow_retained_reuse = true,
-        .priority = .opportunistic,
     };
 }
 

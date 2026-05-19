@@ -19,11 +19,6 @@ pub const DamageKind = enum(u2) {
     full = 3,
 };
 
-pub const PreparePriority = union(enum) {
-    opportunistic,
-    deadline_ns: u64,
-};
-
 pub const SnapshotToken = struct {
     snapshot_seq: u64,
     dirty_epoch: u64,
@@ -45,7 +40,6 @@ pub const RenderRequest = struct {
     token: SnapshotToken,
     known_target_epoch: u64 = 0,
     allow_retained_reuse: bool = true,
-    priority: PreparePriority = .opportunistic,
 
     pub fn mustPrepareFull(self: RenderRequest, retained: ?SubmittedFrame) bool {
         if (!self.allow_retained_reuse or !self.token.requiresRetainedBase()) return self.token.damage_kind == .full;

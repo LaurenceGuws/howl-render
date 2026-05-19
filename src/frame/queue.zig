@@ -48,7 +48,6 @@ const TerminalSurface = struct {
     submit_mailbox: SubmitMailbox = .{},
     latest_token: ?pipeline.SnapshotToken = null,
     submitted_frame: ?pipeline.SubmittedFrame = null,
-    presented_token: ?pipeline.SnapshotToken = null,
     target_epoch: u64 = 0,
     metrics: QueueMetrics = .{},
 
@@ -61,7 +60,7 @@ const TerminalSurface = struct {
         self.metrics.target_invalidations +%= 1;
     }
 
-    fn publishSnapshot(self: *TerminalSurface, token: pipeline.SnapshotToken, priority: pipeline.PreparePriority) void {
+    fn publishSnapshot(self: *TerminalSurface, token: pipeline.SnapshotToken) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         self.latest_token = token;
@@ -79,7 +78,6 @@ const TerminalSurface = struct {
             .token = effective_token,
             .known_target_epoch = self.target_epoch,
             .allow_retained_reuse = true,
-            .priority = priority,
         };
         self.prepare_mailbox.publish(request);
     }
@@ -137,7 +135,6 @@ const TerminalSurface = struct {
             .token = token,
             .known_target_epoch = self.target_epoch,
             .allow_retained_reuse = false,
-            .priority = .opportunistic,
         });
     }
 
@@ -163,10 +160,7 @@ const TerminalSurface = struct {
     fn markPresented(self: *TerminalSurface) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        if (self.submitted_frame) |frame| {
-            self.presented_token = frame.token;
-            self.metrics.presents +%= 1;
-        }
+        if (self.submitted_frame != null) self.metrics.presents +%= 1;
     }
 
     fn takeMetrics(self: *TerminalSurface) QueueMetrics {
@@ -378,7 +372,7 @@ pub const Flow = struct {
             break :blk if (self.surface.submitted_frame) |frame| frame.token else null;
         };
         if (self.publication_state.takePendingToken(self.geometry_epoch, submitted_token)) |token| {
-            self.surface.publishSnapshot(token, .opportunistic);
+            self.surface.publishSnapshot(token);
         }
         return self.surface.takePrepare();
     }
@@ -450,8 +444,8 @@ fn fullPrepareReason(validation: pipeline.SubmitValidation) pipeline.FullPrepare
 test "surface coalesces snapshots into latest prepare request" {
     var surface = TerminalSurface{};
 
-    surface.publishSnapshot(.{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, .opportunistic);
-    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .full }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full });
+    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .full });
 
     const request = surface.takePrepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), request.token.snapshot_seq);
@@ -465,7 +459,7 @@ test "surface coalesces snapshots into latest prepare request" {
 
 test "surface turns partial snapshot full without matching retained base" {
     var surface = TerminalSurface{};
-    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial });
 
     const request = surface.takePrepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
@@ -482,7 +476,7 @@ test "surface preserves partial snapshot with matching retained base" {
     });
     surface.bindTargetEpoch(9);
 
-    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 3, .damage_base_seq = 1, .damage_kind = .partial }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 3, .damage_base_seq = 1, .damage_kind = .partial });
 
     const request = surface.takePrepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(pipeline.DamageKind.partial, request.token.damage_kind);
@@ -499,7 +493,7 @@ test "surface turns partial snapshot full when retained content is invalid" {
     });
     surface.bindTargetEpoch(9);
 
-    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 3, .damage_base_seq = 1, .damage_kind = .partial }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 3, .damage_base_seq = 1, .damage_kind = .partial });
 
     const request = surface.takePrepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
@@ -517,7 +511,7 @@ test "surface invalidates retained content when target epoch changes" {
     });
 
     surface.bindTargetEpoch(8);
-    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial });
 
     const request = surface.takePrepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
@@ -525,7 +519,7 @@ test "surface invalidates retained content when target epoch changes" {
 
 test "surface synchronous render consumes pending prepare action" {
     var surface = TerminalSurface{};
-    surface.publishSnapshot(.{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full });
 
     const request = surface.takePrepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), request.token.snapshot_seq);
@@ -558,7 +552,7 @@ test "surface validates submit candidates before GPU mutation" {
 
 test "surface reports stale submit when newer snapshot already won" {
     var surface = TerminalSurface{};
-    surface.publishSnapshot(.{ .snapshot_seq = 3, .dirty_epoch = 3, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 3, .dirty_epoch = 3, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full });
     surface.publishPrepared(.{ .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } });
 
     const decision = surface.takeValidatedSubmit();
@@ -575,7 +569,7 @@ test "surface rejects stale submit and requests full latest prepare" {
         .target_epoch = 5,
         .content_valid = true,
     });
-    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 2, .damage_kind = .partial }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 2, .damage_kind = .partial });
     _ = surface.takePrepare();
     surface.publishPrepared(.{
         .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 2, .damage_kind = .partial },
@@ -598,7 +592,7 @@ test "surface rejects stale submit and requests full latest prepare" {
 
 test "surface drops pending prepare at submitted token" {
     var surface = TerminalSurface{};
-    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial });
 
     surface.acceptSubmitted(.{
         .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
@@ -611,7 +605,7 @@ test "surface drops pending prepare at submitted token" {
 
 test "surface metric drain keeps scheduling state" {
     var surface = TerminalSurface{};
-    surface.publishSnapshot(.{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, .opportunistic);
+    surface.publishSnapshot(.{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full });
     try std.testing.expectEqual(@as(u64, 1), surface.takeMetrics().prepare_requests);
 
     try std.testing.expect(surface.takePrepare() != null);
