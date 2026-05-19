@@ -167,9 +167,13 @@ pub fn markPresented(handle: abi.SurfaceTextHandle) callconv(.c) void {
 }
 
 pub fn pendingState(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPendingState) callconv(.c) c_int {
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
-    const pending_out = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
-    pending_out.* = pendingStateOut(owner.flow.pendingState());
+    const pending_out = out;
+    const owner = ownerFromHandle(handle) orelse {
+        if (pending_out) |value| value.* = pendingStateFailure(@intFromEnum(abi.HowlRenderCallStatus.missing_handle));
+        return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    };
+    const value = pending_out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    value.* = pendingStateOut(owner.flow.pendingState());
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
@@ -320,6 +324,16 @@ fn pendingStateOut(value: Render.FrameQueue.PendingState) abi.FfiPendingState {
         .prepare_pending = @intFromBool(value.prepare_pending),
         .submit_pending = @intFromBool(value.submit_pending),
         .target_valid = @intFromBool(value.target_valid),
+    };
+}
+
+fn pendingStateFailure(status: c_int) abi.FfiPendingState {
+    return .{
+        .status = status,
+        .source_pending = 0,
+        .prepare_pending = 0,
+        .submit_pending = 0,
+        .target_valid = 0,
     };
 }
 

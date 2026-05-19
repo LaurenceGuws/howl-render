@@ -200,6 +200,22 @@ test "ffi surface session rejects missing handle" {
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), surfaceTextSetFontSizePx(null, 12));
 }
 
+test "ffi pending state writes missing-handle status" {
+    var pending = FfiPendingState{
+        .status = @intFromEnum(HowlRenderCallStatus.ok),
+        .source_pending = 1,
+        .prepare_pending = 1,
+        .submit_pending = 1,
+        .target_valid = 1,
+    };
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.missing_handle),
+        surfaceTextPendingState(null, &pending),
+    );
+    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), pending.status);
+    try std.testing.expectEqual(@as(u8, 0), pending.source_pending);
+}
+
 test "ffi surface session initializes" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
@@ -338,4 +354,26 @@ test "ffi submit clears feedback on failure" {
     );
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.failed), feedback.status);
     try std.testing.expectEqual(@as(u64, 0), feedback.surface.host_surface_id);
+}
+
+test "ffi prepared surface describe writes missing-handle status" {
+    var info = FfiPreparedSurfaceInfo{
+        .status = @intFromEnum(HowlRenderCallStatus.ok),
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .geometry_epoch = 1,
+        .required_base_seq = 1,
+        .required_surface_epoch = 1,
+        .render_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 1, .rows = 1 },
+        .prepare_metrics = std.mem.zeroes(FfiSurfaceMetrics),
+        .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
+    };
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.missing_handle),
+        preparedSurfaceDescribe(null, &info),
+    );
+    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), info.status);
+    try std.testing.expectEqual(@as(u64, 0), info.snapshot_seq);
 }
