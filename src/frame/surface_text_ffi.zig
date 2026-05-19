@@ -1,5 +1,6 @@
 const std = @import("std");
 const Render = @import("../howl_render.zig");
+const abi = @import("../ffi_types.zig");
 const prepared_surface = @import("prepared_surface_ffi.zig");
 const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
@@ -55,148 +56,148 @@ fn ownerFromHandle(handle: anytype) ?*surface_text.SurfaceTextOwner {
     return @ptrCast(@alignCast(owned));
 }
 
-pub fn deriveFrameLayout(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, render_px: Ffi.FfiPixelSize, grid_px: Ffi.FfiPixelSize) Ffi.FfiFrameLayoutResult {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .cell_px = .{ .width = 0, .height = 0 }, .grid = .{ .cols = 0, .rows = 0 } };
+pub fn deriveFrameLayout(handle: abi.SurfaceTextHandle, render_px: abi.FfiPixelSize, grid_px: abi.FfiPixelSize) abi.FfiFrameLayoutResult {
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .cell_px = .{ .width = 0, .height = 0 }, .grid = .{ .cols = 0, .rows = 0 } };
     const layout = owner.session.deriveFrameLayout(owner.config, pixelIn(render_px), pixelIn(grid_px)) catch {
-        return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument), .cell_px = .{ .width = 0, .height = 0 }, .grid = .{ .cols = 0, .rows = 0 } };
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .cell_px = .{ .width = 0, .height = 0 }, .grid = .{ .cols = 0, .rows = 0 } };
     };
     return .{ .status = 0, .cell_px = .{ .width = layout.cell_px.width, .height = layout.cell_px.height }, .grid = .{ .cols = layout.grid.cols, .rows = layout.grid.rows } };
 }
 
-pub fn init(comptime Ffi: type, config: Ffi.FfiSurfaceTextConfig) Ffi.SurfaceTextHandle {
+pub fn init(config: abi.FfiSurfaceTextConfig) abi.SurfaceTextHandle {
     if (config.surface_px.width == 0 or config.surface_px.height == 0) return null;
     const owner = surface_text.SurfaceTextOwner.create(.{ .surface_px = pixelIn(config.surface_px), .font_size_px = @max(config.font_size_px, 1) }) orelse return null;
     return @ptrCast(owner);
 }
 
-pub fn deinit(comptime Ffi: type, handle: Ffi.SurfaceTextHandle) void {
+pub fn deinit(handle: abi.SurfaceTextHandle) void {
     const owner = ownerFromHandle(handle) orelse return;
     owner.destroy();
 }
 
-pub fn setFontSize(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, font_size_px: u16) c_int {
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
-    if (font_size_px == 0) return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
+pub fn setFontSize(handle: abi.SurfaceTextHandle, font_size_px: u16) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    if (font_size_px == 0) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     owner.config.font_size_px = @max(font_size_px, 1);
     owner.flow.setFontSizePx(owner.config.font_size_px);
     owner.invalidateTextState();
-    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn setFontPath(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, ptr: ?[*]const u8, len: usize) c_int {
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
-    if (len > 0 and ptr == null) return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
+pub fn setFontPath(handle: abi.SurfaceTextHandle, ptr: ?[*]const u8, len: usize) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    if (len > 0 and ptr == null) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     if (len == 0 or ptr == null) {
         owner.setOwnedFontPath(null);
-        return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+        return @intFromEnum(abi.HowlRenderCallStatus.ok);
     }
     // Stage the replacement path first so allocation failure leaves the live
     // owner state untouched.
-    const owned = std.heap.c_allocator.dupeZ(u8, ptr.?[0..len]) catch return @intFromEnum(Ffi.HowlRenderCallStatus.failed);
+    const owned = std.heap.c_allocator.dupeZ(u8, ptr.?[0..len]) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
     owner.setOwnedFontPath(owned);
-    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn setFallbackFontPaths(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: usize) c_int {
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+pub fn setFallbackFontPaths(handle: abi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: usize) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     // Stage owned fallback paths off to the side so a failed update never
     // leaves dangling fallback pointers in the live owner state.
     var staged = std.ArrayList([:0]u8).empty;
     defer freeOwnedPathList(&staged);
-    if (count > text_support.max_fallback_fonts) return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
+    if (count > text_support.max_fallback_fonts) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     if (count == 0) {
         owner.adoptFallbackFontPaths(&staged);
-        return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+        return @intFromEnum(abi.HowlRenderCallStatus.ok);
     }
-    const raw_paths = ptrs orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
+    const raw_paths = ptrs orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     const path_count: u8 = @intCast(count);
-    staged.ensureTotalCapacity(std.heap.c_allocator, path_count) catch return @intFromEnum(Ffi.HowlRenderCallStatus.failed);
+    staged.ensureTotalCapacity(std.heap.c_allocator, path_count) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
     var i: u8 = 0;
     while (i < path_count) : (i += 1) {
-        const raw = raw_paths[i] orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
-        const owned = std.heap.c_allocator.dupeZ(u8, std.mem.sliceTo(raw, 0)) catch return @intFromEnum(Ffi.HowlRenderCallStatus.failed);
+        const raw = raw_paths[i] orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+        const owned = std.heap.c_allocator.dupeZ(u8, std.mem.sliceTo(raw, 0)) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
         staged.appendAssumeCapacity(owned);
     }
     owner.adoptFallbackFontPaths(&staged);
-    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn syncGeometry(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, geometry: Ffi.FfiGeometry) Ffi.FfiGeometryResponse {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 };
-    return geometryOut(Ffi, owner.flow.syncGeometry(geometryIn(geometry)));
+pub fn syncGeometry(handle: abi.SurfaceTextHandle, geometry: abi.FfiGeometry) abi.FfiGeometryResponse {
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 };
+    return geometryOut(owner.flow.syncGeometry(geometryIn(geometry)));
 }
 
-pub fn surfaceQuery(comptime Ffi: type, handle: Ffi.SurfaceTextHandle) Ffi.FfiSurfaceQuery {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .font_size_px = 0, .epoch = 0 };
-    return surfaceQueryOut(Ffi, owner.flow.surfaceQuery());
+pub fn surfaceQuery(handle: abi.SurfaceTextHandle) abi.FfiSurfaceQuery {
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .font_size_px = 0, .epoch = 0 };
+    return surfaceQueryOut(owner.flow.surfaceQuery());
 }
 
-pub fn publishVtSnapshot(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, snapshot_in: Ffi.FfiVtSnapshot) Ffi.FfiVtPublishResult {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    const snapshot = vtSnapshotIn(snapshot_in) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    return vtPublishResultOut(Ffi, owner.flow.acceptSnapshot(snapshot));
+pub fn publishVtSnapshot(handle: abi.SurfaceTextHandle, snapshot_in: abi.FfiVtSnapshot) abi.FfiVtPublishResult {
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const snapshot = vtSnapshotIn(snapshot_in) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    return vtPublishResultOut(owner.flow.acceptSnapshot(snapshot));
 }
 
-pub fn takePrepareRequest(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiPrepareRequest) Ffi.HowlRenderPrepareStatus {
+pub fn takePrepareRequest(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPrepareRequest) abi.HowlRenderPrepareStatus {
     const owner = ownerFromHandle(handle) orelse return .failed;
     const prepare_out = out orelse return .failed;
     const request = owner.flow.prepare() orelse return .idle;
-    prepare_out.* = prepareRequestOut(Ffi, request, owner.flow.pendingState().target_valid);
+    prepare_out.* = prepareRequestOut(request, owner.flow.pendingState().target_valid);
     return .ready;
 }
 
-pub fn publishPrepared(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, prepared_in: Ffi.FfiPreparedFrame) c_int {
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
-    const prepared = preparedFrameIn(prepared_in) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
+pub fn publishPrepared(handle: abi.SurfaceTextHandle, prepared_in: abi.FfiPreparedFrame) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    const prepared = preparedFrameIn(prepared_in) orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     owner.flow.publishPrepared(prepared);
-    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn takeSubmitDecision(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiPreparedFrame) Ffi.HowlRenderSubmitDecisionStatus {
+pub fn takeSubmitDecision(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPreparedFrame) abi.HowlRenderSubmitDecisionStatus {
     const owner = ownerFromHandle(handle) orelse return .failed;
     const prepared_out = out orelse return .failed;
     return switch (owner.flow.submit()) {
         .idle => .idle,
         .stale => .stale,
         .submit => |prepared| blk: {
-            prepared_out.* = preparedFrameOut(Ffi, prepared);
+            prepared_out.* = preparedFrameOut(prepared);
             break :blk .submit;
         },
         .needs_full_prepare => .needs_prepare,
     };
 }
 
-pub fn acceptSubmitted(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, prepared_in: Ffi.FfiPreparedFrame, surface_in: Ffi.FfiSurfaceHandle, content_valid: u8) c_int {
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
-    const prepared = preparedFrameIn(prepared_in) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
+pub fn acceptSubmitted(handle: abi.SurfaceTextHandle, prepared_in: abi.FfiPreparedFrame, surface_in: abi.FfiSurfaceHandle, content_valid: u8) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    const prepared = preparedFrameIn(prepared_in) orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     owner.flow.acceptSubmitted(.{
         .token = prepared.token,
         .target_epoch = surface_in.epoch,
         .content_valid = content_valid != 0,
     });
-    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn markPresented(comptime Ffi: type, handle: Ffi.SurfaceTextHandle) void {
+pub fn markPresented(handle: abi.SurfaceTextHandle) void {
     const owner = ownerFromHandle(handle) orelse return;
     owner.flow.markPresented();
 }
 
-pub fn pendingState(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiPendingState) c_int {
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
-    const pending_out = out orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
-    pending_out.* = pendingStateOut(Ffi, owner.flow.pendingState());
-    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+pub fn pendingState(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPendingState) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    const pending_out = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    pending_out.* = pendingStateOut(owner.flow.pendingState());
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn takeQueueMetrics(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiQueueMetrics) c_int {
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
-    const metrics_out = out orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
-    metrics_out.* = queueMetricsOut(Ffi, owner.flow.takeMetrics());
-    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+pub fn takeQueueMetrics(handle: abi.SurfaceTextHandle, out: ?*abi.FfiQueueMetrics) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    const metrics_out = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    metrics_out.* = queueMetricsOut(owner.flow.takeMetrics());
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn prepareHandle(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, vt_surface_in: ?*const Ffi.FfiVtSurface, prepare_request: Ffi.FfiPrepareRequest, query: Ffi.FfiSurfaceQuery, prepared_handle_out: ?*Ffi.PreparedSurfaceHandle) Ffi.HowlRenderPrepareStatus {
+pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: ?*const abi.FfiVtSurface, prepare_request: abi.FfiPrepareRequest, query: abi.FfiSurfaceQuery, prepared_handle_out: ?*abi.PreparedSurfaceHandle) abi.HowlRenderPrepareStatus {
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const vt_surface_value = vt_surface_in orelse return .failed;
     const request = renderRequestIn(prepare_request) orelse return .failed;
@@ -210,21 +211,21 @@ pub fn prepareHandle(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHan
         .target_valid = prepare_request.target_valid != 0,
     }) catch return .failed;
     if (prepared_handle_out) |out| {
-        const prepared_owner = prepared_surface.create(Ffi, owner, prepared) catch return .failed;
+        const prepared_owner = prepared_surface.create(owner, prepared) catch return .failed;
         out.* = @ptrCast(prepared_owner);
     }
     return .ready;
 }
 
-pub fn submit(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, prepared_surface_handle: Ffi.PreparedSurfaceHandle, prepared_frame_in: Ffi.FfiPreparedFrame, execution_in: ?*const Ffi.FfiSurfaceExecutionInput, feedback_out: ?*Ffi.FfiSurfaceFeedback) Ffi.HowlRenderSubmitStatus {
+pub fn submit(surface_text_handle: abi.SurfaceTextHandle, prepared_surface_handle: abi.PreparedSurfaceHandle, prepared_frame_in: abi.FfiPreparedFrame, execution_in: ?*const abi.FfiSurfaceExecutionInput, feedback_out: ?*abi.FfiSurfaceFeedback) abi.HowlRenderSubmitStatus {
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
-    const prepared_owner = prepared_surface.fromHandle(Ffi, prepared_surface_handle) orelse return .failed;
+    const prepared_owner = prepared_surface.fromHandle(prepared_surface_handle) orelse return .failed;
     if (prepared_owner.session_owner != owner) return .failed;
     const execution = execution_in orelse return .failed;
     const prepared_frame = preparedFrameIn(prepared_frame_in) orelse return .failed;
     if (!samePreparedFrame(prepared_owner.prepared.pipelineFrame(), prepared_frame)) return .needs_prepare;
     const submitted = owner.session.submitSurface(&prepared_owner.prepared, executionInputIn(execution.*)) catch return .failed;
-    if (feedback_out) |out| out.* = surfaceFeedbackOut(Ffi, submitted);
+    if (feedback_out) |out| out.* = surfaceFeedbackOut(submitted);
     if (submitted.content_valid) {
         // Only a successfully submitted complete image can seed the retained
         // base used by later partial prepares.
@@ -241,12 +242,12 @@ pub fn submit(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, pr
     return .rendered;
 }
 
-fn surfaceFeedbackOut(comptime Ffi: type, value: Render.RenderSurfaceFeedback) Ffi.FfiSurfaceFeedback {
+fn surfaceFeedbackOut(value: Render.RenderSurfaceFeedback) abi.FfiSurfaceFeedback {
     return .{
-        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
+        .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .damage_kind = @intFromEnum(value.damageKind()),
         .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch },
-        .metrics = surfaceMetricsOut(Ffi, value.metrics),
+        .metrics = surfaceMetricsOut(value.metrics),
     };
 }
 
@@ -256,7 +257,7 @@ fn freeOwnedPathList(paths: *std.ArrayList([:0]u8)) void {
     paths.* = .empty;
 }
 
-fn surfaceMetricsOut(comptime Ffi: type, value: Render.RenderMetrics) Ffi.FfiSurfaceMetrics {
+fn surfaceMetricsOut(value: Render.RenderMetrics) abi.FfiSurfaceMetrics {
     return .{
         .sync_us = value.sync_us,
         .copy_us = value.copy_us,
@@ -290,9 +291,9 @@ fn geometryIn(value: anytype) Render.Geometry {
     };
 }
 
-fn geometryOut(comptime Ffi: type, value: surface.GeometryResponse) Ffi.FfiGeometryResponse {
+fn geometryOut(value: surface.GeometryResponse) abi.FfiGeometryResponse {
     return .{
-        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
+        .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .changed = @intFromBool(value.changed),
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
         .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
@@ -301,9 +302,9 @@ fn geometryOut(comptime Ffi: type, value: surface.GeometryResponse) Ffi.FfiGeome
     };
 }
 
-fn surfaceQueryOut(comptime Ffi: type, value: Render.SurfaceQuery) Ffi.FfiSurfaceQuery {
+fn surfaceQueryOut(value: Render.SurfaceQuery) abi.FfiSurfaceQuery {
     return .{
-        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
+        .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
         .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
         .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
@@ -324,9 +325,9 @@ fn vtSnapshotIn(value: anytype) ?Render.FrameQueue.VtSnapshot {
     };
 }
 
-fn vtPublishResultOut(comptime Ffi: type, value: Render.FrameQueue.VtPublishResult) Ffi.FfiVtPublishResult {
+fn vtPublishResultOut(value: Render.FrameQueue.VtPublishResult) abi.FfiVtPublishResult {
     return .{
-        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
+        .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .published = @intFromBool(value.published),
         .queued = @intFromBool(value.queued),
         .damage_kind = @intFromEnum(value.damage_kind),
@@ -335,9 +336,9 @@ fn vtPublishResultOut(comptime Ffi: type, value: Render.FrameQueue.VtPublishResu
     };
 }
 
-fn pendingStateOut(comptime Ffi: type, value: anytype) Ffi.FfiPendingState {
+fn pendingStateOut(value: anytype) abi.FfiPendingState {
     return .{
-        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
+        .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .source_pending = @intFromBool(value.source_pending),
         .prepare_pending = @intFromBool(value.prepare_pending),
         .submit_pending = @intFromBool(value.submit_pending),
@@ -345,7 +346,7 @@ fn pendingStateOut(comptime Ffi: type, value: anytype) Ffi.FfiPendingState {
     };
 }
 
-fn queueMetricsOut(comptime Ffi: type, value: anytype) Ffi.FfiQueueMetrics {
+fn queueMetricsOut(value: anytype) abi.FfiQueueMetrics {
     return .{
         .snapshot_publishes = value.snapshot_publishes,
         .snapshot_hidden_drops = value.snapshot_hidden_drops,
@@ -366,7 +367,7 @@ fn queueMetricsOut(comptime Ffi: type, value: anytype) Ffi.FfiQueueMetrics {
     };
 }
 
-fn prepareRequestOut(comptime Ffi: type, value: Render.FramePipeline.RenderRequest, target_valid: bool) Ffi.FfiPrepareRequest {
+fn prepareRequestOut(value: Render.FramePipeline.RenderRequest, target_valid: bool) abi.FfiPrepareRequest {
     return .{
         .snapshot_seq = value.token.snapshot_seq,
         .dirty_epoch = value.token.dirty_epoch,
@@ -378,7 +379,7 @@ fn prepareRequestOut(comptime Ffi: type, value: Render.FramePipeline.RenderReque
     };
 }
 
-fn preparedFrameOut(comptime Ffi: type, value: Render.FramePipeline.PreparedFrame) Ffi.FfiPreparedFrame {
+fn preparedFrameOut(value: Render.FramePipeline.PreparedFrame) abi.FfiPreparedFrame {
     return .{
         .snapshot_seq = value.token.snapshot_seq,
         .dirty_epoch = value.token.dirty_epoch,

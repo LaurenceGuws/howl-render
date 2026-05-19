@@ -1,45 +1,44 @@
 const std = @import("std");
 const Render = @import("../howl_render.zig");
+const abi = @import("../ffi_types.zig");
 const surface_buffer = @import("surface_buffer.zig");
 const surface_text = @import("surface_text.zig");
 
-pub fn Owner(comptime Ffi: type) type {
-    return struct {
-        session_owner: *surface_text.SurfaceTextOwner,
-        prepared: Render.PreparedSurface,
-        snapshot_seq: u64,
-        dirty_epoch: u64,
-        geometry_epoch: u64,
-        required_base_seq: u64,
-        required_surface_epoch: u64,
-        render_px: Ffi.FfiPixelSize,
-        cell_px: Ffi.FfiCellSize,
-        grid: Ffi.FfiGridSize,
-        prepare_metrics: Ffi.FfiSurfaceMetrics,
-        damage_kind: u8,
-        rgba_pixels: []u8 = &.{},
-        uploads_committed: u64,
-        missing_glyphs: u64,
-        resolve_metrics: Ffi.FfiSurfaceMetrics,
+pub const Owner = struct {
+    session_owner: *surface_text.SurfaceTextOwner,
+    prepared: Render.PreparedSurface,
+    snapshot_seq: u64,
+    dirty_epoch: u64,
+    geometry_epoch: u64,
+    required_base_seq: u64,
+    required_surface_epoch: u64,
+    render_px: abi.FfiPixelSize,
+    cell_px: abi.FfiCellSize,
+    grid: abi.FfiGridSize,
+    prepare_metrics: abi.FfiSurfaceMetrics,
+    damage_kind: u8,
+    rgba_pixels: []u8 = &.{},
+    uploads_committed: u64,
+    missing_glyphs: u64,
+    resolve_metrics: abi.FfiSurfaceMetrics,
 
-        pub fn destroy(self: *@This()) void {
-            self.prepared.deinit();
-            freeOwnedSlice(u8, &self.rgba_pixels);
-            std.heap.c_allocator.destroy(self);
-        }
-    };
-}
+    pub fn destroy(self: *Owner) void {
+        self.prepared.deinit();
+        freeOwnedSlice(u8, &self.rgba_pixels);
+        std.heap.c_allocator.destroy(self);
+    }
+};
 
-pub fn create(comptime Ffi: type, session_owner: *surface_text.SurfaceTextOwner, value: Render.PreparedSurface) !*Owner(Ffi) {
-    var owner = try std.heap.c_allocator.create(Owner(Ffi));
+pub fn create(session_owner: *surface_text.SurfaceTextOwner, value: Render.PreparedSurface) !*Owner {
+    var owner = try std.heap.c_allocator.create(Owner);
     errdefer std.heap.c_allocator.destroy(owner);
-    owner.* = ownerBase(Ffi, session_owner, value);
+    owner.* = ownerBase(session_owner, value);
     errdefer owner.destroy();
-    try copySurfaceBuffer(Ffi, owner);
+    try copySurfaceBuffer(owner);
     return owner;
 }
 
-fn ownerBase(comptime Ffi: type, session_owner: *surface_text.SurfaceTextOwner, value: Render.PreparedSurface) Owner(Ffi) {
+fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: Render.PreparedSurface) Owner {
     return .{
         .session_owner = session_owner,
         .prepared = value,
@@ -51,15 +50,15 @@ fn ownerBase(comptime Ffi: type, session_owner: *surface_text.SurfaceTextOwner, 
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
         .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
-        .prepare_metrics = prepareMetrics(Ffi, value),
+        .prepare_metrics = prepareMetrics(value),
         .damage_kind = @intFromEnum(value.damageKind()),
         .uploads_committed = value.text_frame.raster_plan.outputs.len,
         .missing_glyphs = value.text_frame.scene.scene.missing.len,
-        .resolve_metrics = resolveMetrics(Ffi, value),
+        .resolve_metrics = resolveMetrics(value),
     };
 }
 
-fn prepareMetrics(comptime Ffi: type, value: Render.PreparedSurface) Ffi.FfiSurfaceMetrics {
+fn prepareMetrics(value: Render.PreparedSurface) abi.FfiSurfaceMetrics {
     return .{
         .sync_us = value.prepare_metrics.sync_us,
         .copy_us = value.prepare_metrics.copy_us,
@@ -81,7 +80,7 @@ fn prepareMetrics(comptime Ffi: type, value: Render.PreparedSurface) Ffi.FfiSurf
     };
 }
 
-fn resolveMetrics(comptime Ffi: type, value: Render.PreparedSurface) Ffi.FfiSurfaceMetrics {
+fn resolveMetrics(value: Render.PreparedSurface) abi.FfiSurfaceMetrics {
     return .{
         .sync_us = 0,
         .copy_us = 0,
@@ -103,7 +102,7 @@ fn resolveMetrics(comptime Ffi: type, value: Render.PreparedSurface) Ffi.FfiSurf
     };
 }
 
-fn copySurfaceBuffer(comptime Ffi: type, owner: *Owner(Ffi)) !void {
+fn copySurfaceBuffer(owner: *Owner) !void {
     const damage_kind = owner.prepared.damageKind();
     const base_pixels = if (damage_kind == .partial)
         owner.session_owner.requiredRetainedSurfaceBase(&owner.prepared)
@@ -119,25 +118,25 @@ fn copySurfaceBuffer(comptime Ffi: type, owner: *Owner(Ffi)) !void {
     );
 }
 
-pub fn fromHandle(comptime Ffi: type, handle: Ffi.PreparedSurfaceHandle) ?*Owner(Ffi) {
+pub fn fromHandle(handle: abi.PreparedSurfaceHandle) ?*Owner {
     const owned = handle orelse return null;
     return @ptrCast(@alignCast(owned));
 }
 
-pub fn infoOut(comptime Ffi: type, owner: *Owner(Ffi)) Ffi.FfiPreparedSurfaceInfo {
-    return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok), .snapshot_seq = owner.snapshot_seq, .dirty_epoch = owner.dirty_epoch, .geometry_epoch = owner.geometry_epoch, .required_base_seq = owner.required_base_seq, .required_surface_epoch = owner.required_surface_epoch, .render_px = owner.render_px, .cell_px = owner.cell_px, .grid = owner.grid, .prepare_metrics = owner.prepare_metrics, .damage_kind = owner.damage_kind };
+pub fn infoOut(owner: *Owner) abi.FfiPreparedSurfaceInfo {
+    return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.ok), .snapshot_seq = owner.snapshot_seq, .dirty_epoch = owner.dirty_epoch, .geometry_epoch = owner.geometry_epoch, .required_base_seq = owner.required_base_seq, .required_surface_epoch = owner.required_surface_epoch, .render_px = owner.render_px, .cell_px = owner.cell_px, .grid = owner.grid, .prepare_metrics = owner.prepare_metrics, .damage_kind = owner.damage_kind };
 }
 
-pub fn bufferOut(comptime Ffi: type, owner: *Owner(Ffi)) Ffi.FfiPreparedSurfaceBuffer {
+pub fn bufferOut(owner: *Owner) abi.FfiPreparedSurfaceBuffer {
     return .{
-        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
-        .rgba_pixels = span(Ffi.FfiByteSpan, owner.rgba_pixels),
+        .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
+        .rgba_pixels = span(abi.FfiByteSpan, owner.rgba_pixels),
         .uploads_committed = owner.uploads_committed,
     };
 }
 
-pub fn diagnosticsOut(comptime Ffi: type, owner: *Owner(Ffi)) Ffi.FfiPreparedSurfaceDiagnostics {
-    return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok), .missing_glyphs = owner.missing_glyphs, .resolve_metrics = owner.resolve_metrics };
+pub fn diagnosticsOut(owner: *Owner) abi.FfiPreparedSurfaceDiagnostics {
+    return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.ok), .missing_glyphs = owner.missing_glyphs, .resolve_metrics = owner.resolve_metrics };
 }
 
 fn freeOwnedSlice(comptime T: type, buffer: *[]T) void {
