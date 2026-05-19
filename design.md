@@ -41,6 +41,8 @@ classDiagram
   snapshot publication classification, submit validation, target-epoch invalidation, and present
   retirement.
 - `frame/surface_text.zig` owns prepare/submit text rendering work against VT-surface input.
+- `frame/prepared_surface_owner.zig` owns prepared-surface handle state and the realized surface
+  image exported through that handle.
 - `frame/prepared_surface_ffi.zig` and `frame/surface_text_ffi.zig` translate the render contract to
   the shipped C ABI only.
 - `howl-render` owns render-surface feedback, target-epoch validation, and retained-frame logic.

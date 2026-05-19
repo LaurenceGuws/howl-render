@@ -1,7 +1,7 @@
 const std = @import("std");
 const Render = @import("../howl_render.zig");
 const abi = @import("../ffi_types.zig");
-const prepared_surface = @import("prepared_surface_ffi.zig");
+const prepared_surface_owner = @import("prepared_surface_owner.zig");
 const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
@@ -211,7 +211,7 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
         .target_valid = prepare_request.target_valid != 0,
     }) catch return .failed;
     if (prepared_handle_out) |out| {
-        const prepared_owner = prepared_surface.create(owner, prepared) catch return .failed;
+        const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
         out.* = @ptrCast(prepared_owner);
     }
     return .ready;
@@ -219,7 +219,7 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
 
 pub fn submit(surface_text_handle: abi.SurfaceTextHandle, prepared_surface_handle: abi.PreparedSurfaceHandle, prepared_frame_in: abi.FfiPreparedFrame, execution_in: ?*const abi.FfiSurfaceExecutionInput, feedback_out: ?*abi.FfiSurfaceFeedback) callconv(.c) abi.HowlRenderSubmitStatus {
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
-    const prepared_owner = prepared_surface.fromHandle(prepared_surface_handle) orelse return .failed;
+    const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return .failed;
     if (prepared_owner.session_owner != owner) return .failed;
     const execution = execution_in orelse return .failed;
     const prepared_frame = preparedFrameIn(prepared_frame_in) orelse return .failed;
