@@ -391,7 +391,7 @@ fn surfaceQueryIn(value: anytype) Render.SurfaceQuery {
 
 fn vtSurfaceIn(comptime Ffi: type, allocator: std.mem.Allocator, value: Ffi.FfiVtSurface) !OwnedVtSurface {
     const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
-    if (value.cells.len < cell_count) return error.InvalidSurfaceSource;
+    if (value.cells.len != cell_count) return error.InvalidSurfaceSource;
     const cells = try allocator.alloc(Render.SurfaceCell, @intCast(cell_count));
     errdefer allocator.free(cells);
     for (cells, 0..) |*dst, idx| dst.* = try cellValueIn(Ffi, value.cells.ptr[idx]);
@@ -668,6 +668,14 @@ test "vtSurfaceIn rejects invalid underline style" {
     var cell = testCell();
     cell.underline_style = 9;
     const cells = [_]TestFfi.FfiCell{cell};
+    try std.testing.expectError(
+        error.InvalidSurfaceSource,
+        vtSurfaceIn(TestFfi, std.testing.allocator, testVtSurface(&cells, testCursor(0))),
+    );
+}
+
+test "vtSurfaceIn rejects extra cells beyond declared grid" {
+    const cells = [_]TestFfi.FfiCell{ testCell(), testCell() };
     try std.testing.expectError(
         error.InvalidSurfaceSource,
         vtSurfaceIn(TestFfi, std.testing.allocator, testVtSurface(&cells, testCursor(0))),
