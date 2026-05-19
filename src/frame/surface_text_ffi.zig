@@ -50,13 +50,13 @@ const OwnedVtSurface = struct {
     }
 };
 
-pub fn ownerFromHandle(comptime Ffi: type, handle: Ffi.SurfaceTextHandle) ?*surface_text.SurfaceTextOwner {
+fn ownerFromHandle(handle: anytype) ?*surface_text.SurfaceTextOwner {
     const owned = handle orelse return null;
     return @ptrCast(@alignCast(owned));
 }
 
 pub fn deriveFrameLayout(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, render_px: Ffi.FfiPixelSize, grid_px: Ffi.FfiPixelSize) Ffi.FfiFrameLayoutResult {
-    const owner = ownerFromHandle(Ffi, handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .cell_px = .{ .width = 0, .height = 0 }, .grid = .{ .cols = 0, .rows = 0 } };
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .cell_px = .{ .width = 0, .height = 0 }, .grid = .{ .cols = 0, .rows = 0 } };
     const layout = owner.session.deriveFrameLayout(owner.config, pixelIn(render_px), pixelIn(grid_px)) catch {
         return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument), .cell_px = .{ .width = 0, .height = 0 }, .grid = .{ .cols = 0, .rows = 0 } };
     };
@@ -70,12 +70,12 @@ pub fn init(comptime Ffi: type, config: Ffi.FfiSurfaceTextConfig) Ffi.SurfaceTex
 }
 
 pub fn deinit(comptime Ffi: type, handle: Ffi.SurfaceTextHandle) void {
-    const owner = ownerFromHandle(Ffi, handle) orelse return;
+    const owner = ownerFromHandle(handle) orelse return;
     owner.destroy();
 }
 
 pub fn setFontSize(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, font_size_px: u16) c_int {
-    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
     if (font_size_px == 0) return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
     owner.config.font_size_px = @max(font_size_px, 1);
     owner.flow.setFontSizePx(owner.config.font_size_px);
@@ -84,7 +84,7 @@ pub fn setFontSize(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, font_size_
 }
 
 pub fn setFontPath(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, ptr: ?[*]const u8, len: usize) c_int {
-    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
     if (len > 0 and ptr == null) return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
     if (len == 0 or ptr == null) {
         owner.setOwnedFontPath(null);
@@ -98,7 +98,7 @@ pub fn setFontPath(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, ptr: ?[*]c
 }
 
 pub fn setFallbackFontPaths(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: usize) c_int {
-    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
     // Stage owned fallback paths off to the side so a failed update never
     // leaves dangling fallback pointers in the live owner state.
     var staged = std.ArrayList([:0]u8).empty;
@@ -122,23 +122,23 @@ pub fn setFallbackFontPaths(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, p
 }
 
 pub fn syncGeometry(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, geometry: Ffi.FfiGeometry) Ffi.FfiGeometryResponse {
-    const owner = ownerFromHandle(Ffi, handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 };
-    return geometryOut(Ffi, owner.flow.syncGeometry(geometryIn(Ffi, geometry)));
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 };
+    return geometryOut(Ffi, owner.flow.syncGeometry(geometryIn(geometry)));
 }
 
 pub fn surfaceQuery(comptime Ffi: type, handle: Ffi.SurfaceTextHandle) Ffi.FfiSurfaceQuery {
-    const owner = ownerFromHandle(Ffi, handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .font_size_px = 0, .epoch = 0 };
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .font_size_px = 0, .epoch = 0 };
     return surfaceQueryOut(Ffi, owner.flow.surfaceQuery());
 }
 
 pub fn publishVtSnapshot(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, snapshot_in: Ffi.FfiVtSnapshot) Ffi.FfiVtPublishResult {
-    const owner = ownerFromHandle(Ffi, handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     const snapshot = vtSnapshotIn(snapshot_in) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtPublishResultOut(Ffi, owner.flow.acceptSnapshot(snapshot));
 }
 
 pub fn takePrepareRequest(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiPrepareRequest) Ffi.HowlRenderPrepareStatus {
-    const owner = ownerFromHandle(Ffi, handle) orelse return .failed;
+    const owner = ownerFromHandle(handle) orelse return .failed;
     const prepare_out = out orelse return .failed;
     const request = owner.flow.prepare() orelse return .idle;
     prepare_out.* = prepareRequestOut(Ffi, request, owner.flow.pendingState().target_valid);
@@ -146,14 +146,14 @@ pub fn takePrepareRequest(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out
 }
 
 pub fn publishPrepared(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, prepared_in: Ffi.FfiPreparedFrame) c_int {
-    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
     const prepared = preparedFrameIn(prepared_in) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
     owner.flow.publishPrepared(prepared);
     return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
 }
 
 pub fn takeSubmitDecision(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiPreparedFrame) Ffi.HowlRenderSubmitDecisionStatus {
-    const owner = ownerFromHandle(Ffi, handle) orelse return .failed;
+    const owner = ownerFromHandle(handle) orelse return .failed;
     const prepared_out = out orelse return .failed;
     return switch (owner.flow.submit()) {
         .idle => .idle,
@@ -167,7 +167,7 @@ pub fn takeSubmitDecision(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out
 }
 
 pub fn acceptSubmitted(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, prepared_in: Ffi.FfiPreparedFrame, surface_in: Ffi.FfiSurfaceHandle, content_valid: u8) c_int {
-    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
     const prepared = preparedFrameIn(prepared_in) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
     owner.flow.acceptSubmitted(.{
         .token = prepared.token,
@@ -178,29 +178,29 @@ pub fn acceptSubmitted(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, prepar
 }
 
 pub fn markPresented(comptime Ffi: type, handle: Ffi.SurfaceTextHandle) void {
-    const owner = ownerFromHandle(Ffi, handle) orelse return;
+    const owner = ownerFromHandle(handle) orelse return;
     owner.flow.markPresented();
 }
 
 pub fn pendingState(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiPendingState) c_int {
-    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
     const pending_out = out orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
     pending_out.* = pendingStateOut(Ffi, owner.flow.pendingState());
     return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
 }
 
 pub fn takeQueueMetrics(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiQueueMetrics) c_int {
-    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
     const metrics_out = out orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
     metrics_out.* = queueMetricsOut(Ffi, owner.flow.takeMetrics());
     return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
 }
 
 pub fn prepareHandle(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, vt_surface_in: ?*const Ffi.FfiVtSurface, prepare_request: Ffi.FfiPrepareRequest, query: Ffi.FfiSurfaceQuery, prepared_handle_out: ?*Ffi.PreparedSurfaceHandle) Ffi.HowlRenderPrepareStatus {
-    const owner = ownerFromHandle(Ffi, surface_text_handle) orelse return .failed;
+    const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const vt_surface_value = vt_surface_in orelse return .failed;
-    const request = renderRequestIn(Ffi, prepare_request) orelse return .failed;
-    var vt_surface = vtSurfaceIn(Ffi, std.heap.c_allocator, vt_surface_value.*) catch return .failed;
+    const request = renderRequestIn(prepare_request) orelse return .failed;
+    var vt_surface = vtSurfaceIn(std.heap.c_allocator, vt_surface_value.*) catch return .failed;
     defer vt_surface.deinit();
     const prepared = owner.session.prepareSurface(std.heap.c_allocator, .{
         .config = owner.config,
@@ -217,7 +217,7 @@ pub fn prepareHandle(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHan
 }
 
 pub fn submit(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, prepared_surface_handle: Ffi.PreparedSurfaceHandle, prepared_frame_in: Ffi.FfiPreparedFrame, execution_in: ?*const Ffi.FfiSurfaceExecutionInput, feedback_out: ?*Ffi.FfiSurfaceFeedback) Ffi.HowlRenderSubmitStatus {
-    const owner = ownerFromHandle(Ffi, surface_text_handle) orelse return .failed;
+    const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const prepared_owner = prepared_surface.fromHandle(Ffi, prepared_surface_handle) orelse return .failed;
     if (prepared_owner.session_owner != owner) return .failed;
     const execution = execution_in orelse return .failed;
@@ -282,7 +282,7 @@ fn executionInputIn(value: anytype) Render.SurfaceText.RenderSurfaceExecutionInp
     return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch }, .uploads_committed = value.uploads_committed, .render_us = value.render_us, .content_valid = value.content_valid != 0 };
 }
 
-fn geometryIn(comptime Ffi: type, value: Ffi.FfiGeometry) Render.FrameQueue.Geometry {
+fn geometryIn(value: anytype) Render.Geometry {
     return .{
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
         .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
@@ -290,7 +290,7 @@ fn geometryIn(comptime Ffi: type, value: Ffi.FfiGeometry) Render.FrameQueue.Geom
     };
 }
 
-fn geometryOut(comptime Ffi: type, value: Render.FrameQueue.GeometryResponse) Ffi.FfiGeometryResponse {
+fn geometryOut(comptime Ffi: type, value: surface.GeometryResponse) Ffi.FfiGeometryResponse {
     return .{
         .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
         .changed = @intFromBool(value.changed),
@@ -301,7 +301,7 @@ fn geometryOut(comptime Ffi: type, value: Render.FrameQueue.GeometryResponse) Ff
     };
 }
 
-fn surfaceQueryOut(comptime Ffi: type, value: Render.FrameQueue.SurfaceQuery) Ffi.FfiSurfaceQuery {
+fn surfaceQueryOut(comptime Ffi: type, value: Render.SurfaceQuery) Ffi.FfiSurfaceQuery {
     return .{
         .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
@@ -390,7 +390,7 @@ fn preparedFrameOut(comptime Ffi: type, value: Render.FramePipeline.PreparedFram
     };
 }
 
-fn renderRequestIn(comptime Ffi: type, value: Ffi.FfiPrepareRequest) ?Render.FramePipeline.RenderRequest {
+fn renderRequestIn(value: anytype) ?Render.FramePipeline.RenderRequest {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{
         .token = .{
@@ -424,13 +424,13 @@ fn surfaceQueryIn(value: anytype) Render.SurfaceQuery {
     return .{ .render_px = .{ .width = value.render_px.width, .height = value.render_px.height }, .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height }, .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height }, .font_size_px = value.font_size_px, .epoch = value.epoch };
 }
 
-fn vtSurfaceIn(comptime Ffi: type, allocator: std.mem.Allocator, value: Ffi.FfiVtSurface) !OwnedVtSurface {
+fn vtSurfaceIn(allocator: std.mem.Allocator, value: anytype) !OwnedVtSurface {
     const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
     if (value.cells.len != cell_count) return error.InvalidSurfaceSource;
 
     const cells = try allocator.alloc(Render.SurfaceCell, @intCast(cell_count));
     errdefer allocator.free(cells);
-    for (cells, 0..) |*dst, idx| dst.* = try cellValueIn(Ffi, value.cells.ptr[idx]);
+    for (cells, 0..) |*dst, idx| dst.* = try cellValueIn(value.cells.ptr[idx]);
 
     const dirty_rows = try dirtyRowsIn(allocator, value.rows, value.dirty_rows);
     errdefer if (dirty_rows.len > 0) allocator.free(dirty_rows);
@@ -469,7 +469,7 @@ fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: anytype) ![]u16 {
     return try allocator.dupe(u16, span.ptr[0..rows]);
 }
 
-fn cellValueIn(comptime Ffi: type, value: Ffi.FfiCell) !Render.SurfaceCell {
+fn cellValueIn(value: anytype) !Render.SurfaceCell {
     if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
 
     const fg_color = colorIn(value.fg_color) orelse return error.InvalidSurfaceSource;

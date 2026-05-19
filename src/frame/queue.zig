@@ -1,5 +1,6 @@
 const std = @import("std");
 const pipeline = @import("pipeline.zig");
+const surface_types = @import("surface.zig");
 
 const ThreadMutex = struct {
     state: std.Io.Mutex = .init,
@@ -204,38 +205,6 @@ const TerminalSurface = struct {
 
 };
 
-pub const PixelSize = extern struct {
-    width: u16,
-    height: u16,
-};
-
-pub const CellSize = extern struct {
-    width: u16,
-    height: u16,
-};
-
-pub const Geometry = extern struct {
-    render_px: PixelSize,
-    grid_px: PixelSize,
-    cell_px: CellSize,
-};
-
-pub const GeometryResponse = extern struct {
-    changed: bool,
-    render_px: PixelSize,
-    grid_px: PixelSize,
-    cell_px: CellSize,
-    geometry_epoch: u64,
-};
-
-pub const SurfaceQuery = extern struct {
-    render_px: PixelSize,
-    grid_px: PixelSize,
-    cell_px: CellSize,
-    font_size_px: u16,
-    epoch: u64,
-};
-
 pub const VtSnapshot = struct {
     cols: u16,
     rows: u16,
@@ -324,9 +293,9 @@ const PublicationState = struct {
 
 pub const Flow = struct {
     surface: TerminalSurface = .{},
-    render_px: PixelSize = .{ .width = 0, .height = 0 },
-    grid_px: PixelSize = .{ .width = 0, .height = 0 },
-    cell_px: CellSize = .{ .width = 0, .height = 0 },
+    render_px: surface_types.PixelSize = .{ .width = 0, .height = 0 },
+    grid_px: surface_types.PixelSize = .{ .width = 0, .height = 0 },
+    cell_px: surface_types.CellSize = .{ .width = 0, .height = 0 },
     font_size_px: u16 = 1,
     geometry_epoch: u64 = 0,
     publication_state: PublicationState = .{},
@@ -341,7 +310,7 @@ pub const Flow = struct {
         return self.publication_state.acceptSnapshot(snapshot, self.geometry_epoch);
     }
 
-    pub fn syncGeometry(self: *Flow, layout: Geometry) GeometryResponse {
+    pub fn syncGeometry(self: *Flow, layout: surface_types.Geometry) surface_types.GeometryResponse {
         const changed = self.geometry_epoch == 0 or
             self.render_px.width != layout.render_px.width or
             self.render_px.height != layout.render_px.height or
@@ -416,7 +385,7 @@ pub const Flow = struct {
         };
     }
 
-    pub fn surfaceQuery(self: *const Flow) SurfaceQuery {
+    pub fn surfaceQuery(self: *const Flow) surface_types.SurfaceQuery {
         return .{
             .render_px = self.render_px,
             .grid_px = self.grid_px,
