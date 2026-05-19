@@ -278,6 +278,8 @@ pub const SurfaceTextOwner = struct {
     retained_surface_height: u16 = 0,
     retained_surface_epoch: u64 = 0,
 
+    pub const FontConfigError = error{ InvalidArgument, OutOfMemory };
+
     pub fn create(config: SurfaceTextConfig) ?*SurfaceTextOwner {
         const owner = std.heap.c_allocator.create(SurfaceTextOwner) catch return null;
         owner.* = .{ .session = SurfaceText.init(), .flow = .{ .font_size_px = @max(config.font_size_px, 1) }, .config = config };
@@ -291,6 +293,47 @@ pub const SurfaceTextOwner = struct {
         self.clearRetainedSurface();
         self.session.deinit();
         std.heap.c_allocator.destroy(self);
+    }
+
+    pub fn setFontSizePx(self: *SurfaceTextOwner, font_size_px: u16) void {
+        std.debug.assert(font_size_px > 0);
+        self.config.font_size_px = font_size_px;
+        self.flow.setFontSizePx(font_size_px);
+        self.invalidateTextState();
+    }
+
+    pub fn setFontPathBytes(self: *SurfaceTextOwner, bytes: ?[]const u8) FontConfigError!void {
+        const value = bytes orelse {
+            self.setOwnedFontPath(null);
+            return;
+        };
+        if (value.len == 0) {
+            self.setOwnedFontPath(null);
+            return;
+        }
+        const owned = std.heap.c_allocator.dupeZ(u8, value) catch return error.OutOfMemory;
+        self.setOwnedFontPath(owned);
+    }
+
+    pub fn setFallbackFontPathPtrs(self: *SurfaceTextOwner, raw_paths: []const ?[*]const u8) FontConfigError!void {
+        if (raw_paths.len > text_support.max_fallback_fonts) return error.InvalidArgument;
+        var staged = std.ArrayList([:0]u8).empty;
+        defer freeOwnedFallbackFontPaths(&staged);
+        if (raw_paths.len == 0) {
+            self.adoptFallbackFontPaths(&staged);
+            return;
+        }
+        const path_count: u8 = @intCast(raw_paths.len);
+        staged.ensureTotalCapacity(std.heap.c_allocator, path_count) catch return error.OutOfMemory;
+        var i: u8 = 0;
+        while (i < path_count) : (i += 1) {
+            const raw = raw_paths[i] orelse return error.InvalidArgument;
+            const owned = std.heap.c_allocator.dupeZ(u8, std.mem.sliceTo(raw, 0)) catch {
+                return error.OutOfMemory;
+            };
+            staged.appendAssumeCapacity(owned);
+        }
+        self.adoptFallbackFontPaths(&staged);
     }
 
     pub fn invalidateTextState(self: *SurfaceTextOwner) void {

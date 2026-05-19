@@ -78,47 +78,29 @@ pub fn deinit(handle: abi.SurfaceTextHandle) callconv(.c) void {
 pub fn setFontSize(handle: abi.SurfaceTextHandle, font_size_px: u16) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     if (font_size_px == 0) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
-    owner.config.font_size_px = @max(font_size_px, 1);
-    owner.flow.setFontSizePx(owner.config.font_size_px);
-    owner.invalidateTextState();
+    owner.setFontSizePx(font_size_px);
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
 pub fn setFontPath(handle: abi.SurfaceTextHandle, ptr: ?[*]const u8, len: usize) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     if (len > 0 and ptr == null) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
-    if (len == 0 or ptr == null) {
-        owner.setOwnedFontPath(null);
-        return @intFromEnum(abi.HowlRenderCallStatus.ok);
-    }
-    // Stage the replacement path first so allocation failure leaves the live
-    // owner state untouched.
-    const owned = std.heap.c_allocator.dupeZ(u8, ptr.?[0..len]) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
-    owner.setOwnedFontPath(owned);
+    owner.setFontPathBytes(if (len == 0 or ptr == null) null else ptr.?[0..len]) catch {
+        return @intFromEnum(abi.HowlRenderCallStatus.failed);
+    };
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
 pub fn setFallbackFontPaths(handle: abi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: usize) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
-    // Stage owned fallback paths off to the side so a failed update never
-    // leaves dangling fallback pointers in the live owner state.
-    var staged = std.ArrayList([:0]u8).empty;
-    defer freeOwnedPathList(&staged);
-    if (count > text_support.max_fallback_fonts) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
-    if (count == 0) {
-        owner.adoptFallbackFontPaths(&staged);
-        return @intFromEnum(abi.HowlRenderCallStatus.ok);
-    }
-    const raw_paths = ptrs orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
-    const path_count: u8 = @intCast(count);
-    staged.ensureTotalCapacity(std.heap.c_allocator, path_count) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
-    var i: u8 = 0;
-    while (i < path_count) : (i += 1) {
-        const raw = raw_paths[i] orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
-        const owned = std.heap.c_allocator.dupeZ(u8, std.mem.sliceTo(raw, 0)) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
-        staged.appendAssumeCapacity(owned);
-    }
-    owner.adoptFallbackFontPaths(&staged);
+    if (count > 0 and ptrs == null) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    const raw_paths = if (count == 0) &.{} else ptrs.?[0..count];
+    owner.setFallbackFontPathPtrs(raw_paths) catch |err| {
+        return @intFromEnum(switch (err) {
+            error.InvalidArgument => abi.HowlRenderCallStatus.invalid_argument,
+            error.OutOfMemory => abi.HowlRenderCallStatus.failed,
+        });
+    };
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
@@ -239,12 +221,6 @@ fn surfaceFeedbackOut(value: Render.RenderSurfaceFeedback) abi.FfiSurfaceFeedbac
         .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch },
         .metrics = surfaceMetricsOut(value.metrics),
     };
-}
-
-fn freeOwnedPathList(paths: *std.ArrayList([:0]u8)) void {
-    for (paths.items) |path| std.heap.c_allocator.free(path);
-    paths.deinit(std.heap.c_allocator);
-    paths.* = .empty;
 }
 
 fn surfaceMetricsOut(value: Render.RenderMetrics) abi.FfiSurfaceMetrics {
