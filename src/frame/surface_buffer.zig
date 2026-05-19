@@ -16,15 +16,7 @@ pub fn compose(
     const pixels = try allocator.alloc(u8, @intCast(pixels_len));
     errdefer allocator.free(pixels);
     std.debug.assert(pixels.len == pixels_len);
-    if (base_pixels) |base| {
-        if (base.len == pixels.len) {
-            @memcpy(pixels, base);
-        } else {
-            clearSurfacePixels(pixels);
-        }
-    } else {
-        clearSurfacePixels(pixels);
-    }
+    seedSurfacePixels(pixels, base_pixels);
     drawColorSpan(
         pixels,
         width,
@@ -51,6 +43,17 @@ pub fn compose(
         prepared.text_frame.scene.scene.cursor_draws,
     );
     return pixels;
+}
+
+fn seedSurfacePixels(pixels: []u8, base_pixels: ?[]const u8) void {
+    const base = base_pixels orelse {
+        clearSurfacePixels(pixels);
+        return;
+    };
+    // Partial prepared frames are realized here against the render-owned
+    // retained base. Hosts only ever consume one complete prepared image.
+    std.debug.assert(base.len == pixels.len);
+    @memcpy(pixels, base);
 }
 
 const SpriteRaster = struct {
