@@ -359,6 +359,20 @@ test "ffi prepare handle rejects missing output pointer" {
     );
 }
 
+test "ffi prepare handle clears output when vt surface pointer is missing" {
+    const handle = testHandle();
+    defer surfaceTextDeinit(handle);
+    try std.testing.expect(handle != null);
+
+    const input = try nextPrepareInput(handle);
+    var prepared_handle: PreparedSurfaceHandle = @ptrFromInt(1);
+    try std.testing.expectEqual(
+        HowlRenderPrepareStatus.failed,
+        surfaceTextPrepareHandle(handle, null, input.request, input.query, &prepared_handle),
+    );
+    try std.testing.expect(prepared_handle == null);
+}
+
 test "ffi submit clears feedback on failure" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);

@@ -188,10 +188,11 @@ pub fn takeQueueMetrics(handle: abi.SurfaceTextHandle, out: ?*abi.FfiQueueMetric
 }
 
 pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: ?*const abi.FfiVtSurface, prepare_request: abi.FfiPrepareRequest, query: abi.FfiSurfaceQuery, prepared_handle_out: ?*abi.PreparedSurfaceHandle) callconv(.c) abi.HowlRenderPrepareStatus {
+    const prepared_out = prepared_handle_out;
+    if (prepared_out) |value| value.* = null;
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const vt_surface_value = vt_surface_in orelse return .failed;
-    const prepared_out = prepared_handle_out orelse return .failed;
-    prepared_out.* = null;
+    const value = prepared_out orelse return .failed;
     const request = renderRequestIn(prepare_request) orelse return .failed;
     var vt_surface = vtSurfaceIn(std.heap.c_allocator, vt_surface_value.*) catch return .failed;
     defer vt_surface.deinit();
@@ -203,7 +204,7 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
         .target_valid = prepare_request.target_valid != 0,
     }) catch return .failed;
     const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
-    prepared_out.* = @ptrCast(prepared_owner);
+    value.* = @ptrCast(prepared_owner);
     return .ready;
 }
 
