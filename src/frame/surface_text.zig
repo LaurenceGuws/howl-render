@@ -45,7 +45,7 @@ pub const SurfaceText = struct {
     pub const SubmittedReport = surface.SurfaceExecutionReport;
     pub const RenderSurfaceExecutionInput = struct {
         surface: surface.RenderSurfaceHandle,
-        uploads_committed: usize,
+        uploads_committed: u64,
         render_us: u64,
         content_valid: bool = true,
     };
@@ -182,7 +182,7 @@ pub const SurfaceText = struct {
 
     fn fontSession(context: *TextContext, faces: []text.FontSession.FontFaceRecord, active_resolve: ?*text_pipeline.ResolveObservability) text.FontSession.FontSession {
         context.session.text_state.active_resolve = active_resolve;
-        var len: usize = 0;
+        var len: u8 = 0;
         if (faces.len > len) {
             faces[len] = .{ .id = .{ .value = text_support.primary_face_id }, .role = .primary, .coverage = .all };
             len += 1;
@@ -225,7 +225,8 @@ pub const SurfaceText = struct {
         const context: *TextContext = @ptrCast(@alignCast(ctx));
         const width = @as(u16, @intCast(@as(u32, @max(req.cell_span, 1)) * @as(u32, @max(req.cell_metrics.cell_w_px, 1))));
         const height = @max(req.cell_metrics.cell_h_px, 1);
-        const alpha = try allocator.alloc(u8, @as(usize, width) * @as(usize, height));
+        const alpha_len: u32 = @as(u32, width) * @as(u32, height);
+        const alpha = try allocator.alloc(u8, @intCast(alpha_len));
         errdefer allocator.free(alpha);
         @memset(alpha, 0);
         _ = text_glyph_raster.rasterizeProviderGlyph(context, alpha, width, height, req.cell_metrics.baseline_px, .{ .value = req.face_id }, req.glyph_id, 0, 0, 0);
@@ -303,12 +304,19 @@ pub const SurfaceTextOwner = struct {
         std.debug.assert(self.retained_surface_epoch == prepared.required_surface_epoch);
         std.debug.assert(self.retained_surface_width == prepared.render_px.width);
         std.debug.assert(self.retained_surface_height == prepared.render_px.height);
-        const pixels_len = @as(usize, prepared.render_px.width) * @as(usize, prepared.render_px.height) * 4;
-        std.debug.assert(self.retained_surface_pixels.len == pixels_len);
+        const pixels_len: u64 = @as(u64, prepared.render_px.width) * @as(u64, prepared.render_px.height) * 4;
+        const retained_len: u64 = @intCast(self.retained_surface_pixels.len);
+        std.debug.assert(retained_len == pixels_len);
         return self.retained_surface_pixels;
     }
 
     pub fn retainSurfaceImage(self: *SurfaceTextOwner, pixels: *[]u8, width: u16, height: u16, epoch: u64) void {
+        std.debug.assert(width > 0);
+        std.debug.assert(height > 0);
+        const pixels_len: u64 = @as(u64, width) * @as(u64, height) * 4;
+        const incoming_len: u64 = @intCast(pixels.*.len);
+        std.debug.assert(pixels_len > 0);
+        std.debug.assert(incoming_len == pixels_len);
         self.clearRetainedSurface();
         self.retained_surface_pixels = pixels.*;
         self.retained_surface_width = width;
@@ -325,3 +333,78 @@ pub const SurfaceTextOwner = struct {
         self.retained_surface_epoch = 0;
     }
 };
+
+test "retainSurfaceImage adopts full image for later partial prepares" {
+    var owner = SurfaceTextOwner{
+        .session = SurfaceText.init(),
+        .flow = .{},
+        .config = .{ .surface_px = .{ .width = 2, .height = 3 } },
+    };
+    defer owner.clearRetainedSurface();
+    defer owner.session.deinit();
+
+    const pixels = try std.heap.c_allocator.alloc(u8, 2 * 3 * 4);
+    for (pixels, 0..) |*pixel, i| pixel.* = @intCast(i);
+    var owned_pixels = pixels;
+    owner.retainSurfaceImage(&owned_pixels, 2, 3, 7);
+
+    try std.testing.expect(owned_pixels.len == 0);
+    try std.testing.expectEqual(@as(u16, 2), owner.retained_surface_width);
+    try std.testing.expectEqual(@as(u16, 3), owner.retained_surface_height);
+    try std.testing.expectEqual(@as(u64, 7), owner.retained_surface_epoch);
+
+    const prepared = surface.PreparedSurface{
+        .allocator = std.heap.c_allocator,
+        .request = .{
+            .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
+            .known_target_epoch = 7,
+        },
+        .required_surface_epoch = 7,
+        .geometry_epoch = 1,
+        .render_px = .{ .width = 2, .height = 3 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 2, .rows = 3 },
+        .text_frame = .{
+            .scene = .{
+                .allocator = std.heap.c_allocator,
+                .owned = false,
+                .scene = .{
+                    .clear_draws = &.{},
+                    .background_draws = &.{},
+                    .sprite_draws = &.{},
+                    .decoration_draws = &.{},
+                    .cursor_draws = &.{},
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = false,
+                },
+            },
+            .raster_plan = .{ .allocator = std.heap.c_allocator, .outputs = &.{}, .owned = false },
+        },
+    };
+
+    const base = owner.requiredRetainedSurfaceBase(&prepared);
+    try std.testing.expectEqualSlices(u8, pixels, base);
+}
+
+test "invalidateTextState clears retained image state" {
+    var owner = SurfaceTextOwner{
+        .session = SurfaceText.init(),
+        .flow = .{},
+        .config = .{ .surface_px = .{ .width = 1, .height = 1 } },
+    };
+    defer owner.clearRetainedSurface();
+    defer owner.session.deinit();
+
+    const pixels = try std.heap.c_allocator.alloc(u8, 4);
+    @memset(pixels, 9);
+    var owned_pixels = pixels;
+    owner.retainSurfaceImage(&owned_pixels, 1, 1, 3);
+
+    owner.invalidateTextState();
+
+    try std.testing.expect(owner.retained_surface_pixels.len == 0);
+    try std.testing.expectEqual(@as(u16, 0), owner.retained_surface_width);
+    try std.testing.expectEqual(@as(u16, 0), owner.retained_surface_height);
+    try std.testing.expectEqual(@as(u64, 0), owner.retained_surface_epoch);
+}
