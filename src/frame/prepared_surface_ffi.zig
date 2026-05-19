@@ -104,9 +104,13 @@ fn resolveMetrics(comptime Ffi: type, value: Render.PreparedSurface) Ffi.FfiSurf
 }
 
 fn copySurfaceBuffer(comptime Ffi: type, owner: *Owner(Ffi)) !void {
+    const base_pixels = switch (owner.prepared.damageKind()) {
+        .partial => owner.session_owner.requiredRetainedSurfaceBase(&owner.prepared),
+        .none, .full => null,
+    };
     owner.rgba_pixels = try surface_buffer.compose(
         std.heap.c_allocator,
-        owner.session_owner.retainedSurfaceBase(&owner.prepared),
+        base_pixels,
         &owner.session_owner.session,
         &owner.prepared,
     );

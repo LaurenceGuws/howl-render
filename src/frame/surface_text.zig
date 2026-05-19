@@ -296,13 +296,15 @@ pub const SurfaceTextOwner = struct {
         self.clearRetainedSurface();
     }
 
-    pub fn retainedSurfaceBase(self: *const SurfaceTextOwner, prepared: *const surface.PreparedSurface) ?[]const u8 {
-        if (prepared.damageKind() != .partial) return null;
-        if (self.retained_surface_epoch != prepared.required_surface_epoch) return null;
-        if (self.retained_surface_width != prepared.render_px.width) return null;
-        if (self.retained_surface_height != prepared.render_px.height) return null;
+    pub fn requiredRetainedSurfaceBase(self: *const SurfaceTextOwner, prepared: *const surface.PreparedSurface) []const u8 {
+        std.debug.assert(prepared.damageKind() == .partial);
+        // Queue validation already proved that partial prepares must compose
+        // against the last submitted full image from this render owner.
+        std.debug.assert(self.retained_surface_epoch == prepared.required_surface_epoch);
+        std.debug.assert(self.retained_surface_width == prepared.render_px.width);
+        std.debug.assert(self.retained_surface_height == prepared.render_px.height);
         const pixels_len = @as(usize, prepared.render_px.width) * @as(usize, prepared.render_px.height) * 4;
-        if (self.retained_surface_pixels.len != pixels_len) return null;
+        std.debug.assert(self.retained_surface_pixels.len == pixels_len);
         return self.retained_surface_pixels;
     }
 
