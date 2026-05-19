@@ -198,6 +198,16 @@ pub fn submit(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, pr
     if (!samePreparedFrame(prepared_owner.prepared.pipelineFrame(), prepared_frame)) return .needs_prepare;
     const submitted = owner.session.submitSurface(&prepared_owner.prepared, executionInputIn(execution.*)) catch return .failed;
     if (feedback_out) |out| out.* = surfaceFeedbackOut(Ffi, submitted);
+    if (submitted.content_valid) {
+        owner.retainSurfaceImage(
+            &prepared_owner.rgba_pixels,
+            prepared_owner.prepared.render_px.width,
+            prepared_owner.prepared.render_px.height,
+            submitted.surface.epoch,
+        );
+    } else {
+        owner.clearRetainedSurface();
+    }
     prepared_owner.destroy();
     return .rendered;
 }

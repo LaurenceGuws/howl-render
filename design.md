@@ -104,8 +104,9 @@ sequenceDiagram
   `...mark_presented` are the retained render-queue control steps. They let hosts publish VT
   snapshot metadata and drive the bounded prepare-submit-present loop without re-owning retained
   render state in host code.
-- `howl_render_prepared_surface_damage_plan`, `..._buffer`, and `..._diagnostics` expose prepared
-  render-surface output for host consumption.
+- `howl_render_prepared_surface_buffer` is the realized surface-image export. Hosts consume it as
+  one complete prepared surface image, not as a render-damage reconstruction contract.
+- `howl_render_prepared_surface_diagnostics` exposes proof/debug counters only.
 - `HowlRenderSurfaceExecutionInput` carries host execution truth back into render using a generic
   render-surface handle plus upload and timing facts.
 - `HowlRenderSurfaceFeedback` reports the accepted render-surface handle and render metrics.

@@ -39,7 +39,6 @@ pub const FramePipeline = pipeline;
 pub const FrameQueue = queue;
 pub const RenderSurfaceHandle = surface.RenderSurfaceHandle;
 pub const SurfaceLayout = surface.SurfaceLayout;
-pub const DamageRect = surface.DamageRect;
 pub const PreparedSurface = surface.PreparedSurface;
 pub const RenderSurfaceFeedback = surface.RenderSurfaceFeedback;
 pub const BackendCaps = contract.BackendCaps;

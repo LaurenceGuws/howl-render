@@ -4,6 +4,7 @@ const surface_text = @import("surface_text.zig");
 
 pub fn compose(
     allocator: std.mem.Allocator,
+    base_pixels: ?[]const u8,
     session: *surface_text.SurfaceText,
     prepared: *const Render.PreparedSurface,
 ) ![]u8 {
@@ -15,7 +16,15 @@ pub fn compose(
     const pixels = try allocator.alloc(u8, @intCast(pixels_len));
     errdefer allocator.free(pixels);
     std.debug.assert(pixels.len == pixels_len);
-    clearSurfacePixels(pixels);
+    if (base_pixels) |base| {
+        if (base.len == pixels.len) {
+            @memcpy(pixels, base);
+        } else {
+            clearSurfacePixels(pixels);
+        }
+    } else {
+        clearSurfacePixels(pixels);
+    }
     drawColorSpan(
         pixels,
         width,
@@ -186,9 +195,7 @@ fn drawSpriteInstance(
             const src_x = bounds.x_px + xx;
             const src_y = bounds.y_px + yy;
             const src_index = spriteIndex(sprite, src_x, src_y);
-            const dst_index: u32 = (
-                @as(u32, @intCast(dst_y)) * @as(u32, width) + @as(u32, @intCast(dst_x))
-            ) * 4;
+            const dst_index: u32 = (@as(u32, @intCast(dst_y)) * @as(u32, width) + @as(u32, @intCast(dst_x))) * 4;
             switch (sprite.color_mode) {
                 .alpha => {
                     if (src_index >= sprite.pixels.len) continue;
@@ -248,9 +255,7 @@ fn drawSolidRect(
         while (xx < rect_w) : (xx += 1) {
             const dst_x = x + @as(i32, xx);
             if (dst_x < 0 or dst_x >= @as(i32, width)) continue;
-            const dst_index: u32 = (
-                @as(u32, @intCast(dst_y)) * @as(u32, width) + @as(u32, @intCast(dst_x))
-            ) * 4;
+            const dst_index: u32 = (@as(u32, @intCast(dst_y)) * @as(u32, width) + @as(u32, @intCast(dst_x))) * 4;
             blendPixel(pixels, dst_index, color.r, color.g, color.b, color.a);
         }
     }
@@ -274,4 +279,78 @@ fn blendPixel(pixels: []u8, dst_index: u32, r: u8, g: u8, b: u8, a: u8) void {
         @as(u32, 255),
         src_a + (@as(u32, pixels[@intCast(dst_index + 3)]) * inv_a) / 255,
     ));
+}
+
+test "compose preserves retained content outside partial updates" {
+    var session = surface_text.SurfaceText.init();
+    defer session.deinit();
+
+    const allocator = std.testing.allocator;
+    const base = try allocator.alloc(u8, 4 * 4 * 4);
+    defer allocator.free(base);
+    @memset(base, 7);
+
+    var clear_draws = try allocator.alloc(Render.TextClearDraw, 1);
+    defer allocator.free(clear_draws);
+    clear_draws[0] = .{
+        .x_px = 0,
+        .y_px = 0,
+        .width_px = 2,
+        .height_px = 1,
+        .color = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+        .first_cell = 0,
+        .cell_span = 2,
+    };
+
+    var background_draws = try allocator.alloc(Render.TextBackgroundDraw, 1);
+    defer allocator.free(background_draws);
+    background_draws[0] = .{
+        .x_px = 0,
+        .y_px = 0,
+        .width_px = 2,
+        .height_px = 1,
+        .color = .{ .r = 90, .g = 20, .b = 10, .a = 255 },
+        .first_cell = 0,
+        .cell_span = 2,
+    };
+
+    var prepared = Render.PreparedSurface{
+        .allocator = allocator,
+        .request = .{
+            .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
+            .known_target_epoch = 5,
+        },
+        .required_surface_epoch = 5,
+        .geometry_epoch = 1,
+        .render_px = .{ .width = 4, .height = 4 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 4, .rows = 4 },
+        .text_frame = .{
+            .scene = .{
+                .allocator = allocator,
+                .owned = false,
+                .scene = .{
+                    .clear_draws = clear_draws,
+                    .background_draws = background_draws,
+                    .sprite_draws = &.{},
+                    .decoration_draws = &.{},
+                    .cursor_draws = &.{},
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = false,
+                },
+            },
+            .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+        },
+    };
+
+    const pixels = try compose(allocator, base, &session, &prepared);
+    defer allocator.free(pixels);
+
+    try std.testing.expectEqual(@as(u8, 90), pixels[0]);
+    try std.testing.expectEqual(@as(u8, 20), pixels[1]);
+    try std.testing.expectEqual(@as(u8, 10), pixels[2]);
+    try std.testing.expectEqual(@as(u8, 7), pixels[8]);
+    try std.testing.expectEqual(@as(u8, 7), pixels[9]);
+    try std.testing.expectEqual(@as(u8, 7), pixels[10]);
 }

@@ -22,7 +22,6 @@ comptime {
     @export(&ffi.surfaceTextPrepareHandle, .{ .name = "howl_render_surface_text_prepare_handle" });
     @export(&ffi.preparedSurfaceRelease, .{ .name = "howl_render_prepared_surface_release" });
     @export(&ffi.preparedSurfaceDescribe, .{ .name = "howl_render_prepared_surface_describe" });
-    @export(&ffi.preparedSurfaceDamagePlan, .{ .name = "howl_render_prepared_surface_damage_plan" });
     @export(&ffi.preparedSurfaceBuffer, .{ .name = "howl_render_prepared_surface_buffer" });
     @export(&ffi.preparedSurfaceDiagnostics, .{ .name = "howl_render_prepared_surface_diagnostics" });
     @export(&ffi.surfaceTextSubmit, .{ .name = "howl_render_surface_text_submit" });

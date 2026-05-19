@@ -17,10 +17,6 @@ pub fn Owner(comptime Ffi: type) type {
         grid: Ffi.FfiGridSize,
         prepare_metrics: Ffi.FfiSurfaceMetrics,
         damage_kind: u8,
-        full_redraw: u8,
-        reserved1: u16,
-        surface_damage_rects: []Ffi.FfiRect = &.{},
-        buffer_damage_rects: []Ffi.FfiRect = &.{},
         rgba_pixels: []u8 = &.{},
         uploads_committed: u64,
         missing_glyphs: u64,
@@ -28,8 +24,6 @@ pub fn Owner(comptime Ffi: type) type {
 
         pub fn destroy(self: *@This()) void {
             self.prepared.deinit();
-            freeOwnedSlice(Ffi.FfiRect, &self.surface_damage_rects);
-            freeOwnedSlice(Ffi.FfiRect, &self.buffer_damage_rects);
             freeOwnedSlice(u8, &self.rgba_pixels);
             std.heap.c_allocator.destroy(self);
         }
@@ -41,8 +35,6 @@ pub fn create(comptime Ffi: type, session_owner: *surface_text.SurfaceTextOwner,
     errdefer std.heap.c_allocator.destroy(owner);
     owner.* = ownerBase(Ffi, session_owner, value);
     errdefer owner.destroy();
-
-    try copyDamagePlans(Ffi, owner, value);
     try copySurfaceBuffer(Ffi, owner);
     return owner;
 }
@@ -61,8 +53,6 @@ fn ownerBase(comptime Ffi: type, session_owner: *surface_text.SurfaceTextOwner, 
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
         .prepare_metrics = prepareMetrics(Ffi, value),
         .damage_kind = @intFromEnum(value.damageKind()),
-        .full_redraw = boolByte(value.text_frame.scene.scene.full_redraw),
-        .reserved1 = 0,
         .uploads_committed = value.text_frame.raster_plan.outputs.len,
         .missing_glyphs = value.text_frame.scene.scene.missing.len,
         .resolve_metrics = resolveMetrics(Ffi, value),
@@ -113,22 +103,10 @@ fn resolveMetrics(comptime Ffi: type, value: Render.PreparedSurface) Ffi.FfiSurf
     };
 }
 
-fn allocRects(comptime Ffi: type, rects: []const Render.DamageRect) ![]Ffi.FfiRect {
-    const out = try std.heap.c_allocator.alloc(Ffi.FfiRect, rects.len);
-    for (rects, 0..) |rect, idx| {
-        out[idx] = .{ .x = rect.x, .y = rect.y, .width = rect.width, .height = rect.height };
-    }
-    return out;
-}
-
-fn copyDamagePlans(comptime Ffi: type, owner: *Owner(Ffi), value: Render.PreparedSurface) !void {
-    owner.surface_damage_rects = try allocRects(Ffi, value.surface_damage_rects);
-    owner.buffer_damage_rects = try allocRects(Ffi, value.buffer_damage_rects);
-}
-
 fn copySurfaceBuffer(comptime Ffi: type, owner: *Owner(Ffi)) !void {
     owner.rgba_pixels = try surface_buffer.compose(
         std.heap.c_allocator,
+        owner.session_owner.retainedSurfaceBase(&owner.prepared),
         &owner.session_owner.session,
         &owner.prepared,
     );
@@ -143,10 +121,6 @@ pub fn infoOut(comptime Ffi: type, owner: *Owner(Ffi)) Ffi.FfiPreparedSurfaceInf
     return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok), .snapshot_seq = owner.snapshot_seq, .dirty_epoch = owner.dirty_epoch, .geometry_epoch = owner.geometry_epoch, .required_base_seq = owner.required_base_seq, .required_surface_epoch = owner.required_surface_epoch, .render_px = owner.render_px, .cell_px = owner.cell_px, .grid = owner.grid, .prepare_metrics = owner.prepare_metrics, .damage_kind = owner.damage_kind };
 }
 
-pub fn damagePlanOut(comptime Ffi: type, owner: *Owner(Ffi)) Ffi.FfiPreparedSurfaceDamagePlan {
-    return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok), .full_redraw = owner.full_redraw, .reserved1 = owner.reserved1, .surface_damage_rects = span(Ffi.FfiRectSpan, owner.surface_damage_rects), .buffer_damage_rects = span(Ffi.FfiRectSpan, owner.buffer_damage_rects) };
-}
-
 pub fn bufferOut(comptime Ffi: type, owner: *Owner(Ffi)) Ffi.FfiPreparedSurfaceBuffer {
     return .{
         .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
@@ -157,10 +131,6 @@ pub fn bufferOut(comptime Ffi: type, owner: *Owner(Ffi)) Ffi.FfiPreparedSurfaceB
 
 pub fn diagnosticsOut(comptime Ffi: type, owner: *Owner(Ffi)) Ffi.FfiPreparedSurfaceDiagnostics {
     return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok), .missing_glyphs = owner.missing_glyphs, .resolve_metrics = owner.resolve_metrics };
-}
-
-fn boolByte(value: bool) u8 {
-    return if (value) 1 else 0;
 }
 
 fn freeOwnedSlice(comptime T: type, buffer: *[]T) void {

@@ -138,18 +138,6 @@ pub const FfiRasterUploadSpan = extern struct {
     len: usize,
 };
 
-pub const FfiRect = extern struct {
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-};
-
-pub const FfiRectSpan = extern struct {
-    ptr: [*c]const FfiRect,
-    len: usize,
-};
-
 pub const FfiByteSpan = extern struct {
     ptr: [*c]const u8,
     len: usize,
@@ -358,15 +346,6 @@ pub const FfiPreparedSurfaceInfo = extern struct {
     reserved1: u16 = 0,
 };
 
-pub const FfiPreparedSurfaceDamagePlan = extern struct {
-    status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
-    full_redraw: u8,
-    reserved0: u8 = 0,
-    reserved1: u16 = 0,
-    surface_damage_rects: FfiRectSpan,
-    buffer_damage_rects: FfiRectSpan,
-};
-
 pub const FfiPreparedSurfaceBuffer = extern struct {
     status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
     rgba_pixels: FfiByteSpan,
@@ -421,7 +400,6 @@ comptime {
     std.debug.assert(@sizeOf(FfiPixelSize) == 4);
     std.debug.assert(@sizeOf(FfiCellSize) == 4);
     std.debug.assert(@sizeOf(FfiGridSize) == 4);
-    std.debug.assert(@sizeOf(FfiRect) == 16);
     std.debug.assert(@sizeOf(FfiByteSpan) == 16);
     std.debug.assert(@sizeOf(FfiColor) == 8);
     std.debug.assert(@sizeOf(FfiCursor) == 6);
@@ -504,10 +482,6 @@ fn decorationDrawSpanOut(items: []const FfiDecorationDraw) FfiDecorationDrawSpan
 }
 
 fn rasterUploadSpanOut(items: []const FfiRasterUpload) FfiRasterUploadSpan {
-    return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
-}
-
-fn rectSpanOut(items: []const FfiRect) FfiRectSpan {
     return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
 }
 
@@ -623,13 +597,6 @@ pub fn preparedSurfaceDescribe(prepared_surface_handle: PreparedSurfaceHandle, i
     const owner = prepared_surface.fromHandle(@This(), prepared_surface_handle) orelse return @intFromEnum(HowlRenderCallStatus.missing_handle);
     const out = info_out orelse return @intFromEnum(HowlRenderCallStatus.invalid_argument);
     out.* = prepared_surface.infoOut(@This(), owner);
-    return @intFromEnum(HowlRenderCallStatus.ok);
-}
-
-pub fn preparedSurfaceDamagePlan(prepared_surface_handle: PreparedSurfaceHandle, plan_out: ?*FfiPreparedSurfaceDamagePlan) callconv(.c) c_int {
-    const owner = prepared_surface.fromHandle(@This(), prepared_surface_handle) orelse return @intFromEnum(HowlRenderCallStatus.missing_handle);
-    const out = plan_out orelse return @intFromEnum(HowlRenderCallStatus.invalid_argument);
-    out.* = prepared_surface.damagePlanOut(@This(), owner);
     return @intFromEnum(HowlRenderCallStatus.ok);
 }
 

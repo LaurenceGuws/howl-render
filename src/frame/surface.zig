@@ -237,13 +237,6 @@ pub const SurfaceLayout = struct {
     grid: GridSize,
 };
 
-pub const DamageRect = struct {
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-};
-
 pub const PreparedSurface = struct {
     allocator: std.mem.Allocator,
     request: pipeline.RenderRequest,
@@ -252,15 +245,11 @@ pub const PreparedSurface = struct {
     render_px: PixelSize,
     cell_px: CellSize,
     grid: GridSize,
-    surface_damage_rects: []DamageRect = &.{},
-    buffer_damage_rects: []DamageRect = &.{},
     text_frame: text.OwnedPreparedTextFrame,
     resolve: text_pipeline.ResolveObservability = .{},
     prepare_metrics: PrepareMetrics = .{},
 
     pub fn deinit(self: *PreparedSurface) void {
-        if (self.surface_damage_rects.len > 0) self.allocator.free(self.surface_damage_rects);
-        if (self.buffer_damage_rects.len > 0) self.allocator.free(self.buffer_damage_rects);
         self.text_frame.deinit();
         self.* = undefined;
     }

@@ -1,5 +1,4 @@
 const std = @import("std");
-const damage = @import("damage.zig");
 const geometry_mod = @import("geometry.zig");
 const input = @import("input.zig");
 const pipeline = @import("pipeline.zig");
@@ -58,16 +57,6 @@ pub const SurfaceText = struct {
         target_valid: bool,
     };
 
-    const PreparedPlans = struct {
-        surface_damage_rects: []surface.DamageRect,
-        buffer_damage_rects: []surface.DamageRect,
-
-        fn deinit(self: PreparedPlans, allocator: std.mem.Allocator) void {
-            if (self.surface_damage_rects.len > 0) allocator.free(self.surface_damage_rects);
-            if (self.buffer_damage_rects.len > 0) allocator.free(self.buffer_damage_rects);
-        }
-    };
-
     pub fn init() SurfaceText {
         return .{ .text_state = text_support.State.init(std.heap.c_allocator) };
     }
@@ -113,9 +102,7 @@ pub const SurfaceText = struct {
         const preparer = try self.ensureTextPreparer(allocator, &context);
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
         errdefer prepared.deinit();
-        const plans = try buildPreparedPlans(allocator, prepare, text_input.grid, prepared);
-        errdefer plans.deinit(allocator);
-        const owned = ownPreparedSurface(allocator, prepare, text_input.grid, prepared, resolve, plans);
+        const owned = ownPreparedSurface(allocator, prepare, text_input.grid, prepared, resolve);
         self.mutex.unlock();
         return owned;
     }
@@ -153,29 +140,12 @@ pub const SurfaceText = struct {
         return preparer.atlas.rasterForKey(key);
     }
 
-    fn buildPreparedPlans(
-        allocator: std.mem.Allocator,
-        prepare: PrepareInput,
-        grid: contract.GridMetrics,
-        prepared: text.OwnedPreparedTextFrame,
-    ) !PreparedPlans {
-        const surface_damage_rects = try damage.buildSurfaceRects(surface.PixelSize, surface.CellSize, contract.GridMetrics, surface.DamageRect, allocator, prepare.query.render_px, prepare.query.cell_px, grid, prepare.state.damage, prepared.scene.scene.full_redraw);
-        errdefer if (surface_damage_rects.len > 0) allocator.free(surface_damage_rects);
-        const buffer_damage_rects = try damage.buildBufferRects(surface.PixelSize, surface.CellSize, contract.GridMetrics, surface.DamageRect, allocator, prepare.query.render_px, prepare.query.cell_px, grid, prepare.state.damage, prepared.scene.scene.full_redraw);
-        errdefer if (buffer_damage_rects.len > 0) allocator.free(buffer_damage_rects);
-        return .{
-            .surface_damage_rects = surface_damage_rects,
-            .buffer_damage_rects = buffer_damage_rects,
-        };
-    }
-
     fn ownPreparedSurface(
         allocator: std.mem.Allocator,
         prepare: PrepareInput,
         grid: contract.GridMetrics,
         prepared: text.OwnedPreparedTextFrame,
         resolve: text_pipeline.ResolveObservability,
-        plans: PreparedPlans,
     ) surface.PreparedSurface {
         return .{
             .allocator = allocator,
@@ -185,8 +155,6 @@ pub const SurfaceText = struct {
             .render_px = prepare.query.render_px,
             .cell_px = prepare.query.cell_px,
             .grid = .{ .cols = grid.cols, .rows = grid.rows },
-            .surface_damage_rects = plans.surface_damage_rects,
-            .buffer_damage_rects = plans.buffer_damage_rects,
             .text_frame = prepared,
             .resolve = resolve,
             .prepare_metrics = prepareMetrics(prepared.timings),
@@ -298,6 +266,10 @@ pub const SurfaceTextOwner = struct {
     config: SurfaceTextConfig,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
+    retained_surface_pixels: []u8 = &.{},
+    retained_surface_width: u16 = 0,
+    retained_surface_height: u16 = 0,
+    retained_surface_epoch: u64 = 0,
 
     pub fn create(config: SurfaceTextConfig) ?*SurfaceTextOwner {
         const owner = std.heap.c_allocator.create(SurfaceTextOwner) catch return null;
@@ -310,6 +282,7 @@ pub const SurfaceTextOwner = struct {
         self.font_path = null;
         for (self.fallback_font_paths.items) |path| std.heap.c_allocator.free(path);
         self.fallback_font_paths.deinit(std.heap.c_allocator);
+        self.clearRetainedSurface();
         self.session.deinit();
         std.heap.c_allocator.destroy(self);
     }
@@ -320,5 +293,33 @@ pub const SurfaceTextOwner = struct {
         self.session.text_state.shape_run_cache.clear();
         self.session.text_state.glyph_cell_cache.clear();
         if (self.session.text_preparer) |*preparer| preparer.clearAtlas();
+        self.clearRetainedSurface();
+    }
+
+    pub fn retainedSurfaceBase(self: *const SurfaceTextOwner, prepared: *const surface.PreparedSurface) ?[]const u8 {
+        if (prepared.damageKind() != .partial) return null;
+        if (self.retained_surface_epoch != prepared.required_surface_epoch) return null;
+        if (self.retained_surface_width != prepared.render_px.width) return null;
+        if (self.retained_surface_height != prepared.render_px.height) return null;
+        const pixels_len = @as(usize, prepared.render_px.width) * @as(usize, prepared.render_px.height) * 4;
+        if (self.retained_surface_pixels.len != pixels_len) return null;
+        return self.retained_surface_pixels;
+    }
+
+    pub fn retainSurfaceImage(self: *SurfaceTextOwner, pixels: *[]u8, width: u16, height: u16, epoch: u64) void {
+        self.clearRetainedSurface();
+        self.retained_surface_pixels = pixels.*;
+        self.retained_surface_width = width;
+        self.retained_surface_height = height;
+        self.retained_surface_epoch = epoch;
+        pixels.* = &.{};
+    }
+
+    pub fn clearRetainedSurface(self: *SurfaceTextOwner) void {
+        if (self.retained_surface_pixels.len > 0) std.heap.c_allocator.free(self.retained_surface_pixels);
+        self.retained_surface_pixels = &.{};
+        self.retained_surface_width = 0;
+        self.retained_surface_height = 0;
+        self.retained_surface_epoch = 0;
     }
 };

@@ -108,18 +108,6 @@ typedef struct {
 } HowlRenderDecorationDrawSpan;
 
 typedef struct {
-  int32_t x;
-  int32_t y;
-  int32_t width;
-  int32_t height;
-} HowlRenderRect;
-
-typedef struct {
-  const HowlRenderRect *ptr;
-  size_t len;
-} HowlRenderRectSpan;
-
-typedef struct {
   const uint8_t *ptr;
   size_t len;
 } HowlRenderByteSpan;
@@ -334,15 +322,6 @@ typedef struct {
 
 typedef struct {
   int32_t status;
-  uint8_t full_redraw;
-  uint8_t reserved0;
-  uint16_t reserved1;
-  HowlRenderRectSpan surface_damage_rects;
-  HowlRenderRectSpan buffer_damage_rects;
-} HowlRenderPreparedSurfaceDamagePlan;
-
-typedef struct {
-  int32_t status;
   HowlRenderByteSpan rgba_pixels;
   uint64_t uploads_committed;
 } HowlRenderPreparedSurfaceBuffer;
@@ -415,7 +394,6 @@ int howl_render_surface_text_take_queue_metrics(HowlRenderSurfaceTextHandle hand
 HowlRenderPrepareStatus howl_render_surface_text_prepare_handle(HowlRenderSurfaceTextHandle surface_text_handle, const HowlRenderVtSurface *vt_surface, HowlRenderPrepareRequest prepare_request, HowlRenderSurfaceQuery query, HowlRenderPreparedSurfaceHandle *prepared_handle_out);
 void howl_render_prepared_surface_release(HowlRenderPreparedSurfaceHandle prepared_surface_handle);
 int howl_render_prepared_surface_describe(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceInfo *info_out);
-int howl_render_prepared_surface_damage_plan(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceDamagePlan *plan_out);
 int howl_render_prepared_surface_buffer(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceBuffer *buffer_out);
 int howl_render_prepared_surface_diagnostics(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceDiagnostics *diagnostics_out);
 HowlRenderSubmitStatus howl_render_surface_text_submit(HowlRenderSurfaceTextHandle surface_text_handle, HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedFrame prepared_frame, const HowlRenderSurfaceExecutionInput *execution_in, HowlRenderSurfaceFeedback *feedback_out);
