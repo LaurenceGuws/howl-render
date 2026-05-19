@@ -138,35 +138,21 @@ pub fn LatestMailbox(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        pub const Envelope = struct {
-            sequence: u64,
-            item: T,
-        };
-
         mutex: ThreadMutex = .{},
-        sequence: u64 = 0,
         item: ?T = null,
 
-        pub fn publish(self: *Self, item: T) u64 {
+        pub fn publish(self: *Self, item: T) void {
             lockMutex(&self.mutex);
             defer self.mutex.unlock();
-            self.sequence +%= 1;
             self.item = item;
-            return self.sequence;
         }
 
-        pub fn takeLatest(self: *Self) ?Envelope {
+        pub fn takeLatest(self: *Self) ?T {
             lockMutex(&self.mutex);
             defer self.mutex.unlock();
             const item = self.item orelse return null;
             self.item = null;
-            return .{ .sequence = self.sequence, .item = item };
-        }
-
-        pub fn latestSequence(self: *Self) u64 {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            return self.sequence;
+            return item;
         }
 
         pub fn hasPending(self: *Self) bool {
@@ -267,12 +253,11 @@ test "latest mailbox drops stale work" {
     var mailbox = Mailbox{};
 
     try std.testing.expect(!mailbox.hasPending());
-    try std.testing.expectEqual(@as(u64, 1), mailbox.publish(10));
-    try std.testing.expectEqual(@as(u64, 2), mailbox.publish(20));
+    mailbox.publish(10);
+    mailbox.publish(20);
     try std.testing.expect(mailbox.hasPending());
 
-    const envelope = mailbox.takeLatest() orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u64, 2), envelope.sequence);
-    try std.testing.expectEqual(@as(u32, 20), envelope.item);
+    const item = mailbox.takeLatest() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u32, 20), item);
     try std.testing.expect(mailbox.takeLatest() == null);
 }
