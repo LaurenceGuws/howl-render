@@ -58,44 +58,37 @@ pub fn setFontSize(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, font_size_
 pub fn setFontPath(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, ptr: ?[*]const u8, len: usize) c_int {
     const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
     if (len > 0 and ptr == null) return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
-    if (owner.font_path) |path| {
-        std.heap.c_allocator.free(path);
-        owner.font_path = null;
-    }
     if (len == 0 or ptr == null) {
-        owner.config.font_path = null;
-        owner.invalidateTextState();
+        owner.setOwnedFontPath(null);
         return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
     }
+    // Stage the replacement path first so allocation failure leaves the live
+    // owner state untouched.
     const owned = std.heap.c_allocator.dupeZ(u8, ptr.?[0..len]) catch return @intFromEnum(Ffi.HowlRenderCallStatus.failed);
-    owner.font_path = owned;
-    owner.config.font_path = owned;
-    owner.invalidateTextState();
+    owner.setOwnedFontPath(owned);
     return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
 }
 
 pub fn setFallbackFontPaths(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: usize) c_int {
     const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
-    for (owner.fallback_font_paths.items) |path| std.heap.c_allocator.free(path);
-    owner.fallback_font_paths.clearRetainingCapacity();
+    // Stage owned fallback paths off to the side so a failed update never
+    // leaves dangling fallback pointers in the live owner state.
+    var staged = std.ArrayList([:0]u8).empty;
+    defer freeOwnedPathList(&staged);
     if (count == 0) {
-        owner.session.text_state.fallback_font_paths_len = 0;
-        for (0..text_support.max_fallback_fonts) |i| owner.session.text_state.fallback_font_paths[i] = null;
-        owner.invalidateTextState();
+        owner.adoptFallbackFontPaths(&staged);
         return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
     }
     const raw_paths = ptrs orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
+    const path_count: u8 = @intCast(@min(count, text_support.max_fallback_fonts));
+    staged.ensureTotalCapacity(std.heap.c_allocator, path_count) catch return @intFromEnum(Ffi.HowlRenderCallStatus.failed);
+    var i: u8 = 0;
+    while (i < path_count) : (i += 1) {
         const raw = raw_paths[i] orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
         const owned = std.heap.c_allocator.dupeZ(u8, std.mem.sliceTo(raw, 0)) catch return @intFromEnum(Ffi.HowlRenderCallStatus.failed);
-        owner.fallback_font_paths.append(std.heap.c_allocator, owned) catch return @intFromEnum(Ffi.HowlRenderCallStatus.failed);
+        staged.appendAssumeCapacity(owned);
     }
-    const n: u8 = @intCast(@min(owner.fallback_font_paths.items.len, text_support.max_fallback_fonts));
-    owner.session.text_state.fallback_font_paths_len = n;
-    for (0..n) |slot| owner.session.text_state.fallback_font_paths[slot] = owner.fallback_font_paths.items[slot];
-    for (@as(usize, n)..text_support.max_fallback_fonts) |slot| owner.session.text_state.fallback_font_paths[slot] = null;
-    owner.invalidateTextState();
+    owner.adoptFallbackFontPaths(&staged);
     return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
 }
 
@@ -221,6 +214,12 @@ fn surfaceFeedbackOut(comptime Ffi: type, value: Render.RenderSurfaceFeedback) F
         .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch },
         .metrics = surfaceMetricsOut(Ffi, value.metrics),
     };
+}
+
+fn freeOwnedPathList(paths: *std.ArrayList([:0]u8)) void {
+    for (paths.items) |path| std.heap.c_allocator.free(path);
+    paths.deinit(std.heap.c_allocator);
+    paths.* = .empty;
 }
 
 fn surfaceMetricsOut(comptime Ffi: type, value: Render.RenderMetrics) Ffi.FfiSurfaceMetrics {
@@ -385,9 +384,9 @@ fn surfaceQueryIn(value: anytype) Render.SurfaceQuery {
 }
 
 fn vtSurfaceIn(comptime Ffi: type, allocator: std.mem.Allocator, value: Ffi.FfiVtSurface) !OwnedVtSurface {
-    const cell_count = @as(usize, value.cols) * @as(usize, value.rows);
+    const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
     if (value.cells.len < cell_count) return error.InvalidSurfaceSource;
-    const cells = try allocator.alloc(Render.SurfaceCell, cell_count);
+    const cells = try allocator.alloc(Render.SurfaceCell, @intCast(cell_count));
     errdefer allocator.free(cells);
     for (cells, 0..) |*dst, idx| dst.* = cellValueIn(Ffi, value.cells.ptr[idx]);
     const dirty_rows = try dirtyRowsIn(allocator, value.rows, value.dirty_rows);

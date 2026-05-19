@@ -281,8 +281,7 @@ pub const SurfaceTextOwner = struct {
     pub fn destroy(self: *SurfaceTextOwner) void {
         if (self.font_path) |path| std.heap.c_allocator.free(path);
         self.font_path = null;
-        for (self.fallback_font_paths.items) |path| std.heap.c_allocator.free(path);
-        self.fallback_font_paths.deinit(std.heap.c_allocator);
+        freeOwnedFallbackFontPaths(&self.fallback_font_paths);
         self.clearRetainedSurface();
         self.session.deinit();
         std.heap.c_allocator.destroy(self);
@@ -295,6 +294,24 @@ pub const SurfaceTextOwner = struct {
         self.session.text_state.glyph_cell_cache.clear();
         if (self.session.text_preparer) |*preparer| preparer.clearAtlas();
         self.clearRetainedSurface();
+    }
+
+    pub fn setOwnedFontPath(self: *SurfaceTextOwner, owned: ?[:0]u8) void {
+        if (owned) |path| std.debug.assert(path.len > 0);
+        const old = self.font_path;
+        self.font_path = owned;
+        self.config.font_path = owned;
+        self.invalidateTextState();
+        if (old) |path| std.heap.c_allocator.free(path);
+    }
+
+    pub fn adoptFallbackFontPaths(self: *SurfaceTextOwner, owned_paths: *std.ArrayList([:0]u8)) void {
+        var old = self.fallback_font_paths;
+        self.fallback_font_paths = owned_paths.*;
+        owned_paths.* = .empty;
+        self.syncFallbackFontPaths();
+        self.invalidateTextState();
+        freeOwnedFallbackFontPaths(&old);
     }
 
     pub fn requiredRetainedSurfaceBase(self: *const SurfaceTextOwner, prepared: *const surface.PreparedSurface) []const u8 {
@@ -331,6 +348,23 @@ pub const SurfaceTextOwner = struct {
         self.retained_surface_width = 0;
         self.retained_surface_height = 0;
         self.retained_surface_epoch = 0;
+    }
+
+    fn syncFallbackFontPaths(self: *SurfaceTextOwner) void {
+        std.debug.assert(self.fallback_font_paths.items.len <= text_support.max_fallback_fonts);
+        const count: u8 = @intCast(self.fallback_font_paths.items.len);
+        self.session.text_state.fallback_font_paths_len = count;
+        for (0..count) |slot| self.session.text_state.fallback_font_paths[slot] = self.fallback_font_paths.items[slot];
+        var slot = count;
+        while (slot < text_support.max_fallback_fonts) : (slot += 1) {
+            self.session.text_state.fallback_font_paths[slot] = null;
+        }
+    }
+
+    fn freeOwnedFallbackFontPaths(paths: *std.ArrayList([:0]u8)) void {
+        for (paths.items) |path| std.heap.c_allocator.free(path);
+        paths.deinit(std.heap.c_allocator);
+        paths.* = .empty;
     }
 };
 
@@ -407,4 +441,47 @@ test "invalidateTextState clears retained image state" {
     try std.testing.expectEqual(@as(u16, 0), owner.retained_surface_width);
     try std.testing.expectEqual(@as(u16, 0), owner.retained_surface_height);
     try std.testing.expectEqual(@as(u64, 0), owner.retained_surface_epoch);
+}
+
+test "setOwnedFontPath keeps owner and config font paths aligned" {
+    const owner = SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    const first = try std.heap.c_allocator.dupeZ(u8, "first-font");
+    owner.setOwnedFontPath(first);
+    try std.testing.expect(owner.font_path != null);
+    try std.testing.expect(owner.config.font_path != null);
+    try std.testing.expectEqualStrings("first-font", owner.font_path.?);
+    try std.testing.expectEqualStrings("first-font", owner.config.font_path.?);
+
+    const second = try std.heap.c_allocator.dupeZ(u8, "second-font");
+    owner.setOwnedFontPath(second);
+    try std.testing.expectEqualStrings("second-font", owner.font_path.?);
+    try std.testing.expectEqualStrings("second-font", owner.config.font_path.?);
+
+    owner.setOwnedFontPath(null);
+    try std.testing.expect(owner.font_path == null);
+    try std.testing.expect(owner.config.font_path == null);
+}
+
+test "adoptFallbackFontPaths syncs state and clears stale slots" {
+    const owner = SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    var first = std.ArrayList([:0]u8).empty;
+    first.append(std.heap.c_allocator, try std.heap.c_allocator.dupeZ(u8, "mono")) catch return error.OutOfMemory;
+    first.append(std.heap.c_allocator, try std.heap.c_allocator.dupeZ(u8, "emoji")) catch return error.OutOfMemory;
+    owner.adoptFallbackFontPaths(&first);
+
+    try std.testing.expectEqual(@as(u8, 2), owner.session.text_state.fallback_font_paths_len);
+    try std.testing.expectEqualStrings("mono", owner.session.text_state.fallback_font_paths[0].?);
+    try std.testing.expectEqualStrings("emoji", owner.session.text_state.fallback_font_paths[1].?);
+
+    var second = std.ArrayList([:0]u8).empty;
+    second.append(std.heap.c_allocator, try std.heap.c_allocator.dupeZ(u8, "symbols")) catch return error.OutOfMemory;
+    owner.adoptFallbackFontPaths(&second);
+
+    try std.testing.expectEqual(@as(u8, 1), owner.session.text_state.fallback_font_paths_len);
+    try std.testing.expectEqualStrings("symbols", owner.session.text_state.fallback_font_paths[0].?);
+    try std.testing.expect(owner.session.text_state.fallback_font_paths[1] == null);
 }
