@@ -34,6 +34,14 @@ pub const HowlRenderSubmitStatus = enum(c_int) {
     failed = -3,
 };
 
+pub const HowlRenderSubmitDecisionStatus = enum(c_int) {
+    idle = 0,
+    submit = 1,
+    stale = 2,
+    needs_prepare = 3,
+    failed = -3,
+};
+
 pub const FfiPixelSize = extern struct {
     width: u16,
     height: u16,
@@ -237,6 +245,15 @@ pub const FfiSurfaceQuery = extern struct {
     epoch: u64,
 };
 
+pub const FfiPendingState = extern struct {
+    status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
+    source_pending: u8,
+    prepare_pending: u8,
+    submit_pending: u8,
+    target_valid: u8,
+    reserved0: u8 = 0,
+};
+
 pub const FfiPrepareRequest = extern struct {
     snapshot_seq: u64,
     dirty_epoch: u64,
@@ -260,6 +277,25 @@ pub const FfiPreparedFrame = extern struct {
     reserved1: u16 = 0,
 };
 
+pub const FfiVtSnapshot = extern struct {
+    cols: u16,
+    rows: u16,
+    is_alternate_screen: u8,
+    damage_kind: u8,
+    scrollback_offset: u64,
+    snapshot_seq: u64,
+};
+
+pub const FfiVtPublishResult = extern struct {
+    status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
+    published: u8,
+    queued: u8,
+    damage_kind: u8,
+    reserved0: u8 = 0,
+    snapshot_seq: u64,
+    geometry_epoch: u64,
+};
+
 pub const FfiSurfaceMetrics = extern struct {
     sync_us: u64,
     copy_us: u64,
@@ -278,6 +314,25 @@ pub const FfiSurfaceMetrics = extern struct {
     fallback_hits: u64,
     fallback_misses: u64,
     missing_glyphs: u64,
+};
+
+pub const FfiQueueMetrics = extern struct {
+    snapshot_publishes: u64,
+    snapshot_hidden_drops: u64,
+    snapshot_clean_drops: u64,
+    prepare_requests: u64,
+    prepare_coalesces: u64,
+    prepare_forced_full: u64,
+    prepare_takes: u64,
+    prepared_publishes: u64,
+    prepared_coalesces: u64,
+    submit_takes: u64,
+    submit_valid: u64,
+    submit_rejected: u64,
+    full_prepare_requests: u64,
+    submitted_accepts: u64,
+    presents: u64,
+    target_invalidations: u64,
 };
 
 pub const FfiSurfaceHandle = extern struct {
@@ -513,6 +568,46 @@ pub fn surfaceTextSetFontPath(handle: SurfaceTextHandle, ptr: ?[*]const u8, len:
 
 pub fn surfaceTextSetFallbackFontPaths(handle: SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: usize) callconv(.c) c_int {
     return surface_text_ffi.setFallbackFontPaths(@This(), handle, ptrs, count);
+}
+
+pub fn surfaceTextSyncGeometry(handle: SurfaceTextHandle, geometry: FfiGeometry) callconv(.c) FfiGeometryResponse {
+    return surface_text_ffi.syncGeometry(@This(), handle, geometry);
+}
+
+pub fn surfaceTextSurfaceQuery(handle: SurfaceTextHandle) callconv(.c) FfiSurfaceQuery {
+    return surface_text_ffi.surfaceQuery(@This(), handle);
+}
+
+pub fn surfaceTextPublishVtSnapshot(handle: SurfaceTextHandle, snapshot: FfiVtSnapshot) callconv(.c) FfiVtPublishResult {
+    return surface_text_ffi.publishVtSnapshot(@This(), handle, snapshot);
+}
+
+pub fn surfaceTextTakePrepareRequest(handle: SurfaceTextHandle, prepare_request_out: ?*FfiPrepareRequest) callconv(.c) HowlRenderPrepareStatus {
+    return surface_text_ffi.takePrepareRequest(@This(), handle, prepare_request_out);
+}
+
+pub fn surfaceTextPublishPrepared(handle: SurfaceTextHandle, prepared_frame: FfiPreparedFrame) callconv(.c) c_int {
+    return surface_text_ffi.publishPrepared(@This(), handle, prepared_frame);
+}
+
+pub fn surfaceTextTakeSubmitDecision(handle: SurfaceTextHandle, prepared_frame_out: ?*FfiPreparedFrame) callconv(.c) HowlRenderSubmitDecisionStatus {
+    return surface_text_ffi.takeSubmitDecision(@This(), handle, prepared_frame_out);
+}
+
+pub fn surfaceTextAcceptSubmitted(handle: SurfaceTextHandle, prepared_frame: FfiPreparedFrame, surface_handle: FfiSurfaceHandle, content_valid: u8) callconv(.c) c_int {
+    return surface_text_ffi.acceptSubmitted(@This(), handle, prepared_frame, surface_handle, content_valid);
+}
+
+pub fn surfaceTextMarkPresented(handle: SurfaceTextHandle) callconv(.c) void {
+    surface_text_ffi.markPresented(@This(), handle);
+}
+
+pub fn surfaceTextPendingState(handle: SurfaceTextHandle, pending_out: ?*FfiPendingState) callconv(.c) c_int {
+    return surface_text_ffi.pendingState(@This(), handle, pending_out);
+}
+
+pub fn surfaceTextTakeQueueMetrics(handle: SurfaceTextHandle, metrics_out: ?*FfiQueueMetrics) callconv(.c) c_int {
+    return surface_text_ffi.takeQueueMetrics(@This(), handle, metrics_out);
 }
 
 pub fn surfaceTextPrepareHandle(surface_text_handle: SurfaceTextHandle, vt_surface_in: ?*const FfiVtSurface, prepare_request: FfiPrepareRequest, query: FfiSurfaceQuery, prepared_handle_out: ?*PreparedSurfaceHandle) callconv(.c) HowlRenderPrepareStatus {

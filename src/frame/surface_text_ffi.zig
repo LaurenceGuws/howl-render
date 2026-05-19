@@ -50,6 +50,7 @@ pub fn setFontSize(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, font_size_
     const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
     if (font_size_px == 0) return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
     owner.config.font_size_px = @max(font_size_px, 1);
+    owner.flow.setFontSizePx(owner.config.font_size_px);
     owner.invalidateTextState();
     return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
 }
@@ -95,6 +96,79 @@ pub fn setFallbackFontPaths(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, p
     for (0..n) |slot| owner.session.text_state.fallback_font_paths[slot] = owner.fallback_font_paths.items[slot];
     for (@as(usize, n)..text_support.max_fallback_fonts) |slot| owner.session.text_state.fallback_font_paths[slot] = null;
     owner.invalidateTextState();
+    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+}
+
+pub fn syncGeometry(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, geometry: Ffi.FfiGeometry) Ffi.FfiGeometryResponse {
+    const owner = ownerFromHandle(Ffi, handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 };
+    return geometryOut(Ffi, owner.flow.syncGeometry(geometryIn(Ffi, geometry)));
+}
+
+pub fn surfaceQuery(comptime Ffi: type, handle: Ffi.SurfaceTextHandle) Ffi.FfiSurfaceQuery {
+    const owner = ownerFromHandle(Ffi, handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .font_size_px = 0, .epoch = 0 };
+    return surfaceQueryOut(Ffi, owner.flow.surfaceQuery());
+}
+
+pub fn publishVtSnapshot(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, snapshot_in: Ffi.FfiVtSnapshot) Ffi.FfiVtPublishResult {
+    const owner = ownerFromHandle(Ffi, handle) orelse return .{ .status = @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    return vtPublishResultOut(Ffi, owner.flow.acceptSnapshot(vtSnapshotIn(snapshot_in)));
+}
+
+pub fn takePrepareRequest(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiPrepareRequest) Ffi.HowlRenderPrepareStatus {
+    const owner = ownerFromHandle(Ffi, handle) orelse return .failed;
+    const prepare_out = out orelse return .failed;
+    const request = owner.flow.prepare() orelse return .idle;
+    prepare_out.* = prepareRequestOut(Ffi, request, owner.flow.pendingState().target_valid);
+    return .ready;
+}
+
+pub fn publishPrepared(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, prepared_in: Ffi.FfiPreparedFrame) c_int {
+    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    owner.flow.publishPrepared(preparedFrameIn(prepared_in));
+    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+}
+
+pub fn takeSubmitDecision(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiPreparedFrame) Ffi.HowlRenderSubmitDecisionStatus {
+    const owner = ownerFromHandle(Ffi, handle) orelse return .failed;
+    const prepared_out = out orelse return .failed;
+    return switch (owner.flow.submit()) {
+        .idle => .idle,
+        .stale => .stale,
+        .submit => |prepared| blk: {
+            prepared_out.* = preparedFrameOut(Ffi, prepared);
+            break :blk .submit;
+        },
+        .needs_full_prepare => .needs_prepare,
+    };
+}
+
+pub fn acceptSubmitted(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, prepared_in: Ffi.FfiPreparedFrame, surface_in: Ffi.FfiSurfaceHandle, content_valid: u8) c_int {
+    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const prepared = preparedFrameIn(prepared_in);
+    owner.flow.acceptSubmitted(.{
+        .token = prepared.token,
+        .target_epoch = surface_in.epoch,
+        .content_valid = content_valid != 0,
+    });
+    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+}
+
+pub fn markPresented(comptime Ffi: type, handle: Ffi.SurfaceTextHandle) void {
+    const owner = ownerFromHandle(Ffi, handle) orelse return;
+    owner.flow.markPresented();
+}
+
+pub fn pendingState(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiPendingState) c_int {
+    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const pending_out = out orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
+    pending_out.* = pendingStateOut(Ffi, owner.flow.pendingState());
+    return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
+}
+
+pub fn takeQueueMetrics(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: ?*Ffi.FfiQueueMetrics) c_int {
+    const owner = ownerFromHandle(Ffi, handle) orelse return @intFromEnum(Ffi.HowlRenderCallStatus.missing_handle);
+    const metrics_out = out orelse return @intFromEnum(Ffi.HowlRenderCallStatus.invalid_argument);
+    metrics_out.* = queueMetricsOut(Ffi, owner.flow.takeMetrics());
     return @intFromEnum(Ffi.HowlRenderCallStatus.ok);
 }
 
@@ -161,6 +235,113 @@ fn surfaceMetricsOut(comptime Ffi: type, value: Render.RenderMetrics) Ffi.FfiSur
 
 fn executionInputIn(value: anytype) Render.SurfaceText.RenderSurfaceExecutionInput {
     return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch }, .uploads_committed = value.uploads_committed, .render_us = value.render_us, .content_valid = value.content_valid != 0 };
+}
+
+fn geometryIn(comptime Ffi: type, value: Ffi.FfiGeometry) Render.FrameQueue.Geometry {
+    return .{
+        .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
+        .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
+        .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
+    };
+}
+
+fn geometryOut(comptime Ffi: type, value: Render.FrameQueue.GeometryResponse) Ffi.FfiGeometryResponse {
+    return .{
+        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
+        .changed = @intFromBool(value.changed),
+        .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
+        .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
+        .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
+        .geometry_epoch = value.geometry_epoch,
+    };
+}
+
+fn surfaceQueryOut(comptime Ffi: type, value: Render.FrameQueue.SurfaceQuery) Ffi.FfiSurfaceQuery {
+    return .{
+        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
+        .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
+        .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
+        .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
+        .font_size_px = value.font_size_px,
+        .epoch = value.epoch,
+    };
+}
+
+fn vtSnapshotIn(value: anytype) Render.FrameQueue.VtSnapshot {
+    return .{
+        .cols = value.cols,
+        .rows = value.rows,
+        .scrollback_offset = value.scrollback_offset,
+        .snapshot_seq = value.snapshot_seq,
+        .is_alternate_screen = value.is_alternate_screen != 0,
+        .damage_kind = @enumFromInt(value.damage_kind),
+    };
+}
+
+fn vtPublishResultOut(comptime Ffi: type, value: Render.FrameQueue.VtPublishResult) Ffi.FfiVtPublishResult {
+    return .{
+        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
+        .published = @intFromBool(value.published),
+        .queued = @intFromBool(value.queued),
+        .damage_kind = @intFromEnum(value.damage_kind),
+        .snapshot_seq = value.snapshot_seq,
+        .geometry_epoch = value.geometry_epoch,
+    };
+}
+
+fn pendingStateOut(comptime Ffi: type, value: anytype) Ffi.FfiPendingState {
+    return .{
+        .status = @intFromEnum(Ffi.HowlRenderCallStatus.ok),
+        .source_pending = @intFromBool(value.source_pending),
+        .prepare_pending = @intFromBool(value.prepare_pending),
+        .submit_pending = @intFromBool(value.submit_pending),
+        .target_valid = @intFromBool(value.target_valid),
+    };
+}
+
+fn queueMetricsOut(comptime Ffi: type, value: anytype) Ffi.FfiQueueMetrics {
+    return .{
+        .snapshot_publishes = value.snapshot_publishes,
+        .snapshot_hidden_drops = value.snapshot_hidden_drops,
+        .snapshot_clean_drops = value.snapshot_clean_drops,
+        .prepare_requests = value.prepare_requests,
+        .prepare_coalesces = value.prepare_coalesces,
+        .prepare_forced_full = value.prepare_forced_full,
+        .prepare_takes = value.prepare_takes,
+        .prepared_publishes = value.prepared_publishes,
+        .prepared_coalesces = value.prepared_coalesces,
+        .submit_takes = value.submit_takes,
+        .submit_valid = value.submit_valid,
+        .submit_rejected = value.submit_rejected,
+        .full_prepare_requests = value.full_prepare_requests,
+        .submitted_accepts = value.submitted_accepts,
+        .presents = value.presents,
+        .target_invalidations = value.target_invalidations,
+    };
+}
+
+fn prepareRequestOut(comptime Ffi: type, value: Render.FramePipeline.RenderRequest, target_valid: bool) Ffi.FfiPrepareRequest {
+    return .{
+        .snapshot_seq = value.token.snapshot_seq,
+        .dirty_epoch = value.token.dirty_epoch,
+        .geometry_epoch = value.token.geometry_epoch,
+        .damage_base_seq = value.token.damage_base_seq,
+        .known_target_epoch = value.known_target_epoch,
+        .target_valid = @intFromBool(target_valid),
+        .damage_kind = @intFromEnum(value.token.damage_kind),
+    };
+}
+
+fn preparedFrameOut(comptime Ffi: type, value: Render.FramePipeline.PreparedFrame) Ffi.FfiPreparedFrame {
+    return .{
+        .snapshot_seq = value.token.snapshot_seq,
+        .dirty_epoch = value.token.dirty_epoch,
+        .geometry_epoch = value.token.geometry_epoch,
+        .damage_base_seq = value.token.damage_base_seq,
+        .required_base_seq = value.required_base_seq,
+        .required_target_epoch = value.required_target_epoch,
+        .damage_kind = @intFromEnum(value.token.damage_kind),
+    };
 }
 
 fn prepareRequestIn(comptime Ffi: type, value: Ffi.FfiPrepareRequest) Render.SurfaceText.PrepareInput {

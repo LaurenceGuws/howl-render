@@ -1,4 +1,3 @@
-
 const std = @import("std");
 const pipeline = @import("pipeline.zig");
 
@@ -71,6 +70,12 @@ pub const TerminalSurface = struct {
         submitted_accepts: u64 = 0,
         presents: u64 = 0,
         target_invalidations: u64 = 0,
+    };
+
+    pub const PendingState = struct {
+        prepare_pending: bool,
+        submit_pending: bool,
+        target_valid: bool,
     };
 
     pub fn setVisible(self: *TerminalSurface, visible: bool) void {
@@ -285,8 +290,235 @@ pub const TerminalSurface = struct {
             .idle => .idle,
             .stale => |token| .{ .stale = token },
             .submit => |prepared| .{ .submit = prepared },
-            .rejected => |rejected| .{ .needs_full_prepare = rejected.reason },
+            .rejected => |rejected| blk: {
+                self.requestFullPrepare(rejected.prepared.token);
+                break :blk .{ .needs_full_prepare = rejected.reason };
+            },
         };
+    }
+
+    pub fn pendingState(self: *const TerminalSurface) TerminalSurface.PendingState {
+        const surface: *TerminalSurface = @constCast(self);
+        lockMutex(&surface.mutex);
+        defer surface.mutex.unlock();
+        return .{
+            .prepare_pending = surface.prepare_mailbox.hasPending(),
+            .submit_pending = surface.submit_mailbox.hasPending(),
+            .target_valid = if (surface.submitted_frame) |frame| frame.content_valid else false,
+        };
+    }
+};
+
+pub const PixelSize = extern struct {
+    width: u16,
+    height: u16,
+};
+
+pub const CellSize = extern struct {
+    width: u16,
+    height: u16,
+};
+
+pub const Geometry = extern struct {
+    render_px: PixelSize,
+    grid_px: PixelSize,
+    cell_px: CellSize,
+};
+
+pub const GeometryResponse = extern struct {
+    changed: bool,
+    render_px: PixelSize,
+    grid_px: PixelSize,
+    cell_px: CellSize,
+    geometry_epoch: u64,
+};
+
+pub const SurfaceQuery = extern struct {
+    render_px: PixelSize,
+    grid_px: PixelSize,
+    cell_px: CellSize,
+    font_size_px: u16,
+    epoch: u64,
+};
+
+pub const VtSnapshot = struct {
+    cols: u16,
+    rows: u16,
+    scrollback_offset: u64,
+    snapshot_seq: u64,
+    is_alternate_screen: bool,
+    damage_kind: pipeline.DamageKind,
+};
+
+pub const VtPublishResult = struct {
+    published: bool,
+    queued: bool,
+    damage_kind: pipeline.DamageKind,
+    snapshot_seq: u64,
+    geometry_epoch: u64,
+};
+
+pub const PendingState = struct {
+    source_pending: bool,
+    prepare_pending: bool,
+    submit_pending: bool,
+    target_valid: bool,
+};
+
+const Publication = struct {
+    cols: u16 = 0,
+    rows: u16 = 0,
+    scrollback_offset: u64 = 0,
+    snapshot_seq: u64 = 0,
+    is_alternate_screen: bool = false,
+    damage_kind: pipeline.DamageKind = .none,
+
+    fn copyFrom(self: *Publication, snapshot: VtSnapshot, damage_kind: pipeline.DamageKind) void {
+        self.cols = snapshot.cols;
+        self.rows = snapshot.rows;
+        self.scrollback_offset = snapshot.scrollback_offset;
+        self.snapshot_seq = snapshot.snapshot_seq;
+        self.is_alternate_screen = snapshot.is_alternate_screen;
+        self.damage_kind = damage_kind;
+    }
+};
+
+const PublicationState = struct {
+    publication: ?Publication = null,
+    pending: bool = false,
+
+    fn acceptSnapshot(self: *PublicationState, snapshot: VtSnapshot, geometry_epoch: u64) VtPublishResult {
+        const damage_kind = self.classify(snapshot);
+        const published = damage_kind != .none;
+        if (published) {
+            if (self.publication == null) self.publication = .{};
+            self.publication.?.copyFrom(snapshot, damage_kind);
+            self.pending = true;
+        }
+        return .{
+            .published = published,
+            .queued = self.pending,
+            .damage_kind = damage_kind,
+            .snapshot_seq = snapshot.snapshot_seq,
+            .geometry_epoch = geometry_epoch,
+        };
+    }
+
+    fn takePendingToken(self: *PublicationState, geometry_epoch: u64, submitted_token: ?pipeline.SnapshotToken) ?pipeline.SnapshotToken {
+        if (!self.pending) return null;
+        const publication = self.publication orelse return null;
+        self.pending = false;
+        return .{
+            .snapshot_seq = publication.snapshot_seq,
+            .dirty_epoch = publication.snapshot_seq,
+            .geometry_epoch = geometry_epoch,
+            .damage_base_seq = if (submitted_token) |token| token.snapshot_seq else 0,
+            .damage_kind = publication.damage_kind,
+        };
+    }
+
+    fn classify(self: *const PublicationState, snapshot: VtSnapshot) pipeline.DamageKind {
+        const prior = self.publication orelse return snapshot.damage_kind;
+        if (snapshot.snapshot_seq == prior.snapshot_seq) return .none;
+        if (snapshot.cols != prior.cols or snapshot.rows != prior.rows) return .full;
+        if (snapshot.is_alternate_screen != prior.is_alternate_screen) return .full;
+        if (snapshot.scrollback_offset != prior.scrollback_offset) return .full;
+        return snapshot.damage_kind;
+    }
+};
+
+pub const Flow = struct {
+    surface: TerminalSurface = .{},
+    render_px: PixelSize = .{ .width = 0, .height = 0 },
+    grid_px: PixelSize = .{ .width = 0, .height = 0 },
+    cell_px: CellSize = .{ .width = 0, .height = 0 },
+    font_size_px: u16 = 1,
+    geometry_epoch: u64 = 0,
+    publication_state: PublicationState = .{},
+
+    pub fn setFontSizePx(self: *Flow, font_size_px: u16) void {
+        self.font_size_px = @max(font_size_px, 1);
+    }
+
+    pub fn acceptSnapshot(self: *Flow, snapshot: VtSnapshot) VtPublishResult {
+        std.debug.assert(snapshot.cols > 0);
+        std.debug.assert(snapshot.rows > 0);
+        return self.publication_state.acceptSnapshot(snapshot, self.geometry_epoch);
+    }
+
+    pub fn syncGeometry(self: *Flow, layout: Geometry) GeometryResponse {
+        const changed = self.geometry_epoch == 0 or
+            self.render_px.width != layout.render_px.width or
+            self.render_px.height != layout.render_px.height or
+            self.grid_px.width != layout.grid_px.width or
+            self.grid_px.height != layout.grid_px.height or
+            self.cell_px.width != layout.cell_px.width or
+            self.cell_px.height != layout.cell_px.height;
+        if (changed) {
+            self.geometry_epoch +%= 1;
+            self.render_px = layout.render_px;
+            self.grid_px = layout.grid_px;
+            self.cell_px = layout.cell_px;
+            self.surface.bindTargetEpoch(self.geometry_epoch);
+        }
+        return .{
+            .changed = changed,
+            .render_px = self.render_px,
+            .grid_px = self.grid_px,
+            .cell_px = self.cell_px,
+            .geometry_epoch = self.geometry_epoch,
+        };
+    }
+
+    pub fn prepare(self: *Flow) ?pipeline.RenderRequest {
+        if (self.publication_state.takePendingToken(self.geometry_epoch, self.surface.submittedToken())) |token| {
+            _ = self.surface.publishSnapshot(token, .opportunistic);
+        }
+        return self.surface.takePrepare();
+    }
+
+    pub fn publishPrepared(self: *Flow, prepared: pipeline.PreparedFrame) void {
+        _ = self.surface.publishPrepared(prepared);
+    }
+
+    pub fn submit(self: *Flow) TerminalSurface.SubmitDecision {
+        return self.surface.takeValidatedSubmit();
+    }
+
+    pub fn acceptSubmitted(self: *Flow, frame: pipeline.SubmittedFrame) void {
+        if (frame.token.geometry_epoch != self.geometry_epoch) {
+            self.surface.requestFullPrepare(frame.token);
+            return;
+        }
+        self.surface.acceptSubmitted(frame);
+    }
+
+    pub fn markPresented(self: *Flow) void {
+        self.surface.markPresented();
+    }
+
+    pub fn pendingState(self: *const Flow) PendingState {
+        const pending = self.surface.pendingState();
+        return .{
+            .source_pending = self.publication_state.pending,
+            .prepare_pending = pending.prepare_pending,
+            .submit_pending = pending.submit_pending,
+            .target_valid = pending.target_valid,
+        };
+    }
+
+    pub fn surfaceQuery(self: *const Flow) SurfaceQuery {
+        return .{
+            .render_px = self.render_px,
+            .grid_px = self.grid_px,
+            .cell_px = self.cell_px,
+            .font_size_px = self.font_size_px,
+            .epoch = self.geometry_epoch,
+        };
+    }
+
+    pub fn takeMetrics(self: *Flow) TerminalSurface.Metrics {
+        return self.surface.takeMetrics();
     }
 };
 
@@ -392,7 +624,6 @@ pub fn SurfaceExecutor(comptime Frame: type) type {
         pub fn markPresented(self: *Self) void {
             self.surface.markPresented();
         }
-
     };
 }
 
@@ -573,12 +804,11 @@ test "surface rejects stale submit and requests full latest prepare" {
         .required_target_epoch = 5,
     });
 
-    const decision = surface.takeSubmitTransition();
+    const decision = surface.takeValidatedSubmit();
     switch (decision) {
-        .rejected => |rejected| try std.testing.expectEqual(pipeline.FullPrepareReason.retained_base_stale, rejected.reason),
+        .needs_full_prepare => |reason| try std.testing.expectEqual(pipeline.FullPrepareReason.retained_base_stale, reason),
         else => return error.TestUnexpectedResult,
     }
-    surface.requestFullPrepare(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 2, .damage_kind = .partial });
     const request = surface.takePrepareEnvelope() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), request.item.token.snapshot_seq);
     try std.testing.expectEqual(pipeline.DamageKind.full, request.item.token.damage_kind);
@@ -663,4 +893,114 @@ test "surface executor prepares latest request into submit slot" {
     var frame = executor.takePreparedForSubmit() orelse return error.TestUnexpectedResult;
     defer frame.deinit();
     try std.testing.expectEqual(@as(u32, 2), frame.id);
+}
+
+test "flow exposes source pending before queue preparation" {
+    var flow = Flow{};
+    _ = flow.syncGeometry(.{
+        .render_px = .{ .width = 10, .height = 10 },
+        .grid_px = .{ .width = 10, .height = 10 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const first = flow.acceptSnapshot(.{
+        .cols = 10,
+        .rows = 10,
+        .scrollback_offset = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .damage_kind = .full,
+    });
+    try std.testing.expect(first.published);
+    try std.testing.expect(flow.pendingState().source_pending);
+    try std.testing.expect(!flow.pendingState().prepare_pending);
+
+    _ = flow.prepare().?;
+    try std.testing.expect(!flow.pendingState().source_pending);
+    try std.testing.expect(!flow.pendingState().prepare_pending);
+}
+
+test "flow preserves partial snapshot damage while prior snapshot is still pending" {
+    var flow = Flow{};
+    _ = flow.syncGeometry(.{
+        .render_px = .{ .width = 10, .height = 10 },
+        .grid_px = .{ .width = 10, .height = 10 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    _ = flow.acceptSnapshot(.{
+        .cols = 10,
+        .rows = 10,
+        .scrollback_offset = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .damage_kind = .full,
+    });
+    const second = flow.acceptSnapshot(.{
+        .cols = 10,
+        .rows = 10,
+        .scrollback_offset = 0,
+        .snapshot_seq = 2,
+        .is_alternate_screen = false,
+        .damage_kind = .partial,
+    });
+    try std.testing.expect(second.published);
+    try std.testing.expectEqual(pipeline.DamageKind.partial, second.damage_kind);
+}
+
+test "flow forces full snapshot on viewport offset change" {
+    var flow = Flow{};
+    _ = flow.syncGeometry(.{
+        .render_px = .{ .width = 10, .height = 10 },
+        .grid_px = .{ .width = 10, .height = 10 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    _ = flow.acceptSnapshot(.{
+        .cols = 10,
+        .rows = 10,
+        .scrollback_offset = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .damage_kind = .full,
+    });
+    _ = flow.prepare();
+    const second = flow.acceptSnapshot(.{
+        .cols = 10,
+        .rows = 10,
+        .scrollback_offset = 1,
+        .snapshot_seq = 2,
+        .is_alternate_screen = false,
+        .damage_kind = .partial,
+    });
+    try std.testing.expectEqual(pipeline.DamageKind.full, second.damage_kind);
+}
+
+test "flow drops clean snapshot" {
+    var flow = Flow{};
+    _ = flow.syncGeometry(.{
+        .render_px = .{ .width = 10, .height = 10 },
+        .grid_px = .{ .width = 10, .height = 10 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    _ = flow.acceptSnapshot(.{
+        .cols = 10,
+        .rows = 10,
+        .scrollback_offset = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .damage_kind = .full,
+    });
+    _ = flow.prepare();
+    const second = flow.acceptSnapshot(.{
+        .cols = 10,
+        .rows = 10,
+        .scrollback_offset = 0,
+        .snapshot_seq = 2,
+        .is_alternate_screen = false,
+        .damage_kind = .none,
+    });
+    try std.testing.expect(!second.published);
+    try std.testing.expectEqual(pipeline.DamageKind.none, second.damage_kind);
 }

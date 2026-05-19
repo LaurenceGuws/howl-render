@@ -41,6 +41,14 @@ typedef enum {
   HOWL_RENDER_SUBMIT_FAILED = -3,
 } HowlRenderSubmitStatus;
 
+typedef enum {
+  HOWL_RENDER_SUBMIT_DECISION_IDLE = 0,
+  HOWL_RENDER_SUBMIT_DECISION_SUBMIT = 1,
+  HOWL_RENDER_SUBMIT_DECISION_STALE = 2,
+  HOWL_RENDER_SUBMIT_DECISION_NEEDS_PREPARE = 3,
+  HOWL_RENDER_SUBMIT_DECISION_FAILED = -3,
+} HowlRenderSubmitDecisionStatus;
+
 typedef struct {
   uint16_t width;
   uint16_t height;
@@ -212,6 +220,15 @@ typedef struct {
 } HowlRenderSurfaceQuery;
 
 typedef struct {
+  int32_t status;
+  uint8_t source_pending;
+  uint8_t prepare_pending;
+  uint8_t submit_pending;
+  uint8_t target_valid;
+  uint8_t reserved0;
+} HowlRenderPendingState;
+
+typedef struct {
   uint64_t snapshot_seq;
   uint64_t dirty_epoch;
   uint64_t geometry_epoch;
@@ -235,6 +252,25 @@ typedef struct {
 } HowlRenderPreparedFrame;
 
 typedef struct {
+  uint16_t cols;
+  uint16_t rows;
+  uint8_t is_alternate_screen;
+  uint8_t damage_kind;
+  uint64_t scrollback_offset;
+  uint64_t snapshot_seq;
+} HowlRenderVtSnapshot;
+
+typedef struct {
+  int32_t status;
+  uint8_t published;
+  uint8_t queued;
+  uint8_t damage_kind;
+  uint8_t reserved0;
+  uint64_t snapshot_seq;
+  uint64_t geometry_epoch;
+} HowlRenderVtPublishResult;
+
+typedef struct {
   uint64_t sync_us;
   uint64_t copy_us;
   uint64_t render_us;
@@ -253,6 +289,25 @@ typedef struct {
   uint64_t fallback_misses;
   uint64_t missing_glyphs;
 } HowlRenderSurfaceMetrics;
+
+typedef struct {
+  uint64_t snapshot_publishes;
+  uint64_t snapshot_hidden_drops;
+  uint64_t snapshot_clean_drops;
+  uint64_t prepare_requests;
+  uint64_t prepare_coalesces;
+  uint64_t prepare_forced_full;
+  uint64_t prepare_takes;
+  uint64_t prepared_publishes;
+  uint64_t prepared_coalesces;
+  uint64_t submit_takes;
+  uint64_t submit_valid;
+  uint64_t submit_rejected;
+  uint64_t full_prepare_requests;
+  uint64_t submitted_accepts;
+  uint64_t presents;
+  uint64_t target_invalidations;
+} HowlRenderQueueMetrics;
 
 typedef struct {
   uint64_t host_surface_id;
@@ -345,6 +400,16 @@ void howl_render_surface_text_deinit(HowlRenderSurfaceTextHandle handle);
 int howl_render_surface_text_set_font_size_px(HowlRenderSurfaceTextHandle handle, uint16_t font_size_px);
 int howl_render_surface_text_set_font_path(HowlRenderSurfaceTextHandle handle, const uint8_t *ptr, size_t len);
 int howl_render_surface_text_set_fallback_font_paths(HowlRenderSurfaceTextHandle handle, const uint8_t *const *ptrs, size_t count);
+HowlRenderGeometryResponse howl_render_surface_text_sync_geometry(HowlRenderSurfaceTextHandle handle, HowlRenderGeometry geometry);
+HowlRenderSurfaceQuery howl_render_surface_text_surface_query(HowlRenderSurfaceTextHandle handle);
+HowlRenderVtPublishResult howl_render_surface_text_publish_vt_snapshot(HowlRenderSurfaceTextHandle handle, HowlRenderVtSnapshot snapshot);
+HowlRenderPrepareStatus howl_render_surface_text_take_prepare_request(HowlRenderSurfaceTextHandle handle, HowlRenderPrepareRequest *prepare_request_out);
+int howl_render_surface_text_publish_prepared(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
+HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_decision(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame *prepared_frame_out);
+int howl_render_surface_text_accept_submitted(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame, HowlRenderSurfaceHandle surface, uint8_t content_valid);
+void howl_render_surface_text_mark_presented(HowlRenderSurfaceTextHandle handle);
+int howl_render_surface_text_pending_state(HowlRenderSurfaceTextHandle handle, HowlRenderPendingState *pending_out);
+int howl_render_surface_text_take_queue_metrics(HowlRenderSurfaceTextHandle handle, HowlRenderQueueMetrics *metrics_out);
 
 /* Owned prepared-surface ABI target. */
 HowlRenderPrepareStatus howl_render_surface_text_prepare_handle(HowlRenderSurfaceTextHandle surface_text_handle, const HowlRenderVtSurface *vt_surface, HowlRenderPrepareRequest prepare_request, HowlRenderSurfaceQuery query, HowlRenderPreparedSurfaceHandle *prepared_handle_out);

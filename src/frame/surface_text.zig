@@ -3,6 +3,7 @@ const damage = @import("damage.zig");
 const geometry_mod = @import("geometry.zig");
 const input = @import("input.zig");
 const pipeline = @import("pipeline.zig");
+const queue = @import("queue.zig");
 const submit_feedback = @import("submit_feedback.zig");
 const surface = @import("surface.zig");
 const contract = @import("../text/contract.zig");
@@ -293,13 +294,14 @@ pub const SurfaceText = struct {
 
 pub const SurfaceTextOwner = struct {
     session: SurfaceText,
+    flow: queue.Flow,
     config: SurfaceTextConfig,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
 
     pub fn create(config: SurfaceTextConfig) ?*SurfaceTextOwner {
         const owner = std.heap.c_allocator.create(SurfaceTextOwner) catch return null;
-        owner.* = .{ .session = SurfaceText.init(), .config = config };
+        owner.* = .{ .session = SurfaceText.init(), .flow = .{ .font_size_px = @max(config.font_size_px, 1) }, .config = config };
         return owner;
     }
 

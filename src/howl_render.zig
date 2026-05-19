@@ -1,6 +1,7 @@
 const geometry = @import("frame/geometry.zig");
 const input = @import("frame/input.zig");
 const pipeline = @import("frame/pipeline.zig");
+const queue = @import("frame/queue.zig");
 const surface = @import("frame/surface.zig");
 const surface_buffer = @import("frame/surface_buffer.zig");
 const surface_text = @import("frame/surface_text.zig");
@@ -35,6 +36,7 @@ pub const RenderMetrics = surface.RenderMetrics;
 pub const Geometry = surface.Geometry;
 pub const SurfaceQuery = surface.SurfaceQuery;
 pub const FramePipeline = pipeline;
+pub const FrameQueue = queue;
 pub const RenderSurfaceHandle = surface.RenderSurfaceHandle;
 pub const SurfaceLayout = surface.SurfaceLayout;
 pub const DamageRect = surface.DamageRect;

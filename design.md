@@ -37,6 +37,9 @@ classDiagram
 ## Ownership Rules
 
 - `frame/surface.zig` owns render-surface contract types and prepared render-surface state.
+- `frame/queue.zig` owns retained render-surface queue state, geometry epoch/query state, VT
+  snapshot publication classification, submit validation, target-epoch invalidation, and present
+  retirement.
 - `frame/surface_text.zig` owns prepare/submit text rendering work against VT-surface input.
 - `frame/prepared_surface_ffi.zig` and `frame/surface_text_ffi.zig` translate the render contract to
   the shipped C ABI only.
@@ -94,6 +97,13 @@ sequenceDiagram
   render owner.
 - `howl_render_surface_text_prepare_handle` returns a prepared render-surface handle only; it does
   not allocate or mutate host backend resources.
+- `howl_render_surface_text_sync_geometry` and `...surface_query` are the geometry-owner control
+  steps. The render owner advances geometry epoch and target invalidation when geometry changes.
+- `howl_render_surface_text_publish_vt_snapshot`, `...take_prepare_request`,
+  `...publish_prepared`, `...take_submit_decision`, `...accept_submitted`, and
+  `...mark_presented` are the retained render-queue control steps. They let hosts publish VT
+  snapshot metadata and drive the bounded prepare-submit-present loop without re-owning retained
+  render state in host code.
 - `howl_render_prepared_surface_damage_plan`, `..._buffer`, and `..._diagnostics` expose prepared
   render-surface output for host consumption.
 - `HowlRenderSurfaceExecutionInput` carries host execution truth back into render using a generic
