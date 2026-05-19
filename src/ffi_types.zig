@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const c_size_t = switch (@sizeOf(*u8)) {
     8 => u64,
     4 => u32,
@@ -392,3 +394,12 @@ pub const FfiSurfaceTextConfig = extern struct {
     font_size_px: u16,
     reserved0: u16 = 0,
 };
+
+comptime {
+    std.debug.assert(@sizeOf(FfiPixelSize) == 4);
+    std.debug.assert(@sizeOf(FfiCellSize) == 4);
+    std.debug.assert(@sizeOf(FfiGridSize) == 4);
+    std.debug.assert(@sizeOf(FfiByteSpan) == 16);
+    std.debug.assert(@sizeOf(FfiColor) == 8);
+    std.debug.assert(@sizeOf(FfiCursor) == 6);
+}

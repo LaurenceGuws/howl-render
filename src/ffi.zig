@@ -1,7 +1,6 @@
 const std = @import("std");
 const Render = @import("howl_render.zig");
 const abi = @import("ffi_types.zig");
-const surface = @import("frame/surface.zig");
 const prepared_surface = @import("frame/prepared_surface_ffi.zig");
 const surface_text_ffi = @import("frame/surface_text_ffi.zig");
 const text_support = @import("text/font/ft_hb/support.zig");
@@ -59,33 +58,20 @@ pub const FfiVtSurface = abi.FfiVtSurface;
 pub const FfiSurfaceFeedback = abi.FfiSurfaceFeedback;
 pub const FfiSurfaceTextConfig = abi.FfiSurfaceTextConfig;
 
-comptime {
-    std.debug.assert(@sizeOf(FfiPixelSize) == 4);
-    std.debug.assert(@sizeOf(FfiCellSize) == 4);
-    std.debug.assert(@sizeOf(FfiGridSize) == 4);
-    std.debug.assert(@sizeOf(FfiByteSpan) == 16);
-    std.debug.assert(@sizeOf(FfiColor) == 8);
-    std.debug.assert(@sizeOf(FfiCursor) == 6);
-}
-
-fn pixelIn(value: FfiPixelSize) surface.PixelSize {
-    return .{ .width = value.width, .height = value.height };
-}
-
-fn cellIn(value: FfiCellSize) surface.CellSize {
-    return .{ .width = value.width, .height = value.height };
-}
-
-fn gridOut(value: surface.GridSize) FfiGridSize {
-    return .{ .cols = value.cols, .rows = value.rows };
-}
-
 pub fn deriveGridSize(grid_px: FfiPixelSize, cell_px: FfiCellSize) callconv(.c) FfiGridSize {
-    return gridOut(Render.deriveGridSize(pixelIn(grid_px), cellIn(cell_px)));
+    const grid = Render.deriveGridSize(
+        .{ .width = grid_px.width, .height = grid_px.height },
+        .{ .width = cell_px.width, .height = cell_px.height },
+    );
+    return .{ .cols = grid.cols, .rows = grid.rows };
 }
 
 pub fn deriveFrameGridSize(render_px: FfiPixelSize, grid_px: FfiPixelSize, cell_px: FfiCellSize) callconv(.c) FfiFrameGridResult {
-    const grid = Render.deriveGridForFrame(pixelIn(render_px), pixelIn(grid_px), cellIn(cell_px)) catch |err| {
+    const grid = Render.deriveGridForFrame(
+        .{ .width = render_px.width, .height = render_px.height },
+        .{ .width = grid_px.width, .height = grid_px.height },
+        .{ .width = cell_px.width, .height = cell_px.height },
+    ) catch |err| {
         return .{
             .status = switch (err) {
                 error.InvalidSurfaceSize => -1,
@@ -94,7 +80,7 @@ pub fn deriveFrameGridSize(render_px: FfiPixelSize, grid_px: FfiPixelSize, cell_
             .grid = .{ .cols = 0, .rows = 0 },
         };
     };
-    return .{ .status = 0, .grid = gridOut(grid) };
+    return .{ .status = 0, .grid = .{ .cols = grid.cols, .rows = grid.rows } };
 }
 
 pub const surfaceTextDeriveFrameLayout = surface_text_ffi.deriveFrameLayout;
