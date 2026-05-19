@@ -41,18 +41,6 @@ pub const TerminalSurface = struct {
         idle,
     };
 
-    pub const RejectedSubmit = struct {
-        prepared: pipeline.PreparedFrame,
-        reason: pipeline.FullPrepareReason,
-    };
-
-    pub const SubmitTransition = union(enum) {
-        submit: pipeline.PreparedFrame,
-        stale: pipeline.SnapshotToken,
-        rejected: RejectedSubmit,
-        idle,
-    };
-
     pub const Metrics = struct {
         snapshot_publishes: u64 = 0,
         snapshot_hidden_drops: u64 = 0,
@@ -151,7 +139,7 @@ pub const TerminalSurface = struct {
         return envelope;
     }
 
-    pub fn takeSubmitTransition(self: *TerminalSurface) SubmitTransition {
+    pub fn takeValidatedSubmit(self: *TerminalSurface) SubmitDecision {
         const envelope = self.takeSubmitEnvelope() orelse return .idle;
         if (self.isStalePrepared(envelope.item.token)) return .{ .stale = envelope.item.token };
 
@@ -165,9 +153,10 @@ pub const TerminalSurface = struct {
 
         const reason = fullPrepareReason(validation);
         lockMutex(&self.mutex);
-        defer self.mutex.unlock();
         self.metrics.submit_rejected +%= 1;
-        return .{ .rejected = .{ .prepared = envelope.item, .reason = reason } };
+        self.mutex.unlock();
+        self.requestFullPrepare(envelope.item.token);
+        return .{ .needs_full_prepare = reason };
     }
 
     pub fn requestFullPrepare(self: *TerminalSurface, fallback: pipeline.SnapshotToken) void {
@@ -283,18 +272,6 @@ pub const TerminalSurface = struct {
 
     fn dropPrepareAtOrBefore(self: *TerminalSurface, token: pipeline.SnapshotToken) void {
         self.prepare_mailbox.dropAtOrBefore(token);
-    }
-
-    pub fn takeValidatedSubmit(self: *TerminalSurface) SubmitDecision {
-        return switch (self.takeSubmitTransition()) {
-            .idle => .idle,
-            .stale => |token| .{ .stale = token },
-            .submit => |prepared| .{ .submit = prepared },
-            .rejected => |rejected| blk: {
-                self.requestFullPrepare(rejected.prepared.token);
-                break :blk .{ .needs_full_prepare = rejected.reason };
-            },
-        };
     }
 
     pub fn pendingState(self: *const TerminalSurface) TerminalSurface.PendingState {
@@ -522,121 +499,6 @@ pub const Flow = struct {
     }
 };
 
-pub fn PreparedSlot(comptime Frame: type) type {
-    return struct {
-        const Self = @This();
-
-        mutex: ThreadMutex = .{},
-        frame: ?Frame = null,
-
-        pub fn deinit(self: *Self) void {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            if (self.frame) |*frame| frame.deinit();
-            self.frame = null;
-        }
-
-        pub fn publish(self: *Self, frame: Frame) void {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            if (self.frame) |*old| old.deinit();
-            self.frame = frame;
-        }
-
-        pub fn take(self: *Self) ?Frame {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            const frame = self.frame orelse return null;
-            self.frame = null;
-            return frame;
-        }
-
-        pub fn discard(self: *Self) void {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            if (self.frame) |*frame| frame.deinit();
-            self.frame = null;
-        }
-
-        pub fn hasFrame(self: *Self) bool {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            return self.frame != null;
-        }
-    };
-}
-
-pub fn SurfaceExecutor(comptime Frame: type) type {
-    return struct {
-        const Self = @This();
-        const Slot = PreparedSlot(Frame);
-
-        pub const PrepareFn = *const fn (context: *anyopaque, request: pipeline.RenderRequest) anyerror!?Frame;
-
-        pub const PrepareStep = union(enum) {
-            idle,
-            prepared,
-            failed: anyerror,
-        };
-
-        surface: TerminalSurface = .{},
-        prepared_slot: Slot = .{},
-
-        pub fn deinit(self: *Self) void {
-            self.prepared_slot.deinit();
-        }
-
-        pub fn publishSnapshot(self: *Self, token: pipeline.SnapshotToken, priority: pipeline.PreparePriority) ?u64 {
-            return self.surface.publishSnapshot(token, priority);
-        }
-
-        pub fn nextAction(self: *Self) TerminalSurface.Action {
-            return self.surface.nextAction();
-        }
-
-        pub fn prepareStep(self: *Self, context: *anyopaque, prepare: PrepareFn) PrepareStep {
-            if (self.surface.nextAction() != .prepare) return .idle;
-            const request = self.surface.takePrepare() orelse return .idle;
-            const frame = prepare(context, request) catch |err| return .{ .failed = err };
-            const prepared_frame = frame orelse return .idle;
-            const prepared_meta = preparedFrameMeta(prepared_frame, request);
-            self.prepared_slot.publish(prepared_frame);
-            _ = self.surface.publishPrepared(prepared_meta);
-            return .prepared;
-        }
-
-        pub fn takeValidatedSubmit(self: *Self) TerminalSurface.SubmitDecision {
-            return self.surface.takeValidatedSubmit();
-        }
-
-        pub fn takePreparedForSubmit(self: *Self) ?Frame {
-            return self.prepared_slot.take();
-        }
-
-        pub fn discardPrepared(self: *Self) void {
-            self.prepared_slot.discard();
-        }
-
-        pub fn acceptSubmitted(self: *Self, frame: pipeline.SubmittedFrame) void {
-            self.surface.acceptSubmitted(frame);
-        }
-
-        pub fn markPresented(self: *Self) void {
-            self.surface.markPresented();
-        }
-    };
-}
-
-fn preparedFrameMeta(frame: anytype, request: pipeline.RenderRequest) pipeline.PreparedFrame {
-    const Frame = @TypeOf(frame);
-    if (@hasDecl(Frame, "pipelineFrame")) return frame.pipelineFrame(request);
-    return .{
-        .token = request.token,
-        .required_base_seq = request.token.damage_base_seq,
-        .required_target_epoch = request.known_target_epoch,
-    };
-}
-
 fn fullPrepareReason(validation: pipeline.SubmitValidation) pipeline.FullPrepareReason {
     return switch (validation) {
         .valid => unreachable,
@@ -783,7 +645,7 @@ test "surface reports stale submit when newer snapshot already won" {
     _ = surface.publishSnapshot(.{ .snapshot_seq = 3, .dirty_epoch = 3, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, .opportunistic);
     _ = surface.publishPrepared(.{ .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } });
 
-    const decision = surface.takeSubmitTransition();
+    const decision = surface.takeValidatedSubmit();
     switch (decision) {
         .stale => |token| try std.testing.expectEqual(@as(u64, 2), token.snapshot_seq),
         else => return error.TestUnexpectedResult,
@@ -840,60 +702,6 @@ test "surface metrics reset keeps scheduling state" {
     surface.resetMetrics();
     try std.testing.expectEqual(@as(u64, 0), surface.metricsSnapshot().prepare_requests);
     try std.testing.expectEqual(TerminalSurface.Action.prepare, surface.nextAction());
-}
-
-test "prepared slot replaces stale frame and owns cleanup" {
-    const Frame = struct {
-        id: u32,
-        drops: *u32,
-
-        pub fn deinit(self: *@This()) void {
-            self.drops.* += 1;
-        }
-    };
-    const Slot = PreparedSlot(Frame);
-    var drops: u32 = 0;
-    var slot = Slot{};
-
-    slot.publish(.{ .id = 1, .drops = &drops });
-    slot.publish(.{ .id = 2, .drops = &drops });
-    try std.testing.expectEqual(@as(u32, 1), drops);
-    try std.testing.expect(slot.hasFrame());
-
-    var frame = slot.take() orelse return error.TestUnexpectedResult;
-    defer frame.deinit();
-    try std.testing.expectEqual(@as(u32, 2), frame.id);
-    try std.testing.expect(!slot.hasFrame());
-}
-
-test "surface executor prepares latest request into submit slot" {
-    const Frame = struct {
-        id: u32,
-        pub fn deinit(_: *@This()) void {}
-    };
-    const Executor = SurfaceExecutor(Frame);
-    const Ctx = struct {
-        fn prepare(context: *anyopaque, request: pipeline.RenderRequest) anyerror!?Frame {
-            const hits: *u32 = @ptrCast(@alignCast(context));
-            hits.* += 1;
-            return .{ .id = @intCast(request.token.snapshot_seq) };
-        }
-    };
-
-    var executor = Executor{};
-    defer executor.deinit();
-    var hits: u32 = 0;
-    _ = executor.publishSnapshot(.{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, .opportunistic);
-    _ = executor.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, .opportunistic);
-
-    try std.testing.expectEqual(TerminalSurface.Action.prepare, executor.nextAction());
-    try std.testing.expectEqual(Executor.PrepareStep.prepared, executor.prepareStep(&hits, Ctx.prepare));
-    try std.testing.expectEqual(@as(u32, 1), hits);
-    try std.testing.expectEqual(TerminalSurface.Action.submit, executor.nextAction());
-
-    var frame = executor.takePreparedForSubmit() orelse return error.TestUnexpectedResult;
-    defer frame.deinit();
-    try std.testing.expectEqual(@as(u32, 2), frame.id);
 }
 
 test "flow exposes source pending before queue preparation" {

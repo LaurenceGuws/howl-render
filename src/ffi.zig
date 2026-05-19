@@ -410,98 +410,12 @@ fn pixelIn(value: FfiPixelSize) surface.PixelSize {
     return .{ .width = value.width, .height = value.height };
 }
 
-fn rgba8Out(value: Render.Rgba8) FfiRgba8 {
-    return .{ .r = value.r, .g = value.g, .b = value.b, .a = value.a };
-}
-
 fn cellIn(value: FfiCellSize) surface.CellSize {
     return .{ .width = value.width, .height = value.height };
 }
 
 fn gridOut(value: surface.GridSize) FfiGridSize {
     return .{ .cols = value.cols, .rows = value.rows };
-}
-
-fn boolByte(value: bool) u8 {
-    return if (value) 1 else 0;
-}
-
-fn freeOwnedSlice(comptime T: type, buffer: *[]T) void {
-    if (buffer.*.len == 0) return;
-    std.heap.c_allocator.free(buffer.*);
-    buffer.* = &.{};
-}
-
-fn geometryIn(value: FfiGeometry) Render.Geometry {
-    return .{
-        .render_px = pixelIn(value.render_px),
-        .grid_px = pixelIn(value.grid_px),
-        .cell_px = cellInSize(value.cell_px),
-    };
-}
-
-fn cellInSize(value: FfiCellSize) surface.CellSize {
-    return .{ .width = value.width, .height = value.height };
-}
-
-fn geometryOut(value: surface.GeometryResponse) FfiGeometryResponse {
-    return .{
-        .status = @intFromEnum(HowlRenderCallStatus.ok),
-        .changed = boolByte(value.changed),
-        .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
-        .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
-        .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
-        .geometry_epoch = value.geometry_epoch,
-    };
-}
-
-fn surfaceQueryOut(value: Render.SurfaceQuery) FfiSurfaceQuery {
-    return .{
-        .status = @intFromEnum(HowlRenderCallStatus.ok),
-        .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
-        .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
-        .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
-        .font_size_px = value.font_size_px,
-        .epoch = value.epoch,
-    };
-}
-
-fn surfaceOut(value: Render.RenderSurfaceHandle) FfiSurfaceHandle {
-    return .{ .host_surface_id = value.host_surface_id, .width = value.width, .height = value.height, .epoch = value.epoch };
-}
-
-fn colorDrawSpanOut(items: []const FfiColorDraw) FfiColorDrawSpan {
-    return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
-}
-
-fn spriteDrawSpanOut(items: []const FfiSpriteDraw) FfiSpriteDrawSpan {
-    return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
-}
-
-fn decorationDrawSpanOut(items: []const FfiDecorationDraw) FfiDecorationDrawSpan {
-    return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
-}
-
-fn rasterUploadSpanOut(items: []const FfiRasterUpload) FfiRasterUploadSpan {
-    return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
-}
-
-fn byteSpanOut(items: []const u8) FfiByteSpan {
-    return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
-}
-
-fn u16SpanOut(items: []const u16) FfiU16Span {
-    return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
-}
-
-fn underlineStyleIn(value: u8) Render.UnderlineStyle {
-    return switch (value) {
-        1 => .double,
-        2 => .curly,
-        3 => .dotted,
-        4 => .dashed,
-        else => .straight,
-    };
 }
 
 pub fn deriveGridSize(grid_px: FfiPixelSize, cell_px: FfiCellSize) callconv(.c) FfiGridSize {

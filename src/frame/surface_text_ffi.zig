@@ -7,11 +7,16 @@ const text_support = @import("../text/font/ft_hb/support.zig");
 
 const OwnedVtSurface = struct {
     allocator: std.mem.Allocator,
+    cols: u16,
+    rows: u16,
+    scroll_row: u64,
+    is_alternate_screen: bool,
+    full_damage: bool,
     cells: []Render.SurfaceCell,
+    cursor: Render.SurfaceCursorInfo,
     dirty_rows: []bool = &.{},
     dirty_cols_start: []u16 = &.{},
     dirty_cols_end: []u16 = &.{},
-    frame: Render.SurfaceFrameData,
 
     fn deinit(self: *OwnedVtSurface) void {
         self.allocator.free(self.cells);
@@ -19,6 +24,29 @@ const OwnedVtSurface = struct {
         if (self.dirty_cols_start.len > 0) self.allocator.free(self.dirty_cols_start);
         if (self.dirty_cols_end.len > 0) self.allocator.free(self.dirty_cols_end);
         self.* = undefined;
+    }
+
+    fn frameData(self: *const OwnedVtSurface) Render.SurfaceFrameData {
+        return .{
+            .viewport = .{
+                .cols = self.cols,
+                .rows = self.rows,
+                .scroll_row = @intCast(self.scroll_row),
+                .is_alternate_screen = self.is_alternate_screen,
+            },
+            .grid = .{
+                .cells = self.cells,
+                .cols = self.cols,
+                .rows = self.rows,
+            },
+            .cursor = self.cursor,
+            .damage = .{
+                .full = self.full_damage,
+                .dirty_rows = self.dirty_rows,
+                .dirty_cols_start = self.dirty_cols_start,
+                .dirty_cols_end = self.dirty_cols_end,
+            },
+        };
     }
 };
 
@@ -171,13 +199,16 @@ pub fn takeQueueMetrics(comptime Ffi: type, handle: Ffi.SurfaceTextHandle, out: 
 pub fn prepareHandle(comptime Ffi: type, surface_text_handle: Ffi.SurfaceTextHandle, vt_surface_in: ?*const Ffi.FfiVtSurface, prepare_request: Ffi.FfiPrepareRequest, query: Ffi.FfiSurfaceQuery, prepared_handle_out: ?*Ffi.PreparedSurfaceHandle) Ffi.HowlRenderPrepareStatus {
     const owner = ownerFromHandle(Ffi, surface_text_handle) orelse return .failed;
     const vt_surface_value = vt_surface_in orelse return .failed;
-    var prepare = prepareRequestIn(Ffi, prepare_request) orelse return .failed;
-    prepare.config = owner.config;
-    prepare.query = surfaceQueryIn(query);
+    const request = renderRequestIn(Ffi, prepare_request) orelse return .failed;
     var vt_surface = vtSurfaceIn(Ffi, std.heap.c_allocator, vt_surface_value.*) catch return .failed;
     defer vt_surface.deinit();
-    prepare.state = vt_surface.frame;
-    const prepared = owner.session.prepareSurface(std.heap.c_allocator, prepare) catch return .failed;
+    const prepared = owner.session.prepareSurface(std.heap.c_allocator, .{
+        .config = owner.config,
+        .request = request,
+        .query = surfaceQueryIn(query),
+        .state = vt_surface.frameData(),
+        .target_valid = prepare_request.target_valid != 0,
+    }) catch return .failed;
     if (prepared_handle_out) |out| {
         const prepared_owner = prepared_surface.create(Ffi, owner, prepared) catch return .failed;
         out.* = @ptrCast(prepared_owner);
@@ -359,14 +390,19 @@ fn preparedFrameOut(comptime Ffi: type, value: Render.FramePipeline.PreparedFram
     };
 }
 
-fn prepareRequestIn(comptime Ffi: type, value: Ffi.FfiPrepareRequest) ?Render.SurfaceText.PrepareInput {
+fn renderRequestIn(comptime Ffi: type, value: Ffi.FfiPrepareRequest) ?Render.FramePipeline.RenderRequest {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{
-        .config = undefined,
-        .request = .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .known_target_epoch = value.known_target_epoch, .allow_retained_reuse = true, .priority = .opportunistic },
-        .query = undefined,
-        .state = undefined,
-        .target_valid = value.target_valid != 0,
+        .token = .{
+            .snapshot_seq = value.snapshot_seq,
+            .dirty_epoch = value.dirty_epoch,
+            .geometry_epoch = value.geometry_epoch,
+            .damage_base_seq = value.damage_base_seq,
+            .damage_kind = damage_kind,
+        },
+        .known_target_epoch = value.known_target_epoch,
+        .allow_retained_reuse = true,
+        .priority = .opportunistic,
     };
 }
 
@@ -392,17 +428,32 @@ fn surfaceQueryIn(value: anytype) Render.SurfaceQuery {
 fn vtSurfaceIn(comptime Ffi: type, allocator: std.mem.Allocator, value: Ffi.FfiVtSurface) !OwnedVtSurface {
     const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
     if (value.cells.len != cell_count) return error.InvalidSurfaceSource;
+
     const cells = try allocator.alloc(Render.SurfaceCell, @intCast(cell_count));
     errdefer allocator.free(cells);
     for (cells, 0..) |*dst, idx| dst.* = try cellValueIn(Ffi, value.cells.ptr[idx]);
+
     const dirty_rows = try dirtyRowsIn(allocator, value.rows, value.dirty_rows);
     errdefer if (dirty_rows.len > 0) allocator.free(dirty_rows);
     const dirty_cols_start = try dirtyColsIn(allocator, value.rows, value.dirty_cols_start);
     errdefer if (dirty_cols_start.len > 0) allocator.free(dirty_cols_start);
     const dirty_cols_end = try dirtyColsIn(allocator, value.rows, value.dirty_cols_end);
     errdefer if (dirty_cols_end.len > 0) allocator.free(dirty_cols_end);
+
     const cursor = cursorIn(value.cursor) orelse return error.InvalidSurfaceSource;
-    return .{ .allocator = allocator, .cells = cells, .dirty_rows = dirty_rows, .dirty_cols_start = dirty_cols_start, .dirty_cols_end = dirty_cols_end, .frame = .{ .viewport = .{ .cols = value.cols, .rows = value.rows, .scroll_row = @intCast(value.scroll_row), .is_alternate_screen = value.is_alternate_screen != 0 }, .grid = .{ .cells = cells, .cols = value.cols, .rows = value.rows }, .cursor = cursor, .damage = .{ .full = value.full_damage != 0, .dirty_rows = dirty_rows, .dirty_cols_start = dirty_cols_start, .dirty_cols_end = dirty_cols_end } } };
+    return .{
+        .allocator = allocator,
+        .cols = value.cols,
+        .rows = value.rows,
+        .scroll_row = value.scroll_row,
+        .is_alternate_screen = value.is_alternate_screen != 0,
+        .full_damage = value.full_damage != 0,
+        .cells = cells,
+        .cursor = cursor,
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = dirty_cols_start,
+        .dirty_cols_end = dirty_cols_end,
+    };
 }
 
 fn dirtyRowsIn(allocator: std.mem.Allocator, rows: u16, span: anytype) ![]bool {
@@ -421,11 +472,32 @@ fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: anytype) ![]u16 {
 
 fn cellValueIn(comptime Ffi: type, value: Ffi.FfiCell) !Render.SurfaceCell {
     if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
+
     const fg_color = colorIn(value.fg_color) orelse return error.InvalidSurfaceSource;
     const bg_color = colorIn(value.bg_color) orelse return error.InvalidSurfaceSource;
     const underline_color = colorIn(value.underline_color) orelse return error.InvalidSurfaceSource;
     const underline_style = underlineStyleIn(value.underline_style) orelse return error.InvalidSurfaceSource;
-    return .{ .codepoint = @intCast(value.codepoint), .flags = .{ .continuation = value.flags.continuation != 0 }, .fg_color = fg_color, .bg_color = bg_color, .underline_color = underline_color, .underline_style = underline_style, .attrs = .{ .bold = value.attrs.bold != 0, .dim = value.attrs.dim != 0, .italic = value.attrs.italic != 0, .underline = value.attrs.underline != 0, .underline_color_set = value.attrs.underline_color_set != 0, .blink = value.attrs.blink != 0, .inverse = value.attrs.inverse != 0, .invisible = value.attrs.invisible != 0, .strikethrough = value.attrs.strikethrough != 0 }, .link_id = value.link_id };
+
+    return .{
+        .codepoint = @intCast(value.codepoint),
+        .flags = .{ .continuation = value.flags.continuation != 0 },
+        .fg_color = fg_color,
+        .bg_color = bg_color,
+        .underline_color = underline_color,
+        .underline_style = underline_style,
+        .attrs = .{
+            .bold = value.attrs.bold != 0,
+            .dim = value.attrs.dim != 0,
+            .italic = value.attrs.italic != 0,
+            .underline = value.attrs.underline != 0,
+            .underline_color_set = value.attrs.underline_color_set != 0,
+            .blink = value.attrs.blink != 0,
+            .inverse = value.attrs.inverse != 0,
+            .invisible = value.attrs.invisible != 0,
+            .strikethrough = value.attrs.strikethrough != 0,
+        },
+        .link_id = value.link_id,
+    };
 }
 
 fn colorIn(value: anytype) ?Render.SurfaceColor {
@@ -609,7 +681,7 @@ fn testVtSurface(cells: []const TestFfi.FfiCell, cursor: TestFfi.FfiCursor) Test
     };
 }
 
-test "prepareRequestIn rejects invalid damage kind" {
+test "renderRequestIn rejects invalid damage kind" {
     const request: TestFfi.FfiPrepareRequest = .{
         .snapshot_seq = 1,
         .dirty_epoch = 1,
@@ -619,7 +691,7 @@ test "prepareRequestIn rejects invalid damage kind" {
         .target_valid = 0,
         .damage_kind = 2,
     };
-    try std.testing.expect(prepareRequestIn(TestFfi, request) == null);
+    try std.testing.expect(renderRequestIn(TestFfi, request) == null);
 }
 
 test "preparedFrameIn rejects invalid damage kind" {
