@@ -123,11 +123,11 @@ pub fn fromHandle(handle: abi.PreparedSurfaceHandle) ?*Owner {
     return @ptrCast(@alignCast(owned));
 }
 
-pub fn infoOut(owner: *Owner) abi.FfiPreparedSurfaceInfo {
+fn infoOut(owner: *Owner) abi.FfiPreparedSurfaceInfo {
     return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.ok), .snapshot_seq = owner.snapshot_seq, .dirty_epoch = owner.dirty_epoch, .geometry_epoch = owner.geometry_epoch, .required_base_seq = owner.required_base_seq, .required_surface_epoch = owner.required_surface_epoch, .render_px = owner.render_px, .cell_px = owner.cell_px, .grid = owner.grid, .prepare_metrics = owner.prepare_metrics, .damage_kind = owner.damage_kind };
 }
 
-pub fn bufferOut(owner: *Owner) abi.FfiPreparedSurfaceBuffer {
+fn bufferOut(owner: *Owner) abi.FfiPreparedSurfaceBuffer {
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .rgba_pixels = span(abi.FfiByteSpan, owner.rgba_pixels),
@@ -135,14 +135,40 @@ pub fn bufferOut(owner: *Owner) abi.FfiPreparedSurfaceBuffer {
     };
 }
 
-pub fn diagnosticsOut(owner: *Owner) abi.FfiPreparedSurfaceDiagnostics {
+fn diagnosticsOut(owner: *Owner) abi.FfiPreparedSurfaceDiagnostics {
     return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.ok), .missing_glyphs = owner.missing_glyphs, .resolve_metrics = owner.resolve_metrics };
 }
 
-fn freeOwnedSlice(comptime T: type, buffer: *[]T) void {
-    if (buffer.*.len == 0) return;
-    std.heap.c_allocator.free(buffer.*);
-    buffer.* = &.{};
+pub fn release(prepared_surface_handle: abi.PreparedSurfaceHandle) callconv(.c) void {
+    const owner = fromHandle(prepared_surface_handle) orelse return;
+    owner.destroy();
+}
+
+pub fn describe(prepared_surface_handle: abi.PreparedSurfaceHandle, info_out: ?*abi.FfiPreparedSurfaceInfo) callconv(.c) c_int {
+    const owner = fromHandle(prepared_surface_handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    const out = info_out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    out.* = infoOut(owner);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
+}
+
+pub fn buffer(prepared_surface_handle: abi.PreparedSurfaceHandle, buffer_out: ?*abi.FfiPreparedSurfaceBuffer) callconv(.c) c_int {
+    const owner = fromHandle(prepared_surface_handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    const out = buffer_out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    out.* = bufferOut(owner);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
+}
+
+pub fn diagnostics(prepared_surface_handle: abi.PreparedSurfaceHandle, diagnostics_out: ?*abi.FfiPreparedSurfaceDiagnostics) callconv(.c) c_int {
+    const owner = fromHandle(prepared_surface_handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    const out = diagnostics_out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    out.* = diagnosticsOut(owner);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
+}
+
+fn freeOwnedSlice(comptime T: type, items: *[]T) void {
+    if (items.*.len == 0) return;
+    std.heap.c_allocator.free(items.*);
+    items.* = &.{};
 }
 
 fn span(comptime Span: type, items: anytype) Span {
