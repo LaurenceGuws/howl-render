@@ -11,6 +11,12 @@ const text = @import("../text/text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
 const text_glyph_raster = @import("../text/font/ft_hb/glyph_raster.zig");
 
+const max_font_faces = text_support.max_fallback_fonts + 1;
+
+comptime {
+    std.debug.assert(max_font_faces <= std.math.maxInt(u8));
+}
+
 const ThreadMutex = struct {
     state: std.Io.Mutex = .init,
 
@@ -88,7 +94,7 @@ pub const SurfaceText = struct {
     }
 
     pub fn prepareSurface(self: *SurfaceText, allocator: std.mem.Allocator, prepare: PrepareInput) !surface.PreparedSurface {
-        var faces: [32]text.FontSession.FontFaceRecord = undefined;
+        var faces: [max_font_faces]text.FontSession.FontFaceRecord = undefined;
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
