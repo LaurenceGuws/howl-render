@@ -651,3 +651,47 @@ test "ffi fallback font paths accept abi limit and reject overflow" {
         surfaceTextSetFallbackFontPaths(handle, &overflow_paths, overflow_paths.len),
     );
 }
+
+test "ffi vt snapshot rejects invalid damage kind" {
+    const handle = surfaceTextInit(.{
+        .surface_px = .{ .width = 16, .height = 16 },
+        .font_size_px = 8,
+    });
+    defer surfaceTextDeinit(handle);
+
+    const result = surfaceTextPublishVtSnapshot(handle, .{
+        .cols = 1,
+        .rows = 1,
+        .is_alternate_screen = 0,
+        .damage_kind = 2,
+        .scrollback_offset = 0,
+        .snapshot_seq = 1,
+    });
+    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.invalid_argument), result.status);
+}
+
+test "ffi prepared frame rejects invalid damage kind" {
+    const handle = surfaceTextInit(.{
+        .surface_px = .{ .width = 16, .height = 16 },
+        .font_size_px = 8,
+    });
+    defer surfaceTextDeinit(handle);
+
+    const prepared = FfiPreparedFrame{
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .geometry_epoch = 1,
+        .damage_base_seq = 0,
+        .required_base_seq = 0,
+        .required_target_epoch = 0,
+        .damage_kind = 2,
+    };
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.invalid_argument),
+        surfaceTextPublishPrepared(handle, prepared),
+    );
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.invalid_argument),
+        surfaceTextAcceptSubmitted(handle, prepared, .{ .host_surface_id = 1, .width = 1, .height = 1, .epoch = 1 }, 1),
+    );
+}
