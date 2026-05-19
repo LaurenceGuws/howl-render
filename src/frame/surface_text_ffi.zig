@@ -122,8 +122,9 @@ pub fn publishVtSnapshot(handle: abi.SurfaceTextHandle, snapshot_in: abi.FfiVtSn
 }
 
 pub fn takePrepareRequest(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPrepareRequest) callconv(.c) abi.HowlRenderPrepareStatus {
-    const owner = ownerFromHandle(handle) orelse return .failed;
     const prepare_out = out orelse return .failed;
+    prepare_out.* = std.mem.zeroes(abi.FfiPrepareRequest);
+    const owner = ownerFromHandle(handle) orelse return .failed;
     const request = owner.flow.prepare() orelse return .idle;
     prepare_out.* = prepareRequestOut(request, owner.flow.pendingState().target_valid);
     return .ready;
@@ -137,8 +138,9 @@ pub fn publishPrepared(handle: abi.SurfaceTextHandle, prepared_in: abi.FfiPrepar
 }
 
 pub fn takeSubmitDecision(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPreparedFrame) callconv(.c) abi.HowlRenderSubmitDecisionStatus {
-    const owner = ownerFromHandle(handle) orelse return .failed;
     const prepared_out = out orelse return .failed;
+    prepared_out.* = std.mem.zeroes(abi.FfiPreparedFrame);
+    const owner = ownerFromHandle(handle) orelse return .failed;
     return switch (owner.flow.submit()) {
         .idle => .idle,
         .stale => .stale,
@@ -178,8 +180,9 @@ pub fn pendingState(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPendingState) c
 }
 
 pub fn takeQueueMetrics(handle: abi.SurfaceTextHandle, out: ?*abi.FfiQueueMetrics) callconv(.c) c_int {
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     const metrics_out = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    metrics_out.* = std.mem.zeroes(abi.FfiQueueMetrics);
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     metrics_out.* = queueMetricsOut(owner.flow.takeMetrics());
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }

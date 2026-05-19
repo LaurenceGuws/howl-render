@@ -216,6 +216,34 @@ test "ffi pending state writes missing-handle status" {
     try std.testing.expectEqual(@as(u8, 0), pending.source_pending);
 }
 
+test "ffi take prepare request clears output on failure" {
+    var request = FfiPrepareRequest{
+        .snapshot_seq = 9,
+        .dirty_epoch = 9,
+        .geometry_epoch = 9,
+        .damage_base_seq = 9,
+        .known_target_epoch = 9,
+        .target_valid = 1,
+        .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
+    };
+    try std.testing.expectEqual(HowlRenderPrepareStatus.failed, surfaceTextTakePrepareRequest(null, &request));
+    try std.testing.expectEqual(@as(u64, 0), request.snapshot_seq);
+}
+
+test "ffi take submit decision clears output on failure" {
+    var prepared = FfiPreparedFrame{
+        .snapshot_seq = 9,
+        .dirty_epoch = 9,
+        .geometry_epoch = 9,
+        .damage_base_seq = 9,
+        .required_base_seq = 9,
+        .required_target_epoch = 9,
+        .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
+    };
+    try std.testing.expectEqual(HowlRenderSubmitDecisionStatus.failed, surfaceTextTakeSubmitDecision(null, &prepared));
+    try std.testing.expectEqual(@as(u64, 0), prepared.snapshot_seq);
+}
+
 test "ffi surface session initializes" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
@@ -376,4 +404,29 @@ test "ffi prepared surface describe writes missing-handle status" {
     );
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), info.status);
     try std.testing.expectEqual(@as(u64, 0), info.snapshot_seq);
+}
+
+test "ffi queue metrics clears output on failure" {
+    var metrics = FfiQueueMetrics{
+        .snapshot_publishes = 9,
+        .snapshot_clean_drops = 9,
+        .prepare_requests = 9,
+        .prepare_coalesces = 9,
+        .prepare_forced_full = 9,
+        .prepare_takes = 9,
+        .prepared_publishes = 9,
+        .prepared_coalesces = 9,
+        .submit_takes = 9,
+        .submit_valid = 9,
+        .submit_rejected = 9,
+        .full_prepare_requests = 9,
+        .submitted_accepts = 9,
+        .presents = 9,
+        .target_invalidations = 9,
+    };
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.missing_handle),
+        surfaceTextTakeQueueMetrics(null, &metrics),
+    );
+    try std.testing.expectEqual(@as(u64, 0), metrics.snapshot_publishes);
 }
