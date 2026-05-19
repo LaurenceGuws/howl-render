@@ -188,7 +188,7 @@ fn expectPrepareHandleFails(vt_surface: FfiVtSurface) !void {
     try std.testing.expect(handle != null);
 
     const input = try nextPrepareInput(handle);
-    var prepared_handle: PreparedSurfaceHandle = null;
+    var prepared_handle: PreparedSurfaceHandle = @ptrFromInt(1);
     try std.testing.expectEqual(
         HowlRenderPrepareStatus.failed,
         surfaceTextPrepareHandle(handle, &vt_surface, input.request, input.query, &prepared_handle),
@@ -313,4 +313,29 @@ test "ffi prepare handle rejects missing output pointer" {
         HowlRenderPrepareStatus.failed,
         surfaceTextPrepareHandle(handle, &vt_surface, input.request, input.query, null),
     );
+}
+
+test "ffi submit clears feedback on failure" {
+    const handle = testHandle();
+    defer surfaceTextDeinit(handle);
+    try std.testing.expect(handle != null);
+
+    var feedback = FfiSurfaceFeedback{
+        .status = @intFromEnum(HowlRenderCallStatus.ok),
+        .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
+        .surface = .{ .host_surface_id = 99, .width = 9, .height = 9, .epoch = 9 },
+        .metrics = std.mem.zeroes(FfiSurfaceMetrics),
+    };
+    const execution = FfiSurfaceExecutionInput{
+        .surface = .{ .host_surface_id = 1, .width = 1, .height = 1, .epoch = 1 },
+        .uploads_committed = 0,
+        .render_us = 0,
+        .content_valid = 1,
+    };
+    try std.testing.expectEqual(
+        HowlRenderSubmitStatus.failed,
+        surfaceTextSubmit(handle, null, std.mem.zeroes(FfiPreparedFrame), &execution, &feedback),
+    );
+    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.failed), feedback.status);
+    try std.testing.expectEqual(@as(u64, 0), feedback.surface.host_surface_id);
 }

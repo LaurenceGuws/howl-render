@@ -184,6 +184,7 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const vt_surface_value = vt_surface_in orelse return .failed;
     const prepared_out = prepared_handle_out orelse return .failed;
+    prepared_out.* = null;
     const request = renderRequestIn(prepare_request) orelse return .failed;
     var vt_surface = vtSurfaceIn(std.heap.c_allocator, vt_surface_value.*) catch return .failed;
     defer vt_surface.deinit();
@@ -200,6 +201,7 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
 }
 
 pub fn submit(surface_text_handle: abi.SurfaceTextHandle, prepared_surface_handle: abi.PreparedSurfaceHandle, prepared_frame_in: abi.FfiPreparedFrame, execution_in: ?*const abi.FfiSurfaceExecutionInput, feedback_out: ?*abi.FfiSurfaceFeedback) callconv(.c) abi.HowlRenderSubmitStatus {
+    if (feedback_out) |out| out.* = failedSurfaceFeedback();
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return .failed;
     const execution = execution_in orelse return .failed;
@@ -220,6 +222,15 @@ fn surfaceFeedbackOut(value: Render.RenderSurfaceFeedback) abi.FfiSurfaceFeedbac
         .damage_kind = @intFromEnum(value.damageKind()),
         .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch },
         .metrics = surfaceMetricsOut(value.metrics),
+    };
+}
+
+fn failedSurfaceFeedback() abi.FfiSurfaceFeedback {
+    return .{
+        .status = @intFromEnum(abi.HowlRenderCallStatus.failed),
+        .damage_kind = 0,
+        .surface = .{ .host_surface_id = 0, .width = 0, .height = 0, .epoch = 0 },
+        .metrics = std.mem.zeroes(abi.FfiSurfaceMetrics),
     };
 }
 
