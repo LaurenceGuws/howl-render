@@ -220,26 +220,16 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
 pub fn submit(surface_text_handle: abi.SurfaceTextHandle, prepared_surface_handle: abi.PreparedSurfaceHandle, prepared_frame_in: abi.FfiPreparedFrame, execution_in: ?*const abi.FfiSurfaceExecutionInput, feedback_out: ?*abi.FfiSurfaceFeedback) callconv(.c) abi.HowlRenderSubmitStatus {
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return .failed;
-    if (prepared_owner.session_owner != owner) return .failed;
     const execution = execution_in orelse return .failed;
     const prepared_frame = preparedFrameIn(prepared_frame_in) orelse return .failed;
-    if (!samePreparedFrame(prepared_owner.prepared.pipelineFrame(), prepared_frame)) return .needs_prepare;
-    const submitted = owner.session.submitSurface(&prepared_owner.prepared, executionInputIn(execution.*)) catch return .failed;
-    if (feedback_out) |out| out.* = surfaceFeedbackOut(submitted);
-    if (submitted.content_valid) {
-        // Only a successfully submitted complete image can seed the retained
-        // base used by later partial prepares.
-        owner.retainSurfaceImage(
-            &prepared_owner.rgba_pixels,
-            prepared_owner.prepared.render_px.width,
-            prepared_owner.prepared.render_px.height,
-            submitted.surface.epoch,
-        );
-    } else {
-        owner.clearRetainedSurface();
-    }
-    prepared_owner.destroy();
-    return .rendered;
+    return switch (prepared_owner.submit(owner, prepared_frame, executionInputIn(execution.*))) {
+        .rendered => |submitted| blk: {
+            if (feedback_out) |out| out.* = surfaceFeedbackOut(submitted);
+            break :blk .rendered;
+        },
+        .needs_prepare => .needs_prepare,
+        .failed => .failed,
+    };
 }
 
 fn surfaceFeedbackOut(value: Render.RenderSurfaceFeedback) abi.FfiSurfaceFeedback {
@@ -409,16 +399,6 @@ fn renderRequestIn(value: abi.FfiPrepareRequest) ?Render.FramePipeline.RenderReq
 fn preparedFrameIn(value: abi.FfiPreparedFrame) ?Render.FramePipeline.PreparedFrame {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq, .required_target_epoch = value.required_target_epoch };
-}
-
-fn samePreparedFrame(a: Render.FramePipeline.PreparedFrame, b: Render.FramePipeline.PreparedFrame) bool {
-    return a.token.snapshot_seq == b.token.snapshot_seq and
-        a.token.dirty_epoch == b.token.dirty_epoch and
-        a.token.geometry_epoch == b.token.geometry_epoch and
-        a.token.damage_base_seq == b.token.damage_base_seq and
-        a.token.damage_kind == b.token.damage_kind and
-        a.required_base_seq == b.required_base_seq and
-        a.required_target_epoch == b.required_target_epoch;
 }
 
 fn surfaceQueryIn(value: abi.FfiSurfaceQuery) Render.SurfaceQuery {

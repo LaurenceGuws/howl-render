@@ -1,5 +1,6 @@
 const std = @import("std");
 const abi = @import("../ffi_types.zig");
+const pipeline = @import("pipeline.zig");
 const surface = @import("surface.zig");
 const surface_buffer = @import("surface_buffer.zig");
 const surface_text = @import("surface_text.zig");
@@ -21,6 +22,12 @@ pub const Owner = struct {
     uploads_committed: u64,
     missing_glyphs: u64,
     resolve_metrics: abi.FfiSurfaceMetrics,
+
+    pub const SubmitResult = union(enum) {
+        rendered: surface.RenderSurfaceFeedback,
+        needs_prepare,
+        failed,
+    };
 
     pub fn create(
         session_owner: *surface_text.SurfaceTextOwner,
@@ -75,6 +82,33 @@ pub const Owner = struct {
             .missing_glyphs = self.missing_glyphs,
             .resolve_metrics = self.resolve_metrics,
         };
+    }
+
+    pub fn submit(
+        self: *Owner,
+        session_owner: *surface_text.SurfaceTextOwner,
+        prepared_frame: pipeline.PreparedFrame,
+        execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
+    ) SubmitResult {
+        if (self.session_owner != session_owner) return .failed;
+        if (!samePreparedFrame(self.prepared.pipelineFrame(), prepared_frame)) {
+            return .needs_prepare;
+        }
+        const feedback = session_owner.session.submitSurface(&self.prepared, execution) catch {
+            return .failed;
+        };
+        if (feedback.content_valid) {
+            session_owner.retainSurfaceImage(
+                &self.rgba_pixels,
+                self.prepared.render_px.width,
+                self.prepared.render_px.height,
+                feedback.surface.epoch,
+            );
+        } else {
+            session_owner.clearRetainedSurface();
+        }
+        self.destroy();
+        return .{ .rendered = feedback };
     }
 
     fn copySurfaceBuffer(self: *Owner) !void {
@@ -164,4 +198,14 @@ fn freeOwnedBytes(items: *[]u8) void {
 
 fn byteSpan(items: []u8) abi.FfiByteSpan {
     return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
+}
+
+fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool {
+    return a.token.snapshot_seq == b.token.snapshot_seq and
+        a.token.dirty_epoch == b.token.dirty_epoch and
+        a.token.geometry_epoch == b.token.geometry_epoch and
+        a.token.damage_base_seq == b.token.damage_base_seq and
+        a.token.damage_kind == b.token.damage_kind and
+        a.required_base_seq == b.required_base_seq and
+        a.required_target_epoch == b.required_target_epoch;
 }
