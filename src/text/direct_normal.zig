@@ -119,7 +119,7 @@ pub fn counters(scratch: *const Scratch, lane_report: lane.LaneReport, direct: P
         .sprite_cache_hits = @intCast(scratch.sprite_draws.items.len - scratch.raster_reqs.items.len),
         .sprite_cache_misses = @intCast(scratch.raster_reqs.items.len),
         .rasterized_sprites = @intCast(direct.outputs.len),
-        .missing_glyphs = scratch.missing.items.len,
+        .missing_glyphs = @intCast(scratch.missing.items.len),
     };
 }
 
@@ -264,7 +264,7 @@ fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.L
     var outputs: []rasterizer.RasterSpriteOutput = &.{};
     var outputs_owned = false;
     if (driver.scratch.raster_reqs.items.len > 0) {
-        lane_report.direct_normal_raster_misses = driver.scratch.raster_reqs.items.len;
+        lane_report.direct_normal_raster_misses = @intCast(driver.scratch.raster_reqs.items.len);
         outputs = try driver.allocator.alloc(rasterizer.RasterSpriteOutput, driver.scratch.raster_reqs.items.len);
         outputs_owned = true;
         var filled: usize = 0;

@@ -94,9 +94,9 @@ pub const AtlasUpload = struct {
 };
 
 pub const RenderStats = struct {
-    fills: usize,
-    glyphs: usize,
-    atlas_uploads: usize,
+    fills: u64,
+    glyphs: u64,
+    atlas_uploads: u64,
     has_cursor: bool,
     full_redraw: bool,
 };
@@ -200,7 +200,7 @@ pub const DamageInfo = struct {
 pub const ViewportInfo = struct {
     cols: u16,
     rows: u16,
-    scroll_row: usize = 0,
+    scroll_row: u64 = 0,
     is_alternate_screen: bool = false,
 };
 

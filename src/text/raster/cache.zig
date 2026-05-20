@@ -16,6 +16,8 @@ pub const StoredRaster = struct {
     }
 };
 
+pub const AtlasCapacity = u32;
+
 pub const Entry = struct {
     key: contract.SpriteKey,
     position: contract.SpritePosition,
@@ -30,21 +32,21 @@ pub const ReserveResult = struct {
 pub const OwnedAtlasCache = struct {
     allocator: std.mem.Allocator,
     entries: []Entry,
-    len: usize = 0,
+    len: u32 = 0,
     next_slot: u32 = 0,
 
-    pub fn init(allocator: std.mem.Allocator, capacity: usize) !OwnedAtlasCache {
-        return .{ .allocator = allocator, .entries = try allocator.alloc(Entry, capacity) };
+    pub fn init(allocator: std.mem.Allocator, capacity: AtlasCapacity) !OwnedAtlasCache {
+        return .{ .allocator = allocator, .entries = try allocator.alloc(Entry, @intCast(capacity)) };
     }
 
     pub fn deinit(self: *OwnedAtlasCache) void {
-        for (self.entries[0..self.len]) |*entry| entry.raster.deinit(self.allocator);
+        for (self.entries[0..liveLen(self)]) |*entry| entry.raster.deinit(self.allocator);
         self.allocator.free(self.entries);
         self.* = undefined;
     }
 
     pub fn get(self: *const OwnedAtlasCache, key: contract.SpriteKey) ?contract.SpritePosition {
-        for (self.entries[0..self.len]) |entry| {
+        for (self.entries[0..liveLen(self)]) |entry| {
             if (entry.key.value == key.value) return entry.position;
         }
         return null;
@@ -53,13 +55,14 @@ pub const OwnedAtlasCache = struct {
     pub fn reserve(self: *OwnedAtlasCache, key: contract.SpriteKey, colored: bool) ReserveResult {
         if (self.get(key)) |pos| return .{ .position = pos, .pending = !pos.rendered };
         if (self.entries.len == 0) return .{ .position = .{ .slot = 0, .key = key, .rendered = false, .colored = colored }, .pending = true };
-        const idx = if (self.len < self.entries.len) self.len else @as(usize, @intCast(self.next_slot % @as(u32, @intCast(self.entries.len))));
+        const len = liveLen(self);
+        const idx = if (len < self.entries.len) len else @as(usize, @intCast(self.next_slot % entryCap(self)));
         const slot: u32 = @intCast(idx);
         const pos = contract.SpritePosition{ .slot = slot, .key = key, .rendered = false, .colored = colored };
-        if (idx < self.len) self.entries[idx].raster.deinit(self.allocator);
+        if (idx < len) self.entries[idx].raster.deinit(self.allocator);
         self.entries[idx] = .{ .key = key, .position = pos };
-        if (self.len < self.entries.len) self.len += 1;
-        self.next_slot = (slot + 1) % @as(u32, @intCast(self.entries.len));
+        if (len < self.entries.len) self.len += 1;
+        self.next_slot = (slot + 1) % entryCap(self);
         return .{ .position = pos, .pending = true };
     }
 
@@ -68,7 +71,7 @@ pub const OwnedAtlasCache = struct {
     }
 
     pub fn markRendered(self: *OwnedAtlasCache, key: contract.SpriteKey) bool {
-        for (self.entries[0..self.len]) |*entry| {
+        for (self.entries[0..liveLen(self)]) |*entry| {
             if (entry.key.value != key.value) continue;
             entry.position.rendered = true;
             return true;
@@ -77,7 +80,7 @@ pub const OwnedAtlasCache = struct {
     }
 
     pub fn storeRendered(self: *OwnedAtlasCache, output: rasterizer.RasterSpriteOutput) !bool {
-        for (self.entries[0..self.len]) |*entry| {
+        for (self.entries[0..liveLen(self)]) |*entry| {
             if (entry.key.value != output.key.value) continue;
             entry.raster.deinit(self.allocator);
             entry.raster.pixels = try self.allocator.dupe(u8, output.pixels);
@@ -93,10 +96,18 @@ pub const OwnedAtlasCache = struct {
     }
 
     pub fn rasterForKey(self: *const OwnedAtlasCache, key: contract.SpriteKey) ?StoredRaster {
-        for (self.entries[0..self.len]) |entry| {
+        for (self.entries[0..liveLen(self)]) |entry| {
             if (entry.key.value == key.value) return entry.raster;
         }
         return null;
+    }
+
+    fn liveLen(self: *const OwnedAtlasCache) usize {
+        return @intCast(self.len);
+    }
+
+    fn entryCap(self: *const OwnedAtlasCache) u32 {
+        return @intCast(self.entries.len);
     }
 };
 

@@ -32,7 +32,7 @@ const OwnedVtSurface = struct {
             .viewport = .{
                 .cols = self.cols,
                 .rows = self.rows,
-                .scroll_row = @intCast(self.scroll_row),
+                .scroll_row = self.scroll_row,
                 .is_alternate_screen = self.is_alternate_screen,
             },
             .grid = .{

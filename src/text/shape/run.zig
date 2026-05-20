@@ -104,19 +104,17 @@ pub fn shapeRun(
     clusters: []const contract.CellCluster,
     cell_metrics: contract.CellMetrics,
 ) !OwnedShapedRun {
-    const start = @as(usize, @intCast(run.run.cluster_start));
-    const count = @as(usize, @intCast(run.run.cluster_count));
-    const end = @min(start + count, clusters.len);
-    const actual_count = end - start;
-    const glyphs = try allocator.alloc(contract.GlyphInstance, actual_count);
+    const start = run.run.cluster_start;
+    const end = @min(start + run.run.cluster_count, clusterCount(clusters));
+    const glyphs = try allocator.alloc(contract.GlyphInstance, clusterIndex(end - start));
     errdefer allocator.free(glyphs);
 
-    for (clusters[start..end], 0..) |cluster, idx| {
+    for (clusters[clusterIndex(start)..clusterIndex(end)], 0..) |cluster, idx| {
         const text = textForCluster(text_cache, cluster);
         glyphs[idx] = .{
             .face_id = run.run.font.face_id,
             .glyph_id = text.first_cp,
-            .cluster_index = @intCast(start + idx),
+            .cluster_index = start + @as(u32, @intCast(idx)),
             .x_offset_px = 0,
             .y_offset_px = 0,
             .x_advance_px = @floatFromInt(@as(u32, @max(cluster.cell_span, 1)) * @as(u32, cell_metrics.cell_w_px)),
@@ -130,6 +128,14 @@ fn textForCluster(text_cache: contract.LineTextCache, cluster: contract.CellClus
     const idx = @as(usize, @intCast(cluster.text_id.value));
     if (idx < text_cache.texts.len) return text_cache.texts[idx];
     return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
+}
+
+fn clusterCount(clusters: []const contract.CellCluster) u32 {
+    return @intCast(clusters.len);
+}
+
+fn clusterIndex(value: u32) usize {
+    return @intCast(value);
 }
 
 test "stub shaper emits one glyph per cluster with run face" {

@@ -84,9 +84,9 @@ const ClusterWindow = struct {
     start: u32,
     end: u32,
 
-    fn init(run: render.ResolvedRun, clusters_len: usize) ClusterWindow {
+    fn init(run: render.ResolvedRun, clusters_len: u32) ClusterWindow {
         const start = run.run.cluster_start;
-        const end = @min(start + run.run.cluster_count, @as(u32, @intCast(clusters_len)));
+        const end = @min(start + run.run.cluster_count, clusters_len);
         return .{ .start = start, .end = end };
     }
 
@@ -160,7 +160,7 @@ fn uncachedProviderHasCellText(comptime ContextType: type, ctx: *anyopaque, face
 pub fn providerShapeRun(comptime ContextType: type, ctx: *anyopaque, allocator: std.mem.Allocator, run: render.ResolvedRun, text_cache_view: render.LineTextCache, clusters: []const render.CellCluster, cell_metrics: render.CellMetrics) anyerror!render.Text.ShapeRun.OwnedShapedRun {
     const context: *ContextType = @ptrCast(@alignCast(ctx));
     const state = textState(context);
-    const window = ClusterWindow.init(run, clusters.len);
+    const window = ClusterWindow.init(run, @intCast(clusters.len));
     if (window.empty()) return .{ .allocator = allocator, .run = run, .glyphs = try allocator.alloc(render.GlyphInstance, 0) };
     state.resolve_counters.shape_requests += 1;
     if (state.active_resolve) |obs| obs.counters.shape_requests += 1;

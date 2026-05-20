@@ -53,15 +53,15 @@ pub const TextFramePreparer = struct {
         return initCapacity(allocator, 4096) catch unreachable;
     }
 
-    pub fn initCapacity(allocator: std.mem.Allocator, atlas_capacity: usize) !TextFramePreparer {
+    pub fn initCapacity(allocator: std.mem.Allocator, atlas_capacity: atlas_cache.AtlasCapacity) !TextFramePreparer {
         return initWithProvider(allocator, atlas_capacity, provider.defaultProvider());
     }
 
-    pub fn initWithShaper(allocator: std.mem.Allocator, atlas_capacity: usize, shaper: shape_run.Shaper) !TextFramePreparer {
+    pub fn initWithShaper(allocator: std.mem.Allocator, atlas_capacity: atlas_cache.AtlasCapacity, shaper: shape_run.Shaper) !TextFramePreparer {
         return initWithProvider(allocator, atlas_capacity, .{ .shaper = shaper });
     }
 
-    pub fn initWithProvider(allocator: std.mem.Allocator, atlas_capacity: usize, text_provider: provider.TextProvider) !TextFramePreparer {
+    pub fn initWithProvider(allocator: std.mem.Allocator, atlas_capacity: atlas_cache.AtlasCapacity, text_provider: provider.TextProvider) !TextFramePreparer {
         return .{
             .allocator = allocator,
             .atlas = try atlas_cache.OwnedAtlasCache.init(allocator, atlas_capacity),
@@ -170,8 +170,8 @@ pub const TextFramePreparer = struct {
         errdefer final_prepared.deinit(self.allocator);
         var complex = try cluster.selectComplexWithDamage(self.allocator, final_prepared.renderable.cells, final_prepared.text_cache.view(), final_prepared.clusters.clusters, grid_metrics, options.scene.damage);
         defer complex.deinit();
-        std.debug.assert(complex.cells.len == final_prepared.lane_report.complex_cells);
-        std.debug.assert(complex.clusters.len == final_prepared.lane_report.complex_clusters);
+        std.debug.assert(@as(u64, @intCast(complex.cells.len)) == final_prepared.lane_report.complex_cells);
+        std.debug.assert(@as(u64, @intCast(complex.clusters.len)) == final_prepared.lane_report.complex_clusters);
 
         final_prepared.runs = try resolveComplexRuns(self, final_prepared.text_cache.view(), complex.clusters, grid_metrics, session, timings, &final_prepared.lane_report, complex.cells);
         final_prepared.shaped_runs = try shapeComplexRuns(self, final_prepared.runs.?.runs, final_prepared.text_cache.view(), complex.clusters, session.metrics, timings, &final_prepared.lane_report, complex.cells);
@@ -196,15 +196,15 @@ pub const TextFramePreparer = struct {
         var counters = pipeline.TextPrepareCounters{
             .cell_texts = final_prepared.lane_report.visible_cells,
             .clusters = final_prepared.lane_report.normal_clusters + final_prepared.lane_report.complex_clusters,
-            .resolved_runs = final_prepared.runs.?.runs.len,
-            .shaped_runs = final_prepared.shaped_runs.?.runs.len,
-            .glyph_groups = final_prepared.grouped.?.groups.groups.len,
+            .resolved_runs = @intCast(final_prepared.runs.?.runs.len),
+            .shaped_runs = @intCast(final_prepared.shaped_runs.?.runs.len),
+            .glyph_groups = @intCast(final_prepared.grouped.?.groups.groups.len),
             .sprite_cache_hits = @intCast((self.direct_normal.sprite_draws.items.len - self.direct_normal.raster_reqs.items.len) + complex_sprite_cache_hits),
             .sprite_cache_misses = @intCast(self.direct_normal.raster_reqs.items.len + text_scene.scene.raster_requests.len),
             .rasterized_sprites = @intCast(merged.raster_plan.outputs.len),
-            .missing_glyphs = merged.scene.scene.missing.len,
+            .missing_glyphs = @intCast(merged.scene.scene.missing.len),
         };
-        for (final_prepared.shaped_runs.?.runs) |run| counters.shaped_glyphs += run.glyphs.len;
+        for (final_prepared.shaped_runs.?.runs) |run| counters.shaped_glyphs += @intCast(run.glyphs.len);
         applyCounters(&self.counters, counters);
         final_prepared.deinit(self.allocator);
 
@@ -552,7 +552,7 @@ test "text frame preparer rerasterizes pending atlas entries across prepares" {
     defer second.deinit();
     try std.testing.expectEqual(first_slot, second.scene.scene.sprite_draws[0].sprite.slot);
     try std.testing.expectEqual(@as(usize, 1), second.raster_plan.outputs.len);
-    try std.testing.expectEqual(@as(usize, 1), engine.atlas.len);
+    try std.testing.expectEqual(@as(u32, 1), engine.atlas.len);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.sprite_cache_hits);
     try std.testing.expect(!engine.atlas.get(.{ .value = second.scene.scene.sprite_draws[0].sprite.key.value }).?.rendered);
 }

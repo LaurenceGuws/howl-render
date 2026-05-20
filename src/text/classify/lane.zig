@@ -83,8 +83,8 @@ pub const LaneClass = struct {
 };
 
 pub const LegacyStageCounts = struct {
-    normal: usize = 0,
-    complex: usize = 0,
+    normal: u64 = 0,
+    complex: u64 = 0,
 };
 
 pub const LegacyPathReport = struct {
@@ -95,18 +95,18 @@ pub const LegacyPathReport = struct {
 };
 
 pub const LaneReport = struct {
-    visible_cells: usize = 0,
-    normal_cells: usize = 0,
-    complex_cells: usize = 0,
-    complex_multi_codepoint_cells: usize = 0,
-    complex_emoji_cells: usize = 0,
-    complex_special_sprite_cells: usize = 0,
-    complex_icon_cells: usize = 0,
-    complex_curly_underline_cells: usize = 0,
-    normal_clusters: usize = 0,
-    complex_clusters: usize = 0,
-    direct_normal_draws: usize = 0,
-    direct_normal_raster_misses: usize = 0,
+    visible_cells: u64 = 0,
+    normal_cells: u64 = 0,
+    complex_cells: u64 = 0,
+    complex_multi_codepoint_cells: u64 = 0,
+    complex_emoji_cells: u64 = 0,
+    complex_special_sprite_cells: u64 = 0,
+    complex_icon_cells: u64 = 0,
+    complex_curly_underline_cells: u64 = 0,
+    normal_clusters: u64 = 0,
+    complex_clusters: u64 = 0,
+    direct_normal_draws: u64 = 0,
+    direct_normal_raster_misses: u64 = 0,
     legacy: LegacyPathReport = .{},
 
     pub fn init(text_cache: contract.LineTextCache, cells: []const contract.RenderableCell, clusters: []const contract.CellCluster) LaneReport {
@@ -273,9 +273,9 @@ fn assertTextInvariants(text: contract.CellText) void {
 }
 
 fn recordLegacyRunClusters(counts: *LegacyStageCounts, text_cache: contract.LineTextCache, cells: []const contract.RenderableCell, clusters: []const contract.CellCluster, run: contract.ResolvedRun) void {
-    const start = @as(usize, @intCast(run.run.cluster_start));
-    const end = @min(start + @as(usize, @intCast(run.run.cluster_count)), clusters.len);
-    for (clusters[start..end]) |cluster| {
+    const start = run.run.cluster_start;
+    const end = @min(start + run.run.cluster_count, clusterCount(clusters));
+    for (clusters[clusterIndex(start)..clusterIndex(end)]) |cluster| {
         const choice = classifyClusterInCells(cells, cluster, textForCluster(text_cache, cluster));
         recordLegacyChoice(counts, choice);
     }
@@ -321,6 +321,14 @@ fn renderableCellForFirstCell(cells: []const contract.RenderableCell, first_cell
         return cell;
     }
     return null;
+}
+
+fn clusterCount(clusters: []const contract.CellCluster) u32 {
+    return @intCast(clusters.len);
+}
+
+fn clusterIndex(value: u32) usize {
+    return @intCast(value);
 }
 
 fn textForFirstCell(text_cache: contract.LineTextCache, cells: []const contract.RenderableCell, first_cell: u32) contract.CellText {
@@ -464,9 +472,9 @@ test "lane report allows visible blank cells without clusters" {
         .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
     };
     const report = LaneReport.init(.{ .texts = &.{text} }, &.{cell}, &.{});
-    try std.testing.expectEqual(@as(usize, 1), report.visible_cells);
-    try std.testing.expectEqual(@as(usize, 1), report.normal_cells);
-    try std.testing.expectEqual(@as(usize, 0), report.normal_clusters);
+    try std.testing.expectEqual(@as(u64, 1), report.visible_cells);
+    try std.testing.expectEqual(@as(u64, 1), report.normal_cells);
+    try std.testing.expectEqual(@as(u64, 0), report.normal_clusters);
 }
 
 test "lane report flags legacy leakage for normal runs" {
@@ -502,9 +510,9 @@ test "lane report flags legacy leakage for normal runs" {
     report.recordLegacyGroup(.{ .texts = &.{text} }, &.{cell}, .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 1 }, .kind = .normal });
     report.recordLegacySceneSpriteDraw(.{ .texts = &.{text} }, &.{cell}, .{ .sprite = .{ .slot = 0, .key = .{ .value = 1 } }, .x_px = 0, .y_px = 0, .width_px = 8, .height_px = 16, .color = cell.fg, .first_cell = 0, .cell_span = 1 });
     try std.testing.expect(report.frameFullyNormalInput());
-    try std.testing.expectEqual(@as(usize, 1), report.legacy.resolved_clusters.normal);
-    try std.testing.expectEqual(@as(usize, 1), report.legacy.shaped_clusters.normal);
-    try std.testing.expectEqual(@as(usize, 1), report.legacy.grouped_groups.normal);
-    try std.testing.expectEqual(@as(usize, 1), report.legacy.scene_sprite_draws.normal);
+    try std.testing.expectEqual(@as(u64, 1), report.legacy.resolved_clusters.normal);
+    try std.testing.expectEqual(@as(u64, 1), report.legacy.shaped_clusters.normal);
+    try std.testing.expectEqual(@as(u64, 1), report.legacy.grouped_groups.normal);
+    try std.testing.expectEqual(@as(u64, 1), report.legacy.scene_sprite_draws.normal);
     try std.testing.expect(!report.frameStayedOutOfLegacyPath());
 }

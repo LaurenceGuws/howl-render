@@ -66,7 +66,7 @@ pub fn buildSceneWithOptions(
     grid_metrics: contract.GridMetrics,
     options: BuildOptions,
 ) !OwnedTextScene {
-    var cache = try atlas_cache.OwnedAtlasCache.init(allocator, groups.len + cells.len);
+    var cache = try atlas_cache.OwnedAtlasCache.init(allocator, @intCast(groups.len + cells.len));
     defer cache.deinit();
     return buildSceneWithAtlasCacheOptions(allocator, cells, groups, missing, cell_metrics, grid_metrics, &cache, options);
 }
@@ -1122,7 +1122,7 @@ test "scene reuses atlas slots for repeated sprite keys" {
     defer owned.deinit();
     try std.testing.expectEqual(owned.scene.sprite_draws[0].sprite.slot, owned.scene.sprite_draws[1].sprite.slot);
     try std.testing.expectEqual(@as(usize, 1), owned.scene.raster_requests.len);
-    try std.testing.expectEqual(@as(usize, 1), cache.len);
+    try std.testing.expectEqual(@as(u32, 1), cache.len);
 }
 
 test "scene does not request raster for cache hit" {
