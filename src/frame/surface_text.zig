@@ -13,6 +13,11 @@ const text_glyph_raster = @import("../text/font/ft_hb/glyph_raster.zig");
 
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
 
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
+}
+
 comptime {
     std.debug.assert(max_font_faces <= std.math.maxInt(u8));
 }
@@ -189,19 +194,19 @@ pub const SurfaceText = struct {
     fn fontSession(context: *TextContext, faces: []text.FontSession.FontFaceRecord, active_resolve: ?*text_pipeline.ResolveObservability) text.FontSession.FontSession {
         context.session.text_state.active_resolve = active_resolve;
         var len: text_support.FallbackFontCount = 0;
-        if (faces.len > text_support.fallbackFontLen(len)) {
-            faces[text_support.fallbackFontLen(len)] = .{ .id = .{ .value = text_support.primary_face_id }, .role = .primary, .coverage = .all };
+        if (count32(faces) > text_support.fallbackFontLen(len)) {
+            faces[@intCast(text_support.fallbackFontLen(len))] = .{ .id = .{ .value = text_support.primary_face_id }, .role = .primary, .coverage = .all };
             len += 1;
         }
         var i: text_support.FallbackFontCount = 0;
-        while (i < context.session.text_state.fallback_font_paths_len and text_support.fallbackFontLen(len) < faces.len) : (i += 1) {
+        while (i < context.session.text_state.fallback_font_paths_len and text_support.fallbackFontLen(len) < count32(faces)) : (i += 1) {
             if (context.session.text_state.fallback_font_paths[i] == null) continue;
-            faces[text_support.fallbackFontLen(len)] = .{ .id = .{ .value = i + 2 }, .role = .fallback, .coverage = .all };
+            faces[@intCast(text_support.fallbackFontLen(len))] = .{ .id = .{ .value = i + 2 }, .role = .fallback, .coverage = .all };
             len += 1;
         }
         return .{
             .primary_face = .{ .value = text_support.primary_face_id },
-            .faces = faces[0..text_support.fallbackFontLen(len)],
+            .faces = faces[0..@intCast(text_support.fallbackFontLen(len))],
             .provider = .{ .ctx = context, .has_cell_text = providerHasCellTextThunk },
             .metrics = text_support.deriveCellMetrics(context),
         };
@@ -317,14 +322,14 @@ pub const SurfaceTextOwner = struct {
     }
 
     pub fn setFallbackFontPathPtrs(self: *SurfaceTextOwner, raw_paths: []const ?[*]const u8) FontConfigError!void {
-        const path_count = text_support.fallbackFontCount(raw_paths.len) orelse return error.InvalidArgument;
+        const path_count = text_support.fallbackFontCount(count32(raw_paths)) orelse return error.InvalidArgument;
         var staged = std.ArrayList([:0]u8).empty;
         defer freeOwnedFallbackFontPaths(&staged);
         if (path_count == 0) {
             self.adoptFallbackFontPaths(&staged);
             return;
         }
-        staged.ensureTotalCapacity(std.heap.c_allocator, text_support.fallbackFontLen(path_count)) catch return error.OutOfMemory;
+        staged.ensureTotalCapacity(std.heap.c_allocator, @intCast(text_support.fallbackFontLen(path_count))) catch return error.OutOfMemory;
         var i: text_support.FallbackFontCount = 0;
         while (i < path_count) : (i += 1) {
             const raw = raw_paths[i] orelse return error.InvalidArgument;
@@ -400,7 +405,7 @@ pub const SurfaceTextOwner = struct {
     }
 
     fn syncFallbackFontPaths(self: *SurfaceTextOwner) void {
-        const count = text_support.fallbackFontCount(self.fallback_font_paths.items.len) orelse unreachable;
+        const count = text_support.fallbackFontCount(count32(self.fallback_font_paths.items)) orelse unreachable;
         self.session.text_state.fallback_font_paths_len = count;
         var slot: text_support.FallbackFontCount = 0;
         while (slot < count) : (slot += 1) {

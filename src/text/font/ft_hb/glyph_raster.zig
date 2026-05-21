@@ -9,7 +9,6 @@ const c = c_api.c;
 
 const FtFace = c_api.FtFace;
 const HbFont = c_api.HbFont;
-const PixelIndex = @TypeOf(@as([]const u8, &.{}).len);
 
 fn lockFt(self: anytype) void {
     const T = @TypeOf(self.*);
@@ -47,7 +46,7 @@ pub fn providerRasterizeSprite(comptime ContextType: type, ctx: *anyopaque, allo
     const context: *ContextType = @ptrCast(@alignCast(ctx));
     const width = @max(req.width_px, 1);
     const height = @max(req.height_px, 1);
-    const pixels = try allocator.alloc(u8, rasterPixelCount(width, height));
+    const pixels = try allocator.alloc(u8, @intCast(rasterPixelCount(width, height)));
     errdefer allocator.free(pixels);
     @memset(pixels, 0);
     if (tryRasterizeProviderSpecialCase(context, pixels, width, height, req)) return providerSpriteOutput(allocator, req, width, height, pixels);
@@ -97,8 +96,9 @@ fn rasterizeProviderGlyphFromFace(_: anytype, dst: []u8, width: u16, height: u16
             const dx: u16 = @intCast(dx_i);
             const dy: u16 = @intCast(dy_i);
             if (dx >= width or dy >= height) continue;
-            dst[rasterPixelOffset(width, dx, dy)] = bitmapAlpha(
-                bitmap.buffer[0 .. @as(PixelIndex, pitch_abs) * @as(PixelIndex, bh)],
+            // FreeType bitmap pitch/height are external buffer geometry; translate only at the slice seam.
+            dst[@intCast(rasterPixelOffset(width, dx, dy))] = bitmapAlpha(
+                bitmap.buffer[0 .. @intCast(@as(u32, pitch_abs) * @as(u32, bh))],
                 bitmap.pixel_mode,
                 pitch_abs,
                 pitch_is_negative,
@@ -146,11 +146,13 @@ fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, h
 fn providerSpriteOutput(allocator: std.mem.Allocator, req: render.SpriteRasterRequest, width: u16, height: u16, pixels: []u8) render.Text.Rasterizer.RasterSpriteOutput {
     return .{ .allocator = allocator, .key = req.key, .width_px = width, .height_px = height, .color_mode = req.color_mode, .pixels = pixels };
 }
-fn rasterPixelCount(width: u16, height: u16) PixelIndex {
-    return @as(PixelIndex, width) * @as(PixelIndex, height);
+fn rasterPixelCount(width: u16, height: u16) u32 {
+    return @as(u32, width) * @as(u32, height);
 }
-fn rasterPixelOffset(width: u16, x: u16, y: u16) PixelIndex {
-    return @as(PixelIndex, y) * @as(PixelIndex, width) + x;
+
+// Glyph raster geometry stays typed until these final slice-index helpers.
+fn rasterPixelOffset(width: u16, x: u16, y: u16) u32 {
+    return @as(u32, y) * @as(u32, width) + x;
 }
 fn bitmapVisualWidth(pixel_mode: anytype, bitmap_width: u16) u16 {
     return switch (pixelModeValue(pixel_mode)) {
@@ -171,7 +173,9 @@ fn bitmapAlpha(buffer: []const u8, pixel_mode: anytype, pitch_abs: u16, pitch_is
         else => y,
     };
     const row_y = if (pitch_is_negative) bitmap_height - 1 - src_y else src_y;
-    const row = buffer[@as(PixelIndex, row_y) * @as(PixelIndex, pitch_abs) ..][0..pitch_abs];
+    // Bitmap rows are already external byte slices here; convert only at the row-slice seam.
+    const row_start = @as(u32, row_y) * @as(u32, pitch_abs);
+    const row = buffer[@intCast(row_start)..][0..pitch_abs];
     return switch (pixelModeValue(pixel_mode)) {
         1 => if ((row[x / 8] & (@as(u8, 0x80) >> @intCast(x & 7))) != 0) 255 else 0,
         2 => row[x],
@@ -183,16 +187,21 @@ fn bitmapAlpha(buffer: []const u8, pixel_mode: anytype, pitch_abs: u16, pitch_is
         else => row[x],
     };
 }
-fn unpackPackedGray(row: []const u8, x: PixelIndex, bits: u3) u8 {
-    const per_byte = 8 / @as(PixelIndex, bits);
-    const shift: u3 = @intCast(8 - @as(PixelIndex, bits) - (x % per_byte) * @as(PixelIndex, bits));
+fn unpackPackedGray(row: []const u8, x: u32, bits: u3) u8 {
+    const per_byte = 8 / @as(u32, bits);
+    const shift: u3 = @intCast(8 - @as(u32, bits) - (x % per_byte) * @as(u32, bits));
     const mask: u8 = (@as(u8, 1) << bits) - 1;
-    const value = (row[x / per_byte] >> shift) & mask;
+    const value = (row[@intCast(x / per_byte)] >> shift) & mask;
     return @intCast((@as(u16, value) * 255) / @as(u16, mask));
 }
-fn average3(row: []const u8, off: PixelIndex) u8 {
-    if (off + 2 >= row.len) return 0;
-    return @intCast((@as(u16, row[off]) + @as(u16, row[off + 1]) + @as(u16, row[off + 2])) / 3);
+fn average3(row: []const u8, off: u32) u8 {
+    if (off + 2 >= count32(row)) return 0;
+    return @intCast((@as(u16, row[@intCast(off)]) + @as(u16, row[@intCast(off + 1)]) + @as(u16, row[@intCast(off + 2)])) / 3);
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 fn pixelModeValue(pixel_mode: anytype) u32 {
     const T = @TypeOf(pixel_mode);

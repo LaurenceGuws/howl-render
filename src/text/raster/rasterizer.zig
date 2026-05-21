@@ -3,8 +3,6 @@ const std = @import("std");
 const contract = @import("../contract.zig");
 const special_raster = @import("special.zig");
 
-const PixelIndex = @TypeOf(@as([]const u8, &.{}).len);
-
 pub const RasterSpriteRequest = struct {
     key: contract.SpriteKey,
     group: contract.GlyphGroup,
@@ -48,7 +46,8 @@ pub fn alphaBounds(pixels: []const u8, width_px: u16, height_px: u16) SpriteBoun
     for (0..height_px) |yy| {
         const row = pixelRowOffset(width_px, @intCast(yy));
         for (0..width_px) |xx| {
-            if (row + xx >= pixels.len or pixels[row + xx] == 0) continue;
+            const off = row + @as(u32, @intCast(xx));
+            if (off >= count32(pixels) or pixels[@intCast(off)] == 0) continue;
             const x: u16 = @intCast(xx);
             const y: u16 = @intCast(yy);
             min_x = @min(min_x, x);
@@ -171,7 +170,7 @@ fn hasRequestKey(requests: []const contract.SpriteRasterRequest, key: contract.S
 
 pub fn placeholderRaster(allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) !RasterSpriteOutput {
     const bytes = pixelCount(req.width_px, req.height_px);
-    const pixels = try allocator.alloc(u8, bytes);
+    const pixels = try allocator.alloc(u8, @intCast(bytes));
     @memset(pixels, 0);
     if (req.kind == .undercurl) rasterizeUndercurlAlpha(pixels, req.width_px, req.height_px, req.decoration);
     return .{
@@ -209,16 +208,17 @@ pub fn rasterizeRequestsWithRasterizer(allocator: std.mem.Allocator, raster: Ras
     return .{ .allocator = allocator, .outputs = outputs };
 }
 
-fn pixelRowOffset(width: u16, y: u16) PixelIndex {
-    return @as(PixelIndex, width) * @as(PixelIndex, y);
+// Raster geometry stays typed as u16/u32 until the final slice edge.
+fn pixelRowOffset(width: u16, y: u16) u32 {
+    return @as(u32, width) * @as(u32, y);
 }
 
-fn pixelOffset(width: u16, x: u16, y: u16) PixelIndex {
+fn pixelOffset(width: u16, x: u16, y: u16) u32 {
     return pixelRowOffset(width, y) + x;
 }
 
-fn pixelCount(width: u16, height: u16) PixelIndex {
-    return @as(PixelIndex, width) * @as(PixelIndex, height);
+fn pixelCount(width: u16, height: u16) u32 {
+    return @as(u32, width) * @as(u32, height);
 }
 
 fn count32(items: anytype) u32 {
@@ -235,7 +235,7 @@ test "raster request preserves group key and dimensions" {
     try std.testing.expectEqual(@as(u16, 2), req.box_drawing.light_stroke_px);
     var out = try placeholderRaster(std.testing.allocator, req);
     defer out.deinit();
-    try std.testing.expectEqual(pixelCount(16, 16), out.pixels.len);
+    try std.testing.expectEqual(pixelCount(16, 16), count32(out.pixels));
 }
 
 test "raster request preserves configured box drawing thickness" {
@@ -252,7 +252,7 @@ test "raster plan creates one output per request" {
     defer plan.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(plan.outputs));
     try std.testing.expectEqual(contract.SpriteColorMode.color, plan.outputs[0].color_mode);
-    try std.testing.expectEqual(pixelCount(10, 20), plan.outputs[0].pixels.len);
+    try std.testing.expectEqual(pixelCount(10, 20), count32(plan.outputs[0].pixels));
 }
 
 test "pending raster requests dedupe by sprite key" {

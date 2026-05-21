@@ -3,7 +3,6 @@ const std = @import("std");
 const render = @import("../howl_render.zig");
 const surface = @import("../frame/surface.zig");
 
-const SliceIndex = @TypeOf(@as([]const u8, &.{}).len);
 const RunCount = u32;
 
 const OutputFormat = enum { ndjson, text };
@@ -118,7 +117,9 @@ const CountingAllocator = struct {
         }
     }
 
-    fn alloc(ctx: *anyopaque, len: SliceIndex, alignment: std.mem.Alignment, ret_addr: SliceIndex) ?[*]u8 {
+    // std.mem.Allocator owns architecture-sized lengths and return addresses at this callback seam.
+    // We translate those edge values into fixed-width benchmark counters immediately below.
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         const ptr = self.child.rawAlloc(len, alignment, ret_addr) orelse return null;
         self.alloc_count += 1;
@@ -131,7 +132,7 @@ const CountingAllocator = struct {
         return ptr;
     }
 
-    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: SliceIndex, ret_addr: SliceIndex) bool {
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         if (!self.child.rawResize(memory, alignment, new_len, ret_addr)) return false;
         if (new_len > memory.len) {
@@ -147,7 +148,7 @@ const CountingAllocator = struct {
         return true;
     }
 
-    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: SliceIndex, ret_addr: SliceIndex) ?[*]u8 {
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         const ptr = self.child.rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
         if (new_len > memory.len) {
@@ -163,7 +164,7 @@ const CountingAllocator = struct {
         return ptr;
     }
 
-    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: SliceIndex) void {
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         self.child.rawFree(memory, alignment, ret_addr);
         self.live_bytes -|= memory.len;
@@ -755,9 +756,10 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
 
 fn parseArgs(argv: []const [:0]const u8) !Options {
     var opts = Options{};
-    var i: SliceIndex = 1;
-    while (i < argv.len) : (i += 1) {
-        const arg = argv[i];
+    var args = argv[1..];
+    while (args.len > 0) {
+        const arg = args[0];
+        args = args[1..];
         if (std.mem.eql(u8, arg, "--text")) {
             opts.format = .text;
             continue;
@@ -767,9 +769,9 @@ fn parseArgs(argv: []const [:0]const u8) !Options {
             continue;
         }
         if (std.mem.eql(u8, arg, "--runs")) {
-            i += 1;
-            if (i >= argv.len) return error.MissingRuns;
-            opts.runs = std.fmt.parseUnsigned(RunCount, argv[i], 10) catch return error.InvalidRuns;
+            if (args.len == 0) return error.MissingRuns;
+            opts.runs = std.fmt.parseUnsigned(RunCount, args[0], 10) catch return error.InvalidRuns;
+            args = args[1..];
             continue;
         }
         return error.UnknownArgument;

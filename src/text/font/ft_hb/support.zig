@@ -6,8 +6,6 @@ const surface = @import("../../../frame/surface.zig");
 const text_cache = @import("cache.zig");
 const c_api = @import("c_api.zig");
 
-const SliceIndex = @TypeOf(@as([]const u8, &.{}).len);
-
 pub const c = c_api.c;
 pub const FtLibrary = c_api.FtLibrary;
 pub const FtFace = c_api.FtFace;
@@ -61,13 +59,15 @@ pub const State = struct {
     }
 };
 
-pub fn fallbackFontCount(value: SliceIndex) ?FallbackFontCount {
+// Slice lengths translate immediately into FallbackFontCount before owner state keeps them.
+pub fn fallbackFontCount(value: u32) ?FallbackFontCount {
     if (value > max_fallback_fonts) return null;
     return @intCast(value);
 }
 
-pub fn fallbackFontLen(value: FallbackFontCount) SliceIndex {
-    return @intCast(value);
+// Keep fallback lengths owner-typed until a caller reaches an actual slice or allocator edge.
+pub fn fallbackFontLen(value: FallbackFontCount) u32 {
+    return value;
 }
 
 fn textState(self: anytype) *State {
@@ -588,10 +588,11 @@ fn buildProviderShapedRun(allocator: std.mem.Allocator, run: render.ResolvedRun,
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-fn fallbackSlot(self: anytype, fallback_index: FallbackFontCount) ?SliceIndex {
+// Fallback indexes stay typed until the final fixed-array lookup seam here.
+fn fallbackSlot(self: anytype, fallback_index: FallbackFontCount) ?FallbackFontCount {
     const state = textState(self);
     if (fallback_index >= state.fallback_font_paths_len) return null;
-    return @intCast(fallback_index);
+    return fallback_index;
 }
 
 fn useDeterministicTestTextFallback(self: anytype) bool {

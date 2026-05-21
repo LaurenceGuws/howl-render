@@ -1,8 +1,6 @@
 const std = @import("std");
 const render = @import("../../../howl_render.zig");
 
-const PixelIndex = @TypeOf(@as([]const u8, &.{}).len);
-
 const AlphaSegment = enum { full, left, right, top, bottom };
 const AlphaCorner = enum { top_left, top_right, bottom_left, bottom_right };
 const PointF = struct { x: f64, y: f64 };
@@ -48,23 +46,24 @@ pub fn rasterizeFallbackGlyph(dst: []u8, cell_w: u16, cell_h: u16, codepoint: u2
 fn drawAlphaH(dst: []u8, w: u16, h: u16, t: u16, segment: AlphaSegment) void { const y = (h - t) / 2; const mid = (w - @min(t, w)) / 2; const x: u16 = switch (segment) { .full, .top, .bottom, .left => 0, .right => mid }; const width: u16 = switch (segment) { .full, .top, .bottom => w, .left => @max(mid + t, 1), .right => w - mid }; drawAlphaRect(dst, w, x, y, width, t, 255); }
 fn drawAlphaV(dst: []u8, w: u16, h: u16, t: u16, segment: AlphaSegment) void { const x = (w - t) / 2; const mid = (h - @min(t, h)) / 2; const y: u16 = switch (segment) { .full, .left, .right, .top => 0, .bottom => mid }; const height: u16 = switch (segment) { .full, .left, .right => h, .top => @max(mid + t, 1), .bottom => h - mid }; drawAlphaRect(dst, w, x, y, t, height, 255); }
 fn drawAlphaRect(dst: []u8, stride: u16, x: u16, y: u16, width: u16, height: u16, alpha: u8) void {
-    const stride_index = @as(PixelIndex, stride);
-    const x_index = @as(PixelIndex, x);
-    const y_index = @as(PixelIndex, y);
-    const width_index = @as(PixelIndex, width);
-    const height_index = @as(PixelIndex, height);
+    // Raster geometry stays typed until these final slice-bound checks and writes.
+    const stride_index = @as(u32, stride);
+    const x_index = @as(u32, x);
+    const y_index = @as(u32, y);
+    const width_index = @as(u32, width);
+    const height_index = @as(u32, height);
     std.debug.assert(x_index + width_index <= stride_index);
     std.debug.assert((y_index + height_index) * stride_index <= dst.len);
     for (y..y + height) |yy| {
-        const row = @as(PixelIndex, yy) * stride_index;
-        for (x..x + width) |xx| dst[row + @as(PixelIndex, xx)] = alpha;
+        const row = @as(u32, @intCast(yy)) * stride_index;
+        for (x..x + width) |xx| dst[@intCast(row + @as(u32, @intCast(xx)))] = alpha;
     }
 }
 fn fillAlphaChecker(target: []u8, width: u16, height: u16, alpha: u8) void {
-    std.debug.assert(pixelCount(width, height) <= target.len);
+    std.debug.assert(pixelCount(width, height) <= count32(target));
     for (0..height) |yy| {
         for (0..width) |xx| {
-            if (((xx + yy) & 1) == 0) target[pixelOffset(width, @intCast(xx), @intCast(yy))] = alpha;
+            if (((xx + yy) & 1) == 0) target[@intCast(pixelOffset(width, @intCast(xx), @intCast(yy)))] = alpha;
         }
     }
 }
@@ -92,19 +91,25 @@ fn drawAlphaQuadraticStroke(dst: []u8, w: u16, h: u16, p0: PointF, p1: PointF, p
             if (coverage <= 0.0) continue;
             const alpha: u8 = @intFromFloat(@round(coverage * 255.0));
             const off = pixelOffset(w, @intCast(xx), @intCast(yy));
-            dst[off] = @max(dst[off], alpha);
+            dst[@intCast(off)] = @max(dst[@intCast(off)], alpha);
         }
     }
 }
 
-fn pixelRowOffset(width: u16, y: u16) PixelIndex {
-    return @as(PixelIndex, width) * @as(PixelIndex, y);
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
-fn pixelOffset(width: u16, x: u16, y: u16) PixelIndex {
+// Rounded-sprite geometry stays typed until these final pixel-buffer index helpers.
+fn pixelRowOffset(width: u16, y: u16) u32 {
+    return @as(u32, width) * @as(u32, y);
+}
+
+fn pixelOffset(width: u16, x: u16, y: u16) u32 {
     return pixelRowOffset(width, y) + x;
 }
 
-fn pixelCount(width: u16, height: u16) PixelIndex {
-    return @as(PixelIndex, width) * @as(PixelIndex, height);
+fn pixelCount(width: u16, height: u16) u32 {
+    return @as(u32, width) * @as(u32, height);
 }

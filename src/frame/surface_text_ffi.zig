@@ -6,8 +6,6 @@ const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
 
-const AbiLen = @TypeOf(@as([]const u8, &.{}).len);
-
 const OwnedVtSurface = struct {
     allocator: std.mem.Allocator,
     cols: u16,
@@ -85,7 +83,9 @@ pub fn setFontSize(handle: abi.SurfaceTextHandle, font_size_px: u16) callconv(.c
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn setFontPath(handle: abi.SurfaceTextHandle, ptr: ?[*]const u8, len: AbiLen) callconv(.c) c_int {
+// The C ABI owns architecture-sized byte lengths at this seam.
+// We convert immediately into a byte slice and do not retain architecture-sized state in the owner.
+pub fn setFontPath(handle: abi.SurfaceTextHandle, ptr: ?[*]const u8, len: usize) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     if (len > 0 and ptr == null) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     owner.setFontPathBytes(if (len == 0 or ptr == null) null else ptr.?[0..len]) catch {
@@ -94,11 +94,14 @@ pub fn setFontPath(handle: abi.SurfaceTextHandle, ptr: ?[*]const u8, len: AbiLen
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn setFallbackFontPaths(handle: abi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: AbiLen) callconv(.c) c_int {
+// The C ABI owns architecture-sized pointer counts at this seam.
+// We translate immediately into FallbackFontCount before owner code touches the value.
+pub fn setFallbackFontPaths(handle: abi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: usize) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
-    const path_count = text_support.fallbackFontCount(count) orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    if (count > text_support.max_fallback_fonts) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    const path_count = text_support.fallbackFontCount(@intCast(count)) orelse unreachable;
     if (path_count > 0 and ptrs == null) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
-    const raw_paths = if (path_count == 0) &.{} else ptrs.?[0..text_support.fallbackFontLen(path_count)];
+    const raw_paths = if (path_count == 0) &.{} else ptrs.?[0..@intCast(text_support.fallbackFontLen(path_count))];
     owner.setFallbackFontPathPtrs(raw_paths) catch |err| {
         return @intFromEnum(switch (err) {
             error.InvalidArgument => abi.HowlRenderCallStatus.invalid_argument,

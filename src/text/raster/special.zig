@@ -1,7 +1,6 @@
 const std = @import("std");
 const contract = @import("../contract.zig");
 const special_glyphs = @import("../classify/special_glyphs.zig");
-const PixelIndex = @TypeOf(@as([]const u8, &.{}).len);
 
 pub fn requestForUndercurl(key: contract.SpriteKey, width_px: u16, height_px: u16, decoration: contract.DecorationSpriteRaster) contract.SpriteRasterRequest {
     std.debug.assert(width_px > 0);
@@ -52,7 +51,7 @@ pub fn rasterizeGeneratedSpecialAlpha(pixels: []u8, width_px: u16, height_px: u1
 }
 
 pub fn rasterizeGeneratedSpecialAlphaWithMetrics(pixels: []u8, width_px: u16, height_px: u16, codepoint: u32, box_drawing: contract.BoxDrawingRasterMetrics) bool {
-    std.debug.assert(pixels.len >= pixelCount(width_px, height_px));
+    std.debug.assert(count32(pixels) >= pixelCount(width_px, height_px));
     if (!special_glyphs.isGeneratedSpecialSupported(codepoint)) return false;
     @memset(pixels, 0);
     const width = @max(width_px, 1);
@@ -1115,20 +1114,26 @@ fn addAlpha(pixels: []u8, width: u16, height: u16, x: u16, position: u16, y_offs
     pixels[idx] = @intCast(@min(@as(u16, pixels[idx]) + @as(u16, alpha), 255));
 }
 
-fn pixelRowOffset(width: u16, y: u16) PixelIndex {
-    return @as(PixelIndex, width) * @as(PixelIndex, y);
+// Raster geometry stays typed as u16/u32 until these final slice-index helpers.
+fn pixelRowOffset(width: u16, y: u16) u32 {
+    return @as(u32, width) * @as(u32, y);
 }
 
-fn pixelOffset(width: u16, x: u16, y: u16) PixelIndex {
+fn pixelOffset(width: u16, x: u16, y: u16) u32 {
     return pixelRowOffset(width, y) + x;
 }
 
-fn pixelCount(width: u16, height: u16) PixelIndex {
-    return @as(PixelIndex, width) * @as(PixelIndex, height);
+fn pixelCount(width: u16, height: u16) u32 {
+    return @as(u32, width) * @as(u32, height);
 }
 
-fn countLit(pixels: []const u8) PixelIndex {
-    var lit: PixelIndex = 0;
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
+}
+
+fn countLit(pixels: []const u8) u32 {
+    var lit: u32 = 0;
     for (pixels) |alpha| {
         if (alpha != 0) lit += 1;
     }
@@ -1146,11 +1151,11 @@ test "undercurl raster request generates alpha mask" {
     const req = requestForUndercurl(.{ .value = 7 }, 24, 16, .{ .stroke_px = 2, .amplitude_px = 3, .period_px = 12, .y_px = 12 });
     const bytes = pixelCount(req.width_px, req.height_px);
     var pixels = [_]u8{0} ** (24 * 16);
-    try std.testing.expectEqual(bytes, pixels.len);
+    try std.testing.expectEqual(bytes, count32(pixels));
     rasterizeUndercurlAlpha(&pixels, req.width_px, req.height_px, req.decoration);
     const lit = countLit(&pixels);
     try std.testing.expect(lit > 0);
-    try std.testing.expect(lit < pixels.len);
+    try std.testing.expect(lit < count32(pixels));
 }
 
 test "generated special support table matches rasterizer dispatch" {
@@ -1248,7 +1253,7 @@ test "generated special raster draws powerline triangle" {
     try std.testing.expect(rasterizeGeneratedSpecialAlpha(&pixels, width, height, 0xe0b0));
     const lit = countLit(&pixels);
     try std.testing.expect(lit > 0);
-    try std.testing.expect(lit > pixels.len / 4);
+    try std.testing.expect(lit > count32(pixels) / 4);
     try std.testing.expect(pixels[0] < 128);
 }
 
@@ -1259,7 +1264,7 @@ test "generated special raster draws powerline separator" {
     try std.testing.expect(rasterizeGeneratedSpecialAlpha(&pixels, width, height, 0xe0b1));
     const lit = countLit(&pixels);
     try std.testing.expect(lit > 0);
-    try std.testing.expect(lit < pixels.len / 2);
+    try std.testing.expect(lit < count32(pixels) / 2);
 }
 
 test "generated special raster draws cubic powerline D" {
@@ -1281,7 +1286,7 @@ test "generated special raster draws stroked powerline D" {
     try std.testing.expect(rasterizeGeneratedSpecialAlpha(&pixels, width, height, 0xe0b5));
     const lit = countLit(&pixels);
     try std.testing.expect(lit > 0);
-    try std.testing.expect(lit < pixels.len / 2);
+    try std.testing.expect(lit < count32(pixels) / 2);
 }
 
 test "generated special raster draws eighth block" {
@@ -1436,7 +1441,7 @@ test "generated special raster draws box diagonal lines" {
     try std.testing.expect(rasterizeGeneratedSpecialAlpha(&pixels, width, height, 0x2571));
     const lit = countLit(&pixels);
     try std.testing.expect(lit > 0);
-    try std.testing.expect(lit < pixels.len / 2);
+    try std.testing.expect(lit < count32(pixels) / 2);
 }
 
 test "generated special raster draws double box lines" {
@@ -1558,7 +1563,7 @@ test "generated special raster draws rounded box corners" {
     for (cases) |case| {
         var pixels = [_]u8{0} ** (width * height);
         try std.testing.expect(rasterizeGeneratedSpecialAlpha(&pixels, width, height, case.cp));
-        var lit: PixelIndex = 0;
+        var lit: u32 = 0;
         var expected_quadrant: u16 = 0;
         var wrong_outer_quadrant: u16 = 0;
         for (0..height) |yy| {
@@ -1588,7 +1593,7 @@ test "generated special raster draws rounded box corners" {
         }
 
         try std.testing.expect(lit > 0);
-        try std.testing.expect(lit < pixels.len / 2);
+        try std.testing.expect(lit < count32(pixels) / 2);
         try std.testing.expect(hasPartialAlpha(&pixels));
         try std.testing.expect(expected_quadrant > 0);
         try std.testing.expectEqual(@as(u16, 0), wrong_outer_quadrant);
@@ -1645,7 +1650,7 @@ test "generated special raster draws box crossing diagonals" {
     var pixels = [_]u8{0} ** (width * height);
     try std.testing.expect(rasterizeGeneratedSpecialAlpha(&pixels, width, height, 0x2573));
     try std.testing.expect(pixels[(height / 2) * width + width / 2] != 0);
-    try std.testing.expect(countLit(&pixels) > width);
+    try std.testing.expect(countLit(&pixels) > @as(u32, width));
 }
 
 test "generated special raster draws powerline diagonal aliases" {
@@ -1655,5 +1660,5 @@ test "generated special raster draws powerline diagonal aliases" {
     try std.testing.expect(rasterizeGeneratedSpecialAlpha(&pixels, width, height, 0xe0b9));
     const lit = countLit(&pixels);
     try std.testing.expect(lit > 0);
-    try std.testing.expect(lit < pixels.len / 2);
+    try std.testing.expect(lit < count32(pixels) / 2);
 }
