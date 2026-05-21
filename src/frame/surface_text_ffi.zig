@@ -113,7 +113,14 @@ pub fn setFallbackFontPaths(handle: abi.SurfaceTextHandle, ptrs: ?[*]const ?[*]c
 
 pub fn syncGeometry(handle: abi.SurfaceTextHandle, geometry: abi.FfiGeometry) callconv(.c) abi.FfiGeometryResponse {
     const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 };
-    return geometryOut(owner.flow.syncGeometry(geometryIn(geometry)));
+    const layout = owner.session.deriveFrameLayout(owner.config, pixelIn(geometry.render_px), pixelIn(geometry.grid_px)) catch {
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 };
+    };
+    return geometryOut(owner.flow.syncGeometry(.{
+        .render_px = pixelIn(geometry.render_px),
+        .grid_px = pixelIn(geometry.grid_px),
+        .cell_px = layout.cell_px,
+    }));
 }
 
 pub fn surfaceQuery(handle: abi.SurfaceTextHandle) callconv(.c) abi.FfiSurfaceQuery {
@@ -272,14 +279,6 @@ fn surfaceMetricsOut(value: Render.RenderMetrics) abi.FfiSurfaceMetrics {
 
 fn executionInputIn(value: abi.FfiSurfaceExecutionInput) Render.SurfaceText.RenderSurfaceExecutionInput {
     return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch }, .uploads_committed = value.uploads_committed, .render_us = value.render_us, .content_valid = value.content_valid != 0 };
-}
-
-fn geometryIn(value: abi.FfiGeometry) Render.Geometry {
-    return .{
-        .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
-        .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
-        .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
-    };
 }
 
 fn geometryOut(value: surface.GeometryResponse) abi.FfiGeometryResponse {

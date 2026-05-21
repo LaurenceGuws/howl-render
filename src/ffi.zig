@@ -133,7 +133,6 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
     const sync = surfaceTextSyncGeometry(handle, .{
         .render_px = render_px,
         .grid_px = grid_px,
-        .cell_px = layout.cell_px,
     });
     try std.testing.expectEqual(@as(c_int, 0), sync.status);
 

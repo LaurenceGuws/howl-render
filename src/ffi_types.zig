@@ -201,7 +201,6 @@ pub const FfiCursor = extern struct {
 pub const FfiGeometry = extern struct {
     render_px: FfiPixelSize,
     grid_px: FfiPixelSize,
-    cell_px: FfiCellSize,
 };
 
 pub const FfiGeometryResponse = extern struct {

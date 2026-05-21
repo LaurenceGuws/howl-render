@@ -178,7 +178,6 @@ typedef struct {
 typedef struct {
   HowlRenderPixelSize render_px;
   HowlRenderPixelSize grid_px;
-  HowlRenderCellSize cell_px;
 } HowlRenderGeometry;
 
 typedef struct {
