@@ -295,13 +295,8 @@ pub const Flow = struct {
     render_px: surface_types.PixelSize = .{ .width = 0, .height = 0 },
     grid_px: surface_types.PixelSize = .{ .width = 0, .height = 0 },
     cell_px: surface_types.CellSize = .{ .width = 0, .height = 0 },
-    font_size_px: u16 = 1,
     geometry_epoch: u64 = 0,
     publication_state: PublicationState = .{},
-
-    pub fn setFontSizePx(self: *Flow, font_size_px: u16) void {
-        self.font_size_px = @max(font_size_px, 1);
-    }
 
     pub fn acceptSnapshot(self: *Flow, snapshot: VtSnapshot) VtPublishResult {
         std.debug.assert(snapshot.cols > 0);
@@ -345,6 +340,19 @@ pub const Flow = struct {
         return self.surface.takePrepare();
     }
 
+    pub fn prepareLayout(self: *const Flow, geometry_epoch: u64) surface_types.PrepareLayout {
+        std.debug.assert(self.geometry_epoch != 0);
+        std.debug.assert(self.geometry_epoch == geometry_epoch);
+        std.debug.assert(self.render_px.width > 0);
+        std.debug.assert(self.render_px.height > 0);
+        std.debug.assert(self.cell_px.width > 0);
+        std.debug.assert(self.cell_px.height > 0);
+        return .{
+            .render_px = self.render_px,
+            .cell_px = self.cell_px,
+        };
+    }
+
     pub fn publishPrepared(self: *Flow, prepared: pipeline.PreparedFrame) void {
         self.surface.publishPrepared(prepared);
     }
@@ -381,16 +389,6 @@ pub const Flow = struct {
             .prepare_pending = pending.prepare_pending,
             .submit_pending = pending.submit_pending,
             .target_valid = pending.target_valid,
-        };
-    }
-
-    pub fn surfaceQuery(self: *const Flow) surface_types.SurfaceQuery {
-        return .{
-            .render_px = self.render_px,
-            .grid_px = self.grid_px,
-            .cell_px = self.cell_px,
-            .font_size_px = self.font_size_px,
-            .epoch = self.geometry_epoch,
         };
     }
 

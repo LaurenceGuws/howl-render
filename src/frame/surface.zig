@@ -61,12 +61,9 @@ pub const Geometry = struct {
     cell_px: CellSize,
 };
 
-pub const SurfaceQuery = struct {
+pub const PrepareLayout = struct {
     render_px: PixelSize,
-    grid_px: PixelSize,
     cell_px: CellSize,
-    font_size_px: u16,
-    epoch: u64,
 };
 
 pub const FillRect = struct {

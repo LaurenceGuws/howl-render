@@ -123,11 +123,6 @@ pub fn syncGeometry(handle: abi.SurfaceTextHandle, geometry: abi.FfiGeometry) ca
     }));
 }
 
-pub fn surfaceQuery(handle: abi.SurfaceTextHandle) callconv(.c) abi.FfiSurfaceQuery {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .font_size_px = 0, .epoch = 0 };
-    return surfaceQueryOut(owner.flow.surfaceQuery());
-}
-
 pub fn publishVtSnapshot(handle: abi.SurfaceTextHandle, snapshot_in: abi.FfiVtSnapshot) callconv(.c) abi.FfiVtPublishResult {
     const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     const snapshot = vtSnapshotIn(snapshot_in) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
@@ -207,14 +202,13 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
     const vt_surface_value = vt_surface_in orelse return .failed;
     const value = prepared_out orelse return .failed;
     const request = renderRequestIn(prepare_request) orelse return .failed;
-    const query = owner.flow.surfaceQuery();
-    std.debug.assert(query.epoch == request.token.geometry_epoch);
+    const layout = owner.flow.prepareLayout(request.token.geometry_epoch);
     var vt_surface = vtSurfaceIn(std.heap.c_allocator, vt_surface_value.*) catch return .failed;
     defer vt_surface.deinit();
     const prepared = owner.session.prepareSurface(std.heap.c_allocator, .{
         .config = owner.config,
         .request = request,
-        .query = query,
+        .layout = layout,
         .state = vt_surface.frameData(),
         .target_valid = prepare_request.target_valid != 0,
     }) catch return .failed;
@@ -291,17 +285,6 @@ fn geometryOut(value: surface.GeometryResponse) abi.FfiGeometryResponse {
         .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
         .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
         .geometry_epoch = value.geometry_epoch,
-    };
-}
-
-fn surfaceQueryOut(value: Render.SurfaceQuery) abi.FfiSurfaceQuery {
-    return .{
-        .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
-        .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
-        .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height },
-        .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
-        .font_size_px = value.font_size_px,
-        .epoch = value.epoch,
     };
 }
 
@@ -410,10 +393,6 @@ fn renderRequestIn(value: abi.FfiPrepareRequest) ?Render.FramePipeline.RenderReq
 fn preparedFrameIn(value: abi.FfiPreparedFrame) ?Render.FramePipeline.PreparedFrame {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq, .required_target_epoch = value.required_target_epoch };
-}
-
-fn surfaceQueryIn(value: abi.FfiSurfaceQuery) Render.SurfaceQuery {
-    return .{ .render_px = .{ .width = value.render_px.width, .height = value.render_px.height }, .grid_px = .{ .width = value.grid_px.width, .height = value.grid_px.height }, .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height }, .font_size_px = value.font_size_px, .epoch = value.epoch };
 }
 
 fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !OwnedVtSurface {

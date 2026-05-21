@@ -63,7 +63,7 @@ pub const SurfaceText = struct {
     pub const PrepareInput = struct {
         config: SurfaceTextConfig,
         request: pipeline.RenderRequest,
-        query: surface.SurfaceQuery,
+        layout: surface.PrepareLayout,
         state: surface.FrameData,
         target_valid: bool,
     };
@@ -163,8 +163,8 @@ pub const SurfaceText = struct {
             .request = prepare.request,
             .required_surface_epoch = prepare.request.known_target_epoch,
             .geometry_epoch = prepare.request.token.geometry_epoch,
-            .render_px = prepare.query.render_px,
-            .cell_px = prepare.query.cell_px,
+            .render_px = prepare.layout.render_px,
+            .cell_px = prepare.layout.cell_px,
             .grid = .{ .cols = grid.cols, .rows = grid.rows },
             .text_frame = prepared,
             .resolve = resolve,
@@ -288,7 +288,7 @@ pub const SurfaceTextOwner = struct {
     pub fn create(config: SurfaceTextConfig) ?*SurfaceTextOwner {
         std.debug.assert(config.font_size_px > 0);
         const owner = std.heap.c_allocator.create(SurfaceTextOwner) catch return null;
-        owner.* = .{ .session = SurfaceText.init(), .flow = .{ .font_size_px = config.font_size_px }, .config = config };
+        owner.* = .{ .session = SurfaceText.init(), .flow = .{}, .config = config };
         return owner;
     }
 
@@ -304,7 +304,6 @@ pub const SurfaceTextOwner = struct {
     pub fn setFontSizePx(self: *SurfaceTextOwner, font_size_px: u16) void {
         std.debug.assert(font_size_px > 0);
         self.config.font_size_px = font_size_px;
-        self.flow.setFontSizePx(font_size_px);
         self.invalidateTextState();
     }
 

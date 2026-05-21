@@ -216,16 +216,6 @@ pub const FfiGeometryResponse = extern struct {
     geometry_epoch: u64,
 };
 
-pub const FfiSurfaceQuery = extern struct {
-    status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
-    render_px: FfiPixelSize,
-    grid_px: FfiPixelSize,
-    cell_px: FfiCellSize,
-    font_size_px: u16,
-    reserved0: u16 = 0,
-    epoch: u64,
-};
-
 pub const FfiPendingState = extern struct {
     status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
     source_pending: u8,

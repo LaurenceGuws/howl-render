@@ -34,7 +34,6 @@ pub const SurfaceText = surface_text.SurfaceText;
 pub const PrepareMetrics = surface.PrepareMetrics;
 pub const RenderMetrics = surface.RenderMetrics;
 pub const Geometry = surface.Geometry;
-pub const SurfaceQuery = surface.SurfaceQuery;
 pub const FramePipeline = pipeline;
 pub const FrameQueue = queue;
 pub const RenderSurfaceHandle = surface.RenderSurfaceHandle;

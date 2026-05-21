@@ -195,16 +195,6 @@ typedef struct {
 
 typedef struct {
   int32_t status;
-  HowlRenderPixelSize render_px;
-  HowlRenderPixelSize grid_px;
-  HowlRenderCellSize cell_px;
-  uint16_t font_size_px;
-  uint16_t reserved0;
-  uint64_t epoch;
-} HowlRenderSurfaceQuery;
-
-typedef struct {
-  int32_t status;
   uint8_t source_pending;
   uint8_t prepare_pending;
   uint8_t submit_pending;
@@ -373,7 +363,6 @@ int howl_render_surface_text_set_font_size_px(HowlRenderSurfaceTextHandle handle
 int howl_render_surface_text_set_font_path(HowlRenderSurfaceTextHandle handle, const uint8_t *ptr, size_t len);
 int howl_render_surface_text_set_fallback_font_paths(HowlRenderSurfaceTextHandle handle, const uint8_t *const *ptrs, size_t count);
 HowlRenderGeometryResponse howl_render_surface_text_sync_geometry(HowlRenderSurfaceTextHandle handle, HowlRenderGeometry geometry);
-HowlRenderSurfaceQuery howl_render_surface_text_surface_query(HowlRenderSurfaceTextHandle handle);
 HowlRenderVtPublishResult howl_render_surface_text_publish_vt_snapshot(HowlRenderSurfaceTextHandle handle, HowlRenderVtSnapshot snapshot);
 HowlRenderPrepareStatus howl_render_surface_text_take_prepare_request(HowlRenderSurfaceTextHandle handle, HowlRenderPrepareRequest *prepare_request_out);
 int howl_render_surface_text_publish_prepared(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);

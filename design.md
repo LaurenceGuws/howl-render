@@ -108,8 +108,9 @@ sequenceDiagram
   Host-facing helpers that asked callers to provide `cell_px` are not part of the shipped contract.
 - `howl_render_surface_text_sync_geometry` accepts only render and grid pixel constraints. It
   commits the render-owned derived layout; hosts must not feed `cell_px` back as competing truth.
-- `howl_render_surface_text_sync_geometry` and `...surface_query` are the geometry-owner control
-  steps. The render owner advances geometry epoch and target invalidation when geometry changes.
+- `howl_render_surface_text_sync_geometry` is the geometry-owner control step. The render owner
+  advances geometry epoch and target invalidation when geometry changes, and prepare reads that
+  owner state internally instead of exposing a host readback courier API.
 - `howl_render_surface_text_publish_vt_snapshot`, `...take_prepare_request`,
   `...publish_prepared`, `...take_submit_decision`, `...accept_submitted`, and
   `...mark_presented` are the retained render-queue control steps. They let hosts publish VT
