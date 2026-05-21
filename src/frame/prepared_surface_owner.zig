@@ -4,6 +4,7 @@ const pipeline = @import("pipeline.zig");
 const surface = @import("surface.zig");
 const surface_buffer = @import("surface_buffer.zig");
 const surface_text = @import("surface_text.zig");
+const contract = @import("../text/contract.zig");
 
 pub const Owner = struct {
     session_owner: *surface_text.SurfaceTextOwner,
@@ -33,7 +34,6 @@ pub const Owner = struct {
         value: surface.PreparedSurface,
     ) !*Owner {
         var owner = try std.heap.c_allocator.create(Owner);
-        errdefer std.heap.c_allocator.destroy(owner);
         owner.* = ownerBase(session_owner, value);
         errdefer owner.destroy();
         try owner.copySurfaceBuffer();
@@ -200,4 +200,48 @@ fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool 
         a.token.damage_base_seq == b.token.damage_base_seq and
         a.token.damage_kind == b.token.damage_kind and
         a.required_base_seq == b.required_base_seq;
+}
+
+test "create returns missing-sprite without double free" {
+    const session_owner = surface_text.SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    var sprite_draws = [_]contract.TextSpriteDraw{.{
+        .sprite = .{ .slot = 0, .key = .{ .value = 1 } },
+        .x_px = 0,
+        .y_px = 0,
+        .width_px = 1,
+        .height_px = 1,
+        .color = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
+        .first_cell = 0,
+        .cell_span = 1,
+    }};
+
+    const prepared = surface.PreparedSurface{
+        .allocator = std.testing.allocator,
+        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+        .geometry_epoch = 1,
+        .render_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 1, .rows = 1 },
+        .text_frame = .{
+            .scene = .{
+                .allocator = std.testing.allocator,
+                .scene = .{
+                    .clear_draws = &.{},
+                    .background_draws = &.{},
+                    .sprite_draws = &sprite_draws,
+                    .decoration_draws = &.{},
+                    .cursor_draws = &.{},
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = true,
+                },
+                .owned = false,
+            },
+            .raster_plan = .{ .allocator = std.testing.allocator, .outputs = &.{}, .owned = false },
+        },
+    };
+
+    try std.testing.expectError(error.MissingSprite, Owner.create(session_owner, prepared));
 }

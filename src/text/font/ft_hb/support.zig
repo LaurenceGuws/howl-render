@@ -131,11 +131,12 @@ const ShapeRunInput = struct {
 pub fn providerHasCodepoint(comptime ContextType: type, ctx: *anyopaque, face_id: contract.FontFaceId, codepoint: u32) bool {
     const context: *ContextType = @ptrCast(@alignCast(ctx));
     if (useDeterministicTestTextFallback(context)) return codepoint != 0;
-    if (!ensureFont(context)) return false;
+    if (!ensureFaceForId(context, face_id)) return false;
     lockFt(context);
     defer unlockFt(context);
     const shaped_face = acquireShapingFaceLocked(context, face_id) orelse return false;
-    return c.FT_Get_Char_Index(shaped_face.face, codepoint) != 0;
+    const glyph_id = c.FT_Get_Char_Index(shaped_face.face, codepoint);
+    return glyphAcceptedLocked(shaped_face.face, glyph_id, codepoint);
 }
 
 pub fn providerHasCellText(comptime ContextType: type, ctx: *anyopaque, face_id: contract.FontFaceId, text: contract.CellText) bool {
@@ -200,7 +201,7 @@ fn shapeRunViaProviderOrFallback(context: anytype, allocator: std.mem.Allocator,
     c.hb_buffer_set_cluster_level(buffer, c.HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS);
     c.hb_buffer_add_utf32(buffer, input.codepoints.items.ptr, @intCast(input.codepoints.items.len), 0, @intCast(input.codepoints.items.len));
     c.hb_buffer_guess_segment_properties(buffer);
-    if (!ensureFont(context)) return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
+    if (!ensureFaceForId(context, run.run.font.face_id)) return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
     return try shapeRunViaProvider(context, allocator, run, clusters, cell_metrics, buffer, input.cluster_map.items) orelse fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
 }
 
@@ -228,7 +229,7 @@ fn shapePlainAsciiRun(context: anytype, allocator: std.mem.Allocator, run: contr
         if (text.codepoints[0] != cluster.first_cp) return null;
         if (!isPlainAsciiCodepoint(cluster.first_cp)) return null;
     }
-    if (!ensureFont(context)) return null;
+    if (!ensureFaceForId(context, run.run.font.face_id)) return null;
     const glyphs = try allocator.alloc(contract.GlyphInstance, window.len());
     var keep_glyphs = false;
     defer if (!keep_glyphs) allocator.free(glyphs);
@@ -254,17 +255,19 @@ fn shapePlainAsciiRun(context: anytype, allocator: std.mem.Allocator, run: contr
 
 pub fn providerGlyphId(self: anytype, face_id: contract.FontFaceId, codepoint: u32) u32 {
     if (useDeterministicTestTextFallback(self)) return codepoint;
-    if (!ensureFont(self)) return 0;
+    if (!ensureFaceForId(self, face_id)) return 0;
     lockFt(self);
     defer unlockFt(self);
     const shaped_face = acquireShapingFaceLocked(self, face_id) orelse return 0;
-    return shapeGlyphId(shaped_face.hb_font, shaped_face.face, @intCast(codepoint));
+    const glyph_id = shapeGlyphId(shaped_face.hb_font, shaped_face.face, @intCast(codepoint));
+    if (!glyphAcceptedLocked(shaped_face.face, glyph_id, codepoint)) return 0;
+    return glyph_id;
 }
 
 pub fn providerGlyphAdvance(self: anytype, face_id: contract.FontFaceId, glyph_id: u32, cell_metrics: contract.CellMetrics) f32 {
     const fallback: f32 = @floatFromInt(cell_metrics.cell_w_px);
     if (glyph_id == 0) return fallback;
-    if (!ensureFont(self)) return fallback;
+    if (!ensureFaceForId(self, face_id)) return fallback;
     lockFt(self);
     defer unlockFt(self);
     const shaped_face = acquireShapingFaceLocked(self, face_id) orelse return fallback;
@@ -453,6 +456,25 @@ fn ensureFreeTypeLibraryLocked(self: anytype) bool {
     return true;
 }
 
+fn ensureFaceForId(self: anytype, face_id: contract.FontFaceId) bool {
+    if (face_id.value == primary_face_id) return ensurePrimaryFont(self);
+    if (face_id.value < 2) return false;
+    const fallback_index = fallbackFontCount(face_id.value - 2) orelse return false;
+    return ensureFallbackFace(self, fallback_index) != null;
+}
+
+fn glyphAcceptedLocked(face: FtFace, glyph_id: u32, codepoint: u32) bool {
+    if (glyph_id == 0) return false;
+    if (!isIconCodepoint(codepoint)) return true;
+    if (c.FT_Load_Glyph(face, glyph_id, c.FT_LOAD_DEFAULT) != 0) return false;
+    if (face.*.glyph == null) return false;
+    const metrics = face.*.glyph.*.metrics;
+    // Some patched terminal fonts claim PUA icon codepoints but load only a
+    // blank glyph here. Reject that malformed hit so normal fallback order can
+    // continue to the dedicated symbols face instead of rendering a no-op.
+    return metrics.width > 0 or metrics.height > 0;
+}
+
 fn fallbackProviderShapeRun(context: anytype, allocator: std.mem.Allocator, run: contract.ResolvedRun, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics, window: ClusterWindow) anyerror!text_mod.ShapeRun.OwnedShapedRun {
     const glyphs = try allocator.alloc(contract.GlyphInstance, window.len());
     errdefer allocator.free(glyphs);
@@ -467,7 +489,7 @@ fn fallbackProviderShapeRun(context: anytype, allocator: std.mem.Allocator, run:
 
 fn providerGlyphVisualWidth(self: anytype, face_id: contract.FontFaceId, glyph_id: u32) f32 {
     if (glyph_id == 0) return 0;
-    if (!ensureFont(self)) return 0;
+    if (!ensureFaceForId(self, face_id)) return 0;
     lockFt(self);
     defer unlockFt(self);
     const shaped_face = acquireShapingFaceLocked(self, face_id) orelse return 0;
@@ -613,6 +635,35 @@ fn defaultCellMetrics(font_px: u16) contract.CellMetrics {
 
 fn defaultBoxThickness(_: u16) u16 {
     return 2;
+}
+
+test "provider loads fallback face for symbol glyph with primary present" {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const primary_path = try std.Io.Dir.cwd().realPathFileAlloc(io, "../howl-linux-host/assets/fonts/IosevkaTermNerdFont-Regular.ttf", std.testing.allocator);
+    defer std.testing.allocator.free(primary_path);
+    const symbol_path = try std.Io.Dir.cwd().realPathFileAlloc(io, "../howl-linux-host/assets/fonts/SymbolsNerdFontMono-Regular.ttf", std.testing.allocator);
+    defer std.testing.allocator.free(symbol_path);
+
+    const owner = surface_text.SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    owner.setOwnedFontPath(try std.heap.c_allocator.dupeZ(u8, primary_path));
+    var fallbacks = std.ArrayList([:0]u8).empty;
+    fallbacks.append(std.heap.c_allocator, try std.heap.c_allocator.dupeZ(u8, symbol_path)) catch return error.OutOfMemory;
+    owner.adoptFallbackFontPaths(&fallbacks);
+
+    const Context = struct {
+        session: *surface_text.SurfaceText,
+        session_config: surface_text.SurfaceTextConfig,
+    };
+    var context = Context{ .session = &owner.session, .session_config = owner.config };
+
+    try std.testing.expect(!providerHasCodepoint(Context, &context, .{ .value = primary_face_id }, 0xebfc));
+    try std.testing.expect(providerHasCodepoint(Context, &context, .{ .value = 2 }, 0xebfc));
+    try std.testing.expect(providerGlyphId(&context, .{ .value = 2 }, 0xebfc) != 0);
+    try std.testing.expect(!providerHasCodepoint(Context, &context, .{ .value = primary_face_id }, 0xf117));
+    try std.testing.expect(providerHasCodepoint(Context, &context, .{ .value = 2 }, 0xf117));
+    try std.testing.expect(providerGlyphId(&context, .{ .value = 2 }, 0xf117) != 0);
 }
 
 fn baselineFromFaceMetrics(input: contract.FaceMetrics26Dot6, cell_h: u16) i32 {
