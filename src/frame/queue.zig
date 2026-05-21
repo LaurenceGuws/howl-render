@@ -207,7 +207,7 @@ const TerminalSurface = struct {
 pub const VtSnapshot = struct {
     cols: u16,
     rows: u16,
-    scrollback_offset: u64,
+    scroll_row: u64,
     snapshot_seq: u64,
     is_alternate_screen: bool,
     damage_kind: pipeline.DamageKind,
@@ -231,7 +231,7 @@ pub const PendingState = struct {
 const Publication = struct {
     cols: u16 = 0,
     rows: u16 = 0,
-    scrollback_offset: u64 = 0,
+    scroll_row: u64 = 0,
     snapshot_seq: u64 = 0,
     is_alternate_screen: bool = false,
     damage_kind: pipeline.DamageKind = .none,
@@ -239,7 +239,7 @@ const Publication = struct {
     fn copyFrom(self: *Publication, snapshot: VtSnapshot, damage_kind: pipeline.DamageKind) void {
         self.cols = snapshot.cols;
         self.rows = snapshot.rows;
-        self.scrollback_offset = snapshot.scrollback_offset;
+        self.scroll_row = snapshot.scroll_row;
         self.snapshot_seq = snapshot.snapshot_seq;
         self.is_alternate_screen = snapshot.is_alternate_screen;
         self.damage_kind = damage_kind;
@@ -285,7 +285,7 @@ const PublicationState = struct {
         if (snapshot.snapshot_seq == prior.snapshot_seq) return .none;
         if (snapshot.cols != prior.cols or snapshot.rows != prior.rows) return .full;
         if (snapshot.is_alternate_screen != prior.is_alternate_screen) return .full;
-        if (snapshot.scrollback_offset != prior.scrollback_offset) return .full;
+        if (snapshot.scroll_row != prior.scroll_row) return .full;
         return snapshot.damage_kind;
     }
 };
@@ -589,7 +589,7 @@ test "flow exposes source pending before queue preparation" {
     const first = flow.acceptSnapshot(.{
         .cols = 10,
         .rows = 10,
-        .scrollback_offset = 0,
+        .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .damage_kind = .full,
@@ -614,7 +614,7 @@ test "flow preserves partial snapshot damage while prior snapshot is still pendi
     _ = flow.acceptSnapshot(.{
         .cols = 10,
         .rows = 10,
-        .scrollback_offset = 0,
+        .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .damage_kind = .full,
@@ -622,7 +622,7 @@ test "flow preserves partial snapshot damage while prior snapshot is still pendi
     const second = flow.acceptSnapshot(.{
         .cols = 10,
         .rows = 10,
-        .scrollback_offset = 0,
+        .scroll_row = 0,
         .snapshot_seq = 2,
         .is_alternate_screen = false,
         .damage_kind = .partial,
@@ -631,7 +631,7 @@ test "flow preserves partial snapshot damage while prior snapshot is still pendi
     try std.testing.expectEqual(pipeline.DamageKind.partial, second.damage_kind);
 }
 
-test "flow forces full snapshot on viewport offset change" {
+test "flow forces full snapshot on scroll row change" {
     var flow = Flow{};
     _ = flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
@@ -642,7 +642,7 @@ test "flow forces full snapshot on viewport offset change" {
     _ = flow.acceptSnapshot(.{
         .cols = 10,
         .rows = 10,
-        .scrollback_offset = 0,
+        .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .damage_kind = .full,
@@ -651,7 +651,7 @@ test "flow forces full snapshot on viewport offset change" {
     const second = flow.acceptSnapshot(.{
         .cols = 10,
         .rows = 10,
-        .scrollback_offset = 1,
+        .scroll_row = 1,
         .snapshot_seq = 2,
         .is_alternate_screen = false,
         .damage_kind = .partial,
@@ -670,7 +670,7 @@ test "flow drops clean snapshot" {
     _ = flow.acceptSnapshot(.{
         .cols = 10,
         .rows = 10,
-        .scrollback_offset = 0,
+        .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .damage_kind = .full,
@@ -679,7 +679,7 @@ test "flow drops clean snapshot" {
     const second = flow.acceptSnapshot(.{
         .cols = 10,
         .rows = 10,
-        .scrollback_offset = 0,
+        .scroll_row = 0,
         .snapshot_seq = 2,
         .is_alternate_screen = false,
         .damage_kind = .none,

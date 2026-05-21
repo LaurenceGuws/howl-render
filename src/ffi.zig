@@ -135,9 +135,9 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
     const publish = surfaceTextPublishVtSnapshot(handle, .{
         .cols = 1,
         .rows = 1,
+        .scroll_row = 0,
         .is_alternate_screen = 0,
         .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
-        .scrollback_offset = 0,
         .snapshot_seq = 1,
     });
     try std.testing.expectEqual(@as(c_int, 0), publish.status);
@@ -253,9 +253,9 @@ test "ffi vt snapshot rejects invalid damage kind" {
     const result = surfaceTextPublishVtSnapshot(handle, .{
         .cols = 1,
         .rows = 1,
+        .scroll_row = 0,
         .is_alternate_screen = 0,
         .damage_kind = 2,
-        .scrollback_offset = 0,
         .snapshot_seq = 1,
     });
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.invalid_argument), result.status);

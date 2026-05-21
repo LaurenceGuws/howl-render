@@ -228,9 +228,9 @@ typedef struct {
 typedef struct {
   uint16_t cols;
   uint16_t rows;
+  uint64_t scroll_row;
   uint8_t is_alternate_screen;
   uint8_t damage_kind;
-  uint64_t scrollback_offset;
   uint64_t snapshot_seq;
 } HowlRenderVtSnapshot;
 

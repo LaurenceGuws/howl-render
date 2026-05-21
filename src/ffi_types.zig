@@ -251,9 +251,9 @@ pub const FfiPreparedFrame = extern struct {
 pub const FfiVtSnapshot = extern struct {
     cols: u16,
     rows: u16,
+    scroll_row: u64,
     is_alternate_screen: u8,
     damage_kind: u8,
-    scrollback_offset: u64,
     snapshot_seq: u64,
 };
 

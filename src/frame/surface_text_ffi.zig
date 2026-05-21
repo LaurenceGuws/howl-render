@@ -293,7 +293,7 @@ fn vtSnapshotIn(value: abi.FfiVtSnapshot) ?Render.FrameQueue.VtSnapshot {
     return .{
         .cols = value.cols,
         .rows = value.rows,
-        .scrollback_offset = value.scrollback_offset,
+        .scroll_row = value.scroll_row,
         .snapshot_seq = value.snapshot_seq,
         .is_alternate_screen = value.is_alternate_screen != 0,
         .damage_kind = damage_kind,
