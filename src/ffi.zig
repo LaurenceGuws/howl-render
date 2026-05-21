@@ -81,7 +81,6 @@ pub const preparedSurfaceDiagnostics = prepared_surface.diagnostics;
 pub const surfaceTextSubmit = surface_text_ffi.submit;
 
 const TestPrepareInput = struct {
-    query: FfiSurfaceQuery,
     request: FfiPrepareRequest,
 };
 
@@ -149,10 +148,7 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
     var request: FfiPrepareRequest = undefined;
     try std.testing.expectEqual(HowlRenderPrepareStatus.ready, surfaceTextTakePrepareRequest(handle, &request));
 
-    const query = surfaceTextSurfaceQuery(handle);
-    try std.testing.expectEqual(@as(c_int, 0), query.status);
-
-    return .{ .query = query, .request = request };
+    return .{ .request = request };
 }
 
 fn expectPrepareHandleFails(vt_surface: FfiVtSurface) !void {
@@ -164,7 +160,7 @@ fn expectPrepareHandleFails(vt_surface: FfiVtSurface) !void {
     var prepared_handle: PreparedSurfaceHandle = @ptrFromInt(1);
     try std.testing.expectEqual(
         HowlRenderPrepareStatus.failed,
-        surfaceTextPrepareHandle(handle, &vt_surface, input.request, input.query, &prepared_handle),
+        surfaceTextPrepareHandle(handle, &vt_surface, input.request, &prepared_handle),
     );
     try std.testing.expect(prepared_handle == null);
 }
@@ -333,7 +329,7 @@ test "ffi prepare handle rejects missing output pointer" {
     const vt_surface = testVtSurface(&cells, testCursor(0));
     try std.testing.expectEqual(
         HowlRenderPrepareStatus.failed,
-        surfaceTextPrepareHandle(handle, &vt_surface, input.request, input.query, null),
+        surfaceTextPrepareHandle(handle, &vt_surface, input.request, null),
     );
 }
 
@@ -346,7 +342,7 @@ test "ffi prepare handle clears output when vt surface pointer is missing" {
     var prepared_handle: PreparedSurfaceHandle = @ptrFromInt(1);
     try std.testing.expectEqual(
         HowlRenderPrepareStatus.failed,
-        surfaceTextPrepareHandle(handle, null, input.request, input.query, &prepared_handle),
+        surfaceTextPrepareHandle(handle, null, input.request, &prepared_handle),
     );
     try std.testing.expect(prepared_handle == null);
 }

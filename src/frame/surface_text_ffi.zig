@@ -200,19 +200,21 @@ pub fn takeQueueMetrics(handle: abi.SurfaceTextHandle, out: ?*abi.FfiQueueMetric
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: ?*const abi.FfiVtSurface, prepare_request: abi.FfiPrepareRequest, query: abi.FfiSurfaceQuery, prepared_handle_out: ?*abi.PreparedSurfaceHandle) callconv(.c) abi.HowlRenderPrepareStatus {
+pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: ?*const abi.FfiVtSurface, prepare_request: abi.FfiPrepareRequest, prepared_handle_out: ?*abi.PreparedSurfaceHandle) callconv(.c) abi.HowlRenderPrepareStatus {
     const prepared_out = prepared_handle_out;
     if (prepared_out) |value| value.* = null;
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const vt_surface_value = vt_surface_in orelse return .failed;
     const value = prepared_out orelse return .failed;
     const request = renderRequestIn(prepare_request) orelse return .failed;
+    const query = owner.flow.surfaceQuery();
+    std.debug.assert(query.epoch == request.token.geometry_epoch);
     var vt_surface = vtSurfaceIn(std.heap.c_allocator, vt_surface_value.*) catch return .failed;
     defer vt_surface.deinit();
     const prepared = owner.session.prepareSurface(std.heap.c_allocator, .{
         .config = owner.config,
         .request = request,
-        .query = surfaceQueryIn(query),
+        .query = query,
         .state = vt_surface.frameData(),
         .target_valid = prepare_request.target_valid != 0,
     }) catch return .failed;

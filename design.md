@@ -71,7 +71,7 @@ sequenceDiagram
     participant R as HowlRenderAbi
     participant S as SurfaceText
 
-    Host->>R: prepare_handle(vt-surface, request, query)
+    Host->>R: prepare_handle(vt-surface, request)
     R->>S: prepareSurface(...)
     S-->>R: prepared render-surface
     R-->>Host: prepared handle
@@ -101,6 +101,9 @@ sequenceDiagram
   render owner.
 - `howl_render_surface_text_prepare_handle` returns a prepared render-surface handle only; it does
   not allocate or mutate host backend resources.
+- `howl_render_surface_text_prepare_handle` consumes render-owned request state plus VT-surface
+  input only. Hosts must not fetch render query state and echo it back as if it were independent
+  authority.
 - `howl_render_surface_text_derive_frame_layout` is the public geometry-derivation entrypoint.
   Host-facing helpers that asked callers to provide `cell_px` are not part of the shipped contract.
 - `howl_render_surface_text_sync_geometry` accepts only render and grid pixel constraints. It
