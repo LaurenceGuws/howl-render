@@ -355,7 +355,7 @@ pub const FfiVtSurface = extern struct {
     rows: u16,
     scroll_row: u64,
     is_alternate_screen: u8,
-    full_damage: u8,
+    reserved0: u8 = 0,
     reserved1: u16 = 0,
     dirty_rows: FfiByteSpan,
     dirty_cols_start: FfiU16Span,

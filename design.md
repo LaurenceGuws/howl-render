@@ -97,8 +97,9 @@ sequenceDiagram
   session lifecycle.
 - `HOWL_RENDER_MAX_FALLBACK_FONTS` is the header-declared fallback-font path limit for the public
   text-session configuration contract.
-- `HowlRenderVtSurface` carries VT-surface cells, cursor, viewport, and dirtiness truth into the
-  render owner.
+- `HowlRenderVtSurface` carries VT-surface cells, cursor, viewport, and dirty-span truth into the
+  render owner. Full-versus-partial prepare classification comes from the render-owned prepare
+  request, not from a host-fed VT-surface echo field.
 - `howl_render_surface_text_prepare_handle` returns a prepared render-surface handle only; it does
   not allocate or mutate host backend resources.
 - `howl_render_surface_text_prepare_handle` consumes render-owned request state plus VT-surface

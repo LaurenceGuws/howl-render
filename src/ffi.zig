@@ -113,7 +113,6 @@ fn testVtSurface(cells: []const FfiCell, cursor: FfiCursor) FfiVtSurface {
         .rows = 1,
         .scroll_row = 0,
         .is_alternate_screen = 0,
-        .full_damage = 1,
         .dirty_rows = .{ .ptr = null, .len = 0 },
         .dirty_cols_start = .{ .ptr = null, .len = 0 },
         .dirty_cols_end = .{ .ptr = null, .len = 0 },

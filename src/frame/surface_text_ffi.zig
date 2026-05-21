@@ -12,7 +12,6 @@ const OwnedVtSurface = struct {
     rows: u16,
     scroll_row: u64,
     is_alternate_screen: bool,
-    full_damage: bool,
     cells: []Render.SurfaceCell,
     cursor: Render.SurfaceCursorInfo,
     dirty_rows: []bool = &.{},
@@ -27,7 +26,7 @@ const OwnedVtSurface = struct {
         self.* = undefined;
     }
 
-    fn frameData(self: *const OwnedVtSurface) Render.SurfaceFrameData {
+    fn frameData(self: *const OwnedVtSurface, full_damage: bool) Render.SurfaceFrameData {
         return .{
             .viewport = .{
                 .cols = self.cols,
@@ -42,7 +41,7 @@ const OwnedVtSurface = struct {
             },
             .cursor = self.cursor,
             .damage = .{
-                .full = self.full_damage,
+                .full = full_damage,
                 .dirty_rows = self.dirty_rows,
                 .dirty_cols_start = self.dirty_cols_start,
                 .dirty_cols_end = self.dirty_cols_end,
@@ -203,13 +202,14 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
     const value = prepared_out orelse return .failed;
     const request = renderRequestIn(prepare_request) orelse return .failed;
     const layout = owner.flow.prepareLayout(request.token.geometry_epoch);
+    const full_damage = request.token.damage_kind == .full;
     var vt_surface = vtSurfaceIn(std.heap.c_allocator, vt_surface_value.*) catch return .failed;
     defer vt_surface.deinit();
     const prepared = owner.session.prepareSurface(std.heap.c_allocator, .{
         .config = owner.config,
         .request = request,
         .layout = layout,
-        .state = vt_surface.frameData(),
+        .state = vt_surface.frameData(full_damage),
         .target_valid = prepare_request.target_valid != 0,
     }) catch return .failed;
     const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
@@ -417,7 +417,6 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !OwnedVtSu
         .rows = value.rows,
         .scroll_row = value.scroll_row,
         .is_alternate_screen = value.is_alternate_screen != 0,
-        .full_damage = value.full_damage != 0,
         .cells = cells,
         .cursor = cursor,
         .dirty_rows = dirty_rows,
