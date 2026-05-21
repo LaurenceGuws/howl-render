@@ -179,6 +179,7 @@ test "ffi pending state writes missing-handle status" {
         .source_pending = 1,
         .prepare_pending = 1,
         .submit_pending = 1,
+        .present_pending = 1,
         .target_valid = 1,
     };
     try std.testing.expectEqual(

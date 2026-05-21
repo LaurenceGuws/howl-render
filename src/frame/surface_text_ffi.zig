@@ -321,6 +321,7 @@ fn pendingStateOut(value: Render.FrameQueue.PendingState) abi.FfiPendingState {
         .source_pending = @intFromBool(value.source_pending),
         .prepare_pending = @intFromBool(value.prepare_pending),
         .submit_pending = @intFromBool(value.submit_pending),
+        .present_pending = @intFromBool(value.present_pending),
         .target_valid = @intFromBool(value.target_valid),
     };
 }
@@ -331,6 +332,7 @@ fn pendingStateFailure(status: c_int) abi.FfiPendingState {
         .source_pending = 0,
         .prepare_pending = 0,
         .submit_pending = 0,
+        .present_pending = 0,
         .target_valid = 0,
     };
 }

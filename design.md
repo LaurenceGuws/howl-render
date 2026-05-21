@@ -119,6 +119,8 @@ sequenceDiagram
   render state in host code. VT snapshot publication must carry VT-owned visible projection truth
   and VT-owned dirty spans so render can classify coarse damage itself from retained previous-frame
   state, instead of accepting host-authored damage classification or scrollback approximations.
+- `howl_render_surface_text_pending_state` exposes render-owned work flags, including present
+  retirement, so hosts can drive the queue without mirroring a second phase machine.
 - `howl_render_prepared_surface_buffer` is the realized surface-image export. Hosts consume it as
   one complete prepared surface image, not as a render-damage reconstruction contract.
 - `howl_render_prepared_surface_diagnostics` exposes proof/debug counters only.

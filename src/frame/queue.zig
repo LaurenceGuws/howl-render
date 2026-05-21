@@ -48,6 +48,7 @@ const TerminalSurface = struct {
     submit_mailbox: SubmitMailbox = .{},
     latest_token: ?pipeline.SnapshotToken = null,
     submitted_frame: ?pipeline.SubmittedFrame = null,
+    present_pending: bool = false,
     target_epoch: u64 = 0,
     metrics: QueueMetrics = .{},
 
@@ -152,6 +153,7 @@ const TerminalSurface = struct {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         self.submitted_frame = frame;
+        self.present_pending = true;
         self.target_epoch = frame.target_epoch;
         self.dropPrepareAtOrBefore(frame.token);
         self.metrics.submitted_accepts +%= 1;
@@ -160,6 +162,8 @@ const TerminalSurface = struct {
     fn markPresented(self: *TerminalSurface) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
+        if (!self.present_pending) return;
+        self.present_pending = false;
         if (self.submitted_frame != null) self.metrics.presents +%= 1;
     }
 
@@ -227,6 +231,7 @@ pub const PendingState = struct {
     source_pending: bool,
     prepare_pending: bool,
     submit_pending: bool,
+    present_pending: bool,
     target_valid: bool,
 };
 
@@ -430,6 +435,7 @@ pub const Flow = struct {
             break :blk .{
                 .prepare_pending = surface.prepare_mailbox.hasPending(),
                 .submit_pending = surface.submit_mailbox.hasPending(),
+                .present_pending = surface.present_pending,
                 .target_valid = if (surface.submitted_frame) |frame| frame.content_valid else false,
             };
         };
@@ -437,6 +443,7 @@ pub const Flow = struct {
             .source_pending = self.publication_state.pending,
             .prepare_pending = pending.prepare_pending,
             .submit_pending = pending.submit_pending,
+            .present_pending = pending.present_pending,
             .target_valid = pending.target_valid,
         };
     }

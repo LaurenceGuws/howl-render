@@ -198,8 +198,10 @@ typedef struct {
   uint8_t source_pending;
   uint8_t prepare_pending;
   uint8_t submit_pending;
+  uint8_t present_pending;
   uint8_t target_valid;
   uint8_t reserved0;
+  uint16_t reserved1;
 } HowlRenderPendingState;
 
 typedef struct {

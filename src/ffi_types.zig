@@ -221,8 +221,10 @@ pub const FfiPendingState = extern struct {
     source_pending: u8,
     prepare_pending: u8,
     submit_pending: u8,
+    present_pending: u8,
     target_valid: u8,
     reserved0: u8 = 0,
+    reserved1: u16 = 0,
 };
 
 pub const FfiPrepareRequest = extern struct {
