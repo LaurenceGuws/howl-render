@@ -41,7 +41,8 @@ classDiagram
 - `frame/surface.zig` owns render-surface contract types and prepared render-surface state.
 - `frame/queue.zig` owns retained render-surface queue state, geometry epoch/query state, VT
   snapshot publication classification, retained-base validation, and present retirement.
-- `frame/surface_text.zig` owns prepare/submit text rendering work against VT-surface input.
+- `frame/surface_text.zig` owns prepare/submit text rendering work against VT-surface input, render
+  session font config, fallback-font path copies, and text-state invalidation tied to that config.
 - `frame/prepared_surface_owner.zig` owns prepared-surface handle state and the realized surface
   image exported through that handle.
 - `frame/prepared_surface_ffi.zig` and `frame/surface_text_ffi.zig` translate the render contract to
