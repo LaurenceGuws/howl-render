@@ -321,8 +321,8 @@ pub fn ensureFont(self: anytype) bool {
     while (i < state.fallback_font_paths_len) : (i += 1) {
         if (state.fallback_font_paths[i] == null) continue;
         if (ensureFallbackFace(self, i)) |_| {
-            state.resolve_stage = .discovery_fallback;
-            if (state.active_resolve) |obs| obs.stage = .discovery_fallback;
+            state.resolve_stage = .configured_fallback;
+            if (state.active_resolve) |obs| obs.stage = .configured_fallback;
             return true;
         }
     }
