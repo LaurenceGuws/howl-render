@@ -355,6 +355,7 @@ HowlRenderFrameLayoutResult howl_render_surface_text_derive_frame_layout(HowlRen
 
 HowlRenderSurfaceTextHandle howl_render_surface_text_init(HowlRenderSurfaceTextConfig config);
 void howl_render_surface_text_deinit(HowlRenderSurfaceTextHandle handle);
+int howl_render_surface_text_is_valid_font(HowlRenderSurfaceTextHandle handle);
 int howl_render_surface_text_set_font_size_px(HowlRenderSurfaceTextHandle handle, uint16_t font_size_px);
 int howl_render_surface_text_set_font_path(HowlRenderSurfaceTextHandle handle, const uint8_t *ptr, size_t len);
 int howl_render_surface_text_set_fallback_font_paths(HowlRenderSurfaceTextHandle handle, const uint8_t *const *ptrs, size_t count);

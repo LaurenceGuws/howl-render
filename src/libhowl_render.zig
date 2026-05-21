@@ -4,6 +4,7 @@ comptime {
     @export(&ffi.surfaceTextDeriveFrameLayout, .{ .name = "howl_render_surface_text_derive_frame_layout" });
     @export(&ffi.surfaceTextInit, .{ .name = "howl_render_surface_text_init" });
     @export(&ffi.surfaceTextDeinit, .{ .name = "howl_render_surface_text_deinit" });
+    @export(&ffi.surfaceTextIsValidFont, .{ .name = "howl_render_surface_text_is_valid_font" });
     @export(&ffi.surfaceTextSetFontSizePx, .{ .name = "howl_render_surface_text_set_font_size_px" });
     @export(&ffi.surfaceTextSetFontPath, .{ .name = "howl_render_surface_text_set_font_path" });
     @export(&ffi.surfaceTextSetFallbackFontPaths, .{ .name = "howl_render_surface_text_set_fallback_font_paths" });

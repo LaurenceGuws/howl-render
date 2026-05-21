@@ -59,6 +59,7 @@ pub const FfiSurfaceTextConfig = abi.FfiSurfaceTextConfig;
 pub const surfaceTextDeriveFrameLayout = surface_text_ffi.deriveFrameLayout;
 pub const surfaceTextInit = surface_text_ffi.init;
 pub const surfaceTextDeinit = surface_text_ffi.deinit;
+pub const surfaceTextIsValidFont = surface_text_ffi.isValidFont;
 pub const surfaceTextSetFontSizePx = surface_text_ffi.setFontSize;
 pub const surfaceTextSetFontPath = surface_text_ffi.setFontPath;
 pub const surfaceTextSetFallbackFontPaths = surface_text_ffi.setFallbackFontPaths;
@@ -171,6 +172,15 @@ fn expectPrepareHandleFails(vt_surface: FfiVtSurface) !void {
 
 test "ffi surface session rejects missing handle" {
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), surfaceTextSetFontSizePx(null, 12));
+}
+
+test "ffi valid font reports missing handle and invalid config" {
+    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), surfaceTextIsValidFont(null));
+
+    const handle = testHandle();
+    defer surfaceTextDeinit(handle);
+    try std.testing.expect(handle != null);
+    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.failed), surfaceTextIsValidFont(handle));
 }
 
 test "ffi pending state writes missing-handle status" {

@@ -99,9 +99,11 @@ sequenceDiagram
   session lifecycle.
 - `HOWL_RENDER_MAX_FALLBACK_FONTS` is the header-declared fallback-font path limit for the public
   text-session configuration contract.
-- primary and fallback font paths are currently explicit public render-session config inputs. Render
-  takes ownership of copied path state and invalidation after intake. Render-owned font discovery is
-  not implemented yet and must not be implied by configured fallback-path behavior.
+- primary font path plus fallback font paths form one ordered host-provided font list for the render
+  session. Render copies that path state after intake, does not perform font discovery, and must see
+  at least one usable font path before startup may proceed.
+- `howl_render_surface_text_is_valid_font` reports whether the current ordered font list contains at
+  least one usable font path for session startup.
 - `HowlRenderVtSurface` carries VT-surface cells, cursor, viewport, and dirty-span truth into the
   render owner. Full-versus-partial prepare classification comes from the render-owned prepare
   request, not from a host-fed VT-surface echo field.

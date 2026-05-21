@@ -56,6 +56,14 @@ fn ownerFromHandle(handle: abi.SurfaceTextHandle) ?*surface_text.SurfaceTextOwne
     return @ptrCast(@alignCast(owned));
 }
 
+pub fn isValidFont(handle: abi.SurfaceTextHandle) callconv(.c) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    return if (owner.isValidFont())
+        @intFromEnum(abi.HowlRenderCallStatus.ok)
+    else
+        @intFromEnum(abi.HowlRenderCallStatus.failed);
+}
+
 pub fn deriveFrameLayout(handle: abi.SurfaceTextHandle, render_px: abi.FfiPixelSize, grid_px: abi.FfiPixelSize) callconv(.c) abi.FfiFrameLayoutResult {
     const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .cell_px = .{ .width = 0, .height = 0 }, .grid = .{ .cols = 0, .rows = 0 } };
     const layout = owner.session.deriveFrameLayout(owner.config, pixelIn(render_px), pixelIn(grid_px)) catch {

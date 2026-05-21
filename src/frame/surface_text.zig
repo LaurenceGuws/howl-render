@@ -96,6 +96,18 @@ pub const SurfaceText = struct {
         return .{ .cell_px = layout.cell_px, .grid = layout.grid };
     }
 
+    pub fn isValidFont(self: *SurfaceText, config: SurfaceTextConfig) bool {
+        lockMutex(&self.mutex);
+        defer self.mutex.unlock();
+        var context = TextContext{ .session = self, .session_config = config };
+        if (text_support.ensurePrimaryFont(&context)) return true;
+        var i: text_support.FallbackFontCount = 0;
+        while (i < self.text_state.fallback_font_paths_len) : (i += 1) {
+            if (text_support.ensureFallbackFace(&context, i) != null) return true;
+        }
+        return false;
+    }
+
     pub fn prepareSurface(self: *SurfaceText, allocator: std.mem.Allocator, prepare: PrepareInput) !surface.PreparedSurface {
         var faces: [max_font_faces]text.FontSession.FontFaceRecord = undefined;
         var context = TextContext{ .session = self, .session_config = prepare.config };
@@ -330,6 +342,10 @@ pub const SurfaceTextOwner = struct {
             staged.appendAssumeCapacity(owned);
         }
         self.adoptFallbackFontPaths(&staged);
+    }
+
+    pub fn isValidFont(self: *SurfaceTextOwner) bool {
+        return self.session.isValidFont(self.config);
     }
 
     pub fn invalidateTextState(self: *SurfaceTextOwner) void {
