@@ -6,6 +6,8 @@ const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
 
+const AbiLen = @TypeOf(@as([]const u8, &.{}).len);
+
 const OwnedVtSurface = struct {
     allocator: std.mem.Allocator,
     cols: u16,
@@ -83,7 +85,7 @@ pub fn setFontSize(handle: abi.SurfaceTextHandle, font_size_px: u16) callconv(.c
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn setFontPath(handle: abi.SurfaceTextHandle, ptr: ?[*]const u8, len: usize) callconv(.c) c_int {
+pub fn setFontPath(handle: abi.SurfaceTextHandle, ptr: ?[*]const u8, len: AbiLen) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     if (len > 0 and ptr == null) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     owner.setFontPathBytes(if (len == 0 or ptr == null) null else ptr.?[0..len]) catch {
@@ -92,7 +94,7 @@ pub fn setFontPath(handle: abi.SurfaceTextHandle, ptr: ?[*]const u8, len: usize)
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn setFallbackFontPaths(handle: abi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: usize) callconv(.c) c_int {
+pub fn setFallbackFontPaths(handle: abi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: AbiLen) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     const path_count = text_support.fallbackFontCount(count) orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     if (path_count > 0 and ptrs == null) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);

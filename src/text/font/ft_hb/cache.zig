@@ -157,7 +157,12 @@ pub fn hashRunText(text_cache: render.LineTextCache, clusters: []const render.Ce
 }
 
 fn textForCluster(text_cache: render.LineTextCache, cluster: render.CellCluster) render.CellText {
-    const idx = @as(usize, @intCast(cluster.text_id.value));
-    if (idx < text_cache.texts.len) return text_cache.texts[idx];
+    const idx = cluster.text_id.value;
+    if (idx < count32(text_cache.texts)) return text_cache.texts[@intCast(idx)];
     return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }

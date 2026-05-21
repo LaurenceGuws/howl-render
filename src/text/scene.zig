@@ -410,11 +410,11 @@ const IconSpan = enum(u3) {
 };
 
 fn normalizedDamage(damage: DamageInput, rows: u16) NormalizedDamage {
-    const row_len = rowLen(rows);
+    const row_len = rows;
     const valid = !damage.full and
-        damage.dirty_rows.len == row_len and
-        damage.dirty_cols_start.len == row_len and
-        damage.dirty_cols_end.len == row_len;
+        count16(damage.dirty_rows) == row_len and
+        count16(damage.dirty_cols_start) == row_len and
+        count16(damage.dirty_cols_end) == row_len;
     return .{
         .full = !valid,
         .dirty_rows = if (valid) damage.dirty_rows else &.{},
@@ -425,8 +425,7 @@ fn normalizedDamage(damage: DamageInput, rows: u16) NormalizedDamage {
 
 fn rowDirty(damage: NormalizedDamage, row: u16) bool {
     if (damage.full) return true;
-    const idx = rowIndex(row);
-    return idx < damage.dirty_rows.len and damage.dirty_rows[idx];
+    return row < count16(damage.dirty_rows) and damage.dirty_rows[@intCast(row)];
 }
 
 fn dirtyRowSpan(damage: NormalizedDamage, grid_metrics: contract.GridMetrics, row: u16) ?DirtyRowSpan {
@@ -434,10 +433,9 @@ fn dirtyRowSpan(damage: NormalizedDamage, grid_metrics: contract.GridMetrics, ro
     if (!rowDirty(damage, row)) return null;
 
     const cols = @max(grid_metrics.cols, 1);
-    const idx = rowIndex(row);
     const last_col: u16 = cols - 1;
-    const start_col = @min(damage.dirty_cols_start[idx], last_col);
-    const end_col = @min(damage.dirty_cols_end[idx], last_col);
+    const start_col = @min(damage.dirty_cols_start[@intCast(row)], last_col);
+    const end_col = @min(damage.dirty_cols_end[@intCast(row)], last_col);
     if (end_col < start_col) return null;
 
     return .{
@@ -525,7 +523,7 @@ pub fn cursorDraws(
     const base_y: i32 = @as(i32, @intCast(cursor.cell_row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
     const geom = cursorGeometry(cell_metrics);
     const count = cursorDrawCount(cursor.shape);
-    const draws = try allocator.alloc(contract.TextCursorDraw, cursorDrawLen(count));
+    const draws = try allocator.alloc(contract.TextCursorDraw, @intCast(count));
     errdefer allocator.free(draws);
     switch (cursor.shape) {
         .block => draws[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
@@ -550,9 +548,10 @@ fn appendBackgroundDraws(
     grid_metrics: contract.GridMetrics,
     damage: NormalizedDamage,
 ) !void {
-    var idx: usize = 0;
-    while (idx < cells.len) {
-        const cell = cells[idx];
+    const cell_len = count32(cells);
+    var idx: u32 = 0;
+    while (idx < cell_len) {
+        const cell = cells[@intCast(idx)];
         const lead = classifyBackgroundLead(damage, grid_metrics, cell);
         if (lead == .skip or lead == .transparent) {
             idx += 1;
@@ -565,8 +564,8 @@ fn appendBackgroundDraws(
         var span_cell_count: u32 = @max(cell.cell_span, 1);
         var next_idx = idx + 1;
         var span_end_cell = span_first_cell + span_cell_count;
-        while (next_idx < cells.len) : (next_idx += 1) {
-            const next = cells[next_idx];
+        while (next_idx < cell_len) : (next_idx += 1) {
+            const next = cells[@intCast(next_idx)];
             if (classifyBackgroundNext(damage, grid_metrics, row, fill_color, span_end_cell, next) != .merge) break;
             const next_span = @max(next.cell_span, 1);
             span_cell_count += next_span;
@@ -772,11 +771,11 @@ fn foregroundForGroup(cells: []const contract.RenderableCell, first_cell: u32) c
 }
 
 fn findCellByFirstCell(cells: []const contract.RenderableCell, first_cell: u32) ?contract.RenderableCell {
-    var lo: usize = 0;
-    var hi: usize = cells.len;
+    var lo: u32 = 0;
+    var hi = count32(cells);
     while (lo < hi) {
         const mid = lo + (hi - lo) / 2;
-        const cell = cells[mid];
+        const cell = cells[@intCast(mid)];
         if (cell.first_cell < first_cell) {
             lo = mid + 1;
         } else if (cell.first_cell > first_cell) {
@@ -818,8 +817,14 @@ fn cursorDrawCount(shape: CursorShape) CursorDrawCount {
     return if (shape == .hollow_block) 4 else 1;
 }
 
-fn cursorDrawLen(count: CursorDrawCount) usize {
-    return @intCast(count);
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
+}
+
+fn count16(items: anytype) u16 {
+    std.debug.assert(items.len <= std.math.maxInt(u16));
+    return @intCast(items.len);
 }
 
 fn damageRowCount(damage: NormalizedDamage) u16 {
@@ -827,14 +832,6 @@ fn damageRowCount(damage: NormalizedDamage) u16 {
     std.debug.assert(damage.dirty_rows.len == damage.dirty_cols_end.len);
     std.debug.assert(damage.dirty_rows.len <= std.math.maxInt(u16));
     return @intCast(damage.dirty_rows.len);
-}
-
-fn rowIndex(row: u16) usize {
-    return @intCast(row);
-}
-
-fn rowLen(rows: u16) usize {
-    return @intCast(rows);
 }
 
 test "scene builds ordered sprite draws from groups" {
@@ -856,10 +853,10 @@ test "scene builds ordered sprite draws from groups" {
     };
     var owned = try buildSceneWithOptions(std.testing.allocator, &.{cell}, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.sprite_draws.len);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.raster_requests.len);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.background_draws.len);
-    try std.testing.expectEqual(@as(usize, 0), owned.scene.decoration_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.raster_requests));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.decoration_draws));
     try std.testing.expectEqual(@as(u16, 16), owned.scene.sprite_draws[0].width_px);
     try std.testing.expectEqual(@as(u64, 99), owned.scene.sprite_draws[0].sprite.key.value);
 }
@@ -888,7 +885,7 @@ test "scene emits background draws from non-continuation cells" {
     };
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.background_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
     try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
     try std.testing.expectEqual(@as(u8, 1), owned.scene.background_draws[0].color.r);
 }
@@ -902,7 +899,7 @@ test "scene merges adjacent same-color background cells on one row" {
     };
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 3, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.background_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
     try std.testing.expectEqual(@as(u16, 24), owned.scene.background_draws[0].width_px);
     try std.testing.expectEqual(@as(u8, 3), owned.scene.background_draws[0].cell_span);
 }
@@ -918,7 +915,7 @@ test "scene keeps distinct background spans across color changes" {
     };
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 3), owned.scene.background_draws.len);
+    try std.testing.expectEqual(@as(u32, 3), count32(owned.scene.background_draws));
     try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
     try std.testing.expectEqual(@as(i32, 16), owned.scene.background_draws[1].x_px);
     try std.testing.expectEqual(@as(i32, 24), owned.scene.background_draws[2].x_px);
@@ -943,10 +940,10 @@ test "scene emits explicit clears for transparent default backgrounds on partial
         },
     });
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.clear_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.clear_draws));
     try std.testing.expectEqual(@as(u16, 16), owned.scene.clear_draws[0].width_px);
     try std.testing.expectEqual(@as(u8, 255), owned.scene.clear_draws[0].color.a);
-    try std.testing.expectEqual(@as(usize, 0), owned.scene.background_draws.len);
+    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.background_draws));
 }
 
 test "scene cursor draws emit shared cursor geometry" {
@@ -954,14 +951,14 @@ test "scene cursor draws emit shared cursor geometry" {
     const cell_metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
     const underline = try cursorDraws(std.testing.allocator, .{ .cell_col = 2, .cell_row = 1, .shape = .underline, .color = color }, cell_metrics);
     defer std.testing.allocator.free(underline);
-    try std.testing.expectEqual(cursorDrawLen(cursorDrawCount(.underline)), underline.len);
+    try std.testing.expectEqual(@as(u32, cursorDrawCount(.underline)), count32(underline));
     try std.testing.expectEqual(@as(i32, 16), underline[0].x_px);
     try std.testing.expectEqual(@as(u16, 8), underline[0].width_px);
     try std.testing.expectEqual(color.r, underline[0].color.r);
 
     const hollow = try cursorDraws(std.testing.allocator, .{ .cell_col = 0, .cell_row = 0, .shape = .hollow_block, .color = color }, cell_metrics);
     defer std.testing.allocator.free(hollow);
-    try std.testing.expectEqual(cursorDrawLen(cursorDrawCount(.hollow_block)), hollow.len);
+    try std.testing.expectEqual(@as(u32, cursorDrawCount(.hollow_block)), count32(hollow));
 }
 
 test "scene build options include cursor draws" {
@@ -970,7 +967,7 @@ test "scene build options include cursor draws" {
         .cursor = .{ .cell_col = 3, .cell_row = 2, .shape = .beam, .color = color },
     });
     defer owned.deinit();
-    try std.testing.expectEqual(cursorDrawLen(cursorDrawCount(.beam)), owned.scene.cursor_draws.len);
+    try std.testing.expectEqual(@as(u32, cursorDrawCount(.beam)), count32(owned.scene.cursor_draws));
     try std.testing.expectEqual(@as(i32, 24), owned.scene.cursor_draws[0].x_px);
     try std.testing.expectEqual(@as(i32, 32), owned.scene.cursor_draws[0].y_px);
     try std.testing.expectEqual(color.g, owned.scene.cursor_draws[0].color.g);
@@ -1001,11 +998,11 @@ test "scene damage filters clean rows" {
     });
     defer owned.deinit();
     try std.testing.expect(!owned.scene.full_redraw);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.clear_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.clear_draws));
     try std.testing.expectEqual(@as(u16, 16), owned.scene.clear_draws[0].width_px);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.background_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
     try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.sprite_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.sprite_draws));
     try std.testing.expectEqual(@as(u32, 3), owned.scene.sprite_draws[0].first_cell);
 }
 
@@ -1029,10 +1026,10 @@ test "scene invalid partial damage falls back to full redraw" {
     defer owned.deinit();
 
     try std.testing.expect(owned.scene.full_redraw);
-    try std.testing.expectEqual(@as(usize, 0), owned.scene.clear_draws.len);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.background_draws.len);
+    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.clear_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
     try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.sprite_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.sprite_draws));
 }
 
 test "scene emits shared-geometry decoration draws from cells" {
@@ -1050,7 +1047,7 @@ test "scene emits shared-geometry decoration draws from cells" {
     }};
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 4, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 2), owned.scene.decoration_draws.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(owned.scene.decoration_draws));
     try std.testing.expectEqual(contract.DecorationKind.underline, owned.scene.decoration_draws[0].kind);
     try std.testing.expectEqual(@as(i32, 8), owned.scene.decoration_draws[0].x_px);
     try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[0].width_px);
@@ -1067,7 +1064,7 @@ test "scene merges contiguous straight underline spans" {
     };
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 3, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.decoration_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.decoration_draws));
     try std.testing.expectEqual(@as(u16, 24), owned.scene.decoration_draws[0].width_px);
     try std.testing.expectEqual(@as(u8, 3), owned.scene.decoration_draws[0].cell_span);
 }
@@ -1088,9 +1085,9 @@ test "scene emits undercurl sprite for curly underline" {
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 4, .rows = 1 }, .{});
     defer owned.deinit();
 
-    try std.testing.expectEqual(@as(usize, 0), owned.scene.decoration_draws.len);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.sprite_draws.len);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.raster_requests.len);
+    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.decoration_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.raster_requests));
     try std.testing.expectEqual(contract.SpriteRasterKind.undercurl, owned.scene.raster_requests[0].kind);
     try std.testing.expectEqual(@as(u16, 32), owned.scene.sprite_draws[0].width_px);
     try std.testing.expect(owned.scene.raster_requests[0].decoration.amplitude_px >= 1);
@@ -1104,7 +1101,7 @@ test "scene merges contiguous strikethrough spans" {
     };
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 2, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.decoration_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.decoration_draws));
     try std.testing.expectEqual(contract.DecorationKind.strikethrough, owned.scene.decoration_draws[0].kind);
     try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[0].width_px);
 }
@@ -1173,7 +1170,7 @@ test "scene reuses atlas slots for repeated sprite keys" {
     var owned = try buildSceneWithAtlasCacheOptions(std.testing.allocator, &.{}, &groups, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 8 }, &cache, .{});
     defer owned.deinit();
     try std.testing.expectEqual(owned.scene.sprite_draws[0].sprite.slot, owned.scene.sprite_draws[1].sprite.slot);
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.raster_requests.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.raster_requests));
     try std.testing.expectEqual(@as(u32, 1), cache.len);
 }
 
@@ -1185,7 +1182,7 @@ test "scene does not request raster for cache hit" {
     try std.testing.expect(cache.markRendered(group.sprite_key));
     var owned = try buildSceneWithAtlasCacheOptions(std.testing.allocator, &.{}, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 8 }, &cache, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 0), owned.scene.raster_requests.len);
+    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.raster_requests));
 }
 
 fn defaultFontMetrics(cell_metrics: contract.CellMetrics) contract.FontMetrics {

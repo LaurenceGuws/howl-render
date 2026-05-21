@@ -3,6 +3,9 @@ const std = @import("std");
 const render = @import("../howl_render.zig");
 const surface = @import("../frame/surface.zig");
 
+const SliceIndex = @TypeOf(@as([]const u8, &.{}).len);
+const RunCount = u32;
+
 const OutputFormat = enum { ndjson, text };
 const WorkloadInput = union(enum) {
     cells: []render.CellInput,
@@ -10,15 +13,15 @@ const WorkloadInput = union(enum) {
 };
 
 const Options = struct {
-    runs: usize = 10,
+    runs: RunCount = 10,
     format: OutputFormat = .ndjson,
 };
 
 const RunObservation = struct {
     ns: u64,
-    alloc_count: usize,
-    alloc_bytes: usize,
-    peak_live_bytes: usize,
+    alloc_count: u64,
+    alloc_bytes: u64,
+    peak_live_bytes: u64,
     resolve_us: u64,
     shape_us: u64,
     group_us: u64,
@@ -29,31 +32,31 @@ const WorkloadResult = struct {
     name: []const u8,
     grid_cols: u16,
     grid_rows: u16,
-    dirty_cells_per_run: usize,
-    runs: usize,
+    dirty_cells_per_run: u32,
+    runs: RunCount,
     cold_ns: u64,
     cold_resolve_us: u64,
     cold_shape_us: u64,
     cold_group_us: u64,
     cold_scene_us: u64,
-    cold_alloc_count: usize,
-    cold_alloc_bytes: usize,
-    cold_peak_live_bytes: usize,
-    cold_fills: usize,
-    cold_glyphs: usize,
-    cold_uploads: usize,
+    cold_alloc_count: u64,
+    cold_alloc_bytes: u64,
+    cold_peak_live_bytes: u64,
+    cold_fills: u64,
+    cold_glyphs: u64,
+    cold_uploads: u64,
     warm_median_ns: u64,
     warm_p95_ns: u64,
     warm_median_resolve_us: u64,
     warm_median_shape_us: u64,
     warm_median_group_us: u64,
     warm_median_scene_us: u64,
-    warm_median_alloc_count: usize,
-    warm_median_alloc_bytes: usize,
-    warm_median_peak_live_bytes: usize,
-    warm_median_fills: usize,
-    warm_median_glyphs: usize,
-    warm_median_uploads: usize,
+    warm_median_alloc_count: u64,
+    warm_median_alloc_bytes: u64,
+    warm_median_peak_live_bytes: u64,
+    warm_median_fills: u64,
+    warm_median_glyphs: u64,
+    warm_median_uploads: u64,
     fn dirtyCellsPerSecond(self: WorkloadResult) f64 {
         const median_seconds = @as(f64, @floatFromInt(self.warm_median_ns)) / 1_000_000_000.0;
         if (median_seconds <= 0) return 0;
@@ -72,19 +75,19 @@ const Workload = struct {
         dirty_cols_end: []const u16,
     },
     cell_px: surface.CellSize,
-    dirty_cells_per_run: usize,
+    dirty_cells_per_run: u32,
 };
 
 const CountingAllocator = struct {
     child: std.mem.Allocator,
-    alloc_count: usize = 0,
-    alloc_bytes: usize = 0,
-    live_bytes: usize = 0,
-    peak_live_bytes: usize = 0,
-    window_alloc_count: usize = 0,
-    window_alloc_bytes: usize = 0,
-    window_peak_live_bytes: usize = 0,
-    window_live_baseline: usize = 0,
+    alloc_count: u64 = 0,
+    alloc_bytes: u64 = 0,
+    live_bytes: u64 = 0,
+    peak_live_bytes: u64 = 0,
+    window_alloc_count: u64 = 0,
+    window_alloc_bytes: u64 = 0,
+    window_peak_live_bytes: u64 = 0,
+    window_live_baseline: u64 = 0,
 
     const vtable = std.mem.Allocator.VTable{
         .alloc = alloc,
@@ -115,7 +118,7 @@ const CountingAllocator = struct {
         }
     }
 
-    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+    fn alloc(ctx: *anyopaque, len: SliceIndex, alignment: std.mem.Alignment, ret_addr: SliceIndex) ?[*]u8 {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         const ptr = self.child.rawAlloc(len, alignment, ret_addr) orelse return null;
         self.alloc_count += 1;
@@ -128,7 +131,7 @@ const CountingAllocator = struct {
         return ptr;
     }
 
-    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: SliceIndex, ret_addr: SliceIndex) bool {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         if (!self.child.rawResize(memory, alignment, new_len, ret_addr)) return false;
         if (new_len > memory.len) {
@@ -144,7 +147,7 @@ const CountingAllocator = struct {
         return true;
     }
 
-    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: SliceIndex, ret_addr: SliceIndex) ?[*]u8 {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         const ptr = self.child.rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
         if (new_len > memory.len) {
@@ -160,7 +163,7 @@ const CountingAllocator = struct {
         return ptr;
     }
 
-    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: SliceIndex) void {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         self.child.rawFree(memory, alignment, ret_addr);
         self.live_bytes -|= memory.len;
@@ -169,10 +172,6 @@ const CountingAllocator = struct {
 };
 
 fn lessU64(_: void, lhs: u64, rhs: u64) bool {
-    return lhs < rhs;
-}
-
-fn lessUsize(_: void, lhs: usize, rhs: usize) bool {
     return lhs < rhs;
 }
 
@@ -186,11 +185,6 @@ fn p95U64(scratch: []u64) u64 {
     const n = scratch.len;
     const idx = ((95 * n) + 99) / 100 - 1;
     return scratch[@min(idx, n - 1)];
-}
-
-fn medianUsize(scratch: []usize) usize {
-    std.sort.heap(usize, scratch, {}, lessUsize);
-    return scratch[scratch.len / 2];
 }
 
 fn nowNs(io: std.Io) u64 {
@@ -210,9 +204,22 @@ fn defaultCellMetrics(cell_px: surface.CellSize) render.CellMetrics {
     };
 }
 
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
+}
+
+fn count64(items: anytype) u64 {
+    return count32(items);
+}
+
+fn cellCount(rows: u16, cols: u16) u32 {
+    return @as(u32, rows) * @as(u32, cols);
+}
+
 fn initCells(allocator: std.mem.Allocator, rows: u16, cols: u16, bg: render.Rgba8) ![]render.CellInput {
-    const len = @as(usize, rows) * @as(usize, cols);
-    const cells = try allocator.alloc(render.CellInput, len);
+    const len = cellCount(rows, cols);
+    const cells = try allocator.alloc(render.CellInput, @intCast(len));
     for (cells) |*cell| {
         cell.* = .{ .codepoint = ' ', .fg = rgba(240, 240, 240), .bg = bg };
     }
@@ -259,19 +266,20 @@ fn buildAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
     const fg = rgba(235, 238, 242);
     const cells = try initCells(allocator, rows, cols, bg);
     const dirty = try initDirtyAll(allocator, rows, cols);
-    var row: usize = 0;
+    var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        var col: usize = 0;
+        const row_base = @as(u32, row) * cols;
+        var col: u16 = 0;
         while (col < cols) : (col += 1) {
-            const idx = row * cols + col;
-            cells[idx].codepoint = @as(u21, 'A') + @as(u21, @intCast(col % 26));
-            cells[idx].fg = fg;
+            const idx = row_base + col;
+            cells[@intCast(idx)].codepoint = @as(u21, 'A') + @as(u21, @intCast(col % 26));
+            cells[@intCast(idx)].fg = fg;
         }
     }
     return .{
         .name = "ascii_full",
         .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = @as(usize, rows) * @as(usize, cols),
+        .dirty_cells_per_run = cellCount(rows, cols),
         .input = .{ .cells = cells },
         .grid = .{ .cols = cols, .rows = rows },
         .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
@@ -366,10 +374,10 @@ fn buildSparseRowsWorkload(allocator: std.mem.Allocator) !Workload {
     for (active_rows) |row| {
         var col: u16 = 8;
         while (col <= 87) : (col += 1) {
-            const idx = @as(usize, row) * @as(usize, cols) + @as(usize, col);
-            cells[idx].codepoint = if ((col - 8) % 9 == 0) 0x2500 else 'x';
-            cells[idx].fg = if ((col - 8) % 16 < 8) fg else accent;
-            cells[idx].bg = if (row == 17) rgba(28, 18, 36) else bg;
+            const idx = @as(u32, row) * cols + col;
+            cells[@intCast(idx)].codepoint = if ((col - 8) % 9 == 0) 0x2500 else 'x';
+            cells[@intCast(idx)].fg = if ((col - 8) % 16 < 8) fg else accent;
+            cells[@intCast(idx)].bg = if (row == 17) rgba(28, 18, 36) else bg;
         }
     }
     return .{
@@ -389,20 +397,21 @@ fn buildMixedBoxWorkload(allocator: std.mem.Allocator) !Workload {
     const cells = try initCells(allocator, rows, cols, bg);
     const dirty = try initDirtyAll(allocator, rows, cols);
     const glyph_cycle = [_]u21{ 'A', 'B', 0x2500, 0x2502, 0x253C, 0x2588, 0x2592, 0x03BB };
-    var row: usize = 0;
+    var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        var col: usize = 0;
+        const row_base = @as(u32, row) * cols;
+        var col: u16 = 0;
         while (col < cols) : (col += 1) {
-            const idx = row * cols + col;
-            cells[idx].codepoint = glyph_cycle[(row + col) % glyph_cycle.len];
-            cells[idx].fg = rgba(@intCast(80 + (col % 120)), @intCast(90 + (row % 100)), @intCast(140 + ((row + col) % 100)));
-            cells[idx].bg = if ((row / 4) % 2 == 0) bg else rgba(24, 24, 32);
+            const idx = row_base + col;
+            cells[@intCast(idx)].codepoint = glyph_cycle[(row + col) % glyph_cycle.len];
+            cells[@intCast(idx)].fg = rgba(@intCast(80 + (col % 120)), @intCast(90 + (row % 100)), @intCast(140 + ((row + col) % 100)));
+            cells[@intCast(idx)].bg = if ((row / 4) % 2 == 0) bg else rgba(24, 24, 32);
         }
     }
     return .{
         .name = "mixed_box_full",
         .cell_px = .{ .width = 10, .height = 18 },
-        .dirty_cells_per_run = @as(usize, rows) * @as(usize, cols),
+        .dirty_cells_per_run = cellCount(rows, cols),
         .input = .{ .cells = cells },
         .grid = .{ .cols = cols, .rows = rows },
         .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
@@ -420,10 +429,10 @@ fn buildWideDirtySpansWorkload(allocator: std.mem.Allocator) !Workload {
     for (dirty_rows_list) |row| {
         var col: u16 = 12;
         while (col <= 119) : (col += 1) {
-            const idx = @as(usize, row) * @as(usize, cols) + @as(usize, col);
-            cells[idx].codepoint = if (col % 17 == 0) 0x251C else if (col % 7 == 0) 0x2580 else 'm';
-            cells[idx].fg = fg;
-            cells[idx].bg = if ((col / 8) % 2 == 0) rgba(18, 24, 30) else rgba(32, 18, 18);
+            const idx = @as(u32, row) * cols + col;
+            cells[@intCast(idx)].codepoint = if (col % 17 == 0) 0x251C else if (col % 7 == 0) 0x2580 else 'm';
+            cells[@intCast(idx)].fg = fg;
+            cells[@intCast(idx)].bg = if ((col / 8) % 2 == 0) rgba(18, 24, 30) else rgba(32, 18, 18);
         }
     }
     return .{
@@ -443,7 +452,7 @@ fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
     const fg = rgba(232, 236, 242);
     const combining = &[_]u32{ 'i', 0x0332 };
     const emoji = &[_]u32{0x1f642};
-    const cells = try allocator.alloc(render.Text.Cluster.CellTextInput, @as(usize, rows) * @as(usize, cols));
+    const cells = try allocator.alloc(render.Text.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
     const dirty = try initDirtyAll(allocator, rows, cols);
     for (cells, 0..) |*cell, idx| {
         const cp = if (idx % 2 == 0) combining else emoji;
@@ -457,7 +466,7 @@ fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
     return .{
         .name = "complex_text_full",
         .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = cells.len,
+        .dirty_cells_per_run = count32(cells),
         .input = .{ .cell_texts = cells },
         .grid = .{ .cols = cols, .rows = rows },
         .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
@@ -470,7 +479,7 @@ fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
     const bg = rgba(12, 12, 18);
     const fg = rgba(235, 238, 242);
     const ascii = [_]u32{'a'};
-    const cells = try allocator.alloc(render.Text.Cluster.CellTextInput, @as(usize, rows) * @as(usize, cols));
+    const cells = try allocator.alloc(render.Text.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
     const dirty = try initDirtyAll(allocator, rows, cols);
     for (cells) |*cell| {
         cell.* = .{
@@ -482,7 +491,7 @@ fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
     return .{
         .name = "cell_text_ascii_full",
         .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = cells.len,
+        .dirty_cells_per_run = count32(cells),
         .input = .{ .cell_texts = cells },
         .grid = .{ .cols = cols, .rows = rows },
         .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
@@ -497,7 +506,7 @@ fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
     const accent = rgba(166, 212, 255);
     const ascii = [_]u32{'a'};
     const combining = [_]u32{ 'i', 0x0332 };
-    const cells = try allocator.alloc(render.Text.Cluster.CellTextInput, @as(usize, rows) * @as(usize, cols));
+    const cells = try allocator.alloc(render.Text.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
     const dirty = try initDirtyAll(allocator, rows, cols);
     for (cells, 0..) |*cell, idx| {
         const even = idx % 2 == 0;
@@ -511,7 +520,7 @@ fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
     return .{
         .name = "cell_text_mixed",
         .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = cells.len,
+        .dirty_cells_per_run = count32(cells),
         .input = .{ .cell_texts = cells },
         .grid = .{ .cols = cols, .rows = rows },
         .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
@@ -539,7 +548,7 @@ fn buildCurlyUnderlineMixedWorkload(allocator: std.mem.Allocator) !Workload {
     return .{
         .name = "curly_underline_mixed",
         .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = cells.len,
+        .dirty_cells_per_run = count32(cells),
         .input = .{ .cells = cells },
         .grid = .{ .cols = cols, .rows = rows },
         .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
@@ -565,21 +574,21 @@ fn buildIconPuaMixedWorkload(allocator: std.mem.Allocator) !Workload {
     return .{
         .name = "icon_pua_mixed",
         .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = cells.len,
+        .dirty_cells_per_run = count32(cells),
         .input = .{ .cells = cells },
         .grid = .{ .cols = cols, .rows = rows },
         .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
     };
 }
 
-fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, runs: usize) !WorkloadResult {
+fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, runs: RunCount) !WorkloadResult {
     const observations = try allocator.alloc(RunObservation, runs);
     defer allocator.free(observations);
-    const fill_values = try allocator.alloc(usize, runs);
+    const fill_values = try allocator.alloc(u64, runs);
     defer allocator.free(fill_values);
-    const glyph_values = try allocator.alloc(usize, runs);
+    const glyph_values = try allocator.alloc(u64, runs);
     defer allocator.free(glyph_values);
-    const upload_values = try allocator.alloc(usize, runs);
+    const upload_values = try allocator.alloc(u64, runs);
     defer allocator.free(upload_values);
 
     const cell_metrics = defaultCellMetrics(workload.cell_px);
@@ -628,13 +637,13 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
         .group_us = cold.timings.group_us,
         .scene_us = cold.timings.scene_us,
     };
-    const cold_fills = cold.scene.scene.background_draws.len + cold.scene.scene.decoration_draws.len + cold.scene.scene.cursor_draws.len;
-    const cold_glyphs = cold.scene.scene.sprite_draws.len;
-    const cold_uploads = cold.raster_plan.outputs.len;
+    const cold_fills = count64(cold.scene.scene.background_draws) + count64(cold.scene.scene.decoration_draws) + count64(cold.scene.scene.cursor_draws);
+    const cold_glyphs = count64(cold.scene.scene.sprite_draws);
+    const cold_uploads = count64(cold.raster_plan.outputs);
     for (cold.raster_plan.outputs) |output| _ = preparer.atlas.markRendered(output.key);
     cold.deinit();
 
-    var i: usize = 0;
+    var i: RunCount = 0;
     while (i < runs) : (i += 1) {
         counting.resetWindow();
         const start = nowNs(io);
@@ -654,7 +663,7 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
         };
         const end = nowNs(io);
         defer analysis.deinit();
-        observations[i] = .{
+        observations[@intCast(i)] = .{
             .ns = end - start,
             .alloc_count = counting.window_alloc_count,
             .alloc_bytes = counting.window_alloc_bytes,
@@ -665,18 +674,18 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
             .scene_us = analysis.timings.scene_us,
         };
         for (analysis.raster_plan.outputs) |output| _ = preparer.atlas.markRendered(output.key);
-        fill_values[i] = analysis.scene.scene.background_draws.len + analysis.scene.scene.decoration_draws.len + analysis.scene.scene.cursor_draws.len;
-        glyph_values[i] = analysis.scene.scene.sprite_draws.len;
-        upload_values[i] = analysis.raster_plan.outputs.len;
+        fill_values[@intCast(i)] = count64(analysis.scene.scene.background_draws) + count64(analysis.scene.scene.decoration_draws) + count64(analysis.scene.scene.cursor_draws);
+        glyph_values[@intCast(i)] = count64(analysis.scene.scene.sprite_draws);
+        upload_values[@intCast(i)] = count64(analysis.raster_plan.outputs);
     }
 
     const ns_values = try allocator.alloc(u64, runs);
     defer allocator.free(ns_values);
-    const alloc_count_values = try allocator.alloc(usize, runs);
+    const alloc_count_values = try allocator.alloc(u64, runs);
     defer allocator.free(alloc_count_values);
-    const alloc_bytes_values = try allocator.alloc(usize, runs);
+    const alloc_bytes_values = try allocator.alloc(u64, runs);
     defer allocator.free(alloc_bytes_values);
-    const peak_live_values = try allocator.alloc(usize, runs);
+    const peak_live_values = try allocator.alloc(u64, runs);
     defer allocator.free(peak_live_values);
     const resolve_values = try allocator.alloc(u64, runs);
     defer allocator.free(resolve_values);
@@ -704,12 +713,12 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
     const warm_median_shape_us = medianU64(shape_values);
     const warm_median_group_us = medianU64(group_values);
     const warm_median_scene_us = medianU64(scene_values);
-    const warm_median_alloc_count = medianUsize(alloc_count_values);
-    const warm_median_alloc_bytes = medianUsize(alloc_bytes_values);
-    const warm_median_peak_live_bytes = medianUsize(peak_live_values);
-    const warm_median_fills = medianUsize(fill_values);
-    const warm_median_glyphs = medianUsize(glyph_values);
-    const warm_median_uploads = medianUsize(upload_values);
+    const warm_median_alloc_count = medianU64(alloc_count_values);
+    const warm_median_alloc_bytes = medianU64(alloc_bytes_values);
+    const warm_median_peak_live_bytes = medianU64(peak_live_values);
+    const warm_median_fills = medianU64(fill_values);
+    const warm_median_glyphs = medianU64(glyph_values);
+    const warm_median_uploads = medianU64(upload_values);
     std.debug.assert(cold_uploads >= warm_median_uploads);
 
     return .{
@@ -746,7 +755,7 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
 
 fn parseArgs(argv: []const [:0]const u8) !Options {
     var opts = Options{};
-    var i: usize = 1;
+    var i: SliceIndex = 1;
     while (i < argv.len) : (i += 1) {
         const arg = argv[i];
         if (std.mem.eql(u8, arg, "--text")) {
@@ -754,13 +763,13 @@ fn parseArgs(argv: []const [:0]const u8) !Options {
             continue;
         }
         if (std.mem.startsWith(u8, arg, "--runs=")) {
-            opts.runs = std.fmt.parseUnsigned(usize, arg["--runs=".len..], 10) catch return error.InvalidRuns;
+            opts.runs = std.fmt.parseUnsigned(RunCount, arg["--runs=".len..], 10) catch return error.InvalidRuns;
             continue;
         }
         if (std.mem.eql(u8, arg, "--runs")) {
             i += 1;
             if (i >= argv.len) return error.MissingRuns;
-            opts.runs = std.fmt.parseUnsigned(usize, argv[i], 10) catch return error.InvalidRuns;
+            opts.runs = std.fmt.parseUnsigned(RunCount, argv[i], 10) catch return error.InvalidRuns;
             continue;
         }
         return error.UnknownArgument;

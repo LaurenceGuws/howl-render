@@ -267,9 +267,9 @@ fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.L
         lane_report.direct_normal_raster_misses = @intCast(driver.scratch.raster_reqs.items.len);
         outputs = try driver.allocator.alloc(rasterizer.RasterSpriteOutput, driver.scratch.raster_reqs.items.len);
         outputs_owned = true;
-        var filled: usize = 0;
+        var filled: u32 = 0;
         errdefer {
-            for (outputs[0..filled]) |*out| out.deinit();
+            for (outputs[0..@intCast(filled)]) |*out| out.deinit();
             driver.allocator.free(outputs);
         }
         for (driver.scratch.raster_reqs.items, 0..) |req, idx| {
@@ -336,9 +336,14 @@ fn normalizedInputCodepoints(cps: []const u32) []const u32 {
 }
 
 fn textForRenderableCell(text_cache: contract.LineTextCache, cell: contract.RenderableCell) contract.CellText {
-    const idx = @as(usize, @intCast(cell.text_id.value));
-    std.debug.assert(idx < text_cache.texts.len);
-    return text_cache.texts[idx];
+    const idx = cell.text_id.value;
+    std.debug.assert(idx < count32(text_cache.texts));
+    return text_cache.texts[@intCast(idx)];
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
 fn blankText(text: contract.CellText) bool {

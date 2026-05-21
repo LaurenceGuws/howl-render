@@ -184,7 +184,7 @@ test "text pipeline ops dispatch and own output buffers" {
     const allocator = std.testing.allocator;
 
     const Stub = struct {
-        hits: usize = 0,
+        hits: u8 = 0,
 
         fn shape(ctx: *anyopaque, gpa: std.mem.Allocator, req: ShapeRequest) anyerror!ShapeOutput {
             const self: *@This() = @ptrCast(@alignCast(ctx));
@@ -218,8 +218,8 @@ test "text pipeline ops dispatch and own output buffers" {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             self.hits += 1;
 
-            const area = @as(usize, req.cell_metrics.cell_w_px) * @as(usize, req.cell_metrics.cell_h_px);
-            const alpha = try gpa.alloc(u8, area);
+            const area: u32 = @as(u32, req.cell_metrics.cell_w_px) * @as(u32, req.cell_metrics.cell_h_px);
+            const alpha = try gpa.alloc(u8, @intCast(area));
             @memset(alpha, 0x7f);
             return .{
                 .allocator = gpa,
@@ -240,6 +240,13 @@ test "text pipeline ops dispatch and own output buffers" {
                 .face_id = 42,
                 .glyph_id = req.codepoint,
             } };
+        }
+    };
+
+    const count32 = struct {
+        fn of(items: anytype) u32 {
+            std.debug.assert(items.len <= std.math.maxInt(u32));
+            return @intCast(items.len);
         }
     };
 
@@ -264,8 +271,8 @@ test "text pipeline ops dispatch and own output buffers" {
 
     var shaped = try shape_op.shape(allocator, req);
     defer shaped.deinit();
-    try std.testing.expectEqual(@as(usize, 1), shaped.runs.len);
-    try std.testing.expectEqual(@as(usize, 1), shaped.glyphs.len);
+    try std.testing.expectEqual(@as(u32, 1), count32.of(shaped.runs));
+    try std.testing.expectEqual(@as(u32, 1), count32.of(shaped.glyphs));
     try std.testing.expectEqual(@as(u32, 'A'), shaped.glyphs[0].glyph_id);
 
     var raster = try raster_op.rasterize(allocator, .{
@@ -275,7 +282,7 @@ test "text pipeline ops dispatch and own output buffers" {
         .cell_metrics = req.cell_metrics,
     });
     defer raster.deinit();
-    try std.testing.expectEqual(@as(usize, 8 * 16), raster.alpha_mask.len);
+    try std.testing.expectEqual(@as(u32, 8 * 16), count32.of(raster.alpha_mask));
     try std.testing.expectEqual(@as(u8, 0x7f), raster.alpha_mask[0]);
 
     const resolved = resolve_op.resolve(.{
@@ -291,5 +298,5 @@ test "text pipeline ops dispatch and own output buffers" {
         .miss => return error.UnexpectedResolveMiss,
     }
 
-    try std.testing.expectEqual(@as(usize, 3), stub.hits);
+    try std.testing.expectEqual(@as(u8, 3), stub.hits);
 }

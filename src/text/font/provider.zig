@@ -59,7 +59,8 @@ fn defaultLookupGlyphThunk(_: *anyopaque, face_id: contract.FontFaceId, codepoin
 fn defaultGlyphRasterThunk(_: *anyopaque, allocator: std.mem.Allocator, req: pipeline.RasterizeRequest) anyerror!pipeline.RasterizeOutput {
     const width = @as(u16, @intCast(@as(u32, @max(req.cell_span, 1)) * @as(u32, @max(req.cell_metrics.cell_w_px, 1))));
     const height = @max(req.cell_metrics.cell_h_px, 1);
-    const alpha = try allocator.alloc(u8, @as(usize, width) * @as(usize, height));
+    const area = @as(u32, width) * @as(u32, height);
+    const alpha = try allocator.alloc(u8, @intCast(area));
     @memset(alpha, 0x7f);
     return .{
         .allocator = allocator,

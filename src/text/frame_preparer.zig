@@ -415,9 +415,9 @@ fn applyCounters(total: *pipeline.TextPrepareCounters, delta: pipeline.TextPrepa
 }
 
 fn textForCluster(text_cache: contract.LineTextCache, cluster_value: contract.CellCluster) contract.CellText {
-    const idx = @as(usize, @intCast(cluster_value.text_id.value));
-    std.debug.assert(idx < text_cache.texts.len);
-    return text_cache.texts[idx];
+    const idx = cluster_value.text_id.value;
+    std.debug.assert(idx < count32(text_cache.texts));
+    return text_cache.texts[@intCast(idx)];
 }
 
 fn cloneSlice(comptime T: type, allocator: std.mem.Allocator, src: []const T) ![]T {
@@ -435,25 +435,27 @@ fn mergeSlices(comptime T: type, allocator: std.mem.Allocator, lhs: []const T, r
 
 fn mergeFirstCellSlices(comptime T: type, allocator: std.mem.Allocator, lhs: []const T, rhs: []const T) ![]T {
     const out = try allocator.alloc(T, lhs.len + rhs.len);
-    var li: usize = 0;
-    var ri: usize = 0;
-    var oi: usize = 0;
-    while (li < lhs.len and ri < rhs.len) {
-        if (@field(lhs[li], "first_cell") <= @field(rhs[ri], "first_cell")) {
-            out[oi] = lhs[li];
+    const lhs_len = count32(lhs);
+    const rhs_len = count32(rhs);
+    var li: u32 = 0;
+    var ri: u32 = 0;
+    var oi: u32 = 0;
+    while (li < lhs_len and ri < rhs_len) {
+        if (@field(lhs[@intCast(li)], "first_cell") <= @field(rhs[@intCast(ri)], "first_cell")) {
+            out[@intCast(oi)] = lhs[@intCast(li)];
             li += 1;
         } else {
-            out[oi] = rhs[ri];
+            out[@intCast(oi)] = rhs[@intCast(ri)];
             ri += 1;
         }
         oi += 1;
     }
-    while (li < lhs.len) : (li += 1) {
-        out[oi] = lhs[li];
+    while (li < lhs_len) : (li += 1) {
+        out[@intCast(oi)] = lhs[@intCast(li)];
         oi += 1;
     }
-    while (ri < rhs.len) : (ri += 1) {
-        out[oi] = rhs[ri];
+    while (ri < rhs_len) : (ri += 1) {
+        out[@intCast(oi)] = rhs[@intCast(ri)];
         oi += 1;
     }
     return out;
@@ -476,6 +478,11 @@ fn mergeRasterPlans(
     return .{ .allocator = allocator, .outputs = out };
 }
 
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
+}
+
     pub const PrepareOptions = struct {
     scene: scene.BuildOptions = .{},
 };
@@ -492,8 +499,8 @@ test "text frame preparer prepares cell inputs into clusters and runs" {
     var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(usize, 2), analysis.scene.scene.sprite_draws.len);
-    try std.testing.expectEqual(@as(usize, 2), analysis.raster_plan.outputs.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
     try std.testing.expectEqual(@as(u64, 2), engine.counters.cell_texts);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.glyph_groups);
@@ -511,8 +518,8 @@ test "text frame preparer records sprite routes through resolver" {
     var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(usize, 2), analysis.scene.scene.sprite_draws.len);
-    try std.testing.expectEqual(@as(usize, 2), analysis.raster_plan.outputs.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
     try std.testing.expectEqual(@as(u32, 1), analysis.scene.scene.sprite_draws[1].first_cell);
     try std.testing.expect(analysis.scene.scene.sprite_draws[1].placement.advance_px > 0);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
@@ -534,7 +541,7 @@ test "text frame preparer scene is grid positioned" {
     var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 2 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(usize, 4), analysis.scene.scene.sprite_draws.len);
+    try std.testing.expectEqual(@as(u32, 4), count32(analysis.scene.scene.sprite_draws));
     try std.testing.expectEqual(@as(i32, 0), analysis.scene.scene.sprite_draws[2].x_px);
     try std.testing.expectEqual(@as(i32, 1), analysis.scene.scene.sprite_draws[2].y_px);
 }
@@ -551,7 +558,7 @@ test "text frame preparer rerasterizes pending atlas entries across prepares" {
     var second = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer second.deinit();
     try std.testing.expectEqual(first_slot, second.scene.scene.sprite_draws[0].sprite.slot);
-    try std.testing.expectEqual(@as(usize, 1), second.raster_plan.outputs.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
     try std.testing.expectEqual(@as(u32, 1), engine.atlas.len);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.sprite_cache_hits);
     try std.testing.expect(!engine.atlas.get(.{ .value = second.scene.scene.sprite_draws[0].sprite.key.value }).?.rendered);
@@ -569,7 +576,7 @@ test "text frame preparer rerasterizes sprites after cell metrics change" {
     var second = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 16, .cell_h_px = 32, .baseline_px = 24 } }, .{});
     defer second.deinit();
     try std.testing.expect(first_key != second.scene.scene.sprite_draws[0].sprite.key.value);
-    try std.testing.expectEqual(@as(usize, 1), second.raster_plan.outputs.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
     try std.testing.expectEqual(@as(u16, 16), second.raster_plan.outputs[0].width_px);
     try std.testing.expectEqual(@as(u16, 32), second.raster_plan.outputs[0].height_px);
 }
@@ -586,7 +593,7 @@ test "text frame preparer rerasterizes sprites after box thickness change" {
     var second = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 3 } }, .{});
     defer second.deinit();
     try std.testing.expect(first_key != second.scene.scene.sprite_draws[0].sprite.key.value);
-    try std.testing.expectEqual(@as(usize, 1), second.raster_plan.outputs.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
 }
 
 test "text frame preparer accepts configurable shaper" {
@@ -647,7 +654,7 @@ test "text frame preparer prepare options produce scene cursor draws" {
         .scene = .{ .cursor = .{ .cell_col = 0, .cell_row = 0, .shape = .block, .color = white } },
     });
     defer analysis.deinit();
-    try std.testing.expectEqual(@as(usize, 1), analysis.scene.scene.cursor_draws.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.cursor_draws));
     try std.testing.expectEqual(@as(u16, 8), analysis.scene.scene.cursor_draws[0].width_px);
 }
 
@@ -665,7 +672,7 @@ test "text frame preparer prepares rich multi-codepoint cell inputs" {
     var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 4, .rows = 1 }, .{}, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(usize, 2), analysis.scene.scene.sprite_draws.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
     try std.testing.expectEqual(@as(u8, 2), analysis.scene.scene.sprite_draws[1].cell_span);
     try std.testing.expectEqual(@as(u16, 2), analysis.scene.scene.sprite_draws[1].width_px);
 }
@@ -684,8 +691,8 @@ test "text frame preparer direct-renders pure normal cell text inputs" {
     var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 2, .rows = 1 }, .{}, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(usize, 2), analysis.scene.scene.sprite_draws.len);
-    try std.testing.expectEqual(@as(usize, 2), analysis.raster_plan.outputs.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
     try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
 }
@@ -704,7 +711,7 @@ test "text frame preparer keeps mixed cell text normals out of legacy path" {
     var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 2, .rows = 1 }, .{}, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(usize, 2), analysis.scene.scene.sprite_draws.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
     try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
 }
@@ -721,8 +728,8 @@ test "text frame preparer marks curly underline cells complex before shaping" {
     var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(usize, 3), analysis.scene.scene.sprite_draws.len);
-    try std.testing.expectEqual(@as(usize, 0), analysis.scene.scene.decoration_draws.len);
+    try std.testing.expectEqual(@as(u32, 3), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.decoration_draws));
     try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);

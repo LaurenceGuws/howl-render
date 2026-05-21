@@ -6,6 +6,8 @@ const surface = @import("../../../frame/surface.zig");
 const text_cache = @import("cache.zig");
 const c_api = @import("c_api.zig");
 
+const SliceIndex = @TypeOf(@as([]const u8, &.{}).len);
+
 pub const c = c_api.c;
 pub const FtLibrary = c_api.FtLibrary;
 pub const FtFace = c_api.FtFace;
@@ -59,12 +61,12 @@ pub const State = struct {
     }
 };
 
-pub fn fallbackFontCount(value: usize) ?FallbackFontCount {
+pub fn fallbackFontCount(value: SliceIndex) ?FallbackFontCount {
     if (value > max_fallback_fonts) return null;
     return @intCast(value);
 }
 
-pub fn fallbackFontLen(value: FallbackFontCount) usize {
+pub fn fallbackFontLen(value: FallbackFontCount) SliceIndex {
     return @intCast(value);
 }
 
@@ -108,16 +110,8 @@ const ClusterWindow = struct {
         return self.end - self.start;
     }
 
-    fn startIndex(self: ClusterWindow) usize {
-        return @intCast(self.start);
-    }
-
-    fn endIndex(self: ClusterWindow) usize {
-        return @intCast(self.end);
-    }
-
     fn slice(self: ClusterWindow, clusters: []const render.CellCluster) []const render.CellCluster {
-        return clusters[self.startIndex()..self.endIndex()];
+        return clusters[@intCast(self.start)..@intCast(self.end)];
     }
 };
 
@@ -479,9 +473,14 @@ fn providerGlyphVisualWidth(self: anytype, face_id: render.FontFaceId, glyph_id:
 }
 
 fn textForCluster(text_cache_view: render.LineTextCache, cluster: render.CellCluster) render.CellText {
-    const idx = @as(usize, @intCast(cluster.text_id.value));
-    if (idx < text_cache_view.texts.len) return text_cache_view.texts[idx];
+    const idx = cluster.text_id.value;
+    if (idx < count32(text_cache_view.texts)) return text_cache_view.texts[@intCast(idx)];
     return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
 fn glyphVisualWidthPxLocked(face: FtFace, glyph_id: u32) f32 {
@@ -589,7 +588,7 @@ fn buildProviderShapedRun(allocator: std.mem.Allocator, run: render.ResolvedRun,
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-fn fallbackSlot(self: anytype, fallback_index: FallbackFontCount) ?usize {
+fn fallbackSlot(self: anytype, fallback_index: FallbackFontCount) ?SliceIndex {
     const state = textState(self);
     if (fallback_index >= state.fallback_font_paths_len) return null;
     return @intCast(fallback_index);

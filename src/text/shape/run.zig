@@ -76,9 +76,9 @@ pub fn shapeResolvedRunsWithShaper(
     const shaped = try allocator.alloc(OwnedShapedRun, runs.len);
     errdefer allocator.free(shaped);
 
-    var initialized: usize = 0;
+    var initialized: u32 = 0;
     errdefer {
-        for (shaped[0..initialized]) |*run| run.deinit();
+        for (shaped[0..@intCast(initialized)]) |*run| run.deinit();
     }
 
     for (runs, 0..) |run, idx| {
@@ -106,10 +106,10 @@ pub fn shapeRun(
 ) !OwnedShapedRun {
     const start = run.run.cluster_start;
     const end = @min(start + run.run.cluster_count, clusterCount(clusters));
-    const glyphs = try allocator.alloc(contract.GlyphInstance, clusterIndex(end - start));
+    const glyphs = try allocator.alloc(contract.GlyphInstance, @intCast(end - start));
     errdefer allocator.free(glyphs);
 
-    for (clusters[clusterIndex(start)..clusterIndex(end)], 0..) |cluster, idx| {
+    for (clusters[@intCast(start)..@intCast(end)], 0..) |cluster, idx| {
         const text = textForCluster(text_cache, cluster);
         glyphs[idx] = .{
             .face_id = run.run.font.face_id,
@@ -125,8 +125,8 @@ pub fn shapeRun(
 }
 
 fn textForCluster(text_cache: contract.LineTextCache, cluster: contract.CellCluster) contract.CellText {
-    const idx = @as(usize, @intCast(cluster.text_id.value));
-    if (idx < text_cache.texts.len) return text_cache.texts[idx];
+    const idx = cluster.text_id.value;
+    if (idx < count32(text_cache.texts)) return text_cache.texts[@intCast(idx)];
     return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
 }
 
@@ -134,8 +134,9 @@ fn clusterCount(clusters: []const contract.CellCluster) u32 {
     return @intCast(clusters.len);
 }
 
-fn clusterIndex(value: u32) usize {
-    return @intCast(value);
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
 test "stub shaper emits one glyph per cluster with run face" {
@@ -154,7 +155,7 @@ test "stub shaper emits one glyph per cluster with run face" {
     } };
     var shaped = try shapeRun(std.testing.allocator, run, text_cache, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     defer shaped.deinit();
-    try std.testing.expectEqual(@as(usize, 2), shaped.glyphs.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(shaped.glyphs));
     try std.testing.expectEqual(@as(u32, 9), shaped.glyphs[0].face_id.value);
     try std.testing.expectEqual(@as(u32, 'b'), shaped.glyphs[1].glyph_id);
 }

@@ -29,38 +29,40 @@ pub fn groupShapedRunsWithPolicy(
     cell_metrics: contract.CellMetrics,
     policy: GroupingPolicy,
 ) !OwnedGlyphGroups {
-    var count: usize = 0;
+    var count: u32 = 0;
     for (shaped_runs) |run| {
-        var idx: usize = 0;
-        while (idx < run.glyphs.len) {
+        const glyph_len = count32(run.glyphs);
+        var idx: u32 = 0;
+        while (idx < glyph_len) {
             count += 1;
-            const cluster_index = run.glyphs[idx].cluster_index;
+            const cluster_index = run.glyphs[@intCast(idx)].cluster_index;
             idx += 1;
-            while (idx < run.glyphs.len and run.glyphs[idx].cluster_index == cluster_index) : (idx += 1) {}
+            while (idx < glyph_len and run.glyphs[@intCast(idx)].cluster_index == cluster_index) : (idx += 1) {}
         }
     }
 
-    const groups = try allocator.alloc(contract.GlyphGroup, count);
+    const groups = try allocator.alloc(contract.GlyphGroup, @intCast(count));
     errdefer allocator.free(groups);
-    var out_idx: usize = 0;
+    var out_idx: u32 = 0;
 
     for (shaped_runs) |run| {
-        var idx: usize = 0;
-        while (idx < run.glyphs.len) {
-            const cluster_index = run.glyphs[idx].cluster_index;
+        const glyph_len = count32(run.glyphs);
+        var idx: u32 = 0;
+        while (idx < glyph_len) {
+            const cluster_index = run.glyphs[@intCast(idx)].cluster_index;
             const cluster_idx = cluster_index;
-            std.debug.assert(clusterIndex(cluster_idx) < clusters.len);
-            const cluster = clusters[clusterIndex(cluster_idx)];
+            std.debug.assert(cluster_idx < count32(clusters));
+            const cluster = clusters[@intCast(cluster_idx)];
             const start = idx;
             idx += 1;
-            while (idx < run.glyphs.len and run.glyphs[idx].cluster_index == cluster_index) : (idx += 1) {}
-            const glyph_slice = run.glyphs[start..idx];
-            const next_cluster_exclusive = if (idx < run.glyphs.len)
-                run.glyphs[idx].cluster_index
+            while (idx < glyph_len and run.glyphs[@intCast(idx)].cluster_index == cluster_index) : (idx += 1) {}
+            const glyph_slice = run.glyphs[@intCast(start)..@intCast(idx)];
+            const next_cluster_exclusive = if (idx < glyph_len)
+                run.glyphs[@intCast(idx)].cluster_index
             else
                 run.run.run.cluster_start + run.run.run.cluster_count;
             const inferred_cell_span = applyGroupingPolicy(cellSpanForClusterRange(clusters, cluster_idx, next_cluster_exclusive), cluster.first_cell, policy);
-            groups[out_idx] = .{
+            groups[@intCast(out_idx)] = .{
                 .first_cell = cluster.first_cell,
                 .first_cp = cluster.first_cp,
                 .cell_span = inferred_cell_span,
@@ -73,7 +75,7 @@ pub fn groupShapedRunsWithPolicy(
         }
     }
 
-    std.debug.assert(out_idx == groups.len);
+    std.debug.assert(out_idx == count32(groups));
     return .{ .allocator = allocator, .groups = groups };
 }
 
@@ -103,8 +105,8 @@ pub fn groupSpriteRoutes(
     errdefer allocator.free(groups);
     for (routes, 0..) |route, idx| {
         const cluster_idx = route.cluster_index;
-        std.debug.assert(clusterIndex(cluster_idx) < clusters.len);
-        const cluster = clusters[clusterIndex(cluster_idx)];
+        std.debug.assert(cluster_idx < count32(clusters));
+        const cluster = clusters[@intCast(cluster_idx)];
         const cell_span = spriteRouteCellSpan(route.route, clusters, cluster_idx);
         groups[idx] = .{
             .first_cell = cluster.first_cell,
@@ -126,15 +128,15 @@ pub fn concatGroups(allocator: std.mem.Allocator, font_groups: []const contract.
     @memcpy(groups[font_groups.len..], sprite_groups);
     std.sort.block(contract.GlyphGroup, groups, {}, lessByCell);
 
-    var out_len: usize = 0;
+    var out_len: u32 = 0;
     var covered_until: u32 = 0;
     for (groups) |group| {
         if (out_len > 0 and group.first_cell < covered_until) continue;
-        groups[out_len] = group;
+        groups[@intCast(out_len)] = group;
         out_len += 1;
         covered_until = group.first_cell + @as(u32, @max(group.cell_span, 1));
     }
-    return .{ .allocator = allocator, .groups = try allocator.realloc(groups, out_len) };
+    return .{ .allocator = allocator, .groups = try allocator.realloc(groups, @intCast(out_len)) };
 }
 
 fn lessByCell(_: void, a: contract.GlyphGroup, b: contract.GlyphGroup) bool {
@@ -150,10 +152,10 @@ fn classifyFontGroup(cluster: contract.CellCluster, glyphs: []const contract.Gly
 }
 
 fn cellSpanForClusterRange(clusters: []const contract.CellCluster, start_idx: u32, end_exclusive: u32) u8 {
-    std.debug.assert(clusterIndex(start_idx) < clusters.len);
+    std.debug.assert(start_idx < count32(clusters));
     const clamped_end = std.math.clamp(end_exclusive, start_idx + 1, clusterCount(clusters));
-    const first = clusters[clusterIndex(start_idx)];
-    const last = clusters[clusterIndex(clamped_end - 1)];
+    const first = clusters[@intCast(start_idx)];
+    const last = clusters[@intCast(clamped_end - 1)];
     const end_cell = last.first_cell + @as(u32, last.cell_span);
     return @intCast(@max(end_cell - first.first_cell, 1));
 }
@@ -181,12 +183,13 @@ fn routeSpriteKey(route: contract.SpecialSpriteRoute, cluster: contract.CellClus
 }
 
 fn spriteRouteCellSpan(route: contract.SpecialSpriteRoute, clusters: []const contract.CellCluster, cluster_idx: u32) u8 {
-    const cluster = clusters[clusterIndex(cluster_idx)];
+    const cluster = clusters[@intCast(cluster_idx)];
     if (route != .powerline) return cluster.cell_span;
     var end_cell = cluster.first_cell + @as(u32, cluster.cell_span);
     var idx = cluster_idx + 1;
-    while (clusterIndex(idx) < clusters.len) : (idx += 1) {
-        const next = clusters[clusterIndex(idx)];
+    const cluster_len = count32(clusters);
+    while (idx < cluster_len) : (idx += 1) {
+        const next = clusters[@intCast(idx)];
         if (next.first_cell != end_cell) break;
         if (!isPowerlineFollower(next)) break;
         end_cell += @as(u32, next.cell_span);
@@ -208,8 +211,9 @@ fn clusterCount(clusters: []const contract.CellCluster) u32 {
     return @intCast(clusters.len);
 }
 
-fn clusterIndex(value: u32) usize {
-    return @intCast(value);
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
 test "group shaped run creates one group per glyph cluster" {
@@ -225,7 +229,7 @@ test "group shaped run creates one group per glyph cluster" {
     defer shaped.deinit();
     var groups = try groupShapedRunsWithPolicy(std.testing.allocator, &.{shaped}, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{});
     defer groups.deinit();
-    try std.testing.expectEqual(@as(usize, 1), groups.groups.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(groups.groups));
     try std.testing.expectEqual(@as(u32, 4), groups.groups[0].first_cell);
     try std.testing.expect(groups.groups[0].sprite_key.value != 0);
 }
@@ -248,8 +252,8 @@ test "grouping merges multiple glyphs for one cluster" {
     }
     var groups = try groupShapedRunsWithPolicy(std.testing.allocator, &.{shaped_run}, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{});
     defer groups.deinit();
-    try std.testing.expectEqual(@as(usize, 1), groups.groups.len);
-    try std.testing.expectEqual(@as(usize, 2), groups.groups[0].glyphs.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(groups.groups));
+    try std.testing.expectEqual(@as(u32, 2), count32(groups.groups[0].glyphs));
     try std.testing.expectEqual(contract.GlyphGroupKind.ligature, groups.groups[0].kind);
 }
 
@@ -274,7 +278,7 @@ test "powerline sprite route absorbs adjacent spacer cells" {
     };
     var sprite_groups = try groupSpriteRoutes(std.testing.allocator, &.{.{ .cluster_index = 0, .route = .powerline }}, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     defer sprite_groups.deinit();
-    try std.testing.expectEqual(@as(usize, 1), sprite_groups.groups.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(sprite_groups.groups));
     try std.testing.expectEqual(@as(u8, 2), sprite_groups.groups[0].cell_span);
     try std.testing.expectEqual(@as(f32, 16), sprite_groups.groups[0].placement.advance_px);
 }
@@ -284,7 +288,7 @@ test "powerline spacer absorption lets concat drop covered space group" {
     const space = contract.GlyphGroup{ .first_cell = 1, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 2 }, .kind = .normal };
     var merged = try concatGroups(std.testing.allocator, &.{space}, &.{powerline});
     defer merged.deinit();
-    try std.testing.expectEqual(@as(usize, 1), merged.groups.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(merged.groups));
     try std.testing.expectEqual(@as(u32, 0), merged.groups[0].first_cell);
     try std.testing.expectEqual(@as(u8, 2), merged.groups[0].cell_span);
 }
@@ -323,7 +327,7 @@ test "concat drops groups covered by previous multicell group" {
     };
     var merged = try concatGroups(std.testing.allocator, &groups, &.{});
     defer merged.deinit();
-    try std.testing.expectEqual(@as(usize, 2), merged.groups.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(merged.groups));
     try std.testing.expectEqual(@as(u32, 0), merged.groups[0].first_cell);
     try std.testing.expectEqual(@as(u32, 2), merged.groups[1].first_cell);
 }
@@ -346,7 +350,7 @@ test "grouping infers multicell span from next cluster boundary" {
     }
     var groups = try groupShapedRunsWithPolicy(std.testing.allocator, &.{shaped_run}, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{});
     defer groups.deinit();
-    try std.testing.expectEqual(@as(usize, 1), groups.groups.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(groups.groups));
     try std.testing.expectEqual(@as(u8, 2), groups.groups[0].cell_span);
     try std.testing.expectEqual(contract.GlyphGroupKind.ligature, groups.groups[0].kind);
 }
@@ -369,6 +373,6 @@ test "grouping policy can suppress ligature span across cursor" {
     }
     var groups = try groupShapedRunsWithPolicy(std.testing.allocator, &.{shaped_run}, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cursor_cell = 1, .suppress_ligature_at_cursor = true });
     defer groups.deinit();
-    try std.testing.expectEqual(@as(usize, 1), groups.groups.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(groups.groups));
     try std.testing.expectEqual(@as(u8, 1), groups.groups[0].cell_span);
 }

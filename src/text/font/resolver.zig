@@ -87,12 +87,13 @@ pub fn resolveClusters(
     defer resolve_memo.deinit();
 
     const cols = @max(@as(u32, grid_metrics.cols), 1);
-    var idx: usize = 0;
-    while (idx < clusters.len) {
-        const cluster = clusters[idx];
+    const cluster_count = count32(clusters);
+    var idx: u32 = 0;
+    while (idx < cluster_count) {
+        const cluster = clusters[@intCast(idx)];
         const route = symbol_map.builtinRoute(cluster.first_cp);
         if (route) |r| {
-            try sprite_routes.append(allocator, .{ .cluster_index = @intCast(idx), .route = r });
+            try sprite_routes.append(allocator, .{ .cluster_index = idx, .route = r });
             idx += 1;
             continue;
         }
@@ -111,8 +112,8 @@ pub fn resolveClusters(
 
         const start = idx;
         idx += 1;
-        while (idx < clusters.len) : (idx += 1) {
-            const next = clusters[idx];
+        while (idx < cluster_count) : (idx += 1) {
+            const next = clusters[@intCast(idx)];
             if (symbol_map.builtinRoute(next.first_cp) != null) break;
             if (next.first_cell / cols != cluster.first_cell / cols) break;
             const next_face = (try resolveFaceMemoized(&resolve_memo, session, next, textForCluster(text_cache, next))) orelse break;
@@ -195,9 +196,14 @@ fn resolveFaceMemoized(
 }
 
 fn textForCluster(cache: contract.LineTextCache, cluster: contract.CellCluster) contract.CellText {
-    const idx = @as(usize, @intCast(cluster.text_id.value));
-    if (idx < cache.texts.len) return cache.texts[idx];
+    const idx = cluster.text_id.value;
+    if (idx < count32(cache.texts)) return cache.texts[@intCast(idx)];
     return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
 fn resolvedRun(cluster_start: u32, cluster_count: u32, face_id: contract.FontFaceId, style: contract.FontStyle, presentation: contract.TextPresentation) contract.ResolvedRun {
@@ -241,9 +247,9 @@ test "resolver groups adjacent primary clusters and separates sprite routes" {
     };
     var resolved = try resolveClusters(std.testing.allocator, .{}, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
-    try std.testing.expectEqual(@as(usize, 1), resolved.runs.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(resolved.runs));
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.cluster_count);
-    try std.testing.expectEqual(@as(usize, 1), resolved.sprite_routes.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(resolved.sprite_routes));
     try std.testing.expectEqual(contract.SpecialSpriteRoute.box, resolved.sprite_routes[0].route);
 }
 
@@ -257,7 +263,7 @@ test "resolver falls back when primary cannot cover whole cell text" {
     const texts = [_]contract.CellText{.{ .id = .{ .value = 0 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } }};
     var resolved = try resolveClusters(std.testing.allocator, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
-    try std.testing.expectEqual(@as(usize, 1), resolved.runs.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(resolved.runs));
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.font.face_id.value);
 }
 
@@ -284,7 +290,7 @@ test "resolver uses face provider validation" {
 
 test "resolver memoizes repeated text face validation" {
     const Provider = struct {
-        calls: usize = 0,
+        calls: u8 = 0,
 
         fn has(ctx: *anyopaque, face_id: contract.FontFaceId, text: contract.CellText) bool {
             const self: *@This() = @ptrCast(@alignCast(ctx));
@@ -309,7 +315,7 @@ test "resolver memoizes repeated text face validation" {
 
     var resolved = try resolveClusters(std.testing.allocator, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
-    try std.testing.expectEqual(@as(usize, 1), resolved.runs.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(resolved.runs));
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.font.face_id.value);
-    try std.testing.expectEqual(@as(usize, 2), provider.calls);
+    try std.testing.expectEqual(@as(u8, 2), provider.calls);
 }

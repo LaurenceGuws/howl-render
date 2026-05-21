@@ -275,7 +275,7 @@ fn assertTextInvariants(text: contract.CellText) void {
 fn recordLegacyRunClusters(counts: *LegacyStageCounts, text_cache: contract.LineTextCache, cells: []const contract.RenderableCell, clusters: []const contract.CellCluster, run: contract.ResolvedRun) void {
     const start = run.run.cluster_start;
     const end = @min(start + run.run.cluster_count, clusterCount(clusters));
-    for (clusters[clusterIndex(start)..clusterIndex(end)]) |cluster| {
+    for (clusters[@intCast(start)..@intCast(end)]) |cluster| {
         const choice = classifyClusterInCells(cells, cluster, textForCluster(text_cache, cluster));
         recordLegacyChoice(counts, choice);
     }
@@ -289,15 +289,15 @@ fn recordLegacyChoice(counts: *LegacyStageCounts, choice: LaneClass) void {
 }
 
 fn textForRenderableCell(text_cache: contract.LineTextCache, cell: contract.RenderableCell) contract.CellText {
-    const idx = @as(usize, @intCast(cell.text_id.value));
-    std.debug.assert(idx < text_cache.texts.len);
-    return text_cache.texts[idx];
+    const idx = cell.text_id.value;
+    std.debug.assert(idx < count32(text_cache.texts));
+    return text_cache.texts[@intCast(idx)];
 }
 
 fn textForCluster(text_cache: contract.LineTextCache, cluster: contract.CellCluster) contract.CellText {
-    const idx = @as(usize, @intCast(cluster.text_id.value));
-    std.debug.assert(idx < text_cache.texts.len);
-    return text_cache.texts[idx];
+    const idx = cluster.text_id.value;
+    std.debug.assert(idx < count32(text_cache.texts));
+    return text_cache.texts[@intCast(idx)];
 }
 
 fn cellForFirstCell(cells: []const contract.RenderableCell, first_cell: u32) contract.RenderableCell {
@@ -305,11 +305,11 @@ fn cellForFirstCell(cells: []const contract.RenderableCell, first_cell: u32) con
 }
 
 fn renderableCellForFirstCell(cells: []const contract.RenderableCell, first_cell: u32) ?contract.RenderableCell {
-    var lo: usize = 0;
-    var hi: usize = cells.len;
+    var lo: u32 = 0;
+    var hi = count32(cells);
     while (lo < hi) {
         const mid = lo + (hi - lo) / 2;
-        const cell = cells[mid];
+        const cell = cells[@intCast(mid)];
         if (cell.first_cell < first_cell) {
             lo = mid + 1;
             continue;
@@ -327,8 +327,9 @@ fn clusterCount(clusters: []const contract.CellCluster) u32 {
     return @intCast(clusters.len);
 }
 
-fn clusterIndex(value: u32) usize {
-    return @intCast(value);
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
 fn textForFirstCell(text_cache: contract.LineTextCache, cells: []const contract.RenderableCell, first_cell: u32) contract.CellText {

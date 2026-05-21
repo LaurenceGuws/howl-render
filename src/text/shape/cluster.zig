@@ -286,12 +286,12 @@ const SparseCellAssembly = struct {
     unique_count: u32 = 0,
     renderable_count: u32 = 0,
 
-    fn init(allocator: std.mem.Allocator, cell_count: usize) !SparseCellAssembly {
-        const renderable = try allocator.alloc(contract.RenderableCell, cell_count);
+    fn init(allocator: std.mem.Allocator, cell_count: u32) !SparseCellAssembly {
+        const renderable = try allocator.alloc(contract.RenderableCell, @intCast(cell_count));
         errdefer allocator.free(renderable);
-        const texts = try allocator.alloc(contract.CellText, cell_count);
+        const texts = try allocator.alloc(contract.CellText, @intCast(cell_count));
         errdefer allocator.free(texts);
-        const codepoints = try allocator.alloc(u32, cell_count);
+        const codepoints = try allocator.alloc(u32, @intCast(cell_count));
         errdefer allocator.free(codepoints);
         return .{
             .allocator = allocator,
@@ -330,7 +330,7 @@ const SparseCellAssembly = struct {
         const final_texts = try self.allocator.alloc(contract.CellText, @intCast(self.unique_count));
         errdefer self.allocator.free(final_texts);
         for (0..@as(u32, self.unique_count)) |idx| {
-            writeSingleCodepointText(final_texts, final_codepoints, idx, @intCast(idx), final_codepoints[idx]);
+            writeSingleCodepointText(final_texts, final_codepoints, @intCast(idx), @intCast(idx), final_codepoints[@intCast(idx)]);
         }
 
         self.allocator.free(self.texts);
@@ -380,25 +380,26 @@ pub fn buildSparseCellsWithDamage(
     damage: scene.DamageInput,
 ) !SparseCells {
     const damage_filter = DamageFilter.init(damage, grid_metrics);
-    var assembly = try SparseCellAssembly.init(allocator, cells.len);
+    const total_cells = count32(cells);
+    var assembly = try SparseCellAssembly.init(allocator, total_cells);
     errdefer assembly.deinit();
 
     var unique_codepoints = std.AutoHashMap(u32, u32).init(allocator);
     defer unique_codepoints.deinit();
 
-    var cell_idx: usize = 0;
-    while (cell_idx < cells.len) {
-        if (damage_filter.cleanRowSkip(cell_idx, cells.len)) |next_idx| {
+    var cell_idx: u32 = 0;
+    while (cell_idx < total_cells) {
+        if (damage_filter.cleanRowSkip(cell_idx, total_cells)) |next_idx| {
             cell_idx = next_idx;
             continue;
         }
         const idx = cell_idx;
         cell_idx += 1;
-        const cell = cells[idx];
+        const cell = cells[@intCast(idx)];
         if (cell.continuation) continue;
         if (cell.empty) continue;
-        const first_cell: u32 = @intCast(idx);
-        const span = inferredCellSpan(cells, idx);
+        const first_cell = idx;
+        const span = inferredCellSpan(cells, first_cell);
         if (!damage_filter.includeSpan(first_cell, span)) continue;
         const entry = try unique_codepoints.getOrPut(cell.codepoint);
         const text_id: u32 = if (entry.found_existing)
@@ -419,7 +420,7 @@ pub fn buildLineTextCacheFromInputs(allocator: std.mem.Allocator, inputs: []cons
     var total_codepoints: u32 = 0;
     for (inputs) |input| total_codepoints += @intCast(@max(input.codepoints.len, 1));
 
-    var assembly = try InputLineTextCacheAssembly.init(allocator, @intCast(inputs.len), total_codepoints);
+    var assembly = try InputLineTextCacheAssembly.init(allocator, count32(inputs), total_codepoints);
     errdefer assembly.deinit();
 
     for (inputs) |input| {
@@ -435,9 +436,9 @@ fn normalizedCodepoints(cps: []const u32) []const u32 {
     return if (cps.len == 0) &.{0} else cps;
 }
 
-fn findText(texts: []const contract.CellText, cps: []const u32) ?usize {
+fn findText(texts: []const contract.CellText, cps: []const u32) ?contract.CellTextId {
     for (texts, 0..) |text, idx| {
-        if (std.mem.eql(u32, text.codepoints, cps)) return idx;
+        if (std.mem.eql(u32, text.codepoints, cps)) return .{ .value = @intCast(idx) };
     }
     return null;
 }
@@ -447,12 +448,13 @@ pub fn buildRenderableCellsFromCells(
     cells: []const contract.CellInput,
     cache: contract.LineTextCache,
 ) !OwnedRenderableCells {
-    var assembly = try InputRenderableAssembly.init(allocator, @intCast(cells.len));
+    var assembly = try InputRenderableAssembly.init(allocator, count32(cells));
     errdefer assembly.deinit();
 
     for (cells, 0..) |cell, idx| {
         const text = cache.texts[idx];
-        assembly.append(renderableFromCellInput(text.id, @intCast(idx), inferredCellSpan(cells, idx), cell, cell.continuation));
+        const first_cell: u32 = @intCast(idx);
+        assembly.append(renderableFromCellInput(text.id, first_cell, inferredCellSpan(cells, first_cell), cell, cell.continuation));
     }
 
     return assembly.toOwnedRenderableCells();
@@ -463,13 +465,14 @@ pub fn buildRenderableCellsFromInputs(
     inputs: []const CellTextInput,
     cache: contract.LineTextCache,
 ) !OwnedRenderableCells {
-    var assembly = try InputRenderableAssembly.init(allocator, @intCast(inputs.len));
+    var assembly = try InputRenderableAssembly.init(allocator, count32(inputs));
     errdefer assembly.deinit();
 
     for (inputs, 0..) |input, idx| {
         const cps = normalizedCodepoints(input.codepoints);
-        const text_id = findText(cache.texts, cps) orelse 0;
-        assembly.append(renderableFromInput(.{ .value = @intCast(text_id) }, @intCast(idx), @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, idx)), detectPresentation(cps, input.presentation), input));
+        const first_cell: u32 = @intCast(idx);
+        const text_id: contract.CellTextId = findText(cache.texts, cps) orelse .{ .value = 0 };
+        assembly.append(renderableFromInput(text_id, first_cell, @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, first_cell)), detectPresentation(cps, input.presentation), input));
     }
 
     return assembly.toOwnedRenderableCells();
@@ -502,7 +505,7 @@ pub fn extractClustersWithDamage(
         if (!damage_filter.includeSpan(cell.first_cell, cell.cell_span)) continue;
         const text = textForCell(cell, cache);
         if (isBlankText(text)) continue;
-        try extraction.append(renderableCluster(cell, text, inferredRenderableCellSpan(cells, idx)));
+        try extraction.append(renderableCluster(cell, text, inferredRenderableCellSpan(cells, @intCast(idx))));
     }
 
     return extraction.toOwnedClusters();
@@ -535,14 +538,14 @@ pub fn selectComplexWithDamage(
 }
 
 fn textForCell(cell: contract.RenderableCell, cache: contract.LineTextCache) contract.CellText {
-    const text_idx = @as(usize, @intCast(cell.text_id.value));
-    if (text_idx < cache.texts.len) return cache.texts[text_idx];
+    const text_idx = cell.text_id.value;
+    if (text_idx < count32(cache.texts)) return cache.texts[@intCast(text_idx)];
     return .{ .id = cell.text_id, .first_cp = 0, .codepoints = &.{} };
 }
 
 fn textForCluster(cluster: contract.CellCluster, cache: contract.LineTextCache) contract.CellText {
-    const idx = @as(usize, @intCast(cluster.text_id.value));
-    if (idx < cache.texts.len) return cache.texts[idx];
+    const idx = cluster.text_id.value;
+    if (idx < count32(cache.texts)) return cache.texts[@intCast(idx)];
     return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
 }
 
@@ -562,11 +565,11 @@ const DamageFilter = struct {
     valid: bool,
 
     fn init(damage: scene.DamageInput, grid_metrics: contract.GridMetrics) DamageFilter {
-        const row_count = @as(usize, grid_metrics.rows);
+        const row_count = grid_metrics.rows;
         const valid = !damage.full and
-            damage.dirty_rows.len == row_count and
-            damage.dirty_cols_start.len == row_count and
-            damage.dirty_cols_end.len == row_count;
+            count16(damage.dirty_rows) == row_count and
+            count16(damage.dirty_cols_start) == row_count and
+            count16(damage.dirty_cols_end) == row_count;
         return .{
             .cols = @max(@as(u32, grid_metrics.cols), 1),
             .dirty_rows = damage.dirty_rows,
@@ -576,30 +579,30 @@ const DamageFilter = struct {
         };
     }
 
-    fn cleanRowSkip(self: DamageFilter, idx: usize, cells_len: usize) ?usize {
+    fn cleanRowSkip(self: DamageFilter, idx: u32, cells_len: u32) ?u32 {
         if (!self.valid) return null;
         const row = idx / self.cols;
-        if (row >= self.dirty_rows.len) return cells_len;
-        if (self.dirty_rows[row]) return null;
+        if (row >= count32(self.dirty_rows)) return cells_len;
+        if (self.dirty_rows[@intCast(row)]) return null;
         return @min((row + 1) * self.cols, cells_len);
     }
 
     fn includeSpan(self: DamageFilter, first_cell: u32, cell_span: u8) bool {
         if (!self.valid) return true;
-        const row = @as(usize, @intCast(first_cell / self.cols));
-        if (row >= self.dirty_rows.len or !self.dirty_rows[row]) return false;
+        const row = first_cell / self.cols;
+        if (row >= count32(self.dirty_rows) or !self.dirty_rows[@intCast(row)]) return false;
         const start_col = @as(u16, @intCast(first_cell % self.cols));
         const end_col = start_col +| (@max(cell_span, 1) - 1);
-        return !(end_col < self.dirty_cols_start[row] or start_col > self.dirty_cols_end[row]);
+        return !(end_col < self.dirty_cols_start[@intCast(row)] or start_col > self.dirty_cols_end[@intCast(row)]);
     }
 };
 
-fn writeSingleCodepointText(texts: []contract.CellText, codepoints: []u32, idx: usize, text_id: u32, cp: u32) void {
-    codepoints[idx] = cp;
-    texts[idx] = .{
+fn writeSingleCodepointText(texts: []contract.CellText, codepoints: []u32, idx: u32, text_id: u32, cp: u32) void {
+    codepoints[@intCast(idx)] = cp;
+    texts[@intCast(idx)] = .{
         .id = .{ .value = text_id },
         .first_cp = cp,
-        .codepoints = codepoints[idx .. idx + 1],
+        .codepoints = codepoints[@intCast(idx) .. @intCast(idx + 1)],
     };
 }
 
@@ -662,21 +665,24 @@ fn classifyComplexCluster(cells: []const contract.RenderableCell, cluster_value:
     return lane.classifyClusterInCells(cells, cluster_value, textForCluster(cluster_value, cache)).lane == .complex;
 }
 
-fn inferredCellSpan(cells: []const contract.CellInput, idx: usize) u8 {
-    var span: usize = 1;
-    while (idx + span < cells.len and cells[idx + span].continuation) : (span += 1) {}
+fn inferredCellSpan(cells: []const contract.CellInput, idx: u32) u8 {
+    var span: u32 = 1;
+    const total = count32(cells);
+    while (idx + span < total and cells[@intCast(idx + span)].continuation) : (span += 1) {}
     return @intCast(@min(span, std.math.maxInt(u8)));
 }
 
-fn inferredInputCellSpan(inputs: []const CellTextInput, idx: usize) u8 {
-    var span: usize = 1;
-    while (idx + span < inputs.len and inputs[idx + span].continuation) : (span += 1) {}
+fn inferredInputCellSpan(inputs: []const CellTextInput, idx: u32) u8 {
+    var span: u32 = 1;
+    const total = count32(inputs);
+    while (idx + span < total and inputs[@intCast(idx + span)].continuation) : (span += 1) {}
     return @intCast(@min(span, std.math.maxInt(u8)));
 }
 
-fn inferredRenderableCellSpan(cells: []const contract.RenderableCell, idx: usize) u8 {
-    var span: usize = 1;
-    while (idx + span < cells.len and cells[idx + span].continuation) : (span += 1) {}
+fn inferredRenderableCellSpan(cells: []const contract.RenderableCell, idx: u32) u8 {
+    var span: u32 = 1;
+    const total = count32(cells);
+    while (idx + span < total and cells[@intCast(idx + span)].continuation) : (span += 1) {}
     return @intCast(@min(span, std.math.maxInt(u8)));
 }
 
@@ -715,6 +721,16 @@ fn resolvedRun(cluster_start: u32, cluster_count: u32, face_id: contract.FontFac
     } };
 }
 
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
+}
+
+fn count16(items: anytype) u16 {
+    std.debug.assert(items.len <= std.math.maxInt(u16));
+    return @intCast(items.len);
+}
+
 test "single codepoint text preserves first codepoint" {
     const text = singleCodepointText(7, 'A');
     try @import("std").testing.expectEqual(@as(u32, 'A'), text.first_cp);
@@ -739,9 +755,9 @@ test "cell inputs build text cache renderable cells clusters and runs" {
     var runs = try buildProvisionalRuns(allocator, clusters.clusters, .{ .value = 1 });
     defer runs.deinit();
 
-    try std.testing.expectEqual(@as(usize, 3), cache.texts.len);
-    try std.testing.expectEqual(@as(usize, 2), clusters.clusters.len);
-    try std.testing.expectEqual(@as(usize, 1), runs.runs.len);
+    try std.testing.expectEqual(@as(u32, 3), count32(cache.texts));
+    try std.testing.expectEqual(@as(u32, 2), count32(clusters.clusters));
+    try std.testing.expectEqual(@as(u32, 1), count32(runs.runs));
     try std.testing.expectEqual(@as(u32, 2), runs.runs[0].run.cluster_count);
 }
 
@@ -762,7 +778,7 @@ test "blank cells do not produce text clusters" {
     var clusters = try extractClusters(allocator, renderable.cells, cache.view());
     defer clusters.deinit();
 
-    try std.testing.expectEqual(@as(usize, 1), clusters.clusters.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(clusters.clusters));
     try std.testing.expectEqual(@as(u32, 'A'), clusters.clusters[0].first_cp);
     try std.testing.expectEqual(@as(u32, 1), clusters.clusters[0].first_cell);
 }
@@ -785,7 +801,7 @@ test "continuation cells expand base cell spans" {
     defer clusters.deinit();
 
     try std.testing.expectEqual(@as(u8, 2), renderable.cells[0].cell_span);
-    try std.testing.expectEqual(@as(usize, 2), clusters.clusters.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(clusters.clusters));
     try std.testing.expectEqual(@as(u32, 0), clusters.clusters[0].first_cell);
     try std.testing.expectEqual(@as(u8, 2), clusters.clusters[0].cell_span);
     try std.testing.expectEqual(@as(u32, 2), clusters.clusters[1].first_cell);
@@ -817,7 +833,7 @@ test "partial damage filters clean clusters before shaping" {
     });
     defer clusters.deinit();
 
-    try std.testing.expectEqual(@as(usize, 1), clusters.clusters.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(clusters.clusters));
     try std.testing.expectEqual(@as(u32, 2), clusters.clusters[0].first_cell);
     try std.testing.expectEqual(@as(u32, 'C'), clusters.clusters[0].first_cp);
 }
@@ -844,8 +860,8 @@ test "sparse cells keep only damaged base cells" {
     });
     defer sparse.deinit();
 
-    try std.testing.expectEqual(@as(usize, 1), sparse.renderable.cells.len);
-    try std.testing.expectEqual(@as(usize, 1), sparse.text_cache.texts.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(sparse.renderable.cells));
+    try std.testing.expectEqual(@as(u32, 1), count32(sparse.text_cache.texts));
     try std.testing.expectEqual(@as(u32, 0), sparse.renderable.cells[0].first_cell);
     try std.testing.expectEqual(@as(u8, 2), sparse.renderable.cells[0].cell_span);
     try std.testing.expectEqual(@as(u32, 'A'), sparse.text_cache.texts[0].first_cp);
@@ -864,7 +880,7 @@ test "sparse cells intern repeated codepoints" {
     var sparse = try buildSparseCellsWithDamage(allocator, &cells, .{ .cols = 3, .rows = 1 }, .{ .full = true });
     defer sparse.deinit();
 
-    try std.testing.expectEqual(@as(usize, 2), sparse.text_cache.texts.len);
+    try std.testing.expectEqual(@as(u32, 2), count32(sparse.text_cache.texts));
     try std.testing.expectEqual(sparse.renderable.cells[0].text_id.value, sparse.renderable.cells[1].text_id.value);
     try std.testing.expect(sparse.renderable.cells[2].text_id.value != sparse.renderable.cells[0].text_id.value);
 }
@@ -882,7 +898,7 @@ test "sparse cells skip Alacritty-empty cells" {
     var sparse = try buildSparseCellsWithDamage(allocator, &cells, .{ .cols = 3, .rows = 1 }, .{ .full = true });
     defer sparse.deinit();
 
-    try std.testing.expectEqual(@as(usize, 1), sparse.renderable.cells.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(sparse.renderable.cells));
     try std.testing.expectEqual(@as(u32, 1), sparse.renderable.cells[0].first_cell);
     try std.testing.expectEqual(@as(u32, 'A'), sparse.text_cache.texts[0].first_cp);
 }
@@ -903,8 +919,8 @@ test "rich cell text interning deduplicates codepoint sequences" {
     var clusters = try extractClusters(allocator, renderable.cells, cache.view());
     defer clusters.deinit();
 
-    try std.testing.expectEqual(@as(usize, 1), cache.texts.len);
-    try std.testing.expectEqual(@as(usize, 6), cache.codepoints.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(cache.texts));
+    try std.testing.expectEqual(@as(u32, 6), count32(cache.codepoints));
     try std.testing.expectEqual(cache.texts[0].id.value, renderable.cells[1].text_id.value);
     try std.testing.expectEqual(@as(u32, 'i'), clusters.clusters[0].first_cp);
 }

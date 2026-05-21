@@ -10,9 +10,9 @@ pub const Damage = struct {
 
     pub fn init(damage: scene.DamageInput, rows: u16) Damage {
         const valid = !damage.full and
-            damage.dirty_rows.len == @as(usize, rows) and
-            damage.dirty_cols_start.len == @as(usize, rows) and
-            damage.dirty_cols_end.len == @as(usize, rows);
+            count16(damage.dirty_rows) == rows and
+            count16(damage.dirty_cols_start) == rows and
+            count16(damage.dirty_cols_end) == rows;
         return .{
             .full = !valid,
             .dirty_rows = if (valid) damage.dirty_rows else &.{},
@@ -33,7 +33,7 @@ pub const MergedBuffers = struct {
 
 pub fn rowDirty(damage: Damage, row: u16) bool {
     if (damage.full) return true;
-    return @as(usize, row) < damage.dirty_rows.len and damage.dirty_rows[@intCast(row)];
+    return row < count16(damage.dirty_rows) and damage.dirty_rows[@intCast(row)];
 }
 
 pub fn includeSpan(damage: Damage, grid_metrics: contract.GridMetrics, first_cell: u32, cell_span: u8) bool {
@@ -87,9 +87,10 @@ pub fn appendBackgrounds(
     damage: Damage,
 ) void {
     const cols = @max(@as(u32, grid_metrics.cols), 1);
-    var idx: usize = 0;
-    while (idx < cells.len) {
-        const cell = cells[idx];
+    const cell_len = count32(cells);
+    var idx: u32 = 0;
+    while (idx < cell_len) {
+        const cell = cells[@intCast(idx)];
         if (!includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span) or cell.bg.a == 0) {
             idx += 1;
             continue;
@@ -98,8 +99,8 @@ pub fn appendBackgrounds(
         var span_cell_count: u32 = @max(cell.cell_span, 1);
         var span_end = cell.first_cell + span_cell_count;
         var next = idx + 1;
-        while (next < cells.len) : (next += 1) {
-            const other = cells[next];
+        while (next < cell_len) : (next += 1) {
+            const other = cells[@intCast(next)];
             if (!includeSpan(damage, grid_metrics, other.first_cell, other.cell_span)) break;
             if (!sameRgba8(cell.bg, other.bg)) break;
             if (other.first_cell / cols != row) break;
@@ -130,11 +131,12 @@ pub fn appendClears(
 ) void {
     if (damage.full) return;
     const cols = @max(@as(u32, grid_metrics.cols), 1);
-    var row: usize = 0;
-    while (row < grid_metrics.rows and row < damage.dirty_rows.len) : (row += 1) {
-        if (!damage.dirty_rows[row]) continue;
-        const start_col = @min(damage.dirty_cols_start[row], @as(u16, @intCast(cols - 1)));
-        const end_col = @min(damage.dirty_cols_end[row], @as(u16, @intCast(cols - 1)));
+    const row_count = @min(grid_metrics.rows, count16(damage.dirty_rows));
+    var row: u16 = 0;
+    while (row < row_count) : (row += 1) {
+        if (!damage.dirty_rows[@intCast(row)]) continue;
+        const start_col = @min(damage.dirty_cols_start[@intCast(row)], @as(u16, @intCast(cols - 1)));
+        const end_col = @min(damage.dirty_cols_end[@intCast(row)], @as(u16, @intCast(cols - 1)));
         if (end_col < start_col) continue;
         const span_cells = @as(u32, end_col - start_col) + 1;
         out.appendAssumeCapacity(.{
@@ -147,6 +149,16 @@ pub fn appendClears(
             .cell_span = @intCast(@min(span_cells, @as(u32, std.math.maxInt(u8)))),
         });
     }
+}
+
+fn count16(items: anytype) u16 {
+    std.debug.assert(items.len <= std.math.maxInt(u16));
+    return @intCast(items.len);
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
 pub fn appendCursor(

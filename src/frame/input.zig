@@ -127,11 +127,11 @@ fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
 }
 
 fn canMapDirtyOnly(state: anytype) bool {
-    const rows = @as(usize, state.grid.rows);
+    const rows = state.grid.rows;
     return !state.damage.full and
-        state.damage.dirty_rows.len == rows and
-        state.damage.dirty_cols_start.len == rows and
-        state.damage.dirty_cols_end.len == rows;
+        count16(state.damage.dirty_rows) == rows and
+        count16(state.damage.dirty_cols_start) == rows and
+        count16(state.damage.dirty_cols_end) == rows;
 }
 
 fn mapDirtyCellsOnly(
@@ -144,22 +144,33 @@ fn mapDirtyCellsOnly(
     dirty_cols_end: []const u16,
     t: FrameTheme,
 ) void {
-    const cols: usize = @max(@as(usize, grid_cols), 1);
-    const rows = @as(usize, grid_rows);
-    var row: usize = 0;
+    const cols: u16 = @max(grid_cols, 1);
+    const rows = grid_rows;
+    const cell_len = count32(cells);
+    var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        if (!dirty_rows[row]) continue;
-        const base = row * cols;
-        if (base >= cells.len) continue;
-        const start_col = @min(@as(usize, dirty_cols_start[row]), cols - 1);
-        const end_col = @min(@as(usize, dirty_cols_end[row]), cols - 1);
+        if (!dirty_rows[@intCast(row)]) continue;
+        const base = @as(u32, row) * @as(u32, cols);
+        if (base >= cell_len) continue;
+        const start_col = @min(dirty_cols_start[@intCast(row)], cols - 1);
+        const end_col = @min(dirty_cols_end[@intCast(row)], cols - 1);
         if (end_col < start_col) continue;
-        var idx = base + start_col;
-        const end_idx = @min(base + end_col + 1, cells.len);
+        var idx = base + @as(u32, start_col);
+        const end_idx = @min(base + @as(u32, end_col) + 1, cell_len);
         while (idx < end_idx) : (idx += 1) {
-            dst[idx] = mapCellInput(cells[idx], t);
+            dst[@intCast(idx)] = mapCellInput(cells[@intCast(idx)], t);
         }
     }
+}
+
+fn count16(items: anytype) u16 {
+    std.debug.assert(items.len <= std.math.maxInt(u16));
+    return @intCast(items.len);
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
 pub const OwnedFrameTextInput = struct {
@@ -260,7 +271,7 @@ test "frame_input converts frame state to text scene input" {
     };
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
     defer input.deinit();
-    try std.testing.expectEqual(@as(usize, 1), input.cells.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(input.cells));
     try std.testing.expectEqual(@as(u21, 'A'), input.cells[0].codepoint);
     try std.testing.expect(input.cells[0].underline);
     try std.testing.expectEqual(@as(u8, 0xCC), input.cells[0].underline_color.r);
@@ -330,7 +341,7 @@ test "frame_input threads partial damage into text scene input" {
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
     defer input.deinit();
     try std.testing.expect(!input.options.scene.damage.full);
-    try std.testing.expectEqual(@as(usize, 2), input.options.scene.damage.dirty_rows.len);
+    try std.testing.expectEqual(@as(u16, 2), count16(input.options.scene.damage.dirty_rows));
     try std.testing.expectEqual(@as(u16, 2), input.options.scene.damage.dirty_cols_start[1]);
 }
 

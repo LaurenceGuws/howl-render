@@ -40,13 +40,13 @@ pub const OwnedAtlasCache = struct {
     }
 
     pub fn deinit(self: *OwnedAtlasCache) void {
-        for (self.entries[0..liveLen(self)]) |*entry| entry.raster.deinit(self.allocator);
+        for (self.entries[0..@intCast(liveLen(self))]) |*entry| entry.raster.deinit(self.allocator);
         self.allocator.free(self.entries);
         self.* = undefined;
     }
 
     pub fn get(self: *const OwnedAtlasCache, key: contract.SpriteKey) ?contract.SpritePosition {
-        for (self.entries[0..liveLen(self)]) |entry| {
+        for (self.entries[0..@intCast(liveLen(self))]) |entry| {
             if (entry.key.value == key.value) return entry.position;
         }
         return null;
@@ -56,12 +56,12 @@ pub const OwnedAtlasCache = struct {
         if (self.get(key)) |pos| return .{ .position = pos, .pending = !pos.rendered };
         if (self.entries.len == 0) return .{ .position = .{ .slot = 0, .key = key, .rendered = false, .colored = colored }, .pending = true };
         const len = liveLen(self);
-        const idx = if (len < self.entries.len) len else @as(usize, @intCast(self.next_slot % entryCap(self)));
-        const slot: u32 = @intCast(idx);
+        const idx = if (len < entryCap(self)) len else self.next_slot % entryCap(self);
+        const slot = idx;
         const pos = contract.SpritePosition{ .slot = slot, .key = key, .rendered = false, .colored = colored };
-        if (idx < len) self.entries[idx].raster.deinit(self.allocator);
-        self.entries[idx] = .{ .key = key, .position = pos };
-        if (len < self.entries.len) self.len += 1;
+        if (idx < len) self.entries[@intCast(idx)].raster.deinit(self.allocator);
+        self.entries[@intCast(idx)] = .{ .key = key, .position = pos };
+        if (len < entryCap(self)) self.len += 1;
         self.next_slot = (slot + 1) % entryCap(self);
         return .{ .position = pos, .pending = true };
     }
@@ -71,7 +71,7 @@ pub const OwnedAtlasCache = struct {
     }
 
     pub fn markRendered(self: *OwnedAtlasCache, key: contract.SpriteKey) bool {
-        for (self.entries[0..liveLen(self)]) |*entry| {
+        for (self.entries[0..@intCast(liveLen(self))]) |*entry| {
             if (entry.key.value != key.value) continue;
             entry.position.rendered = true;
             return true;
@@ -80,7 +80,7 @@ pub const OwnedAtlasCache = struct {
     }
 
     pub fn storeRendered(self: *OwnedAtlasCache, output: rasterizer.RasterSpriteOutput) !bool {
-        for (self.entries[0..liveLen(self)]) |*entry| {
+        for (self.entries[0..@intCast(liveLen(self))]) |*entry| {
             if (entry.key.value != output.key.value) continue;
             entry.raster.deinit(self.allocator);
             entry.raster.pixels = try self.allocator.dupe(u8, output.pixels);
@@ -96,14 +96,14 @@ pub const OwnedAtlasCache = struct {
     }
 
     pub fn rasterForKey(self: *const OwnedAtlasCache, key: contract.SpriteKey) ?StoredRaster {
-        for (self.entries[0..liveLen(self)]) |entry| {
+        for (self.entries[0..@intCast(liveLen(self))]) |entry| {
             if (entry.key.value == key.value) return entry.raster;
         }
         return null;
     }
 
-    fn liveLen(self: *const OwnedAtlasCache) usize {
-        return @intCast(self.len);
+    fn liveLen(self: *const OwnedAtlasCache) u32 {
+        return self.len;
     }
 
     fn entryCap(self: *const OwnedAtlasCache) u32 {
@@ -159,7 +159,12 @@ test "atlas cache stores rendered raster payload" {
     defer output.deinit();
     try std.testing.expect(try cache.storeRendered(output));
     const stored = cache.rasterForKey(.{ .value = 7 }).?;
-    try std.testing.expectEqual(@as(usize, 4), stored.pixels.len);
+    try std.testing.expectEqual(@as(u32, 4), count32(stored.pixels));
     try std.testing.expect(cache.get(.{ .value = 7 }).?.rendered);
     try std.testing.expect(cache.get(.{ .value = 7 }).?.colored);
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }

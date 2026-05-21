@@ -3,6 +3,8 @@ const std = @import("std");
 const contract = @import("../contract.zig");
 const special_raster = @import("special.zig");
 
+const PixelIndex = @TypeOf(@as([]const u8, &.{}).len);
+
 pub const RasterSpriteRequest = struct {
     key: contract.SpriteKey,
     group: contract.GlyphGroup,
@@ -207,16 +209,21 @@ pub fn rasterizeRequestsWithRasterizer(allocator: std.mem.Allocator, raster: Ras
     return .{ .allocator = allocator, .outputs = outputs };
 }
 
-fn pixelRowOffset(width: u16, y: u16) usize {
-    return @as(usize, width) * @as(usize, y);
+fn pixelRowOffset(width: u16, y: u16) PixelIndex {
+    return @as(PixelIndex, width) * @as(PixelIndex, y);
 }
 
-fn pixelOffset(width: u16, x: u16, y: u16) usize {
+fn pixelOffset(width: u16, x: u16, y: u16) PixelIndex {
     return pixelRowOffset(width, y) + x;
 }
 
-fn pixelCount(width: u16, height: u16) usize {
-    return @as(usize, width) * @as(usize, height);
+fn pixelCount(width: u16, height: u16) PixelIndex {
+    return @as(PixelIndex, width) * @as(PixelIndex, height);
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
 
 test "raster request preserves group key and dimensions" {
@@ -228,7 +235,7 @@ test "raster request preserves group key and dimensions" {
     try std.testing.expectEqual(@as(u16, 2), req.box_drawing.light_stroke_px);
     var out = try placeholderRaster(std.testing.allocator, req);
     defer out.deinit();
-    try std.testing.expectEqual(@as(usize, 16 * 16), out.pixels.len);
+    try std.testing.expectEqual(pixelCount(16, 16), out.pixels.len);
 }
 
 test "raster request preserves configured box drawing thickness" {
@@ -243,9 +250,9 @@ test "raster plan creates one output per request" {
     const req = requestForGroup(group, .{ .cell_w_px = 10, .cell_h_px = 20, .baseline_px = 15 });
     var plan = try rasterizeRequestsWithRasterizer(std.testing.allocator, defaultRasterizer(), &.{req});
     defer plan.deinit();
-    try std.testing.expectEqual(@as(usize, 1), plan.outputs.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(plan.outputs));
     try std.testing.expectEqual(contract.SpriteColorMode.color, plan.outputs[0].color_mode);
-    try std.testing.expectEqual(@as(usize, 200), plan.outputs[0].pixels.len);
+    try std.testing.expectEqual(pixelCount(10, 20), plan.outputs[0].pixels.len);
 }
 
 test "pending raster requests dedupe by sprite key" {
@@ -255,12 +262,12 @@ test "pending raster requests dedupe by sprite key" {
     try appendPendingRequest(std.testing.allocator, &requests, true, req);
     try appendPendingRequest(std.testing.allocator, &requests, true, req);
     try appendPendingRequest(std.testing.allocator, &requests, false, req);
-    try std.testing.expectEqual(@as(usize, 1), requests.items.len);
+    try std.testing.expectEqual(@as(u32, 1), count32(requests.items));
 }
 
 test "raster plan uses injected rasterizer" {
     const Stub = struct {
-        hits: usize = 0,
+        hits: u8 = 0,
 
         fn raster(ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!RasterSpriteOutput {
             const self: *@This() = @ptrCast(@alignCast(ctx));
@@ -273,5 +280,5 @@ test "raster plan uses injected rasterizer" {
     const req = requestForGroup(group, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     var plan = try rasterizeRequestsWithRasterizer(std.testing.allocator, .{ .ctx = &stub, .rasterize_sprite = Stub.raster }, &.{req});
     defer plan.deinit();
-    try std.testing.expectEqual(@as(usize, 1), stub.hits);
+    try std.testing.expectEqual(@as(u8, 1), stub.hits);
 }
