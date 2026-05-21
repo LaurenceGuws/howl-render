@@ -1,7 +1,8 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const render = @import("../../../howl_render.zig");
 const contract = @import("../../contract.zig");
+const surface_text = @import("../../../frame/surface_text.zig");
+const text = @import("../../text.zig");
 const provider_mod = @import("support.zig");
 const special_sprite = @import("special_sprite.zig");
 const c_api = @import("c_api.zig");
@@ -35,14 +36,14 @@ fn unlockFt(self: anytype) void {
     @compileError("text state owner missing text_state field");
 }
 
-fn configView(self: anytype) render.SurfaceTextConfig {
+fn configView(self: anytype) surface_text.SurfaceTextConfig {
     const T = @TypeOf(self.*);
     if (@hasField(T, "config")) return self.config;
     if (@hasField(T, "session_config")) return self.session_config;
     @compileError("text config owner missing session config");
 }
 
-pub fn providerRasterizeSprite(comptime ContextType: type, ctx: *anyopaque, allocator: std.mem.Allocator, req: render.SpriteRasterRequest) anyerror!render.Text.Rasterizer.RasterSpriteOutput {
+pub fn providerRasterizeSprite(comptime ContextType: type, ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!text.Rasterizer.RasterSpriteOutput {
     const context: *ContextType = @ptrCast(@alignCast(ctx));
     const width = @max(req.width_px, 1);
     const height = @max(req.height_px, 1);
@@ -59,7 +60,7 @@ pub fn providerRasterizeSprite(comptime ContextType: type, ctx: *anyopaque, allo
     }
     return providerSpriteOutput(allocator, req, width, height, pixels);
 }
-pub fn rasterizeProviderGlyph(self: anytype, dst: []u8, width: u16, height: u16, baseline_px: i16, face_id: render.FontFaceId, glyph_id: u32, x_origin_px: i32, y_origin_px: i32, glyph_index: u32) bool {
+pub fn rasterizeProviderGlyph(self: anytype, dst: []u8, width: u16, height: u16, baseline_px: i16, face_id: contract.FontFaceId, glyph_id: u32, x_origin_px: i32, y_origin_px: i32, glyph_index: u32) bool {
     if (useDeterministicTestTextFallback(self)) {
         special_sprite.rasterizeFallbackGlyph(dst, width, height, @intCast(glyph_id), width, height);
         return true;
@@ -130,20 +131,20 @@ fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
     }
     return if (max_advance > 0) max_advance else fallback_advance;
 }
-fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, height: u16, req: render.SpriteRasterRequest) bool {
+fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, height: u16, req: contract.SpriteRasterRequest) bool {
     if (req.kind == .undercurl) {
-        render.Text.Rasterizer.rasterizeUndercurlAlpha(pixels, width, height, req.decoration);
+        text.Rasterizer.rasterizeUndercurlAlpha(pixels, width, height, req.decoration);
         return true;
     }
     if (req.group.kind == .box_fallback) {
-        if (!render.Text.Rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing)) special_sprite.rasterizeSpecialSpriteAlpha(pixels, width, height, req.group.first_cp);
+        if (!text.Rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing)) special_sprite.rasterizeSpecialSpriteAlpha(pixels, width, height, req.group.first_cp);
         return true;
     }
     if (!useDeterministicTestTextFallback(context)) return false;
     special_sprite.rasterizeFallbackGlyph(pixels, width, height, @intCast(req.group.first_cp), width, height);
     return true;
 }
-fn providerSpriteOutput(allocator: std.mem.Allocator, req: render.SpriteRasterRequest, width: u16, height: u16, pixels: []u8) render.Text.Rasterizer.RasterSpriteOutput {
+fn providerSpriteOutput(allocator: std.mem.Allocator, req: contract.SpriteRasterRequest, width: u16, height: u16, pixels: []u8) text.Rasterizer.RasterSpriteOutput {
     return .{ .allocator = allocator, .key = req.key, .width_px = width, .height_px = height, .color_mode = req.color_mode, .pixels = pixels };
 }
 fn rasterPixelCount(width: u16, height: u16) u32 {

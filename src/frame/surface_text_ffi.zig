@@ -1,7 +1,8 @@
 const std = @import("std");
-const Render = @import("../howl_render.zig");
 const abi = @import("../ffi_types.zig");
 const prepared_surface_owner = @import("prepared_surface_owner.zig");
+const pipeline = @import("pipeline.zig");
+const queue = @import("queue.zig");
 const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
@@ -12,8 +13,8 @@ const OwnedVtSurface = struct {
     rows: u16,
     scroll_row: u64,
     is_alternate_screen: bool,
-    cells: []Render.SurfaceCell,
-    cursor: Render.SurfaceCursorInfo,
+    cells: []surface.Cell,
+    cursor: surface.CursorInfo,
     dirty_rows: []bool = &.{},
     dirty_cols_start: []u16 = &.{},
     dirty_cols_end: []u16 = &.{},
@@ -26,7 +27,7 @@ const OwnedVtSurface = struct {
         self.* = undefined;
     }
 
-    fn frameData(self: *const OwnedVtSurface, full_damage: bool) Render.SurfaceFrameData {
+    fn frameData(self: *const OwnedVtSurface, full_damage: bool) surface.FrameData {
         return .{
             .viewport = .{
                 .cols = self.cols,
@@ -123,8 +124,8 @@ pub fn syncGeometry(handle: abi.SurfaceTextHandle, geometry: abi.FfiGeometry) ca
 }
 
 pub fn publishVtSnapshot(handle: abi.SurfaceTextHandle, snapshot_in: abi.FfiVtSnapshot) callconv(.c) abi.FfiVtPublishResult {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    const snapshot = vtSnapshotIn(snapshot_in) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const snapshot = vtSnapshotIn(snapshot_in) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtPublishResultOut(owner.flow.acceptSnapshot(snapshot));
 }
 
@@ -230,7 +231,7 @@ pub fn submit(surface_text_handle: abi.SurfaceTextHandle, prepared_surface_handl
     };
 }
 
-fn surfaceFeedbackOut(value: Render.RenderSurfaceFeedback) abi.FfiSurfaceFeedback {
+fn surfaceFeedbackOut(value: surface.RenderSurfaceFeedback) abi.FfiSurfaceFeedback {
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .damage_kind = @intFromEnum(value.damageKind()),
@@ -248,7 +249,7 @@ fn failedSurfaceFeedback() abi.FfiSurfaceFeedback {
     };
 }
 
-fn surfaceMetricsOut(value: Render.RenderMetrics) abi.FfiSurfaceMetrics {
+fn surfaceMetricsOut(value: surface.RenderMetrics) abi.FfiSurfaceMetrics {
     return .{
         .sync_us = value.sync_us,
         .copy_us = value.copy_us,
@@ -270,7 +271,7 @@ fn surfaceMetricsOut(value: Render.RenderMetrics) abi.FfiSurfaceMetrics {
     };
 }
 
-fn executionInputIn(value: abi.FfiSurfaceExecutionInput) Render.SurfaceText.RenderSurfaceExecutionInput {
+fn executionInputIn(value: abi.FfiSurfaceExecutionInput) surface_text.SurfaceText.RenderSurfaceExecutionInput {
     return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height }, .uploads_committed = value.uploads_committed, .render_us = value.render_us };
 }
 
@@ -285,7 +286,7 @@ fn geometryOut(value: surface.GeometryResponse) abi.FfiGeometryResponse {
     };
 }
 
-fn vtSnapshotIn(value: abi.FfiVtSnapshot) ?Render.FrameQueue.VtSnapshot {
+fn vtSnapshotIn(value: abi.FfiVtSnapshot) ?queue.VtSnapshot {
     const dirty_rows = dirtyBytesSpanIn(value.rows, value.dirty_rows) orelse return null;
     const dirty_cols_start = dirtyU16SpanIn(value.rows, value.dirty_cols_start) orelse return null;
     const dirty_cols_end = dirtyU16SpanIn(value.rows, value.dirty_cols_end) orelse return null;
@@ -301,7 +302,7 @@ fn vtSnapshotIn(value: abi.FfiVtSnapshot) ?Render.FrameQueue.VtSnapshot {
     };
 }
 
-fn vtPublishResultOut(value: Render.FrameQueue.VtPublishResult) abi.FfiVtPublishResult {
+fn vtPublishResultOut(value: queue.VtPublishResult) abi.FfiVtPublishResult {
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .published = @intFromBool(value.published),
@@ -312,7 +313,7 @@ fn vtPublishResultOut(value: Render.FrameQueue.VtPublishResult) abi.FfiVtPublish
     };
 }
 
-fn pendingStateOut(value: Render.FrameQueue.PendingState) abi.FfiPendingState {
+fn pendingStateOut(value: queue.PendingState) abi.FfiPendingState {
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .source_pending = @intFromBool(value.source_pending),
@@ -332,7 +333,7 @@ fn pendingStateFailure(status: c_int) abi.FfiPendingState {
     };
 }
 
-fn queueMetricsOut(value: Render.FrameQueue.QueueMetrics) abi.FfiQueueMetrics {
+fn queueMetricsOut(value: queue.QueueMetrics) abi.FfiQueueMetrics {
     return .{
         .snapshot_publishes = value.snapshot_publishes,
         .snapshot_clean_drops = value.snapshot_clean_drops,
@@ -351,7 +352,7 @@ fn queueMetricsOut(value: Render.FrameQueue.QueueMetrics) abi.FfiQueueMetrics {
     };
 }
 
-fn prepareRequestOut(value: Render.FramePipeline.RenderRequest) abi.FfiPrepareRequest {
+fn prepareRequestOut(value: pipeline.RenderRequest) abi.FfiPrepareRequest {
     return .{
         .snapshot_seq = value.token.snapshot_seq,
         .dirty_epoch = value.token.dirty_epoch,
@@ -361,7 +362,7 @@ fn prepareRequestOut(value: Render.FramePipeline.RenderRequest) abi.FfiPrepareRe
     };
 }
 
-fn preparedFrameOut(value: Render.FramePipeline.PreparedFrame) abi.FfiPreparedFrame {
+fn preparedFrameOut(value: pipeline.PreparedFrame) abi.FfiPreparedFrame {
     return .{
         .snapshot_seq = value.token.snapshot_seq,
         .dirty_epoch = value.token.dirty_epoch,
@@ -372,7 +373,7 @@ fn preparedFrameOut(value: Render.FramePipeline.PreparedFrame) abi.FfiPreparedFr
     };
 }
 
-fn renderRequestIn(value: abi.FfiPrepareRequest) ?Render.FramePipeline.RenderRequest {
+fn renderRequestIn(value: abi.FfiPrepareRequest) ?pipeline.RenderRequest {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{
         .token = .{
@@ -386,7 +387,7 @@ fn renderRequestIn(value: abi.FfiPrepareRequest) ?Render.FramePipeline.RenderReq
     };
 }
 
-fn preparedFrameIn(value: abi.FfiPreparedFrame) ?Render.FramePipeline.PreparedFrame {
+fn preparedFrameIn(value: abi.FfiPreparedFrame) ?pipeline.PreparedFrame {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq };
 }
@@ -395,7 +396,7 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !OwnedVtSu
     const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
     if (value.cells.len != cell_count) return error.InvalidSurfaceSource;
 
-    const cells = try allocator.alloc(Render.SurfaceCell, @intCast(cell_count));
+    const cells = try allocator.alloc(surface.Cell, @intCast(cell_count));
     errdefer allocator.free(cells);
     for (cells, 0..) |*dst, idx| dst.* = try cellValueIn(value.cells.ptr[idx]);
 
@@ -447,7 +448,7 @@ fn dirtyU16SpanIn(rows: u16, span: abi.FfiU16Span) ?[]const u16 {
     return span.ptr[0..rows];
 }
 
-fn cellValueIn(value: abi.FfiCell) !Render.SurfaceCell {
+fn cellValueIn(value: abi.FfiCell) !surface.Cell {
     if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
 
     const fg_color = colorIn(value.fg_color) orelse return error.InvalidSurfaceSource;
@@ -477,7 +478,7 @@ fn cellValueIn(value: abi.FfiCell) !Render.SurfaceCell {
     };
 }
 
-fn colorIn(value: abi.FfiColor) ?Render.SurfaceColor {
+fn colorIn(value: abi.FfiColor) ?surface.Color {
     return switch (value.kind) {
         0 => .{ .kind = .default, .value = 0 },
         1 => blk: {
@@ -492,18 +493,18 @@ fn colorIn(value: abi.FfiColor) ?Render.SurfaceColor {
     };
 }
 
-fn damageKindIn(value: u8) ?Render.FramePipeline.DamageKind {
+fn damageKindIn(value: u8) ?pipeline.DamageKind {
     return switch (value) {
-        @intFromEnum(Render.FramePipeline.DamageKind.none) => .none,
-        @intFromEnum(Render.FramePipeline.DamageKind.partial) => .partial,
-        @intFromEnum(Render.FramePipeline.DamageKind.full) => .full,
+        @intFromEnum(pipeline.DamageKind.none) => .none,
+        @intFromEnum(pipeline.DamageKind.partial) => .partial,
+        @intFromEnum(pipeline.DamageKind.full) => .full,
         else => null,
     };
 }
 
-fn cursorIn(value: abi.FfiCursor) ?Render.SurfaceCursorInfo {
+fn cursorIn(value: abi.FfiCursor) ?surface.CursorInfo {
     const shape = switch (value.shape) {
-        0 => Render.SurfaceCursorShape.block,
+        0 => surface.CursorShape.block,
         1 => .underline,
         2 => .beam,
         3 => .hollow_block,
@@ -512,7 +513,7 @@ fn cursorIn(value: abi.FfiCursor) ?Render.SurfaceCursorInfo {
     return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = shape };
 }
 
-fn underlineStyleIn(value: u8) ?Render.UnderlineStyle {
+fn underlineStyleIn(value: u8) ?surface.UnderlineStyle {
     return switch (value) {
         0 => .straight,
         1 => .double,

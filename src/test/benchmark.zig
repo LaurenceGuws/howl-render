@@ -1,14 +1,15 @@
 
 const std = @import("std");
-const render = @import("../howl_render.zig");
 const surface = @import("../frame/surface.zig");
+const contract = @import("../text/contract.zig");
+const text_mod = @import("../text/text.zig");
 
 const RunCount = u32;
 
 const OutputFormat = enum { ndjson, text };
 const WorkloadInput = union(enum) {
-    cells: []render.CellInput,
-    cell_texts: []const render.Text.Cluster.CellTextInput,
+    cells: []contract.CellInput,
+    cell_texts: []const text_mod.Cluster.CellTextInput,
 };
 
 const Options = struct {
@@ -66,7 +67,7 @@ const WorkloadResult = struct {
 const Workload = struct {
     name: []const u8,
     input: WorkloadInput,
-    grid: render.GridMetrics,
+    grid: contract.GridMetrics,
     damage: struct {
         full: bool,
         dirty_rows: []const bool,
@@ -192,11 +193,11 @@ fn nowNs(io: std.Io) u64 {
     return @intCast(std.Io.Clock.awake.now(io).toNanoseconds());
 }
 
-fn rgba(r: u8, g: u8, b: u8) render.Rgba8 {
+fn rgba(r: u8, g: u8, b: u8) contract.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = 255 };
 }
 
-fn defaultCellMetrics(cell_px: surface.CellSize) render.CellMetrics {
+fn defaultCellMetrics(cell_px: surface.CellSize) contract.CellMetrics {
     const h = @max(cell_px.height, 1);
     return .{
         .cell_w_px = @max(cell_px.width, 1),
@@ -218,9 +219,9 @@ fn cellCount(rows: u16, cols: u16) u32 {
     return @as(u32, rows) * @as(u32, cols);
 }
 
-fn initCells(allocator: std.mem.Allocator, rows: u16, cols: u16, bg: render.Rgba8) ![]render.CellInput {
+fn initCells(allocator: std.mem.Allocator, rows: u16, cols: u16, bg: contract.Rgba8) ![]contract.CellInput {
     const len = cellCount(rows, cols);
-    const cells = try allocator.alloc(render.CellInput, @intCast(len));
+    const cells = try allocator.alloc(contract.CellInput, @intCast(len));
     for (cells) |*cell| {
         cell.* = .{ .codepoint = ' ', .fg = rgba(240, 240, 240), .bg = bg };
     }
@@ -347,7 +348,7 @@ fn buildLsdLikeWorkload(allocator: std.mem.Allocator, colored: bool) !Workload {
     };
 }
 
-fn writeText(cells: []render.CellInput, row_base: u32, cols: u16, col: *u16, text: []const u8, fg: render.Rgba8, bg: render.Rgba8) void {
+fn writeText(cells: []contract.CellInput, row_base: u32, cols: u16, col: *u16, text: []const u8, fg: contract.Rgba8, bg: contract.Rgba8) void {
     for (text) |byte| {
         if (col.* >= cols) break;
         cells[@intCast(row_base + col.*)] = .{ .codepoint = byte, .fg = fg, .bg = bg };
@@ -355,7 +356,7 @@ fn writeText(cells: []render.CellInput, row_base: u32, cols: u16, col: *u16, tex
     }
 }
 
-fn padSpaces(cells: []render.CellInput, row_base: u32, cols: u16, col: *u16, count: u16, fg: render.Rgba8, bg: render.Rgba8) void {
+fn padSpaces(cells: []contract.CellInput, row_base: u32, cols: u16, col: *u16, count: u16, fg: contract.Rgba8, bg: contract.Rgba8) void {
     var left = count;
     while (left > 0 and col.* < cols) : (left -= 1) {
         cells[@intCast(row_base + col.*)] = .{ .codepoint = ' ', .fg = fg, .bg = bg };
@@ -453,7 +454,7 @@ fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
     const fg = rgba(232, 236, 242);
     const combining = &[_]u32{ 'i', 0x0332 };
     const emoji = &[_]u32{0x1f642};
-    const cells = try allocator.alloc(render.Text.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
+    const cells = try allocator.alloc(text_mod.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
     const dirty = try initDirtyAll(allocator, rows, cols);
     for (cells, 0..) |*cell, idx| {
         const cp = if (idx % 2 == 0) combining else emoji;
@@ -480,7 +481,7 @@ fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
     const bg = rgba(12, 12, 18);
     const fg = rgba(235, 238, 242);
     const ascii = [_]u32{'a'};
-    const cells = try allocator.alloc(render.Text.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
+    const cells = try allocator.alloc(text_mod.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
     const dirty = try initDirtyAll(allocator, rows, cols);
     for (cells) |*cell| {
         cell.* = .{
@@ -507,7 +508,7 @@ fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
     const accent = rgba(166, 212, 255);
     const ascii = [_]u32{'a'};
     const combining = [_]u32{ 'i', 0x0332 };
-    const cells = try allocator.alloc(render.Text.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
+    const cells = try allocator.alloc(text_mod.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
     const dirty = try initDirtyAll(allocator, rows, cols);
     for (cells, 0..) |*cell, idx| {
         const even = idx % 2 == 0;
@@ -593,11 +594,11 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
     defer allocator.free(upload_values);
 
     const cell_metrics = defaultCellMetrics(workload.cell_px);
-    const session = render.Text.FontSession.FontSession{
+    const session = text_mod.FontSession.FontSession{
         .primary_face = .{ .value = 1 },
         .metrics = cell_metrics,
     };
-    const prepare_options = render.Text.PrepareOptions{
+    const prepare_options = text_mod.PrepareOptions{
         .scene = .{
             .damage = .{
                 .full = workload.damage.full,
@@ -608,7 +609,7 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
         },
     };
     var counting = CountingAllocator.init(allocator);
-    var preparer = render.Text.TextFramePreparer.init(counting.allocator());
+    var preparer = text_mod.TextFramePreparer.init(counting.allocator());
     defer preparer.deinit();
 
     counting.resetWindow();

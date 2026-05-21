@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../../howl_render.zig");
+const text = @import("../../text.zig");
 
 const AlphaSegment = enum { full, left, right, top, bottom };
 const AlphaCorner = enum { top_left, top_right, bottom_left, bottom_right };
@@ -39,7 +39,7 @@ pub fn rasterizeSpecialSpriteAlpha(dst: []u8, width: u16, height: u16, codepoint
 }
 
 pub fn rasterizeFallbackGlyph(dst: []u8, cell_w: u16, cell_h: u16, codepoint: u21, gw: u16, gh: u16) void {
-    render.Text.Fallback.rasterAsciiOrPlaceholder(dst, cell_w, codepoint, gw, gh);
+    text.Fallback.rasterAsciiOrPlaceholder(dst, cell_w, codepoint, gw, gh);
     _ = cell_h;
 }
 

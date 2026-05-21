@@ -67,7 +67,12 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/howl_render.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
+    render_owner.linkLibrary(freetype_lib);
+    render_owner.addIncludePath(freetype_lib.getEmittedIncludeTree());
+    render_owner.linkLibrary(harfbuzz_lib);
+    render_owner.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
     const render_tests = b.addTest(.{
         .name = "test-render",
         .root_module = render_owner,
@@ -101,8 +106,8 @@ pub fn build(b: *std.Build) void {
     }
 
     const test_step = b.step("test", "Run all tests");
-    const test_render_step = b.step("test:render", "Run pure render tests");
-    const test_render_build_step = b.step("test:render:build", "Build pure render tests");
+    const test_render_step = b.step("test:render", "Run repo-local render tests");
+    const test_render_build_step = b.step("test:render:build", "Build repo-local render tests");
     const test_runtime_proof_step = b.step("test:runtime-proof", "Run runtime proof tests");
     const test_runtime_proof_build_step = b.step("test:runtime-proof:build", "Build runtime proof tests");
     const test_unit_step = b.step("test:unit", "Run unit tests");

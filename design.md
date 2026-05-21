@@ -15,6 +15,8 @@ resources, or platform presentation.
 - The only shipped embedding contract is `include/howl_render.h` plus `howl_render_*` exported
   symbols.
 - `src/libhowl_render.zig` is the only public root that may export that contract.
+- `src/howl_render.zig` is repo-local test and proof wiring only. It is not an embedding surface or a
+  convenience integration boundary.
 - `HowlRenderVtSurface` is the renderer-facing VT-surface input contract.
 - `HowlRenderPreparedSurfaceHandle` and related `HowlRenderPreparedSurface*` structs are the
   prepared render-surface contract.

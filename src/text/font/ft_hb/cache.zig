@@ -1,5 +1,6 @@
 const std = @import("std");
-const render = @import("../../../howl_render.zig");
+const contract = @import("../../contract.zig");
+const text_mod = @import("../../text.zig");
 
 pub const FaceTextKey = struct {
     face_id: u32,
@@ -80,10 +81,10 @@ pub const ShapeRunCache = struct {
         self: *const ShapeRunCache,
         allocator: std.mem.Allocator,
         key: ShapeRunKey,
-        run: render.ResolvedRun,
-    ) !?render.Text.ShapeRun.OwnedShapedRun {
+        run: contract.ResolvedRun,
+    ) !?text_mod.ShapeRun.OwnedShapedRun {
         const cached = self.map.get(key) orelse return null;
-        const glyphs = try allocator.alloc(render.GlyphInstance, cached.len);
+        const glyphs = try allocator.alloc(contract.GlyphInstance, cached.len);
         for (cached, 0..) |glyph, idx| {
             glyphs[idx] = .{
                 .face_id = run.run.font.face_id,
@@ -97,7 +98,7 @@ pub const ShapeRunCache = struct {
         return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
     }
 
-    pub fn putRun(self: *ShapeRunCache, key: ShapeRunKey, run: render.Text.ShapeRun.OwnedShapedRun) !void {
+    pub fn putRun(self: *ShapeRunCache, key: ShapeRunKey, run: text_mod.ShapeRun.OwnedShapedRun) !void {
         const templates = try self.allocator.alloc(CachedGlyph, run.glyphs.len);
         errdefer self.allocator.free(templates);
         for (run.glyphs, 0..) |glyph, idx| {
@@ -132,7 +133,7 @@ pub const GlyphCellCache = struct {
     }
 };
 
-pub fn hashCellText(text: render.CellText) u64 {
+pub fn hashCellText(text: contract.CellText) u64 {
     var hasher = std.hash.Wyhash.init(0x54455854);
     const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
     const len: u32 = @intCast(cps.len);
@@ -141,7 +142,7 @@ pub fn hashCellText(text: render.CellText) u64 {
     return hasher.final();
 }
 
-pub fn hashRunText(text_cache: render.LineTextCache, clusters: []const render.CellCluster) u64 {
+pub fn hashRunText(text_cache: contract.LineTextCache, clusters: []const contract.CellCluster) u64 {
     var hasher = std.hash.Wyhash.init(0x52554e54);
     const len: u32 = @intCast(clusters.len);
     hasher.update(std.mem.asBytes(&len));
@@ -156,7 +157,7 @@ pub fn hashRunText(text_cache: render.LineTextCache, clusters: []const render.Ce
     return hasher.final();
 }
 
-fn textForCluster(text_cache: render.LineTextCache, cluster: render.CellCluster) render.CellText {
+fn textForCluster(text_cache: contract.LineTextCache, cluster: contract.CellCluster) contract.CellText {
     const idx = cluster.text_id.value;
     if (idx < count32(text_cache.texts)) return text_cache.texts[@intCast(idx)];
     return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };

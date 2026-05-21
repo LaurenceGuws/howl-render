@@ -1,6 +1,6 @@
 const std = @import("std");
-const Render = @import("howl_render.zig");
 const abi = @import("ffi_types.zig");
+const pipeline = @import("frame/pipeline.zig");
 const prepared_surface = @import("frame/prepared_surface_ffi.zig");
 const surface_text_ffi = @import("frame/surface_text_ffi.zig");
 const text_support = @import("text/font/ft_hb/support.zig");
@@ -195,7 +195,7 @@ test "ffi take prepare request clears output on failure" {
         .dirty_epoch = 9,
         .geometry_epoch = 9,
         .damage_base_seq = 9,
-        .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
+        .damage_kind = @intFromEnum(pipeline.DamageKind.full),
     };
     try std.testing.expectEqual(HowlRenderPrepareStatus.failed, surfaceTextTakePrepareRequest(null, &request));
     try std.testing.expectEqual(@as(u64, 0), request.snapshot_seq);
@@ -208,7 +208,7 @@ test "ffi take submit decision clears output on failure" {
         .geometry_epoch = 9,
         .damage_base_seq = 9,
         .required_base_seq = 9,
-        .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
+        .damage_kind = @intFromEnum(pipeline.DamageKind.full),
     };
     try std.testing.expectEqual(HowlRenderSubmitDecisionStatus.failed, surfaceTextTakeSubmitDecision(null, &prepared));
     try std.testing.expectEqual(@as(u64, 0), prepared.snapshot_seq);
@@ -358,7 +358,7 @@ test "ffi submit clears feedback on failure" {
 
     var feedback = FfiSurfaceFeedback{
         .status = @intFromEnum(HowlRenderCallStatus.ok),
-        .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
+        .damage_kind = @intFromEnum(pipeline.DamageKind.full),
         .surface = .{ .host_surface_id = 99, .width = 9, .height = 9 },
         .metrics = std.mem.zeroes(FfiSurfaceMetrics),
     };
@@ -386,7 +386,7 @@ test "ffi prepared surface describe writes missing-handle status" {
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
         .prepare_metrics = std.mem.zeroes(FfiSurfaceMetrics),
-        .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
+        .damage_kind = @intFromEnum(pipeline.DamageKind.full),
     };
     try std.testing.expectEqual(
         @intFromEnum(HowlRenderCallStatus.missing_handle),

@@ -1,12 +1,14 @@
 const std = @import("std");
-const Render = @import("../howl_render.zig");
+const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
+const contract = @import("../text/contract.zig");
+const text = @import("../text/text.zig");
 
 pub fn compose(
     allocator: std.mem.Allocator,
     base_pixels: ?[]const u8,
     session: *surface_text.SurfaceText,
-    prepared: *const Render.PreparedSurface,
+    prepared: *const surface.PreparedSurface,
 ) ![]u8 {
     const width = prepared.render_px.width;
     const height = prepared.render_px.height;
@@ -59,8 +61,8 @@ fn seedSurfacePixels(pixels: []u8, base_pixels: ?[]const u8) void {
 const SpriteRaster = struct {
     pixels: []const u8,
     stride: u16,
-    color_mode: Render.SpriteColorMode,
-    visual_bounds: Render.Text.Rasterizer.SpriteBounds,
+    color_mode: contract.SpriteColorMode,
+    visual_bounds: text.Rasterizer.SpriteBounds,
 };
 
 fn clearSurfacePixels(pixels: []u8) void {
@@ -98,7 +100,7 @@ fn drawDecorationSpan(
     pixels: []u8,
     width: u16,
     height: u16,
-    span: []const Render.TextDecorationDraw,
+    span: []const contract.TextDecorationDraw,
 ) void {
     for (span) |draw| {
         drawSolidRect(
@@ -119,7 +121,7 @@ fn drawSprites(
     width: u16,
     height: u16,
     session: *surface_text.SurfaceText,
-    prepared: *const Render.PreparedSurface,
+    prepared: *const surface.PreparedSurface,
 ) !void {
     for (prepared.text_frame.scene.scene.sprite_draws) |draw| {
         const sprite = try lookupSprite(session, prepared, draw.sprite.key);
@@ -129,8 +131,8 @@ fn drawSprites(
 
 fn lookupSprite(
     session: *surface_text.SurfaceText,
-    prepared: *const Render.PreparedSurface,
-    sprite_key: Render.SpriteKey,
+    prepared: *const surface.PreparedSurface,
+    sprite_key: contract.SpriteKey,
 ) !SpriteRaster {
     for (prepared.text_frame.raster_plan.outputs) |output| {
         if (output.key.value != sprite_key.value) continue;
@@ -157,7 +159,7 @@ fn lookupSprite(
     };
 }
 
-fn packedStrideForOutput(output: Render.Text.Rasterizer.RasterSpriteOutput) u16 {
+fn packedStrideForOutput(output: text.Rasterizer.RasterSpriteOutput) u16 {
     const channels: u16 = switch (output.color_mode) {
         .alpha => 1,
         .color => 4,
@@ -169,14 +171,14 @@ fn drawSpriteInstance(
     pixels: []u8,
     width: u16,
     height: u16,
-    draw: Render.TextSpriteDraw,
+    draw: contract.TextSpriteDraw,
     sprite: SpriteRaster,
 ) void {
     const bounds = if (sprite.visual_bounds.width_px != 0 and
         sprite.visual_bounds.height_px != 0)
         sprite.visual_bounds
     else
-        Render.Text.Rasterizer.SpriteBounds{
+        text.Rasterizer.SpriteBounds{
             .x_px = 0,
             .y_px = 0,
             .width_px = draw.width_px,
@@ -248,7 +250,7 @@ fn drawSolidRect(
     y: i32,
     rect_w: u16,
     rect_h: u16,
-    color: Render.Rgba8,
+    color: contract.Rgba8,
 ) void {
     var yy: u16 = 0;
     while (yy < rect_h) : (yy += 1) {
@@ -293,7 +295,7 @@ test "compose preserves retained content outside partial updates" {
     defer allocator.free(base);
     @memset(base, 7);
 
-    var clear_draws = try allocator.alloc(Render.TextClearDraw, 1);
+    var clear_draws = try allocator.alloc(contract.TextClearDraw, 1);
     defer allocator.free(clear_draws);
     clear_draws[0] = .{
         .x_px = 0,
@@ -305,7 +307,7 @@ test "compose preserves retained content outside partial updates" {
         .cell_span = 2,
     };
 
-    var background_draws = try allocator.alloc(Render.TextBackgroundDraw, 1);
+    var background_draws = try allocator.alloc(contract.TextBackgroundDraw, 1);
     defer allocator.free(background_draws);
     background_draws[0] = .{
         .x_px = 0,
@@ -317,7 +319,7 @@ test "compose preserves retained content outside partial updates" {
         .cell_span = 2,
     };
 
-    var prepared = Render.PreparedSurface{
+    var prepared = surface.PreparedSurface{
         .allocator = allocator,
         .request = .{
             .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },

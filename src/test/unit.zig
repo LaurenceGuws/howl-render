@@ -1,6 +1,6 @@
 
 const std = @import("std");
-const Render = @import("../howl_render.zig");
+const geometry = @import("../frame/geometry.zig");
 const surface = @import("../frame/surface.zig");
 
 test "render frame pixel geometry clamps to drawable size" {
@@ -11,12 +11,12 @@ test "render frame pixel geometry clamps to drawable size" {
     try std.testing.expectEqual(@as(u16, 24), frame.gridHeight());
 }
 
-test "surface session root helpers forward deterministically" {
-    const grid = Render.deriveGridSize(.{ .width = 80, .height = 48 }, .{ .width = 8, .height = 16 });
+test "frame geometry helpers derive grid deterministically" {
+    const grid = geometry.deriveGridSize(.{ .width = 80, .height = 48 }, .{ .width = 8, .height = 16 });
     try std.testing.expectEqual(@as(u16, 10), grid.cols);
     try std.testing.expectEqual(@as(u16, 3), grid.rows);
 
-    const frame_grid = try Render.deriveGridForFrame(
+    const frame_grid = try geometry.deriveGridForFrame(
         .{ .width = 800, .height = 600 },
         .{ .width = 640, .height = 320 },
         .{ .width = 8, .height = 16 },
