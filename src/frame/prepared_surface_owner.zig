@@ -33,7 +33,7 @@ pub const Owner = struct {
         session_owner: *surface_text.SurfaceTextOwner,
         value: surface.PreparedSurface,
     ) !*Owner {
-        var owner = try std.heap.c_allocator.create(Owner);
+        var owner = try session_owner.allocator.create(Owner);
         owner.* = ownerBase(session_owner, value);
         errdefer owner.destroy();
         try owner.copySurfaceBuffer();
@@ -47,8 +47,8 @@ pub const Owner = struct {
 
     pub fn destroy(self: *Owner) void {
         self.prepared.deinit();
-        freeOwnedBytes(&self.rgba_pixels);
-        std.heap.c_allocator.destroy(self);
+        freeOwnedBytes(self.session_owner.allocator, &self.rgba_pixels);
+        self.session_owner.allocator.destroy(self);
     }
 
     pub fn info(self: *Owner) abi.FfiPreparedSurfaceInfo {
@@ -112,7 +112,7 @@ pub const Owner = struct {
             else => unreachable,
         };
         self.rgba_pixels = try surface_buffer.compose(
-            std.heap.c_allocator,
+            self.session_owner.allocator,
             base_pixels,
             &self.session_owner.session,
             &self.prepared,
@@ -183,9 +183,9 @@ fn resolveMetricsOut(value: surface.PreparedSurface) abi.FfiSurfaceMetrics {
     };
 }
 
-fn freeOwnedBytes(items: *[]u8) void {
+fn freeOwnedBytes(allocator: std.mem.Allocator, items: *[]u8) void {
     if (items.*.len == 0) return;
-    std.heap.c_allocator.free(items.*);
+    allocator.free(items.*);
     items.* = &.{};
 }
 
@@ -203,7 +203,7 @@ fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool 
 }
 
 test "create returns missing-sprite without double free" {
-    const session_owner = surface_text.SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = surface_text.SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     var sprite_draws = [_]contract.TextSpriteDraw{.{

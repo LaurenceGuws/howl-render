@@ -41,6 +41,7 @@ pub const SurfaceTextConfig = struct {
 };
 
 pub const SurfaceText = struct {
+    allocator: std.mem.Allocator,
     text_state: text_support.State,
     mutex: ThreadMutex = .{},
     text_preparer: ?text.TextFramePreparer = null,
@@ -66,8 +67,8 @@ pub const SurfaceText = struct {
         state: surface.FrameData,
     };
 
-    pub fn init() SurfaceText {
-        return .{ .text_state = text_support.State.init(std.heap.c_allocator) };
+    pub fn init(allocator: std.mem.Allocator) SurfaceText {
+        return .{ .allocator = allocator, .text_state = text_support.State.init(allocator) };
     }
 
     pub fn deinit(self: *SurfaceText) void {
@@ -108,18 +109,18 @@ pub const SurfaceText = struct {
         return false;
     }
 
-    pub fn prepareSurface(self: *SurfaceText, allocator: std.mem.Allocator, prepare: PrepareInput) !surface.PreparedSurface {
+    pub fn prepareSurface(self: *SurfaceText, prepare: PrepareInput) !surface.PreparedSurface {
         var faces: [max_font_faces]text.FontSession.FontFaceRecord = undefined;
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
-        var text_input = try input.vtStateToTextSceneInput(allocator, prepare.state);
+        var text_input = try input.vtStateToTextSceneInput(self.allocator, prepare.state);
         defer text_input.deinit();
         var resolve: text_pipeline.ResolveObservability = .{};
-        const preparer = try self.ensureTextPreparer(allocator, &context);
+        const preparer = try self.ensureTextPreparer(&context);
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
         errdefer prepared.deinit();
-        const owned = ownPreparedSurface(allocator, prepare, text_input.grid, prepared, resolve);
+        const owned = ownPreparedSurface(self.allocator, prepare, text_input.grid, prepared, resolve);
         self.mutex.unlock();
         return owned;
     }
@@ -176,10 +177,10 @@ pub const SurfaceText = struct {
         };
     }
 
-    fn ensureTextPreparer(self: *SurfaceText, allocator: std.mem.Allocator, context: *TextContext) !*text.TextFramePreparer {
+    fn ensureTextPreparer(self: *SurfaceText, context: *TextContext) !*text.TextFramePreparer {
         if (self.text_preparer == null) {
             var ft_hb = ftHbSource(context);
-            self.text_preparer = try text.TextFramePreparer.initWithProvider(allocator, 2048, ft_hb.textProvider());
+            self.text_preparer = try text.TextFramePreparer.initWithProvider(self.allocator, 2048, ft_hb.textProvider());
         }
         return &self.text_preparer.?;
     }
@@ -277,6 +278,7 @@ pub const SurfaceText = struct {
 };
 
 pub const SurfaceTextOwner = struct {
+    allocator: std.mem.Allocator,
     session: SurfaceText,
     flow: queue.Flow,
     config: SurfaceTextConfig,
@@ -289,20 +291,20 @@ pub const SurfaceTextOwner = struct {
 
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };
 
-    pub fn create(config: SurfaceTextConfig) ?*SurfaceTextOwner {
+    pub fn create(allocator: std.mem.Allocator, config: SurfaceTextConfig) ?*SurfaceTextOwner {
         std.debug.assert(config.font_size_px > 0);
-        const owner = std.heap.c_allocator.create(SurfaceTextOwner) catch return null;
-        owner.* = .{ .session = SurfaceText.init(), .flow = .{}, .config = config };
+        const owner = allocator.create(SurfaceTextOwner) catch return null;
+        owner.* = .{ .allocator = allocator, .session = SurfaceText.init(allocator), .flow = .{}, .config = config };
         return owner;
     }
 
     pub fn destroy(self: *SurfaceTextOwner) void {
-        if (self.font_path) |path| std.heap.c_allocator.free(path);
+        if (self.font_path) |path| self.allocator.free(path);
         self.font_path = null;
-        freeOwnedFallbackFontPaths(&self.fallback_font_paths);
+        freeOwnedFallbackFontPaths(self.allocator, &self.fallback_font_paths);
         self.clearRetainedSurface();
         self.session.deinit();
-        std.heap.c_allocator.destroy(self);
+        self.allocator.destroy(self);
     }
 
     pub fn setFontSizePx(self: *SurfaceTextOwner, font_size_px: u16) void {
@@ -320,23 +322,23 @@ pub const SurfaceTextOwner = struct {
             self.setOwnedFontPath(null);
             return;
         }
-        const owned = std.heap.c_allocator.dupeZ(u8, value) catch return error.OutOfMemory;
+        const owned = self.allocator.dupeZ(u8, value) catch return error.OutOfMemory;
         self.setOwnedFontPath(owned);
     }
 
     pub fn setFallbackFontPathPtrs(self: *SurfaceTextOwner, raw_paths: []const ?[*]const u8) FontConfigError!void {
         const path_count = text_support.fallbackFontCount(count32(raw_paths)) orelse return error.InvalidArgument;
         var staged = std.ArrayList([:0]u8).empty;
-        defer freeOwnedFallbackFontPaths(&staged);
+        defer freeOwnedFallbackFontPaths(self.allocator, &staged);
         if (path_count == 0) {
             self.adoptFallbackFontPaths(&staged);
             return;
         }
-        staged.ensureTotalCapacity(std.heap.c_allocator, @intCast(text_support.fallbackFontLen(path_count))) catch return error.OutOfMemory;
+        staged.ensureTotalCapacity(self.allocator, @intCast(text_support.fallbackFontLen(path_count))) catch return error.OutOfMemory;
         var i: text_support.FallbackFontCount = 0;
         while (i < path_count) : (i += 1) {
             const raw = raw_paths[i] orelse return error.InvalidArgument;
-            const owned = std.heap.c_allocator.dupeZ(u8, std.mem.sliceTo(raw, 0)) catch {
+            const owned = self.allocator.dupeZ(u8, std.mem.sliceTo(raw, 0)) catch {
                 return error.OutOfMemory;
             };
             staged.appendAssumeCapacity(owned);
@@ -357,13 +359,23 @@ pub const SurfaceTextOwner = struct {
         self.clearRetainedSurface();
     }
 
+    pub fn prepareSurface(self: *SurfaceTextOwner, request: pipeline.RenderRequest, state: surface.FrameData) !surface.PreparedSurface {
+        const layout = self.flow.prepareLayout(request.token.geometry_epoch);
+        return try self.session.prepareSurface(.{
+            .config = self.config,
+            .request = request,
+            .layout = layout,
+            .state = state,
+        });
+    }
+
     pub fn setOwnedFontPath(self: *SurfaceTextOwner, owned: ?[:0]u8) void {
         if (owned) |path| std.debug.assert(path.len > 0);
         const old = self.font_path;
         self.font_path = owned;
         self.config.font_path = owned;
         self.invalidateTextState();
-        if (old) |path| std.heap.c_allocator.free(path);
+        if (old) |path| self.allocator.free(path);
     }
 
     pub fn adoptFallbackFontPaths(self: *SurfaceTextOwner, owned_paths: *std.ArrayList([:0]u8)) void {
@@ -372,7 +384,7 @@ pub const SurfaceTextOwner = struct {
         owned_paths.* = .empty;
         self.syncFallbackFontPaths();
         self.invalidateTextState();
-        freeOwnedFallbackFontPaths(&old);
+        freeOwnedFallbackFontPaths(self.allocator, &old);
     }
 
     pub fn requiredRetainedSurfaceBase(self: *const SurfaceTextOwner, prepared: *const surface.PreparedSurface) []const u8 {
@@ -404,7 +416,7 @@ pub const SurfaceTextOwner = struct {
     }
 
     pub fn clearRetainedSurface(self: *SurfaceTextOwner) void {
-        if (self.retained_surface_pixels.len > 0) std.heap.c_allocator.free(self.retained_surface_pixels);
+        if (self.retained_surface_pixels.len > 0) self.allocator.free(self.retained_surface_pixels);
         self.retained_surface_pixels = &.{};
         self.retained_surface_width = 0;
         self.retained_surface_height = 0;
@@ -423,16 +435,17 @@ pub const SurfaceTextOwner = struct {
         }
     }
 
-    fn freeOwnedFallbackFontPaths(paths: *std.ArrayList([:0]u8)) void {
-        for (paths.items) |path| std.heap.c_allocator.free(path);
-        paths.deinit(std.heap.c_allocator);
+    fn freeOwnedFallbackFontPaths(allocator: std.mem.Allocator, paths: *std.ArrayList([:0]u8)) void {
+        for (paths.items) |path| allocator.free(path);
+        paths.deinit(allocator);
         paths.* = .empty;
     }
 };
 
 test "retainSurfaceImage adopts full image for later partial prepares" {
     var owner = SurfaceTextOwner{
-        .session = SurfaceText.init(),
+        .allocator = std.heap.c_allocator,
+        .session = SurfaceText.init(std.heap.c_allocator),
         .flow = .{},
         .config = .{ .surface_px = .{ .width = 2, .height = 3 } },
     };
@@ -483,7 +496,8 @@ test "retainSurfaceImage adopts full image for later partial prepares" {
 
 test "invalidateTextState clears retained image state" {
     var owner = SurfaceTextOwner{
-        .session = SurfaceText.init(),
+        .allocator = std.heap.c_allocator,
+        .session = SurfaceText.init(std.heap.c_allocator),
         .flow = .{},
         .config = .{ .surface_px = .{ .width = 1, .height = 1 } },
     };
@@ -504,7 +518,7 @@ test "invalidateTextState clears retained image state" {
 }
 
 test "setOwnedFontPath keeps owner and config font paths aligned" {
-    const owner = SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const owner = SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
 
     const first = try std.heap.c_allocator.dupeZ(u8, "first-font");
@@ -525,7 +539,7 @@ test "setOwnedFontPath keeps owner and config font paths aligned" {
 }
 
 test "adoptFallbackFontPaths syncs state and clears stale slots" {
-    const owner = SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const owner = SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
 
     var first = std.ArrayList([:0]u8).empty;
@@ -547,7 +561,7 @@ test "adoptFallbackFontPaths syncs state and clears stale slots" {
 }
 
 test "setFallbackFontPathPtrs rejects overflow and null entries" {
-    const owner = SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const owner = SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
 
     var overflow_paths: [text_support.max_fallback_fonts + 1]?[*]const u8 = [_]?[*]const u8{"font".ptr} ** (text_support.max_fallback_fonts + 1);

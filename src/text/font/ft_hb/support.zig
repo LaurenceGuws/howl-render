@@ -644,7 +644,7 @@ test "provider loads fallback face for symbol glyph with primary present" {
     const symbol_path = try std.Io.Dir.cwd().realPathFileAlloc(io, "../howl-linux-host/assets/fonts/SymbolsNerdFontMono-Regular.ttf", std.testing.allocator);
     defer std.testing.allocator.free(symbol_path);
 
-    const owner = surface_text.SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const owner = surface_text.SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
 
     owner.setOwnedFontPath(try std.heap.c_allocator.dupeZ(u8, primary_path));

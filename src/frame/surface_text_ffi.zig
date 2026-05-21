@@ -75,7 +75,7 @@ pub fn deriveFrameLayout(handle: abi.SurfaceTextHandle, render_px: abi.FfiPixelS
 pub fn init(config: abi.FfiSurfaceTextConfig) callconv(.c) abi.SurfaceTextHandle {
     if (config.surface_px.width == 0 or config.surface_px.height == 0) return null;
     if (config.font_size_px == 0) return null;
-    const owner = surface_text.SurfaceTextOwner.create(.{ .surface_px = pixelIn(config.surface_px), .font_size_px = config.font_size_px }) orelse return null;
+    const owner = surface_text.SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = pixelIn(config.surface_px), .font_size_px = config.font_size_px }) orelse return null;
     return @ptrCast(owner);
 }
 
@@ -208,16 +208,10 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
     const vt_surface_value = vt_surface_in orelse return .failed;
     const value = prepared_out orelse return .failed;
     const request = renderRequestIn(prepare_request) orelse return .failed;
-    const layout = owner.flow.prepareLayout(request.token.geometry_epoch);
     const full_damage = request.token.damage_kind == .full;
-    var vt_surface = vtSurfaceIn(std.heap.c_allocator, vt_surface_value.*) catch return .failed;
+    var vt_surface = vtSurfaceIn(owner.allocator, vt_surface_value.*) catch return .failed;
     defer vt_surface.deinit();
-    const prepared = owner.session.prepareSurface(std.heap.c_allocator, .{
-        .config = owner.config,
-        .request = request,
-        .layout = layout,
-        .state = vt_surface.frameData(full_damage),
-    }) catch return .failed;
+    const prepared = owner.prepareSurface(request, vt_surface.frameData(full_damage)) catch return .failed;
     const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
     value.* = @ptrCast(prepared_owner);
     return .ready;

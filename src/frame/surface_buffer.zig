@@ -287,7 +287,7 @@ fn blendPixel(pixels: []u8, dst_index: u32, r: u8, g: u8, b: u8, a: u8) void {
 }
 
 test "compose preserves retained content outside partial updates" {
-    var session = surface_text.SurfaceText.init();
+    var session = surface_text.SurfaceText.init(std.heap.c_allocator);
     defer session.deinit();
 
     const allocator = std.testing.allocator;

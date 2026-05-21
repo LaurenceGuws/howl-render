@@ -43,6 +43,8 @@ classDiagram
   snapshot publication classification, retained-base validation, and present retirement.
 - `frame/surface_text.zig` owns prepare/submit text rendering work against VT-surface input, render
   session font config, fallback-font path copies, and text-state invalidation tied to that config.
+- `frame/surface_text.zig` also owns the render-session allocator policy after init. The shipped C ABI
+  chooses that allocator explicitly at the FFI seam instead of relying on hidden owner defaults.
 - `frame/prepared_surface_owner.zig` owns prepared-surface handle state and the realized surface
   image exported through that handle.
 - `frame/prepared_surface_ffi.zig` and `frame/surface_text_ffi.zig` translate the render contract to
@@ -109,6 +111,9 @@ sequenceDiagram
   request, not from a host-fed VT-surface echo field.
 - `howl_render_surface_text_prepare_handle` returns a prepared render-surface handle only; it does
   not allocate or mutate host backend resources.
+- the shipped C ABI currently binds render-owned session and prepared-surface allocations to the C
+  allocator explicitly at the init/prepare seam. That allocator policy is part of the ABI
+  translation step, not hidden owner behavior.
 - `howl_render_surface_text_prepare_handle` consumes render-owned request state plus VT-surface
   input only. Hosts must not fetch render query state and echo it back as if it were independent
   authority.
