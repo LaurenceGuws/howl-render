@@ -101,6 +101,8 @@ sequenceDiagram
   render owner.
 - `howl_render_surface_text_prepare_handle` returns a prepared render-surface handle only; it does
   not allocate or mutate host backend resources.
+- `howl_render_surface_text_derive_frame_layout` is the public geometry-derivation entrypoint.
+  Host-facing helpers that asked callers to provide `cell_px` are not part of the shipped contract.
 - `howl_render_surface_text_sync_geometry` and `...surface_query` are the geometry-owner control
   steps. The render owner advances geometry epoch and target invalidation when geometry changes.
 - `howl_render_surface_text_publish_vt_snapshot`, `...take_prepare_request`,

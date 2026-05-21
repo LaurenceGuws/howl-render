@@ -147,11 +147,6 @@ pub const FfiU16Span = extern struct {
     len: c_size_t,
 };
 
-pub const FfiFrameGridResult = extern struct {
-    status: c_int,
-    grid: FfiGridSize,
-};
-
 pub const FfiFrameLayoutResult = extern struct {
     status: c_int,
     cell_px: FfiCellSize,

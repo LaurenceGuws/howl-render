@@ -1,8 +1,6 @@
 const ffi = @import("ffi.zig");
 
 comptime {
-    @export(&ffi.deriveGridSize, .{ .name = "howl_render_derive_grid_size" });
-    @export(&ffi.deriveFrameGridSize, .{ .name = "howl_render_derive_frame_grid_size" });
     @export(&ffi.surfaceTextDeriveFrameLayout, .{ .name = "howl_render_surface_text_derive_frame_layout" });
     @export(&ffi.surfaceTextInit, .{ .name = "howl_render_surface_text_init" });
     @export(&ffi.surfaceTextDeinit, .{ .name = "howl_render_surface_text_deinit" });

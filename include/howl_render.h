@@ -121,11 +121,6 @@ typedef struct {
 
 typedef struct {
   int status;
-  HowlRenderGridSize grid;
-} HowlRenderFrameGridResult;
-
-typedef struct {
-  int status;
   HowlRenderCellSize cell_px;
   HowlRenderGridSize grid;
 } HowlRenderFrameLayoutResult;
@@ -371,8 +366,6 @@ typedef struct {
   uint16_t reserved0;
 } HowlRenderSurfaceTextConfig;
 
-HowlRenderGridSize howl_render_derive_grid_size(HowlRenderPixelSize grid_px, HowlRenderCellSize cell_px);
-HowlRenderFrameGridResult howl_render_derive_frame_grid_size(HowlRenderPixelSize render_px, HowlRenderPixelSize grid_px, HowlRenderCellSize cell_px);
 HowlRenderFrameLayoutResult howl_render_surface_text_derive_frame_layout(HowlRenderSurfaceTextHandle handle, HowlRenderPixelSize render_px, HowlRenderPixelSize grid_px);
 
 HowlRenderSurfaceTextHandle howl_render_surface_text_init(HowlRenderSurfaceTextConfig config);

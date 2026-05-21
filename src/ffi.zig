@@ -32,7 +32,6 @@ pub const FfiDecorationDrawSpan = abi.FfiDecorationDrawSpan;
 pub const FfiRasterUploadSpan = abi.FfiRasterUploadSpan;
 pub const FfiByteSpan = abi.FfiByteSpan;
 pub const FfiU16Span = abi.FfiU16Span;
-pub const FfiFrameGridResult = abi.FfiFrameGridResult;
 pub const FfiFrameLayoutResult = abi.FfiFrameLayoutResult;
 pub const FfiCellFlags = abi.FfiCellFlags;
 pub const FfiColor = abi.FfiColor;
@@ -57,31 +56,6 @@ pub const FfiSurfaceExecutionInput = abi.FfiSurfaceExecutionInput;
 pub const FfiVtSurface = abi.FfiVtSurface;
 pub const FfiSurfaceFeedback = abi.FfiSurfaceFeedback;
 pub const FfiSurfaceTextConfig = abi.FfiSurfaceTextConfig;
-
-pub fn deriveGridSize(grid_px: FfiPixelSize, cell_px: FfiCellSize) callconv(.c) FfiGridSize {
-    const grid = Render.deriveGridSize(
-        .{ .width = grid_px.width, .height = grid_px.height },
-        .{ .width = cell_px.width, .height = cell_px.height },
-    );
-    return .{ .cols = grid.cols, .rows = grid.rows };
-}
-
-pub fn deriveFrameGridSize(render_px: FfiPixelSize, grid_px: FfiPixelSize, cell_px: FfiCellSize) callconv(.c) FfiFrameGridResult {
-    const grid = Render.deriveGridForFrame(
-        .{ .width = render_px.width, .height = render_px.height },
-        .{ .width = grid_px.width, .height = grid_px.height },
-        .{ .width = cell_px.width, .height = cell_px.height },
-    ) catch |err| {
-        return .{
-            .status = switch (err) {
-                error.InvalidSurfaceSize => -1,
-                error.InvalidGridSize => -2,
-            },
-            .grid = .{ .cols = 0, .rows = 0 },
-        };
-    };
-    return .{ .status = 0, .grid = .{ .cols = grid.cols, .rows = grid.rows } };
-}
 
 pub const surfaceTextDeriveFrameLayout = surface_text_ffi.deriveFrameLayout;
 pub const surfaceTextInit = surface_text_ffi.init;
