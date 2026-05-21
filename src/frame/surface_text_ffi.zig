@@ -94,8 +94,9 @@ pub fn setFontPath(handle: abi.SurfaceTextHandle, ptr: ?[*]const u8, len: usize)
 
 pub fn setFallbackFontPaths(handle: abi.SurfaceTextHandle, ptrs: ?[*]const ?[*]const u8, count: usize) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
-    if (count > 0 and ptrs == null) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
-    const raw_paths = if (count == 0) &.{} else ptrs.?[0..count];
+    const path_count = text_support.fallbackFontCount(count) orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    if (path_count > 0 and ptrs == null) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    const raw_paths = if (path_count == 0) &.{} else ptrs.?[0..text_support.fallbackFontLen(path_count)];
     owner.setFallbackFontPathPtrs(raw_paths) catch |err| {
         return @intFromEnum(switch (err) {
             error.InvalidArgument => abi.HowlRenderCallStatus.invalid_argument,

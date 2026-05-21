@@ -591,7 +591,7 @@ test "text frame preparer rerasterizes sprites after box thickness change" {
 
 test "text frame preparer accepts configurable shaper" {
     const Stub = struct {
-        hits: usize = 0,
+        hits: u8 = 0,
 
         fn shape(ctx: *anyopaque, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) anyerror!shape_run.OwnedShapedRun {
             const self: *@This() = @ptrCast(@alignCast(ctx));
@@ -609,13 +609,13 @@ test "text frame preparer accepts configurable shaper" {
     const inputs = [_]cluster.CellTextInput{.{ .codepoints = &combining, .fg = white, .bg = black }};
     var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
-    try std.testing.expectEqual(@as(usize, 1), stub.hits);
+    try std.testing.expectEqual(@as(u8, 1), stub.hits);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
 }
 
 test "text frame preparer accepts unified provider rasterizer" {
     const Stub = struct {
-        hits: usize = 0,
+        hits: u8 = 0,
 
         fn raster(ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
             const self: *@This() = @ptrCast(@alignCast(ctx));
@@ -631,7 +631,7 @@ test "text frame preparer accepts unified provider rasterizer" {
     const cells = [_]contract.CellInput{.{ .codepoint = 0x2500, .fg = white, .bg = black }};
     var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
-    try std.testing.expectEqual(@as(usize, 1), stub.hits);
+    try std.testing.expectEqual(@as(u8, 1), stub.hits);
 }
 
 test "text frame preparer prepare options produce scene cursor draws" {

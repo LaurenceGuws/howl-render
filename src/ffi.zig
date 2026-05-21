@@ -273,6 +273,11 @@ test "ffi fallback font paths accept abi limit and reject overflow" {
         @intFromEnum(HowlRenderCallStatus.invalid_argument),
         surfaceTextSetFallbackFontPaths(handle, &overflow_paths, overflow_paths.len),
     );
+
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.invalid_argument),
+        surfaceTextSetFallbackFontPaths(handle, null, 1),
+    );
 }
 
 test "ffi vt snapshot rejects invalid damage kind" {

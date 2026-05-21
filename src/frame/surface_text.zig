@@ -11,7 +11,7 @@ const text = @import("../text/text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
 const text_glyph_raster = @import("../text/font/ft_hb/glyph_raster.zig");
 
-const max_font_faces = text_support.max_fallback_fonts + 1;
+const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
 
 comptime {
     std.debug.assert(max_font_faces <= std.math.maxInt(u8));
@@ -188,20 +188,20 @@ pub const SurfaceText = struct {
 
     fn fontSession(context: *TextContext, faces: []text.FontSession.FontFaceRecord, active_resolve: ?*text_pipeline.ResolveObservability) text.FontSession.FontSession {
         context.session.text_state.active_resolve = active_resolve;
-        var len: u8 = 0;
-        if (faces.len > len) {
-            faces[len] = .{ .id = .{ .value = text_support.primary_face_id }, .role = .primary, .coverage = .all };
+        var len: text_support.FallbackFontCount = 0;
+        if (faces.len > text_support.fallbackFontLen(len)) {
+            faces[text_support.fallbackFontLen(len)] = .{ .id = .{ .value = text_support.primary_face_id }, .role = .primary, .coverage = .all };
             len += 1;
         }
-        var i: u8 = 0;
-        while (i < context.session.text_state.fallback_font_paths_len and len < faces.len) : (i += 1) {
+        var i: text_support.FallbackFontCount = 0;
+        while (i < context.session.text_state.fallback_font_paths_len and text_support.fallbackFontLen(len) < faces.len) : (i += 1) {
             if (context.session.text_state.fallback_font_paths[i] == null) continue;
-            faces[len] = .{ .id = .{ .value = i + 2 }, .role = .fallback, .coverage = .all };
+            faces[text_support.fallbackFontLen(len)] = .{ .id = .{ .value = i + 2 }, .role = .fallback, .coverage = .all };
             len += 1;
         }
         return .{
             .primary_face = .{ .value = text_support.primary_face_id },
-            .faces = faces[0..len],
+            .faces = faces[0..text_support.fallbackFontLen(len)],
             .provider = .{ .ctx = context, .has_cell_text = providerHasCellTextThunk },
             .metrics = text_support.deriveCellMetrics(context),
         };
@@ -317,16 +317,15 @@ pub const SurfaceTextOwner = struct {
     }
 
     pub fn setFallbackFontPathPtrs(self: *SurfaceTextOwner, raw_paths: []const ?[*]const u8) FontConfigError!void {
-        if (raw_paths.len > text_support.max_fallback_fonts) return error.InvalidArgument;
+        const path_count = text_support.fallbackFontCount(raw_paths.len) orelse return error.InvalidArgument;
         var staged = std.ArrayList([:0]u8).empty;
         defer freeOwnedFallbackFontPaths(&staged);
-        if (raw_paths.len == 0) {
+        if (path_count == 0) {
             self.adoptFallbackFontPaths(&staged);
             return;
         }
-        const path_count: u8 = @intCast(raw_paths.len);
-        staged.ensureTotalCapacity(std.heap.c_allocator, path_count) catch return error.OutOfMemory;
-        var i: u8 = 0;
+        staged.ensureTotalCapacity(std.heap.c_allocator, text_support.fallbackFontLen(path_count)) catch return error.OutOfMemory;
+        var i: text_support.FallbackFontCount = 0;
         while (i < path_count) : (i += 1) {
             const raw = raw_paths[i] orelse return error.InvalidArgument;
             const owned = std.heap.c_allocator.dupeZ(u8, std.mem.sliceTo(raw, 0)) catch {
@@ -401,11 +400,12 @@ pub const SurfaceTextOwner = struct {
     }
 
     fn syncFallbackFontPaths(self: *SurfaceTextOwner) void {
-        std.debug.assert(self.fallback_font_paths.items.len <= text_support.max_fallback_fonts);
-        const count: u8 = @intCast(self.fallback_font_paths.items.len);
+        const count = text_support.fallbackFontCount(self.fallback_font_paths.items.len) orelse unreachable;
         self.session.text_state.fallback_font_paths_len = count;
-        for (0..count) |slot| self.session.text_state.fallback_font_paths[slot] = self.fallback_font_paths.items[slot];
-        var slot = count;
+        var slot: text_support.FallbackFontCount = 0;
+        while (slot < count) : (slot += 1) {
+            self.session.text_state.fallback_font_paths[slot] = self.fallback_font_paths.items[slot];
+        }
         while (slot < text_support.max_fallback_fonts) : (slot += 1) {
             self.session.text_state.fallback_font_paths[slot] = null;
         }
@@ -523,7 +523,7 @@ test "adoptFallbackFontPaths syncs state and clears stale slots" {
     first.append(std.heap.c_allocator, try std.heap.c_allocator.dupeZ(u8, "emoji")) catch return error.OutOfMemory;
     owner.adoptFallbackFontPaths(&first);
 
-    try std.testing.expectEqual(@as(u8, 2), owner.session.text_state.fallback_font_paths_len);
+    try std.testing.expectEqual(@as(text_support.FallbackFontCount, 2), owner.session.text_state.fallback_font_paths_len);
     try std.testing.expectEqualStrings("mono", owner.session.text_state.fallback_font_paths[0].?);
     try std.testing.expectEqualStrings("emoji", owner.session.text_state.fallback_font_paths[1].?);
 
@@ -531,7 +531,18 @@ test "adoptFallbackFontPaths syncs state and clears stale slots" {
     second.append(std.heap.c_allocator, try std.heap.c_allocator.dupeZ(u8, "symbols")) catch return error.OutOfMemory;
     owner.adoptFallbackFontPaths(&second);
 
-    try std.testing.expectEqual(@as(u8, 1), owner.session.text_state.fallback_font_paths_len);
+    try std.testing.expectEqual(@as(text_support.FallbackFontCount, 1), owner.session.text_state.fallback_font_paths_len);
     try std.testing.expectEqualStrings("symbols", owner.session.text_state.fallback_font_paths[0].?);
     try std.testing.expect(owner.session.text_state.fallback_font_paths[1] == null);
+}
+
+test "setFallbackFontPathPtrs rejects overflow and null entries" {
+    const owner = SurfaceTextOwner.create(.{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    var overflow_paths: [text_support.max_fallback_fonts + 1]?[*]const u8 = [_]?[*]const u8{"font".ptr} ** (text_support.max_fallback_fonts + 1);
+    try std.testing.expectError(error.InvalidArgument, owner.setFallbackFontPathPtrs(&overflow_paths));
+
+    const bad_paths = [_]?[*]const u8{null};
+    try std.testing.expectError(error.InvalidArgument, owner.setFallbackFontPathPtrs(&bad_paths));
 }

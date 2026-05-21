@@ -11,7 +11,8 @@ pub const FtLibrary = c_api.FtLibrary;
 pub const FtFace = c_api.FtFace;
 pub const HbFont = c_api.HbFont;
 pub const primary_face_id: u32 = 1;
-pub const max_fallback_fonts: usize = 24;
+pub const FallbackFontCount = u8;
+pub const max_fallback_fonts: FallbackFontCount = 24;
 
 const ThreadMutex = struct {
     state: std.Io.Mutex = .init,
@@ -57,6 +58,15 @@ pub const State = struct {
         self.* = undefined;
     }
 };
+
+pub fn fallbackFontCount(value: usize) ?FallbackFontCount {
+    if (value > max_fallback_fonts) return null;
+    return @intCast(value);
+}
+
+pub fn fallbackFontLen(value: FallbackFontCount) usize {
+    return @intCast(value);
+}
 
 fn textState(self: anytype) *State {
     const T = @TypeOf(self.*);
@@ -311,9 +321,10 @@ pub fn ensureFont(self: anytype) bool {
         if (state.active_resolve) |obs| obs.stage = .loaded_exact_match;
         return true;
     }
-    for (0..state.fallback_font_paths_len) |i| {
+    var i: FallbackFontCount = 0;
+    while (i < state.fallback_font_paths_len) : (i += 1) {
         if (state.fallback_font_paths[i] == null) continue;
-        if (ensureFallbackFace(self, @intCast(i))) |_| {
+        if (ensureFallbackFace(self, i)) |_| {
             state.resolve_stage = .discovery_fallback;
             if (state.active_resolve) |obs| obs.stage = .discovery_fallback;
             return true;
@@ -355,7 +366,7 @@ pub fn resizeLoadedFaces(self: anytype) void {
     }
 }
 
-pub fn ensureFallbackFace(self: anytype, fallback_index: u32) ?FtFace {
+pub fn ensureFallbackFace(self: anytype, fallback_index: FallbackFontCount) ?FtFace {
     const state = textState(self);
     lockFt(self);
     defer unlockFt(self);
@@ -386,7 +397,7 @@ pub fn deriveCellMetrics(self: anytype) render.CellMetrics {
     defer unlockFt(self);
     if (ensureFreeTypeLibraryLocked(self)) {
         const lib = state.ft_lib.?;
-        var i: usize = 0;
+        var i: FallbackFontCount = 0;
         while (i < state.fallback_font_paths_len) : (i += 1) {
             const font_path = state.fallback_font_paths[i] orelse continue;
             var face: FtFace = undefined;
@@ -424,7 +435,10 @@ pub fn acquireShapingFaceLocked(self: anytype, face_id: render.FontFaceId) ?Shap
         const face = state.ft_face orelse return null;
         return .{ .face = face, .hb_font = state.hb_font, .owns_face = false };
     }
-    const fallback_index = if (face_id.value >= 2) face_id.value - 2 else return null;
+    const fallback_index = if (face_id.value >= 2)
+        fallbackFontCount(face_id.value - 2) orelse return null
+    else
+        return null;
     const slot = fallbackSlot(self, fallback_index) orelse return null;
     const face = state.fallback_faces[slot] orelse return null;
     return .{ .face = face, .hb_font = state.fallback_hb_fonts[slot], .owns_face = false };
@@ -575,7 +589,7 @@ fn buildProviderShapedRun(allocator: std.mem.Allocator, run: render.ResolvedRun,
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-fn fallbackSlot(self: anytype, fallback_index: u32) ?usize {
+fn fallbackSlot(self: anytype, fallback_index: FallbackFontCount) ?usize {
     const state = textState(self);
     if (fallback_index >= state.fallback_font_paths_len) return null;
     return @intCast(fallback_index);

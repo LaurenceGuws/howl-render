@@ -48,17 +48,17 @@ pub fn groupShapedRunsWithPolicy(
         var idx: usize = 0;
         while (idx < run.glyphs.len) {
             const cluster_index = run.glyphs[idx].cluster_index;
-            const cluster_idx = @as(usize, @intCast(cluster_index));
-            std.debug.assert(cluster_idx < clusters.len);
-            const cluster = clusters[cluster_idx];
+            const cluster_idx = cluster_index;
+            std.debug.assert(clusterIndex(cluster_idx) < clusters.len);
+            const cluster = clusters[clusterIndex(cluster_idx)];
             const start = idx;
             idx += 1;
             while (idx < run.glyphs.len and run.glyphs[idx].cluster_index == cluster_index) : (idx += 1) {}
             const glyph_slice = run.glyphs[start..idx];
             const next_cluster_exclusive = if (idx < run.glyphs.len)
-                @as(usize, @intCast(run.glyphs[idx].cluster_index))
+                run.glyphs[idx].cluster_index
             else
-                @as(usize, @intCast(run.run.run.cluster_start + run.run.run.cluster_count));
+                run.run.run.cluster_start + run.run.run.cluster_count;
             const inferred_cell_span = applyGroupingPolicy(cellSpanForClusterRange(clusters, cluster_idx, next_cluster_exclusive), cluster.first_cell, policy);
             groups[out_idx] = .{
                 .first_cell = cluster.first_cell,
@@ -102,9 +102,9 @@ pub fn groupSpriteRoutes(
     const groups = try allocator.alloc(contract.GlyphGroup, routes.len);
     errdefer allocator.free(groups);
     for (routes, 0..) |route, idx| {
-        const cluster_idx = @as(usize, @intCast(route.cluster_index));
-        std.debug.assert(cluster_idx < clusters.len);
-        const cluster = clusters[cluster_idx];
+        const cluster_idx = route.cluster_index;
+        std.debug.assert(clusterIndex(cluster_idx) < clusters.len);
+        const cluster = clusters[clusterIndex(cluster_idx)];
         const cell_span = spriteRouteCellSpan(route.route, clusters, cluster_idx);
         groups[idx] = .{
             .first_cell = cluster.first_cell,
@@ -149,11 +149,11 @@ fn classifyFontGroup(cluster: contract.CellCluster, glyphs: []const contract.Gly
     return .normal;
 }
 
-fn cellSpanForClusterRange(clusters: []const contract.CellCluster, start_idx: usize, end_exclusive: usize) u8 {
-    std.debug.assert(start_idx < clusters.len);
-    const clamped_end = std.math.clamp(end_exclusive, start_idx + 1, clusters.len);
-    const first = clusters[start_idx];
-    const last = clusters[clamped_end - 1];
+fn cellSpanForClusterRange(clusters: []const contract.CellCluster, start_idx: u32, end_exclusive: u32) u8 {
+    std.debug.assert(clusterIndex(start_idx) < clusters.len);
+    const clamped_end = std.math.clamp(end_exclusive, start_idx + 1, clusterCount(clusters));
+    const first = clusters[clusterIndex(start_idx)];
+    const last = clusters[clusterIndex(clamped_end - 1)];
     const end_cell = last.first_cell + @as(u32, last.cell_span);
     return @intCast(@max(end_cell - first.first_cell, 1));
 }
@@ -180,13 +180,13 @@ fn routeSpriteKey(route: contract.SpecialSpriteRoute, cluster: contract.CellClus
     return .{ .value = h.final() };
 }
 
-fn spriteRouteCellSpan(route: contract.SpecialSpriteRoute, clusters: []const contract.CellCluster, cluster_idx: usize) u8 {
-    const cluster = clusters[cluster_idx];
+fn spriteRouteCellSpan(route: contract.SpecialSpriteRoute, clusters: []const contract.CellCluster, cluster_idx: u32) u8 {
+    const cluster = clusters[clusterIndex(cluster_idx)];
     if (route != .powerline) return cluster.cell_span;
     var end_cell = cluster.first_cell + @as(u32, cluster.cell_span);
     var idx = cluster_idx + 1;
-    while (idx < clusters.len) : (idx += 1) {
-        const next = clusters[idx];
+    while (clusterIndex(idx) < clusters.len) : (idx += 1) {
+        const next = clusters[clusterIndex(idx)];
         if (next.first_cell != end_cell) break;
         if (!isPowerlineFollower(next)) break;
         end_cell += @as(u32, next.cell_span);
@@ -202,6 +202,14 @@ fn boxDrawingRasterMetrics(cell_metrics: contract.CellMetrics) contract.BoxDrawi
 
 fn isPowerlineFollower(cluster: contract.CellCluster) bool {
     return cluster.first_cp == ' ' or cluster.first_cp == 0;
+}
+
+fn clusterCount(clusters: []const contract.CellCluster) u32 {
+    return @intCast(clusters.len);
+}
+
+fn clusterIndex(value: u32) usize {
+    return @intCast(value);
 }
 
 test "group shaped run creates one group per glyph cluster" {
