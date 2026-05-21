@@ -321,9 +321,7 @@ test "compose preserves retained content outside partial updates" {
         .allocator = allocator,
         .request = .{
             .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
-            .known_target_epoch = 5,
         },
-        .required_surface_epoch = 5,
         .geometry_epoch = 1,
         .render_px = .{ .width = 4, .height = 4 },
         .cell_px = .{ .width = 1, .height = 1 },

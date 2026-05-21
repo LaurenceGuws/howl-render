@@ -222,9 +222,7 @@ pub const FfiPendingState = extern struct {
     prepare_pending: u8,
     submit_pending: u8,
     present_pending: u8,
-    target_valid: u8,
-    reserved0: u8 = 0,
-    reserved1: u16 = 0,
+    reserved0: u32 = 0,
 };
 
 pub const FfiPrepareRequest = extern struct {
@@ -232,10 +230,9 @@ pub const FfiPrepareRequest = extern struct {
     dirty_epoch: u64,
     geometry_epoch: u64,
     damage_base_seq: u64,
-    known_target_epoch: u64,
-    target_valid: u8,
     damage_kind: u8,
-    reserved0: u16 = 0,
+    reserved0: u8 = 0,
+    reserved1: u16 = 0,
 };
 
 pub const FfiPreparedFrame = extern struct {
@@ -244,7 +241,6 @@ pub const FfiPreparedFrame = extern struct {
     geometry_epoch: u64,
     damage_base_seq: u64,
     required_base_seq: u64,
-    required_target_epoch: u64,
     damage_kind: u8,
     reserved0: u8 = 0,
     reserved1: u16 = 0,
@@ -308,14 +304,12 @@ pub const FfiQueueMetrics = extern struct {
     full_prepare_requests: u64,
     submitted_accepts: u64,
     presents: u64,
-    target_invalidations: u64,
 };
 
 pub const FfiSurfaceHandle = extern struct {
     host_surface_id: u64,
     width: u16,
     height: u16,
-    epoch: u64,
 };
 
 pub const FfiPreparedSurfaceInfo = extern struct {
@@ -324,7 +318,6 @@ pub const FfiPreparedSurfaceInfo = extern struct {
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
-    required_surface_epoch: u64,
     render_px: FfiPixelSize,
     cell_px: FfiCellSize,
     grid: FfiGridSize,
@@ -350,9 +343,6 @@ pub const FfiSurfaceExecutionInput = extern struct {
     surface: FfiSurfaceHandle,
     uploads_committed: u64,
     render_us: u64,
-    content_valid: u8,
-    reserved0: u8 = 0,
-    reserved1: u16 = 0,
 };
 
 pub const FfiVtSurface = extern struct {

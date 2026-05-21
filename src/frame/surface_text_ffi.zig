@@ -133,7 +133,7 @@ pub fn takePrepareRequest(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPrepareRe
     prepare_out.* = std.mem.zeroes(abi.FfiPrepareRequest);
     const owner = ownerFromHandle(handle) orelse return .failed;
     const request = owner.flow.prepare() orelse return .idle;
-    prepare_out.* = prepareRequestOut(request, owner.flow.pendingState().target_valid);
+    prepare_out.* = prepareRequestOut(request);
     return .ready;
 }
 
@@ -159,13 +159,11 @@ pub fn takeSubmitDecision(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPreparedF
     };
 }
 
-pub fn acceptSubmitted(handle: abi.SurfaceTextHandle, prepared_in: abi.FfiPreparedFrame, surface_in: abi.FfiSurfaceHandle, content_valid: u8) callconv(.c) c_int {
+pub fn acceptSubmitted(handle: abi.SurfaceTextHandle, prepared_in: abi.FfiPreparedFrame) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     const prepared = preparedFrameIn(prepared_in) orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     owner.flow.acceptSubmitted(.{
         .token = prepared.token,
-        .target_epoch = surface_in.epoch,
-        .content_valid = content_valid != 0,
     });
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
@@ -210,7 +208,6 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: 
         .request = request,
         .layout = layout,
         .state = vt_surface.frameData(full_damage),
-        .target_valid = prepare_request.target_valid != 0,
     }) catch return .failed;
     const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
     value.* = @ptrCast(prepared_owner);
@@ -237,7 +234,7 @@ fn surfaceFeedbackOut(value: Render.RenderSurfaceFeedback) abi.FfiSurfaceFeedbac
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
         .damage_kind = @intFromEnum(value.damageKind()),
-        .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch },
+        .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height },
         .metrics = surfaceMetricsOut(value.metrics),
     };
 }
@@ -246,7 +243,7 @@ fn failedSurfaceFeedback() abi.FfiSurfaceFeedback {
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.failed),
         .damage_kind = 0,
-        .surface = .{ .host_surface_id = 0, .width = 0, .height = 0, .epoch = 0 },
+        .surface = .{ .host_surface_id = 0, .width = 0, .height = 0 },
         .metrics = std.mem.zeroes(abi.FfiSurfaceMetrics),
     };
 }
@@ -274,7 +271,7 @@ fn surfaceMetricsOut(value: Render.RenderMetrics) abi.FfiSurfaceMetrics {
 }
 
 fn executionInputIn(value: abi.FfiSurfaceExecutionInput) Render.SurfaceText.RenderSurfaceExecutionInput {
-    return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height, .epoch = value.surface.epoch }, .uploads_committed = value.uploads_committed, .render_us = value.render_us, .content_valid = value.content_valid != 0 };
+    return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height }, .uploads_committed = value.uploads_committed, .render_us = value.render_us };
 }
 
 fn geometryOut(value: surface.GeometryResponse) abi.FfiGeometryResponse {
@@ -322,7 +319,6 @@ fn pendingStateOut(value: Render.FrameQueue.PendingState) abi.FfiPendingState {
         .prepare_pending = @intFromBool(value.prepare_pending),
         .submit_pending = @intFromBool(value.submit_pending),
         .present_pending = @intFromBool(value.present_pending),
-        .target_valid = @intFromBool(value.target_valid),
     };
 }
 
@@ -333,7 +329,6 @@ fn pendingStateFailure(status: c_int) abi.FfiPendingState {
         .prepare_pending = 0,
         .submit_pending = 0,
         .present_pending = 0,
-        .target_valid = 0,
     };
 }
 
@@ -353,18 +348,15 @@ fn queueMetricsOut(value: Render.FrameQueue.QueueMetrics) abi.FfiQueueMetrics {
         .full_prepare_requests = value.full_prepare_requests,
         .submitted_accepts = value.submitted_accepts,
         .presents = value.presents,
-        .target_invalidations = value.target_invalidations,
     };
 }
 
-fn prepareRequestOut(value: Render.FramePipeline.RenderRequest, target_valid: bool) abi.FfiPrepareRequest {
+fn prepareRequestOut(value: Render.FramePipeline.RenderRequest) abi.FfiPrepareRequest {
     return .{
         .snapshot_seq = value.token.snapshot_seq,
         .dirty_epoch = value.token.dirty_epoch,
         .geometry_epoch = value.token.geometry_epoch,
         .damage_base_seq = value.token.damage_base_seq,
-        .known_target_epoch = value.known_target_epoch,
-        .target_valid = @intFromBool(target_valid),
         .damage_kind = @intFromEnum(value.token.damage_kind),
     };
 }
@@ -376,7 +368,6 @@ fn preparedFrameOut(value: Render.FramePipeline.PreparedFrame) abi.FfiPreparedFr
         .geometry_epoch = value.token.geometry_epoch,
         .damage_base_seq = value.token.damage_base_seq,
         .required_base_seq = value.required_base_seq,
-        .required_target_epoch = value.required_target_epoch,
         .damage_kind = @intFromEnum(value.token.damage_kind),
     };
 }
@@ -391,14 +382,13 @@ fn renderRequestIn(value: abi.FfiPrepareRequest) ?Render.FramePipeline.RenderReq
             .damage_base_seq = value.damage_base_seq,
             .damage_kind = damage_kind,
         },
-        .known_target_epoch = value.known_target_epoch,
         .allow_retained_reuse = true,
     };
 }
 
 fn preparedFrameIn(value: abi.FfiPreparedFrame) ?Render.FramePipeline.PreparedFrame {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
-    return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq, .required_target_epoch = value.required_target_epoch };
+    return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq };
 }
 
 fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !OwnedVtSurface {

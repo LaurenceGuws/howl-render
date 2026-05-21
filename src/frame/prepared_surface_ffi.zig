@@ -47,7 +47,6 @@ fn infoFailure(status: c_int) abi.FfiPreparedSurfaceInfo {
         .dirty_epoch = 0,
         .geometry_epoch = 0,
         .required_base_seq = 0,
-        .required_surface_epoch = 0,
         .render_px = .{ .width = 0, .height = 0 },
         .cell_px = .{ .width = 0, .height = 0 },
         .grid = .{ .cols = 0, .rows = 0 },

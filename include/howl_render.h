@@ -199,9 +199,7 @@ typedef struct {
   uint8_t prepare_pending;
   uint8_t submit_pending;
   uint8_t present_pending;
-  uint8_t target_valid;
-  uint8_t reserved0;
-  uint16_t reserved1;
+  uint32_t reserved0;
 } HowlRenderPendingState;
 
 typedef struct {
@@ -209,10 +207,9 @@ typedef struct {
   uint64_t dirty_epoch;
   uint64_t geometry_epoch;
   uint64_t damage_base_seq;
-  uint64_t known_target_epoch;
-  uint8_t target_valid;
   uint8_t damage_kind;
-  uint16_t reserved0;
+  uint8_t reserved0;
+  uint16_t reserved1;
 } HowlRenderPrepareRequest;
 
 typedef struct {
@@ -221,7 +218,6 @@ typedef struct {
   uint64_t geometry_epoch;
   uint64_t damage_base_seq;
   uint64_t required_base_seq;
-  uint64_t required_target_epoch;
   uint8_t damage_kind;
   uint8_t reserved0;
   uint16_t reserved1;
@@ -285,14 +281,12 @@ typedef struct {
   uint64_t full_prepare_requests;
   uint64_t submitted_accepts;
   uint64_t presents;
-  uint64_t target_invalidations;
 } HowlRenderQueueMetrics;
 
 typedef struct {
   uint64_t host_surface_id;
   uint16_t width;
   uint16_t height;
-  uint64_t epoch;
 } HowlRenderSurfaceHandle;
 
 typedef struct {
@@ -301,7 +295,6 @@ typedef struct {
   uint64_t dirty_epoch;
   uint64_t geometry_epoch;
   uint64_t required_base_seq;
-  uint64_t required_surface_epoch;
   HowlRenderPixelSize render_px;
   HowlRenderCellSize cell_px;
   HowlRenderGridSize grid;
@@ -327,9 +320,6 @@ typedef struct {
   HowlRenderSurfaceHandle surface;
   uint64_t uploads_committed;
   uint64_t render_us;
-  uint8_t content_valid;
-  uint8_t reserved0;
-  uint16_t reserved1;
 } HowlRenderSurfaceExecutionInput;
 
 typedef struct {
@@ -373,7 +363,7 @@ HowlRenderVtPublishResult howl_render_surface_text_publish_vt_snapshot(HowlRende
 HowlRenderPrepareStatus howl_render_surface_text_take_prepare_request(HowlRenderSurfaceTextHandle handle, HowlRenderPrepareRequest *prepare_request_out);
 int howl_render_surface_text_publish_prepared(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
 HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_decision(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame *prepared_frame_out);
-int howl_render_surface_text_accept_submitted(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame, HowlRenderSurfaceHandle surface, uint8_t content_valid);
+int howl_render_surface_text_accept_submitted(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
 void howl_render_surface_text_mark_presented(HowlRenderSurfaceTextHandle handle);
 int howl_render_surface_text_pending_state(HowlRenderSurfaceTextHandle handle, HowlRenderPendingState *pending_out);
 int howl_render_surface_text_take_queue_metrics(HowlRenderSurfaceTextHandle handle, HowlRenderQueueMetrics *metrics_out);

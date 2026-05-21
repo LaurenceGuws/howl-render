@@ -38,7 +38,6 @@ pub const SnapshotToken = struct {
 
 pub const RenderRequest = struct {
     token: SnapshotToken,
-    known_target_epoch: u64 = 0,
     allow_retained_reuse: bool = true,
 
     pub fn mustPrepareFull(self: RenderRequest, retained: ?SubmittedFrame) bool {
@@ -47,7 +46,6 @@ pub const RenderRequest = struct {
         return validatePreparedFrame(.{
             .token = self.token,
             .required_base_seq = self.token.damage_base_seq,
-            .required_target_epoch = self.known_target_epoch,
         }, submitted) != .valid;
     }
 };
@@ -55,7 +53,6 @@ pub const RenderRequest = struct {
 pub const PreparedFrame = struct {
     token: SnapshotToken,
     required_base_seq: u64 = 0,
-    required_target_epoch: u64 = 0,
 
     pub fn requiresRetainedBase(self: PreparedFrame) bool {
         return self.token.requiresRetainedBase();
@@ -85,10 +82,8 @@ pub fn PreparedFrameWith(comptime Payload: type) type {
 
 pub const SubmittedFrame = struct {
     token: SnapshotToken,
-    target_epoch: u64,
     atlas_epoch: u64 = 0,
     surface_epoch: u64 = 0,
-    content_valid: bool = false,
 };
 
 pub const SubmitValidation = enum {
@@ -96,15 +91,12 @@ pub const SubmitValidation = enum {
     stale_geometry,
     missing_retained_base,
     stale_retained_base,
-    stale_target,
 };
 
 pub fn validatePreparedFrame(prepared: PreparedFrame, submitted: SubmittedFrame) SubmitValidation {
     if (!prepared.requiresRetainedBase()) return .valid;
     if (prepared.token.geometry_epoch != submitted.token.geometry_epoch) return .stale_geometry;
-    if (!submitted.content_valid) return .missing_retained_base;
     if (prepared.required_base_seq != submitted.token.snapshot_seq) return .stale_retained_base;
-    if (prepared.required_target_epoch != 0 and prepared.required_target_epoch != submitted.target_epoch) return .stale_target;
     return .valid;
 }
 
@@ -118,7 +110,6 @@ pub const RenderResult = union(enum) {
 pub const FullPrepareReason = enum {
     retained_base_missing,
     retained_base_stale,
-    target_changed,
     geometry_changed,
 };
 
@@ -176,46 +167,32 @@ test "snapshot token classifies retained-base damage" {
 test "prepared partial frame validates retained target base" {
     const submitted = SubmittedFrame{
         .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 3, .damage_base_seq = 0, .damage_kind = .full },
-        .target_epoch = 7,
-        .content_valid = true,
     };
     const prepared = PreparedFrame{
         .token = .{ .snapshot_seq = 11, .dirty_epoch = 11, .geometry_epoch = 3, .damage_base_seq = 10, .damage_kind = .partial },
         .required_base_seq = 10,
-        .required_target_epoch = 7,
     };
 
     try std.testing.expectEqual(SubmitValidation.valid, validatePreparedFrame(prepared, submitted));
 }
 
-test "prepared partial frame rejects stale retained target state" {
+test "prepared partial frame rejects stale retained base state" {
     const submitted = SubmittedFrame{
         .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 3, .damage_base_seq = 0, .damage_kind = .full },
-        .target_epoch = 7,
-        .content_valid = true,
     };
 
     try std.testing.expectEqual(SubmitValidation.stale_retained_base, validatePreparedFrame(.{
         .token = .{ .snapshot_seq = 12, .dirty_epoch = 12, .geometry_epoch = 3, .damage_base_seq = 11, .damage_kind = .partial },
         .required_base_seq = 11,
-        .required_target_epoch = 7,
-    }, submitted));
-    try std.testing.expectEqual(SubmitValidation.stale_target, validatePreparedFrame(.{
-        .token = .{ .snapshot_seq = 11, .dirty_epoch = 11, .geometry_epoch = 3, .damage_base_seq = 10, .damage_kind = .partial },
-        .required_base_seq = 10,
-        .required_target_epoch = 8,
     }, submitted));
 }
 
 test "prepared full frame validates across geometry change" {
     const submitted = SubmittedFrame{
         .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
-        .target_epoch = 7,
-        .content_valid = true,
     };
     const prepared = PreparedFrame{
         .token = .{ .snapshot_seq = 11, .dirty_epoch = 11, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
-        .required_target_epoch = 7,
     };
 
     try std.testing.expectEqual(SubmitValidation.valid, validatePreparedFrame(prepared, submitted));
@@ -226,14 +203,11 @@ test "prepared frame payload keeps validation in the header" {
     const Prepared = PreparedFrameWith(Payload);
     const submitted = SubmittedFrame{
         .token = .{ .snapshot_seq = 4, .dirty_epoch = 4, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
-        .target_epoch = 9,
-        .content_valid = true,
     };
     const prepared = Prepared{
         .header = .{
             .token = .{ .snapshot_seq = 5, .dirty_epoch = 5, .geometry_epoch = 2, .damage_base_seq = 4, .damage_kind = .partial },
             .required_base_seq = 4,
-            .required_target_epoch = 9,
         },
         .payload = .{ .scene_id = 42 },
     };

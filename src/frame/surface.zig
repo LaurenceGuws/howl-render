@@ -226,7 +226,6 @@ pub const RenderSurfaceHandle = struct {
     host_surface_id: u64,
     width: u16,
     height: u16,
-    epoch: u64,
 };
 
 pub const SurfaceLayout = struct {
@@ -237,7 +236,6 @@ pub const SurfaceLayout = struct {
 pub const PreparedSurface = struct {
     allocator: std.mem.Allocator,
     request: pipeline.RenderRequest,
-    required_surface_epoch: u64,
     geometry_epoch: u64,
     render_px: PixelSize,
     cell_px: CellSize,
@@ -271,7 +269,6 @@ pub const PreparedSurface = struct {
                 .damage_kind = damage_kind,
             },
             .required_base_seq = damage_base_seq,
-            .required_target_epoch = self.required_surface_epoch,
         };
     }
 };
@@ -283,7 +280,6 @@ pub const RenderSurfaceFeedback = struct {
     surface: RenderSurfaceHandle,
     metrics: RenderMetrics,
     render_us: u64,
-    content_valid: bool = true,
 
     pub fn damageKind(self: RenderSurfaceFeedback) pipeline.DamageKind {
         return self.damage_kind;

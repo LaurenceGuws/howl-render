@@ -58,14 +58,12 @@ pub const SurfaceText = struct {
         surface: surface.RenderSurfaceHandle,
         uploads_committed: u64,
         render_us: u64,
-        content_valid: bool = true,
     };
     pub const PrepareInput = struct {
         config: SurfaceTextConfig,
         request: pipeline.RenderRequest,
         layout: surface.PrepareLayout,
         state: surface.FrameData,
-        target_valid: bool,
     };
 
     pub fn init() SurfaceText {
@@ -105,10 +103,6 @@ pub const SurfaceText = struct {
         errdefer self.mutex.unlock();
         var text_input = try input.vtStateToTextSceneInput(allocator, prepare.state);
         defer text_input.deinit();
-        if (!prepare.target_valid) {
-            if (self.text_preparer) |*preparer| preparer.clearAtlas();
-            text_input.options.scene.damage.full = true;
-        }
         var resolve: text_pipeline.ResolveObservability = .{};
         const preparer = try self.ensureTextPreparer(allocator, &context);
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
@@ -129,7 +123,6 @@ pub const SurfaceText = struct {
             .surface = execution.surface,
             .metrics = undefined,
             .render_us = execution.render_us,
-            .content_valid = execution.content_valid,
         };
         var final = submitted;
         final.metrics = submit_feedback.renderMetrics(
@@ -161,7 +154,6 @@ pub const SurfaceText = struct {
         return .{
             .allocator = allocator,
             .request = prepare.request,
-            .required_surface_epoch = prepare.request.known_target_epoch,
             .geometry_epoch = prepare.request.token.geometry_epoch,
             .render_px = prepare.layout.render_px,
             .cell_px = prepare.layout.cell_px,
@@ -281,7 +273,7 @@ pub const SurfaceTextOwner = struct {
     retained_surface_pixels: []u8 = &.{},
     retained_surface_width: u16 = 0,
     retained_surface_height: u16 = 0,
-    retained_surface_epoch: u64 = 0,
+    retained_surface_snapshot_seq: u64 = 0,
 
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };
 
@@ -371,7 +363,7 @@ pub const SurfaceTextOwner = struct {
         std.debug.assert(prepared.damageKind() == .partial);
         // Queue validation already proved that partial prepares must compose
         // against the last submitted full image from this render owner.
-        std.debug.assert(self.retained_surface_epoch == prepared.required_surface_epoch);
+        std.debug.assert(self.retained_surface_snapshot_seq == prepared.pipelineFrame().required_base_seq);
         std.debug.assert(self.retained_surface_width == prepared.render_px.width);
         std.debug.assert(self.retained_surface_height == prepared.render_px.height);
         const pixels_len: u64 = @as(u64, prepared.render_px.width) * @as(u64, prepared.render_px.height) * 4;
@@ -380,7 +372,7 @@ pub const SurfaceTextOwner = struct {
         return self.retained_surface_pixels;
     }
 
-    pub fn retainSurfaceImage(self: *SurfaceTextOwner, pixels: *[]u8, width: u16, height: u16, epoch: u64) void {
+    pub fn retainSurfaceImage(self: *SurfaceTextOwner, pixels: *[]u8, width: u16, height: u16, snapshot_seq: u64) void {
         std.debug.assert(width > 0);
         std.debug.assert(height > 0);
         const pixels_len: u64 = @as(u64, width) * @as(u64, height) * 4;
@@ -391,7 +383,7 @@ pub const SurfaceTextOwner = struct {
         self.retained_surface_pixels = pixels.*;
         self.retained_surface_width = width;
         self.retained_surface_height = height;
-        self.retained_surface_epoch = epoch;
+        self.retained_surface_snapshot_seq = snapshot_seq;
         pixels.* = &.{};
     }
 
@@ -400,7 +392,7 @@ pub const SurfaceTextOwner = struct {
         self.retained_surface_pixels = &.{};
         self.retained_surface_width = 0;
         self.retained_surface_height = 0;
-        self.retained_surface_epoch = 0;
+        self.retained_surface_snapshot_seq = 0;
     }
 
     fn syncFallbackFontPaths(self: *SurfaceTextOwner) void {
@@ -434,20 +426,18 @@ test "retainSurfaceImage adopts full image for later partial prepares" {
     const pixels = try std.heap.c_allocator.alloc(u8, 2 * 3 * 4);
     for (pixels, 0..) |*pixel, i| pixel.* = @intCast(i);
     var owned_pixels = pixels;
-    owner.retainSurfaceImage(&owned_pixels, 2, 3, 7);
+    owner.retainSurfaceImage(&owned_pixels, 2, 3, 1);
 
     try std.testing.expect(owned_pixels.len == 0);
     try std.testing.expectEqual(@as(u16, 2), owner.retained_surface_width);
     try std.testing.expectEqual(@as(u16, 3), owner.retained_surface_height);
-    try std.testing.expectEqual(@as(u64, 7), owner.retained_surface_epoch);
+    try std.testing.expectEqual(@as(u64, 1), owner.retained_surface_snapshot_seq);
 
     const prepared = surface.PreparedSurface{
         .allocator = std.heap.c_allocator,
         .request = .{
             .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
-            .known_target_epoch = 7,
         },
-        .required_surface_epoch = 7,
         .geometry_epoch = 1,
         .render_px = .{ .width = 2, .height = 3 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -487,14 +477,14 @@ test "invalidateTextState clears retained image state" {
     const pixels = try std.heap.c_allocator.alloc(u8, 4);
     @memset(pixels, 9);
     var owned_pixels = pixels;
-    owner.retainSurfaceImage(&owned_pixels, 1, 1, 3);
+    owner.retainSurfaceImage(&owned_pixels, 1, 1, 1);
 
     owner.invalidateTextState();
 
     try std.testing.expect(owner.retained_surface_pixels.len == 0);
     try std.testing.expectEqual(@as(u16, 0), owner.retained_surface_width);
     try std.testing.expectEqual(@as(u16, 0), owner.retained_surface_height);
-    try std.testing.expectEqual(@as(u64, 0), owner.retained_surface_epoch);
+    try std.testing.expectEqual(@as(u64, 0), owner.retained_surface_snapshot_seq);
 }
 
 test "setOwnedFontPath keeps owner and config font paths aligned" {

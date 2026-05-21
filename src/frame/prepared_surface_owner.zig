@@ -12,7 +12,6 @@ pub const Owner = struct {
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
-    required_surface_epoch: u64,
     render_px: abi.FfiPixelSize,
     cell_px: abi.FfiCellSize,
     grid: abi.FfiGridSize,
@@ -59,7 +58,6 @@ pub const Owner = struct {
             .dirty_epoch = self.dirty_epoch,
             .geometry_epoch = self.geometry_epoch,
             .required_base_seq = self.required_base_seq,
-            .required_surface_epoch = self.required_surface_epoch,
             .render_px = self.render_px,
             .cell_px = self.cell_px,
             .grid = self.grid,
@@ -97,16 +95,12 @@ pub const Owner = struct {
         const feedback = session_owner.session.submitSurface(&self.prepared, execution) catch {
             return .failed;
         };
-        if (feedback.content_valid) {
-            session_owner.retainSurfaceImage(
-                &self.rgba_pixels,
-                self.prepared.render_px.width,
-                self.prepared.render_px.height,
-                feedback.surface.epoch,
-            );
-        } else {
-            session_owner.clearRetainedSurface();
-        }
+        session_owner.retainSurfaceImage(
+            &self.rgba_pixels,
+            self.prepared.render_px.width,
+            self.prepared.render_px.height,
+            self.snapshot_seq,
+        );
         self.destroy();
         return .{ .rendered = feedback };
     }
@@ -134,7 +128,6 @@ fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: surface.Prepa
         .dirty_epoch = value.request.token.dirty_epoch,
         .geometry_epoch = value.geometry_epoch,
         .required_base_seq = value.pipelineFrame().required_base_seq,
-        .required_surface_epoch = value.required_surface_epoch,
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
         .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
@@ -206,6 +199,5 @@ fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool 
         a.token.geometry_epoch == b.token.geometry_epoch and
         a.token.damage_base_seq == b.token.damage_base_seq and
         a.token.damage_kind == b.token.damage_kind and
-        a.required_base_seq == b.required_base_seq and
-        a.required_target_epoch == b.required_target_epoch;
+        a.required_base_seq == b.required_base_seq;
 }

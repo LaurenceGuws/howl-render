@@ -38,14 +38,13 @@ classDiagram
 
 - `frame/surface.zig` owns render-surface contract types and prepared render-surface state.
 - `frame/queue.zig` owns retained render-surface queue state, geometry epoch/query state, VT
-  snapshot publication classification, submit validation, target-epoch invalidation, and present
-  retirement.
+  snapshot publication classification, retained-base validation, and present retirement.
 - `frame/surface_text.zig` owns prepare/submit text rendering work against VT-surface input.
 - `frame/prepared_surface_owner.zig` owns prepared-surface handle state and the realized surface
   image exported through that handle.
 - `frame/prepared_surface_ffi.zig` and `frame/surface_text_ffi.zig` translate the render contract to
   the shipped C ABI only.
-- `howl-render` owns render-surface feedback, target-epoch validation, and retained-frame logic.
+- `howl-render` owns render-surface feedback, retained-base validation, and retained-frame logic.
 - Hosts own concrete term-texture or backend resource creation, upload, and present.
 - `howl-render` must not name or require concrete backend objects such as GL textures in its public
   contract.
@@ -110,8 +109,8 @@ sequenceDiagram
 - `howl_render_surface_text_sync_geometry` accepts only render and grid pixel constraints. It
   commits the render-owned derived layout; hosts must not feed `cell_px` back as competing truth.
 - `howl_render_surface_text_sync_geometry` is the geometry-owner control step. The render owner
-  advances geometry epoch and target invalidation when geometry changes, and prepare reads that
-  owner state internally instead of exposing a host readback courier API.
+  advances geometry epoch, and prepare reads that owner state internally instead of exposing a host
+  readback courier API.
 - `howl_render_surface_text_publish_vt_snapshot`, `...take_prepare_request`,
   `...publish_prepared`, `...take_submit_decision`, `...accept_submitted`, and
   `...mark_presented` are the retained render-queue control steps. They let hosts publish VT

@@ -180,7 +180,6 @@ test "ffi pending state writes missing-handle status" {
         .prepare_pending = 1,
         .submit_pending = 1,
         .present_pending = 1,
-        .target_valid = 1,
     };
     try std.testing.expectEqual(
         @intFromEnum(HowlRenderCallStatus.missing_handle),
@@ -196,8 +195,6 @@ test "ffi take prepare request clears output on failure" {
         .dirty_epoch = 9,
         .geometry_epoch = 9,
         .damage_base_seq = 9,
-        .known_target_epoch = 9,
-        .target_valid = 1,
         .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
     };
     try std.testing.expectEqual(HowlRenderPrepareStatus.failed, surfaceTextTakePrepareRequest(null, &request));
@@ -211,7 +208,6 @@ test "ffi take submit decision clears output on failure" {
         .geometry_epoch = 9,
         .damage_base_seq = 9,
         .required_base_seq = 9,
-        .required_target_epoch = 9,
         .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
     };
     try std.testing.expectEqual(HowlRenderSubmitDecisionStatus.failed, surfaceTextTakeSubmitDecision(null, &prepared));
@@ -283,7 +279,6 @@ test "ffi prepared frame rejects invalid damage kind" {
         .geometry_epoch = 1,
         .damage_base_seq = 0,
         .required_base_seq = 0,
-        .required_target_epoch = 0,
         .damage_kind = 2,
     };
     try std.testing.expectEqual(
@@ -292,7 +287,7 @@ test "ffi prepared frame rejects invalid damage kind" {
     );
     try std.testing.expectEqual(
         @intFromEnum(HowlRenderCallStatus.invalid_argument),
-        surfaceTextAcceptSubmitted(handle, prepared, .{ .host_surface_id = 1, .width = 1, .height = 1, .epoch = 1 }, 1),
+        surfaceTextAcceptSubmitted(handle, prepared),
     );
 }
 
@@ -364,14 +359,13 @@ test "ffi submit clears feedback on failure" {
     var feedback = FfiSurfaceFeedback{
         .status = @intFromEnum(HowlRenderCallStatus.ok),
         .damage_kind = @intFromEnum(Render.FramePipeline.DamageKind.full),
-        .surface = .{ .host_surface_id = 99, .width = 9, .height = 9, .epoch = 9 },
+        .surface = .{ .host_surface_id = 99, .width = 9, .height = 9 },
         .metrics = std.mem.zeroes(FfiSurfaceMetrics),
     };
     const execution = FfiSurfaceExecutionInput{
-        .surface = .{ .host_surface_id = 1, .width = 1, .height = 1, .epoch = 1 },
+        .surface = .{ .host_surface_id = 1, .width = 1, .height = 1 },
         .uploads_committed = 0,
         .render_us = 0,
-        .content_valid = 1,
     };
     try std.testing.expectEqual(
         HowlRenderSubmitStatus.failed,
@@ -388,7 +382,6 @@ test "ffi prepared surface describe writes missing-handle status" {
         .dirty_epoch = 1,
         .geometry_epoch = 1,
         .required_base_seq = 1,
-        .required_surface_epoch = 1,
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
@@ -419,7 +412,6 @@ test "ffi queue metrics clears output on failure" {
         .full_prepare_requests = 9,
         .submitted_accepts = 9,
         .presents = 9,
-        .target_invalidations = 9,
     };
     try std.testing.expectEqual(
         @intFromEnum(HowlRenderCallStatus.missing_handle),
