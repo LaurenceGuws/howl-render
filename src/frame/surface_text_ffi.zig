@@ -92,9 +92,7 @@ pub fn publishVtSource(handle: abi.SurfaceTextHandle, source_in: abi.FfiVtSurfac
     const source = vtSurfaceIn(owner.allocator, source_in) catch {
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    const snapshot = vtSnapshotFromSource(source);
-    owner.publishSource(source);
-    return vtPublishResultOut(owner.flow.acceptSnapshot(snapshot));
+    return vtPublishResultOut(owner.flow.acceptSource(source));
 }
 
 pub fn takePrepareRequest(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPrepareRequest) callconv(.c) abi.HowlRenderPrepareStatus {
@@ -244,20 +242,6 @@ fn geometryOut(value: surface.GeometryResponse) abi.FfiGeometryResponse {
     };
 }
 
-fn vtSnapshotFromSource(value: surface_text.SurfaceTextOwner.PublishedSource) queue.VtSnapshot {
-    const dirty_rows: []const u8 = @ptrCast(value.dirty_rows);
-    return .{
-        .cols = value.cols,
-        .rows = value.rows,
-        .scroll_row = value.scroll_row,
-        .snapshot_seq = value.snapshot_seq,
-        .is_alternate_screen = value.is_alternate_screen,
-        .dirty_rows = dirty_rows,
-        .dirty_cols_start = value.dirty_cols_start,
-        .dirty_cols_end = value.dirty_cols_end,
-    };
-}
-
 fn vtPublishResultOut(value: queue.VtPublishResult) abi.FfiVtPublishResult {
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
@@ -348,7 +332,7 @@ fn preparedFrameIn(value: abi.FfiPreparedFrame) ?pipeline.PreparedFrame {
     return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq };
 }
 
-fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !surface_text.SurfaceTextOwner.PublishedSource {
+fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.PublicationSource {
     const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
     if (value.cells.len != cell_count) return error.InvalidSurfaceSource;
 

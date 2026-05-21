@@ -317,6 +317,22 @@ test "ffi prepare handle rejects missing output pointer" {
     );
 }
 
+test "ffi prepare handle rejects mismatched prepare token" {
+    const handle = testHandle();
+    defer surfaceTextDeinit(handle);
+    try std.testing.expect(handle != null);
+
+    const input = try nextPrepareInput(handle);
+    var wrong = input.request;
+    wrong.snapshot_seq +%= 1;
+    var prepared_handle: PreparedSurfaceHandle = @ptrFromInt(1);
+    try std.testing.expectEqual(
+        HowlRenderPrepareStatus.failed,
+        surfaceTextPrepareHandle(handle, wrong, &prepared_handle),
+    );
+    try std.testing.expect(prepared_handle == null);
+}
+
 test "ffi prepare handle clears output when source was never published" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);

@@ -87,7 +87,7 @@ const TerminalSurface = struct {
         self.submit_mailbox.publish(prepared);
     }
 
-    fn takeValidatedSubmit(self: *TerminalSurface) SubmitDecision {
+    fn takeValidatedSubmitWithLatest(self: *TerminalSurface, latest_token: ?pipeline.SnapshotToken) SubmitDecision {
         lockMutex(&self.mutex);
         const prepared = self.submit_mailbox.takeLatest() orelse {
             self.mutex.unlock();
@@ -95,7 +95,7 @@ const TerminalSurface = struct {
         };
         self.metrics.submit_takes +%= 1;
         self.mutex.unlock();
-        if (self.isStalePrepared(prepared.token)) return .{ .stale = prepared.token };
+        if (self.isStalePrepared(latest_token, prepared.token)) return .{ .stale = prepared.token };
 
         const validation = self.validatePrepared(prepared);
         if (validation == .valid) {
@@ -109,21 +109,7 @@ const TerminalSurface = struct {
         lockMutex(&self.mutex);
         self.metrics.submit_rejected +%= 1;
         self.mutex.unlock();
-        self.requestFullPrepare(prepared.token);
         return .{ .needs_full_prepare = reason };
-    }
-
-    fn requestFullPrepare(self: *TerminalSurface, fallback: pipeline.SnapshotToken) void {
-        lockMutex(&self.mutex);
-        defer self.mutex.unlock();
-        const token = forceFull(self.latest_token orelse fallback);
-        if (self.prepare_mailbox.hasPending()) self.metrics.prepare_coalesces +%= 1;
-        self.metrics.full_prepare_requests +%= 1;
-        self.metrics.prepare_requests +%= 1;
-        _ = self.prepare_mailbox.publish(.{
-            .token = token,
-            .allow_retained_reuse = false,
-        });
     }
 
     fn validatePrepared(self: *const TerminalSurface, prepared: pipeline.PreparedFrame) pipeline.SubmitValidation {
@@ -141,7 +127,6 @@ const TerminalSurface = struct {
         defer self.mutex.unlock();
         self.submitted_frame = frame;
         self.present_pending = true;
-        self.dropPrepareAtOrBefore(frame.token);
         self.metrics.submitted_accepts +%= 1;
     }
 
@@ -179,16 +164,10 @@ const TerminalSurface = struct {
         };
     }
 
-    fn isStalePrepared(self: *const TerminalSurface, token: pipeline.SnapshotToken) bool {
-        const surface: *TerminalSurface = @constCast(self);
-        lockMutex(&surface.mutex);
-        defer surface.mutex.unlock();
-        const latest = self.latest_token orelse return false;
+    fn isStalePrepared(self: *const TerminalSurface, latest_token: ?pipeline.SnapshotToken, token: pipeline.SnapshotToken) bool {
+        _ = self;
+        const latest = latest_token orelse return false;
         return latest.isNewerThan(token);
-    }
-
-    fn dropPrepareAtOrBefore(self: *TerminalSurface, token: pipeline.SnapshotToken) void {
-        self.prepare_mailbox.dropAtOrBefore(token);
     }
 
 };
@@ -202,6 +181,64 @@ pub const VtSnapshot = struct {
     dirty_rows: []const u8,
     dirty_cols_start: []const u16,
     dirty_cols_end: []const u16,
+};
+
+pub const PublicationSource = struct {
+    cols: u16,
+    rows: u16,
+    scroll_row: u64,
+    snapshot_seq: u64,
+    is_alternate_screen: bool,
+    cells: []surface_types.Cell,
+    cursor: surface_types.CursorInfo,
+    dirty_rows: []bool = &.{},
+    dirty_cols_start: []u16 = &.{},
+    dirty_cols_end: []u16 = &.{},
+
+    pub fn deinit(self: *PublicationSource, allocator: std.mem.Allocator) void {
+        allocator.free(self.cells);
+        if (self.dirty_rows.len > 0) allocator.free(self.dirty_rows);
+        if (self.dirty_cols_start.len > 0) allocator.free(self.dirty_cols_start);
+        if (self.dirty_cols_end.len > 0) allocator.free(self.dirty_cols_end);
+        self.* = undefined;
+    }
+
+    pub fn snapshot(self: *const PublicationSource) VtSnapshot {
+        const dirty_rows: []const u8 = @ptrCast(self.dirty_rows);
+        return .{
+            .cols = self.cols,
+            .rows = self.rows,
+            .scroll_row = self.scroll_row,
+            .snapshot_seq = self.snapshot_seq,
+            .is_alternate_screen = self.is_alternate_screen,
+            .dirty_rows = dirty_rows,
+            .dirty_cols_start = self.dirty_cols_start,
+            .dirty_cols_end = self.dirty_cols_end,
+        };
+    }
+
+    pub fn frameData(self: *const PublicationSource, full_damage: bool) surface_types.FrameData {
+        return .{
+            .viewport = .{
+                .cols = self.cols,
+                .rows = self.rows,
+                .scroll_row = self.scroll_row,
+                .is_alternate_screen = self.is_alternate_screen,
+            },
+            .grid = .{
+                .cells = self.cells,
+                .cols = self.cols,
+                .rows = self.rows,
+            },
+            .cursor = self.cursor,
+            .damage = .{
+                .full = full_damage,
+                .dirty_rows = self.dirty_rows,
+                .dirty_cols_start = self.dirty_cols_start,
+                .dirty_cols_end = self.dirty_cols_end,
+            },
+        };
+    }
 };
 
 pub const VtPublishResult = struct {
@@ -220,67 +257,186 @@ pub const PendingState = struct {
 };
 
 const Publication = struct {
-    cols: u16 = 0,
-    rows: u16 = 0,
-    scroll_row: u64 = 0,
-    snapshot_seq: u64 = 0,
-    is_alternate_screen: bool = false,
+    source: PublicationSource,
     damage_kind: pipeline.DamageKind = .none,
 
-    fn copyFrom(self: *Publication, snapshot: VtSnapshot, damage_kind: pipeline.DamageKind) void {
-        self.cols = snapshot.cols;
-        self.rows = snapshot.rows;
-        self.scroll_row = snapshot.scroll_row;
-        self.snapshot_seq = snapshot.snapshot_seq;
-        self.is_alternate_screen = snapshot.is_alternate_screen;
-        self.damage_kind = damage_kind;
+    fn deinit(self: *Publication, allocator: std.mem.Allocator) void {
+        self.source.deinit(allocator);
+        self.* = undefined;
+    }
+};
+
+const ActivePrepare = struct {
+    publication: Publication,
+    request: pipeline.RenderRequest,
+    taken: bool = false,
+
+    fn deinit(self: *ActivePrepare, allocator: std.mem.Allocator) void {
+        self.publication.deinit(allocator);
+        self.* = undefined;
+    }
+
+    fn matches(self: *const ActivePrepare, request: pipeline.RenderRequest) bool {
+        return sameSnapshotToken(self.request.token, request.token);
+    }
+
+    fn frameData(self: *const ActivePrepare) surface_types.FrameData {
+        return self.publication.source.frameData(self.request.token.damage_kind == .full);
     }
 };
 
 const PublicationState = struct {
-    publication: ?Publication = null,
-    pending: bool = false,
+    allocator: std.mem.Allocator,
+    pending: ?Publication = null,
+    active: ?ActivePrepare = null,
 
-    fn acceptSnapshot(self: *PublicationState, snapshot: VtSnapshot, geometry_epoch: u64) VtPublishResult {
+    fn init(allocator: std.mem.Allocator) PublicationState {
+        return .{ .allocator = allocator };
+    }
+
+    fn deinit(self: *PublicationState) void {
+        if (self.pending) |*publication| publication.deinit(self.allocator);
+        self.pending = null;
+        if (self.active) |*active| active.deinit(self.allocator);
+        self.active = null;
+    }
+
+    fn acceptSource(self: *PublicationState, source: PublicationSource, geometry_epoch: u64) VtPublishResult {
+        const snapshot = source.snapshot();
         const damage_kind = self.classify(snapshot);
         const published = damage_kind != .none;
-        if (published) {
-            if (self.publication == null) self.publication = .{};
-            self.publication.?.copyFrom(snapshot, damage_kind);
-            self.pending = true;
+        if (!published) {
+            var dropped = source;
+            dropped.deinit(self.allocator);
+        } else {
+            self.replacePending(.{ .source = source, .damage_kind = damage_kind });
         }
         return .{
             .published = published,
-            .queued = self.pending,
+            .queued = published,
             .damage_kind = damage_kind,
             .snapshot_seq = snapshot.snapshot_seq,
             .geometry_epoch = geometry_epoch,
         };
     }
 
-    fn takePendingToken(self: *PublicationState, geometry_epoch: u64, submitted_token: ?pipeline.SnapshotToken) ?pipeline.SnapshotToken {
-        if (!self.pending) return null;
-        const publication = self.publication orelse return null;
-        self.pending = false;
-        return .{
-            .snapshot_seq = publication.snapshot_seq,
-            .dirty_epoch = publication.snapshot_seq,
+    fn takePrepareRequest(self: *PublicationState, geometry_epoch: u64, submitted_token: ?pipeline.SnapshotToken) ?pipeline.RenderRequest {
+        if (self.active == null) self.activatePending(geometry_epoch, submitted_token);
+        const active = self.active orelse return null;
+        if (active.taken) return null;
+        self.active.?.taken = true;
+        return active.request;
+    }
+
+    fn frameDataForRequest(self: *PublicationState, request: pipeline.RenderRequest) !surface_types.FrameData {
+        const active = self.active orelse return error.MissingPublishedSource;
+        if (!active.matches(request)) return error.MismatchedPublishedSource;
+        return active.frameData();
+    }
+
+    fn latestToken(self: *const PublicationState) ?pipeline.SnapshotToken {
+        if (self.pending) |publication| {
+            return .{
+                .snapshot_seq = publication.source.snapshot_seq,
+                .dirty_epoch = publication.source.snapshot_seq,
+                .geometry_epoch = 0,
+                .damage_base_seq = 0,
+                .damage_kind = publication.damage_kind,
+            };
+        }
+        if (self.active) |active| return active.request.token;
+        return null;
+    }
+
+    fn requestFullPrepare(self: *PublicationState) bool {
+        if (self.pending != null) {
+            self.dropActive();
+            return false;
+        }
+        if (self.active == null) return false;
+        self.active.?.request = .{
+            .token = TerminalSurface.forceFull(self.active.?.request.token),
+            .allow_retained_reuse = false,
+        };
+        self.active.?.taken = false;
+        return true;
+    }
+
+    fn retireAtOrBefore(self: *PublicationState, token: pipeline.SnapshotToken) void {
+        if (self.pending) |*publication| {
+            if (publication.source.snapshot_seq <= token.snapshot_seq) {
+                publication.deinit(self.allocator);
+                self.pending = null;
+            }
+        }
+        if (self.active) |*active| {
+            if (!active.request.token.isNewerThan(token)) {
+                active.deinit(self.allocator);
+                self.active = null;
+            }
+        }
+    }
+
+    fn sourcePending(self: *const PublicationState) bool {
+        return self.pending != null;
+    }
+
+    fn preparePending(self: *const PublicationState) bool {
+        if (self.active) |active| return !active.taken;
+        return false;
+    }
+
+    fn replacePending(self: *PublicationState, publication: Publication) void {
+        if (self.pending) |*prior| prior.deinit(self.allocator);
+        self.pending = publication;
+    }
+
+    fn dropActive(self: *PublicationState) void {
+        if (self.active) |*active| active.deinit(self.allocator);
+        self.active = null;
+    }
+
+    fn activatePending(self: *PublicationState, geometry_epoch: u64, submitted_token: ?pipeline.SnapshotToken) void {
+        const publication = self.pending orelse return;
+        self.pending = null;
+        const token = pipeline.SnapshotToken{
+            .snapshot_seq = publication.source.snapshot_seq,
+            .dirty_epoch = publication.source.snapshot_seq,
             .geometry_epoch = geometry_epoch,
-            .damage_base_seq = if (submitted_token) |token| token.snapshot_seq else 0,
+            .damage_base_seq = if (submitted_token) |token_value| token_value.snapshot_seq else 0,
             .damage_kind = publication.damage_kind,
+        };
+        self.dropActive();
+        self.active = .{
+            .publication = publication,
+            .request = .{ .token = token, .allow_retained_reuse = true },
         };
     }
 
     fn classify(self: *const PublicationState, snapshot: VtSnapshot) pipeline.DamageKind {
         const damage_kind = classifyDirty(snapshot);
-        const prior = self.publication orelse return damage_kind;
+        const prior = self.priorSnapshot() orelse return damage_kind;
         if (snapshot.snapshot_seq == prior.snapshot_seq) return .none;
         if (snapshot.cols != prior.cols or snapshot.rows != prior.rows) return .full;
         if (snapshot.is_alternate_screen != prior.is_alternate_screen) return .full;
         if (snapshot.scroll_row != prior.scroll_row) return .full;
         return damage_kind;
     }
+
+    fn priorSnapshot(self: *const PublicationState) ?VtSnapshot {
+        if (self.pending) |publication| return publication.source.snapshot();
+        if (self.active) |active| return active.publication.source.snapshot();
+        return null;
+    }
 };
+
+fn sameSnapshotToken(a: pipeline.SnapshotToken, b: pipeline.SnapshotToken) bool {
+    return a.snapshot_seq == b.snapshot_seq and
+        a.dirty_epoch == b.dirty_epoch and
+        a.geometry_epoch == b.geometry_epoch and
+        a.damage_base_seq == b.damage_base_seq and
+        a.damage_kind == b.damage_kind;
+}
 
 fn classifyDirty(snapshot: VtSnapshot) pipeline.DamageKind {
     std.debug.assert(snapshot.dirty_rows.len == snapshot.rows);
@@ -330,16 +486,32 @@ fn testSnapshot(
 
 pub const Flow = struct {
     surface: TerminalSurface = .{},
+    allocator: std.mem.Allocator,
     render_px: surface_types.PixelSize = .{ .width = 0, .height = 0 },
     grid_px: surface_types.PixelSize = .{ .width = 0, .height = 0 },
     cell_px: surface_types.CellSize = .{ .width = 0, .height = 0 },
     geometry_epoch: u64 = 0,
-    publication_state: PublicationState = .{},
+    publication_state: PublicationState,
+
+    pub fn init(allocator: std.mem.Allocator) Flow {
+        return .{ .allocator = allocator, .publication_state = PublicationState.init(allocator) };
+    }
+
+    pub fn deinit(self: *Flow) void {
+        self.publication_state.deinit();
+    }
+
+    pub fn acceptSource(self: *Flow, source: PublicationSource) VtPublishResult {
+        std.debug.assert(source.cols > 0);
+        std.debug.assert(source.rows > 0);
+        const result = self.publication_state.acceptSource(source, self.geometry_epoch);
+        self.noteSnapshotPublish(result.damage_kind);
+        return result;
+    }
 
     pub fn acceptSnapshot(self: *Flow, snapshot: VtSnapshot) VtPublishResult {
-        std.debug.assert(snapshot.cols > 0);
-        std.debug.assert(snapshot.rows > 0);
-        return self.publication_state.acceptSnapshot(snapshot, self.geometry_epoch);
+        const source = testSourceFromSnapshot(self.allocator, snapshot) catch unreachable;
+        return self.acceptSource(source);
     }
 
     pub fn syncGeometry(self: *Flow, layout: surface_types.Geometry) surface_types.GeometryResponse {
@@ -371,10 +543,18 @@ pub const Flow = struct {
             defer self.surface.mutex.unlock();
             break :blk if (self.surface.submitted_frame) |frame| frame.token else null;
         };
-        if (self.publication_state.takePendingToken(self.geometry_epoch, submitted_token)) |token| {
-            self.surface.publishSnapshot(token);
+        const request = self.publication_state.takePrepareRequest(self.geometry_epoch, submitted_token) orelse return null;
+        const effective_token = self.surface.prepareTokenForCurrentRetainedState(request.token);
+        if (effective_token.damage_kind == .full and request.token.damage_kind != .full) self.notePrepareForcedFull();
+        if (!sameSnapshotToken(effective_token, request.token)) {
+            self.publication_state.active.?.request = .{ .token = effective_token, .allow_retained_reuse = request.allow_retained_reuse };
         }
-        return self.surface.takePrepare();
+        self.notePrepareTake();
+        return self.publication_state.active.?.request;
+    }
+
+    pub fn prepareFrameData(self: *Flow, request: pipeline.RenderRequest) !surface_types.FrameData {
+        return self.publication_state.frameDataForRequest(request);
     }
 
     pub fn prepareLayout(self: *const Flow, geometry_epoch: u64) surface_types.PrepareLayout {
@@ -395,14 +575,23 @@ pub const Flow = struct {
     }
 
     pub fn submit(self: *Flow) SubmitDecision {
-        return self.surface.takeValidatedSubmit();
+        const decision = self.surface.takeValidatedSubmitWithLatest(self.publication_state.latestToken());
+        switch (decision) {
+            .stale => |token| self.publication_state.retireAtOrBefore(token),
+            .needs_full_prepare => {
+                if (self.publication_state.requestFullPrepare()) self.noteFullPrepareRequest();
+            },
+            else => {},
+        }
+        return decision;
     }
 
     pub fn acceptSubmitted(self: *Flow, frame: pipeline.SubmittedFrame) void {
         if (frame.token.geometry_epoch != self.geometry_epoch) {
-            self.surface.requestFullPrepare(frame.token);
+            if (self.publication_state.requestFullPrepare()) self.noteFullPrepareRequest();
             return;
         }
+        self.publication_state.retireAtOrBefore(frame.token);
         self.surface.acceptSubmitted(frame);
     }
 
@@ -422,8 +611,8 @@ pub const Flow = struct {
             };
         };
         return .{
-            .source_pending = self.publication_state.pending,
-            .prepare_pending = pending.prepare_pending,
+            .source_pending = self.publication_state.sourcePending(),
+            .prepare_pending = self.publication_state.preparePending(),
             .submit_pending = pending.submit_pending,
             .present_pending = pending.present_pending,
         };
@@ -432,7 +621,91 @@ pub const Flow = struct {
     pub fn takeMetrics(self: *Flow) QueueMetrics {
         return self.surface.takeMetrics();
     }
+
+    fn noteSnapshotPublish(self: *Flow, damage_kind: pipeline.DamageKind) void {
+        lockMutex(&self.surface.mutex);
+        defer self.surface.mutex.unlock();
+        if (damage_kind == .none) {
+            self.surface.metrics.snapshot_clean_drops +%= 1;
+            return;
+        }
+        self.surface.latest_token = self.publication_state.latestToken();
+        self.surface.metrics.snapshot_publishes +%= 1;
+        self.surface.metrics.prepare_requests +%= 1;
+        if (self.publication_state.pending != null and self.publication_state.active != null) self.surface.metrics.prepare_coalesces +%= 1;
+    }
+
+    fn notePrepareForcedFull(self: *Flow) void {
+        lockMutex(&self.surface.mutex);
+        defer self.surface.mutex.unlock();
+        self.surface.latest_token = self.publication_state.latestToken();
+        self.surface.metrics.prepare_forced_full +%= 1;
+    }
+
+    fn notePrepareTake(self: *Flow) void {
+        lockMutex(&self.surface.mutex);
+        defer self.surface.mutex.unlock();
+        self.surface.latest_token = self.publication_state.latestToken();
+        self.surface.metrics.prepare_takes +%= 1;
+    }
+
+    fn noteFullPrepareRequest(self: *Flow) void {
+        lockMutex(&self.surface.mutex);
+        defer self.surface.mutex.unlock();
+        self.surface.latest_token = self.publication_state.latestToken();
+        self.surface.metrics.full_prepare_requests +%= 1;
+        self.surface.metrics.prepare_requests +%= 1;
+    }
 };
+
+fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !PublicationSource {
+    const cell_count: u32 = @as(u32, snapshot.cols) * @as(u32, snapshot.rows);
+    const cells = try allocator.alloc(surface_types.Cell, @intCast(cell_count));
+    @memset(cells, std.mem.zeroes(surface_types.Cell));
+    const dirty_rows = try allocator.alloc(bool, snapshot.rows);
+    errdefer allocator.free(dirty_rows);
+    for (dirty_rows, 0..) |*dst, i| dst.* = snapshot.dirty_rows[i] != 0;
+    const dirty_cols_start = try allocator.dupe(u16, snapshot.dirty_cols_start);
+    errdefer allocator.free(dirty_cols_start);
+    const dirty_cols_end = try allocator.dupe(u16, snapshot.dirty_cols_end);
+    errdefer allocator.free(dirty_cols_end);
+    return .{
+        .cols = snapshot.cols,
+        .rows = snapshot.rows,
+        .scroll_row = snapshot.scroll_row,
+        .snapshot_seq = snapshot.snapshot_seq,
+        .is_alternate_screen = snapshot.is_alternate_screen,
+        .cells = cells,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = dirty_cols_start,
+        .dirty_cols_end = dirty_cols_end,
+    };
+}
+
+fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !PublicationSource {
+    const cells = try allocator.alloc(surface_types.Cell, 1);
+    cells[0] = std.mem.zeroes(surface_types.Cell);
+    cells[0].codepoint = codepoint;
+    const dirty_rows = try allocator.alloc(bool, 1);
+    dirty_rows[0] = true;
+    const dirty_cols_start = try allocator.dupe(u16, &[_]u16{0});
+    errdefer allocator.free(dirty_cols_start);
+    const dirty_cols_end = try allocator.dupe(u16, &[_]u16{0});
+    errdefer allocator.free(dirty_cols_end);
+    return .{
+        .cols = 1,
+        .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = snapshot_seq,
+        .is_alternate_screen = false,
+        .cells = cells,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = dirty_cols_start,
+        .dirty_cols_end = dirty_cols_end,
+    };
+}
 
 fn fullPrepareReason(validation: pipeline.SubmitValidation) pipeline.FullPrepareReason {
     return switch (validation) {
@@ -511,7 +784,7 @@ test "surface validates submit candidates before GPU mutation" {
         .required_base_seq = 1,
     });
 
-    const decision = surface.takeValidatedSubmit();
+    const decision = surface.takeValidatedSubmitWithLatest(surface.latest_token);
     switch (decision) {
         .submit => |prepared| try std.testing.expectEqual(@as(u64, 2), prepared.token.snapshot_seq),
         else => return error.TestUnexpectedResult,
@@ -527,47 +800,66 @@ test "surface reports stale submit when newer snapshot already won" {
     surface.publishSnapshot(.{ .snapshot_seq = 3, .dirty_epoch = 3, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full });
     surface.publishPrepared(.{ .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } });
 
-    const decision = surface.takeValidatedSubmit();
+    const decision = surface.takeValidatedSubmitWithLatest(surface.latest_token);
     switch (decision) {
         .stale => |token| try std.testing.expectEqual(@as(u64, 2), token.snapshot_seq),
         else => return error.TestUnexpectedResult,
     }
 }
 
-test "surface rejects stale submit and requests full latest prepare" {
-    var surface = TerminalSurface{};
-    surface.acceptSubmitted(.{
+test "flow rejects stale submit and requests full latest prepare" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = flow.syncGeometry(.{
+        .render_px = .{ .width = 10, .height = 10 },
+        .grid_px = .{ .width = 10, .height = 10 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+    const dirty_rows = [_]u8{1} ** 10;
+    const dirty_cols_start = [_]u16{0} ** 10;
+    const dirty_cols_end = [_]u16{9} ** 10;
+
+    flow.acceptSubmitted(.{
         .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     });
-    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 2, .damage_kind = .partial });
-    _ = surface.takePrepare();
-    surface.publishPrepared(.{
+    _ = flow.acceptSnapshot(testSnapshot(10, 10, 0, 2, &dirty_rows, &dirty_cols_start, &dirty_cols_end));
+    _ = flow.prepare();
+    flow.publishPrepared(.{
         .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 2, .damage_kind = .partial },
         .required_base_seq = 2,
     });
 
-    const decision = surface.takeValidatedSubmit();
+    const decision = flow.submit();
     switch (decision) {
         .needs_full_prepare => |reason| try std.testing.expectEqual(pipeline.FullPrepareReason.retained_base_stale, reason),
         else => return error.TestUnexpectedResult,
     }
-    const request = surface.takePrepare() orelse return error.TestUnexpectedResult;
+    const request = flow.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), request.token.snapshot_seq);
     try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
-    const metrics_snapshot = surface.takeMetrics();
+    const metrics_snapshot = flow.takeMetrics();
     try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.submit_rejected);
     try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.full_prepare_requests);
 }
 
-test "surface drops pending prepare at submitted token" {
-    var surface = TerminalSurface{};
-    surface.publishSnapshot(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial });
+test "flow drops pending prepare at submitted token" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = flow.syncGeometry(.{
+        .render_px = .{ .width = 10, .height = 10 },
+        .grid_px = .{ .width = 10, .height = 10 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+    const dirty_rows = [_]u8{1} ** 10;
+    const dirty_cols_start = [_]u16{0} ** 10;
+    const dirty_cols_end = [_]u16{9} ** 10;
+    _ = flow.acceptSnapshot(testSnapshot(10, 10, 0, 2, &dirty_rows, &dirty_cols_start, &dirty_cols_end));
 
-    surface.acceptSubmitted(.{
+    flow.acceptSubmitted(.{
         .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     });
 
-    try std.testing.expect(surface.takePrepare() == null);
+    try std.testing.expect(flow.prepare() == null);
 }
 
 test "surface metric drain keeps scheduling state" {
@@ -580,7 +872,8 @@ test "surface metric drain keeps scheduling state" {
 }
 
 test "flow exposes source pending before queue preparation" {
-    var flow = Flow{};
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
     _ = flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
@@ -600,8 +893,48 @@ test "flow exposes source pending before queue preparation" {
     try std.testing.expect(!flow.pendingState().prepare_pending);
 }
 
+test "flow keeps latest source when publish A then B before prepare" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = flow.syncGeometry(.{
+        .render_px = .{ .width = 1, .height = 1 },
+        .grid_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    _ = flow.acceptSource(try ownedTestSource(std.heap.c_allocator, 1, 'A'));
+    _ = flow.acceptSource(try ownedTestSource(std.heap.c_allocator, 2, 'B'));
+
+    const request = flow.prepare() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 2), request.token.snapshot_seq);
+    const frame = try flow.prepareFrameData(request);
+    try std.testing.expectEqual(@as(u21, 'B'), frame.grid.cells[0].codepoint);
+}
+
+test "flow rejects mismatched prepare token against retained source" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = flow.syncGeometry(.{
+        .render_px = .{ .width = 1, .height = 1 },
+        .grid_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    _ = flow.acceptSource(try ownedTestSource(std.heap.c_allocator, 1, 'A'));
+    const request_a = flow.prepare() orelse return error.TestUnexpectedResult;
+    _ = flow.acceptSource(try ownedTestSource(std.heap.c_allocator, 2, 'B'));
+
+    const frame_a = try flow.prepareFrameData(request_a);
+    try std.testing.expectEqual(@as(u21, 'A'), frame_a.grid.cells[0].codepoint);
+
+    var wrong = request_a;
+    wrong.token.snapshot_seq = 2;
+    try std.testing.expectError(error.MismatchedPublishedSource, flow.prepareFrameData(wrong));
+}
+
 test "flow preserves partial snapshot damage while prior snapshot is still pending" {
-    var flow = Flow{};
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
     _ = flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
@@ -621,7 +954,8 @@ test "flow preserves partial snapshot damage while prior snapshot is still pendi
 }
 
 test "flow forces full snapshot on scroll row change" {
-    var flow = Flow{};
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
     _ = flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
@@ -641,7 +975,8 @@ test "flow forces full snapshot on scroll row change" {
 }
 
 test "flow drops clean snapshot" {
-    var flow = Flow{};
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
     _ = flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },

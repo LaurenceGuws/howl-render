@@ -39,8 +39,9 @@ classDiagram
 ## Ownership Rules
 
 - `frame/surface.zig` owns render-surface contract types and prepared render-surface state.
-- `frame/queue.zig` owns retained render-surface queue state, geometry epoch/query state, VT
-  snapshot publication classification, retained-base validation, and present retirement.
+- `frame/queue.zig` owns retained render-surface queue state, geometry epoch/query state, one
+  retained published VT-source packet per active prepare slot, VT snapshot publication
+  classification, retained-base validation, and present retirement.
 - `frame/surface_text.zig` owns prepare/submit text rendering work against VT-surface input, render
   session font config, fallback-font path copies, and text-state invalidation tied to that config.
 - `frame/surface_text.zig` also owns the render-session allocator policy after init. The shipped C ABI
@@ -110,14 +111,17 @@ sequenceDiagram
   least one usable font path for session startup.
 - `HowlRenderVtSurface` carries VT-surface cells, cursor, viewport, dirty spans, and snapshot
   sequence truth into the render owner at publish time.
-- `howl_render_surface_text_prepare_handle` consumes a render-owned published VT source plus a
-  render-owned prepare request, returns a prepared render-surface handle only, and does not allocate
-  or mutate host backend resources.
+- `howl_render_surface_text_prepare_handle` consumes the exact render-owned published VT-source
+  packet previously queued for that prepare token, returns a prepared render-surface handle only,
+  and does not allocate or mutate host backend resources.
 - the shipped C ABI currently binds render-owned session and prepared-surface allocations to the C
   allocator explicitly at the init/prepare seam. That allocator policy is part of the ABI
   translation step, not hidden owner behavior.
 - `howl_render_surface_text_prepare_handle` consumes render-owned request state only. Hosts must not
   replay a second VT-surface copy into prepare as if it were independent authority.
+- render retains the queued VT-source packet at the queue owner until that publication is retired or
+  superseded. `prepare_handle` rejects a token that does not match the retained packet currently
+  queued for prepare.
 - `howl_render_surface_text_derive_frame_layout` is the public geometry-derivation entrypoint.
   Host-facing helpers that asked callers to provide `cell_px` are not part of the shipped contract.
 - `howl_render_surface_text_sync_geometry` accepts only render and grid pixel constraints. It

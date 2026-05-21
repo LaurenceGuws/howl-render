@@ -284,62 +284,17 @@ pub const SurfaceTextOwner = struct {
     config: SurfaceTextConfig,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
-    published_source: ?PublishedSource = null,
     retained_surface_pixels: []u8 = &.{},
     retained_surface_width: u16 = 0,
     retained_surface_height: u16 = 0,
     retained_surface_snapshot_seq: u64 = 0,
-
-    pub const PublishedSource = struct {
-        cols: u16,
-        rows: u16,
-        scroll_row: u64,
-        snapshot_seq: u64,
-        is_alternate_screen: bool,
-        cells: []surface.Cell,
-        cursor: surface.CursorInfo,
-        dirty_rows: []bool = &.{},
-        dirty_cols_start: []u16 = &.{},
-        dirty_cols_end: []u16 = &.{},
-
-        pub fn deinit(self: *PublishedSource, allocator: std.mem.Allocator) void {
-            allocator.free(self.cells);
-            if (self.dirty_rows.len > 0) allocator.free(self.dirty_rows);
-            if (self.dirty_cols_start.len > 0) allocator.free(self.dirty_cols_start);
-            if (self.dirty_cols_end.len > 0) allocator.free(self.dirty_cols_end);
-            self.* = undefined;
-        }
-
-        pub fn frameData(self: *const PublishedSource, full_damage: bool) surface.FrameData {
-            return .{
-                .viewport = .{
-                    .cols = self.cols,
-                    .rows = self.rows,
-                    .scroll_row = self.scroll_row,
-                    .is_alternate_screen = self.is_alternate_screen,
-                },
-                .grid = .{
-                    .cells = self.cells,
-                    .cols = self.cols,
-                    .rows = self.rows,
-                },
-                .cursor = self.cursor,
-                .damage = .{
-                    .full = full_damage,
-                    .dirty_rows = self.dirty_rows,
-                    .dirty_cols_start = self.dirty_cols_start,
-                    .dirty_cols_end = self.dirty_cols_end,
-                },
-            };
-        }
-    };
 
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };
 
     pub fn create(allocator: std.mem.Allocator, config: SurfaceTextConfig) ?*SurfaceTextOwner {
         std.debug.assert(config.font_size_px > 0);
         const owner = allocator.create(SurfaceTextOwner) catch return null;
-        owner.* = .{ .allocator = allocator, .session = SurfaceText.init(allocator), .flow = .{}, .config = config };
+        owner.* = .{ .allocator = allocator, .session = SurfaceText.init(allocator), .flow = queue.Flow.init(allocator), .config = config };
         return owner;
     }
 
@@ -347,7 +302,7 @@ pub const SurfaceTextOwner = struct {
         if (self.font_path) |path| self.allocator.free(path);
         self.font_path = null;
         freeOwnedFallbackFontPaths(self.allocator, &self.fallback_font_paths);
-        self.clearPublishedSource();
+        self.flow.deinit();
         self.clearRetainedSurface();
         self.session.deinit();
         self.allocator.destroy(self);
@@ -415,15 +370,8 @@ pub const SurfaceTextOwner = struct {
         });
     }
 
-    pub fn publishSource(self: *SurfaceTextOwner, source: PublishedSource) void {
-        self.clearPublishedSource();
-        self.published_source = source;
-    }
-
     pub fn preparePublishedSurface(self: *SurfaceTextOwner, request: pipeline.RenderRequest) !surface.PreparedSurface {
-        const source = self.published_source orelse return error.MissingPublishedSource;
-        std.debug.assert(source.snapshot_seq == request.token.snapshot_seq);
-        return try self.prepareSurface(request, source.frameData(request.token.damage_kind == .full));
+        return try self.prepareSurface(request, try self.flow.prepareFrameData(request));
     }
 
     pub fn setOwnedFontPath(self: *SurfaceTextOwner, owned: ?[:0]u8) void {
@@ -480,11 +428,6 @@ pub const SurfaceTextOwner = struct {
         self.retained_surface_snapshot_seq = 0;
     }
 
-    pub fn clearPublishedSource(self: *SurfaceTextOwner) void {
-        if (self.published_source) |*source| source.deinit(self.allocator);
-        self.published_source = null;
-    }
-
     fn syncFallbackFontPaths(self: *SurfaceTextOwner) void {
         const count = text_support.fallbackFontCount(count32(self.fallback_font_paths.items)) orelse unreachable;
         self.session.text_state.fallback_font_paths_len = count;
@@ -508,10 +451,11 @@ test "retainSurfaceImage adopts full image for later partial prepares" {
     var owner = SurfaceTextOwner{
         .allocator = std.heap.c_allocator,
         .session = SurfaceText.init(std.heap.c_allocator),
-        .flow = .{},
+        .flow = queue.Flow.init(std.heap.c_allocator),
         .config = .{ .surface_px = .{ .width = 2, .height = 3 } },
     };
     defer owner.clearRetainedSurface();
+    defer owner.flow.deinit();
     defer owner.session.deinit();
 
     const pixels = try std.heap.c_allocator.alloc(u8, 2 * 3 * 4);
@@ -560,10 +504,11 @@ test "invalidateTextState clears retained image state" {
     var owner = SurfaceTextOwner{
         .allocator = std.heap.c_allocator,
         .session = SurfaceText.init(std.heap.c_allocator),
-        .flow = .{},
+        .flow = queue.Flow.init(std.heap.c_allocator),
         .config = .{ .surface_px = .{ .width = 1, .height = 1 } },
     };
     defer owner.clearRetainedSurface();
+    defer owner.flow.deinit();
     defer owner.session.deinit();
 
     const pixels = try std.heap.c_allocator.alloc(u8, 4);
