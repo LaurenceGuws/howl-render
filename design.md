@@ -75,7 +75,9 @@ sequenceDiagram
     participant R as HowlRenderAbi
     participant S as SurfaceText
 
-    Host->>R: prepare_handle(vt-surface, request)
+    Host->>R: publish_vt_source(vt-surface)
+    Host->>R: take_prepare_request()
+    Host->>R: prepare_handle(request)
     R->>S: prepareSurface(...)
     S-->>R: prepared render-surface
     R-->>Host: prepared handle
@@ -106,17 +108,16 @@ sequenceDiagram
   at least one usable font path before startup may proceed.
 - `howl_render_surface_text_is_valid_font` reports whether the current ordered font list contains at
   least one usable font path for session startup.
-- `HowlRenderVtSurface` carries VT-surface cells, cursor, viewport, and dirty-span truth into the
-  render owner. Full-versus-partial prepare classification comes from the render-owned prepare
-  request, not from a host-fed VT-surface echo field.
-- `howl_render_surface_text_prepare_handle` returns a prepared render-surface handle only; it does
-  not allocate or mutate host backend resources.
+- `HowlRenderVtSurface` carries VT-surface cells, cursor, viewport, dirty spans, and snapshot
+  sequence truth into the render owner at publish time.
+- `howl_render_surface_text_prepare_handle` consumes a render-owned published VT source plus a
+  render-owned prepare request, returns a prepared render-surface handle only, and does not allocate
+  or mutate host backend resources.
 - the shipped C ABI currently binds render-owned session and prepared-surface allocations to the C
   allocator explicitly at the init/prepare seam. That allocator policy is part of the ABI
   translation step, not hidden owner behavior.
-- `howl_render_surface_text_prepare_handle` consumes render-owned request state plus VT-surface
-  input only. Hosts must not fetch render query state and echo it back as if it were independent
-  authority.
+- `howl_render_surface_text_prepare_handle` consumes render-owned request state only. Hosts must not
+  replay a second VT-surface copy into prepare as if it were independent authority.
 - `howl_render_surface_text_derive_frame_layout` is the public geometry-derivation entrypoint.
   Host-facing helpers that asked callers to provide `cell_px` are not part of the shipped contract.
 - `howl_render_surface_text_sync_geometry` accepts only render and grid pixel constraints. It
@@ -124,13 +125,13 @@ sequenceDiagram
 - `howl_render_surface_text_sync_geometry` is the geometry-owner control step. The render owner
   advances geometry epoch, and prepare reads that owner state internally instead of exposing a host
   readback courier API.
-- `howl_render_surface_text_publish_vt_snapshot`, `...take_prepare_request`,
+- `howl_render_surface_text_publish_vt_source`, `...take_prepare_request`,
   `...publish_prepared`, `...take_submit_decision`, `...accept_submitted`, and
-  `...mark_presented` are the retained render-queue control steps. They let hosts publish VT
-  snapshot metadata and drive the bounded prepare-submit-present loop without re-owning retained
-  render state in host code. VT snapshot publication must carry VT-owned visible projection truth
-  and VT-owned dirty spans so render can classify coarse damage itself from retained previous-frame
-  state, instead of accepting host-authored damage classification or scrollback approximations.
+  `...mark_presented` are the retained render-queue control steps. They let hosts publish one full
+  VT source and drive the bounded prepare-submit-present loop without re-owning retained render
+  state in host code. VT publication must carry VT-owned visible projection truth, cells, cursor,
+  and dirty spans so render can classify coarse damage itself from retained previous-frame state,
+  instead of accepting host-authored damage classification or scrollback approximations.
 - `howl_render_surface_text_pending_state` exposes render-owned work flags, including present
   retirement, so hosts can drive the queue without mirroring a second phase machine.
 - `howl_render_prepared_surface_buffer` is the realized surface-image export. Hosts consume it as

@@ -246,19 +246,6 @@ pub const FfiPreparedFrame = extern struct {
     reserved1: u16 = 0,
 };
 
-pub const FfiVtSnapshot = extern struct {
-    cols: u16,
-    rows: u16,
-    is_alternate_screen: u8,
-    reserved0: u8 = 0,
-    reserved1: u16 = 0,
-    scroll_row: u64,
-    snapshot_seq: u64,
-    dirty_rows: FfiByteSpan,
-    dirty_cols_start: FfiU16Span,
-    dirty_cols_end: FfiU16Span,
-};
-
 pub const FfiVtPublishResult = extern struct {
     status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
     published: u8,
@@ -350,6 +337,7 @@ pub const FfiVtSurface = extern struct {
     cols: u16,
     rows: u16,
     scroll_row: u64,
+    snapshot_seq: u64,
     is_alternate_screen: u8,
     reserved0: u8 = 0,
     reserved1: u16 = 0,

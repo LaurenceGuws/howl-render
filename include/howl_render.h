@@ -224,19 +224,6 @@ typedef struct {
 } HowlRenderPreparedFrame;
 
 typedef struct {
-  uint16_t cols;
-  uint16_t rows;
-  uint8_t is_alternate_screen;
-  uint8_t reserved0;
-  uint16_t reserved1;
-  uint64_t scroll_row;
-  uint64_t snapshot_seq;
-  HowlRenderByteSpan dirty_rows;
-  HowlRenderU16Span dirty_cols_start;
-  HowlRenderU16Span dirty_cols_end;
-} HowlRenderVtSnapshot;
-
-typedef struct {
   int32_t status;
   uint8_t published;
   uint8_t queued;
@@ -327,6 +314,7 @@ typedef struct {
   uint16_t cols;
   uint16_t rows;
   uint64_t scroll_row;
+  uint64_t snapshot_seq;
   uint8_t is_alternate_screen;
   uint8_t reserved0;
   uint16_t reserved1;
@@ -360,7 +348,7 @@ int howl_render_surface_text_set_font_size_px(HowlRenderSurfaceTextHandle handle
 int howl_render_surface_text_set_font_path(HowlRenderSurfaceTextHandle handle, const uint8_t *ptr, size_t len);
 int howl_render_surface_text_set_fallback_font_paths(HowlRenderSurfaceTextHandle handle, const uint8_t *const *ptrs, size_t count);
 HowlRenderGeometryResponse howl_render_surface_text_sync_geometry(HowlRenderSurfaceTextHandle handle, HowlRenderGeometry geometry);
-HowlRenderVtPublishResult howl_render_surface_text_publish_vt_snapshot(HowlRenderSurfaceTextHandle handle, HowlRenderVtSnapshot snapshot);
+HowlRenderVtPublishResult howl_render_surface_text_publish_vt_source(HowlRenderSurfaceTextHandle handle, HowlRenderVtSurface source);
 HowlRenderPrepareStatus howl_render_surface_text_take_prepare_request(HowlRenderSurfaceTextHandle handle, HowlRenderPrepareRequest *prepare_request_out);
 int howl_render_surface_text_publish_prepared(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
 HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_decision(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame *prepared_frame_out);
@@ -370,7 +358,7 @@ int howl_render_surface_text_pending_state(HowlRenderSurfaceTextHandle handle, H
 int howl_render_surface_text_take_queue_metrics(HowlRenderSurfaceTextHandle handle, HowlRenderQueueMetrics *metrics_out);
 
 /* Owned prepared-surface ABI target. */
-HowlRenderPrepareStatus howl_render_surface_text_prepare_handle(HowlRenderSurfaceTextHandle surface_text_handle, const HowlRenderVtSurface *vt_surface, HowlRenderPrepareRequest prepare_request, HowlRenderPreparedSurfaceHandle *prepared_handle_out);
+HowlRenderPrepareStatus howl_render_surface_text_prepare_handle(HowlRenderSurfaceTextHandle surface_text_handle, HowlRenderPrepareRequest prepare_request, HowlRenderPreparedSurfaceHandle *prepared_handle_out);
 void howl_render_prepared_surface_release(HowlRenderPreparedSurfaceHandle prepared_surface_handle);
 int howl_render_prepared_surface_describe(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceInfo *info_out);
 int howl_render_prepared_surface_buffer(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceBuffer *buffer_out);

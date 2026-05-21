@@ -7,50 +7,6 @@ const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
 
-const OwnedVtSurface = struct {
-    allocator: std.mem.Allocator,
-    cols: u16,
-    rows: u16,
-    scroll_row: u64,
-    is_alternate_screen: bool,
-    cells: []surface.Cell,
-    cursor: surface.CursorInfo,
-    dirty_rows: []bool = &.{},
-    dirty_cols_start: []u16 = &.{},
-    dirty_cols_end: []u16 = &.{},
-
-    fn deinit(self: *OwnedVtSurface) void {
-        self.allocator.free(self.cells);
-        if (self.dirty_rows.len > 0) self.allocator.free(self.dirty_rows);
-        if (self.dirty_cols_start.len > 0) self.allocator.free(self.dirty_cols_start);
-        if (self.dirty_cols_end.len > 0) self.allocator.free(self.dirty_cols_end);
-        self.* = undefined;
-    }
-
-    fn frameData(self: *const OwnedVtSurface, full_damage: bool) surface.FrameData {
-        return .{
-            .viewport = .{
-                .cols = self.cols,
-                .rows = self.rows,
-                .scroll_row = self.scroll_row,
-                .is_alternate_screen = self.is_alternate_screen,
-            },
-            .grid = .{
-                .cells = self.cells,
-                .cols = self.cols,
-                .rows = self.rows,
-            },
-            .cursor = self.cursor,
-            .damage = .{
-                .full = full_damage,
-                .dirty_rows = self.dirty_rows,
-                .dirty_cols_start = self.dirty_cols_start,
-                .dirty_cols_end = self.dirty_cols_end,
-            },
-        };
-    }
-};
-
 fn ownerFromHandle(handle: abi.SurfaceTextHandle) ?*surface_text.SurfaceTextOwner {
     const owned = handle orelse return null;
     return @ptrCast(@alignCast(owned));
@@ -131,9 +87,13 @@ pub fn syncGeometry(handle: abi.SurfaceTextHandle, geometry: abi.FfiGeometry) ca
     }));
 }
 
-pub fn publishVtSnapshot(handle: abi.SurfaceTextHandle, snapshot_in: abi.FfiVtSnapshot) callconv(.c) abi.FfiVtPublishResult {
+pub fn publishVtSource(handle: abi.SurfaceTextHandle, source_in: abi.FfiVtSurface) callconv(.c) abi.FfiVtPublishResult {
     const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    const snapshot = vtSnapshotIn(snapshot_in) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const source = vtSurfaceIn(owner.allocator, source_in) catch {
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    const snapshot = vtSnapshotFromSource(source);
+    owner.publishSource(source);
     return vtPublishResultOut(owner.flow.acceptSnapshot(snapshot));
 }
 
@@ -201,17 +161,13 @@ pub fn takeQueueMetrics(handle: abi.SurfaceTextHandle, out: ?*abi.FfiQueueMetric
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, vt_surface_in: ?*const abi.FfiVtSurface, prepare_request: abi.FfiPrepareRequest, prepared_handle_out: ?*abi.PreparedSurfaceHandle) callconv(.c) abi.HowlRenderPrepareStatus {
+pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, prepare_request: abi.FfiPrepareRequest, prepared_handle_out: ?*abi.PreparedSurfaceHandle) callconv(.c) abi.HowlRenderPrepareStatus {
     const prepared_out = prepared_handle_out;
     if (prepared_out) |value| value.* = null;
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
-    const vt_surface_value = vt_surface_in orelse return .failed;
     const value = prepared_out orelse return .failed;
     const request = renderRequestIn(prepare_request) orelse return .failed;
-    const full_damage = request.token.damage_kind == .full;
-    var vt_surface = vtSurfaceIn(owner.allocator, vt_surface_value.*) catch return .failed;
-    defer vt_surface.deinit();
-    const prepared = owner.prepareSurface(request, vt_surface.frameData(full_damage)) catch return .failed;
+    const prepared = owner.preparePublishedSurface(request) catch return .failed;
     const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
     value.* = @ptrCast(prepared_owner);
     return .ready;
@@ -288,19 +244,17 @@ fn geometryOut(value: surface.GeometryResponse) abi.FfiGeometryResponse {
     };
 }
 
-fn vtSnapshotIn(value: abi.FfiVtSnapshot) ?queue.VtSnapshot {
-    const dirty_rows = dirtyBytesSpanIn(value.rows, value.dirty_rows) orelse return null;
-    const dirty_cols_start = dirtyU16SpanIn(value.rows, value.dirty_cols_start) orelse return null;
-    const dirty_cols_end = dirtyU16SpanIn(value.rows, value.dirty_cols_end) orelse return null;
+fn vtSnapshotFromSource(value: surface_text.SurfaceTextOwner.PublishedSource) queue.VtSnapshot {
+    const dirty_rows: []const u8 = @ptrCast(value.dirty_rows);
     return .{
         .cols = value.cols,
         .rows = value.rows,
         .scroll_row = value.scroll_row,
         .snapshot_seq = value.snapshot_seq,
-        .is_alternate_screen = value.is_alternate_screen != 0,
+        .is_alternate_screen = value.is_alternate_screen,
         .dirty_rows = dirty_rows,
-        .dirty_cols_start = dirty_cols_start,
-        .dirty_cols_end = dirty_cols_end,
+        .dirty_cols_start = value.dirty_cols_start,
+        .dirty_cols_end = value.dirty_cols_end,
     };
 }
 
@@ -394,7 +348,7 @@ fn preparedFrameIn(value: abi.FfiPreparedFrame) ?pipeline.PreparedFrame {
     return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq };
 }
 
-fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !OwnedVtSurface {
+fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !surface_text.SurfaceTextOwner.PublishedSource {
     const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
     if (value.cells.len != cell_count) return error.InvalidSurfaceSource;
 
@@ -411,10 +365,10 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !OwnedVtSu
 
     const cursor = cursorIn(value.cursor) orelse return error.InvalidSurfaceSource;
     return .{
-        .allocator = allocator,
         .cols = value.cols,
         .rows = value.rows,
         .scroll_row = value.scroll_row,
+        .snapshot_seq = value.snapshot_seq,
         .is_alternate_screen = value.is_alternate_screen != 0,
         .cells = cells,
         .cursor = cursor,

@@ -10,7 +10,7 @@ comptime {
     @export(&surface_text_ffi.setFontPath, .{ .name = "howl_render_surface_text_set_font_path" });
     @export(&surface_text_ffi.setFallbackFontPaths, .{ .name = "howl_render_surface_text_set_fallback_font_paths" });
     @export(&surface_text_ffi.syncGeometry, .{ .name = "howl_render_surface_text_sync_geometry" });
-    @export(&surface_text_ffi.publishVtSnapshot, .{ .name = "howl_render_surface_text_publish_vt_snapshot" });
+    @export(&surface_text_ffi.publishVtSource, .{ .name = "howl_render_surface_text_publish_vt_source" });
     @export(&surface_text_ffi.takePrepareRequest, .{ .name = "howl_render_surface_text_take_prepare_request" });
     @export(&surface_text_ffi.publishPrepared, .{ .name = "howl_render_surface_text_publish_prepared" });
     @export(&surface_text_ffi.takeSubmitDecision, .{ .name = "howl_render_surface_text_take_submit_decision" });

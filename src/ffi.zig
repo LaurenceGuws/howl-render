@@ -34,7 +34,7 @@ const surfaceTextSetFontSizePx = surface_text_ffi.setFontSize;
 const surfaceTextSetFontPath = surface_text_ffi.setFontPath;
 const surfaceTextSetFallbackFontPaths = surface_text_ffi.setFallbackFontPaths;
 const surfaceTextSyncGeometry = surface_text_ffi.syncGeometry;
-const surfaceTextPublishVtSnapshot = surface_text_ffi.publishVtSnapshot;
+const surfaceTextPublishVtSource = surface_text_ffi.publishVtSource;
 const surfaceTextTakePrepareRequest = surface_text_ffi.takePrepareRequest;
 const surfaceTextPublishPrepared = surface_text_ffi.publishPrepared;
 const surfaceTextTakeSubmitDecision = surface_text_ffi.takeSubmitDecision;
@@ -83,6 +83,7 @@ fn testVtSurface(cells: []const FfiCell, cursor: FfiCursor) FfiVtSurface {
         .cols = 1,
         .rows = 1,
         .scroll_row = 0,
+        .snapshot_seq = 1,
         .is_alternate_screen = 0,
         .dirty_rows = .{ .ptr = null, .len = 0 },
         .dirty_cols_start = .{ .ptr = null, .len = 0 },
@@ -106,17 +107,20 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
     });
     try std.testing.expectEqual(@as(c_int, 0), sync.status);
 
-    const publish = surfaceTextPublishVtSnapshot(handle, .{
+    const cells = [_]FfiCell{testCell()};
+    const publish = surfaceTextPublishVtSource(handle, .{
+        .cells = .{ .ptr = cells[0..].ptr, .len = cells.len },
         .cols = 1,
         .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
         .is_alternate_screen = 0,
         .reserved0 = 0,
         .reserved1 = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
         .dirty_rows = .{ .ptr = dirty_rows[0..].ptr, .len = dirty_rows.len },
         .dirty_cols_start = .{ .ptr = dirty_cols_start[0..].ptr, .len = dirty_cols_start.len },
         .dirty_cols_end = .{ .ptr = dirty_cols_end[0..].ptr, .len = dirty_cols_end.len },
+        .cursor = testCursor(0),
     });
     try std.testing.expectEqual(@as(c_int, 0), publish.status);
 
@@ -126,18 +130,13 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
     return .{ .request = request };
 }
 
-fn expectPrepareHandleFails(vt_surface: FfiVtSurface) !void {
+fn expectPublishVtSourceFails(vt_surface: FfiVtSurface) !void {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
     try std.testing.expect(handle != null);
 
-    const input = try nextPrepareInput(handle);
-    var prepared_handle: PreparedSurfaceHandle = @ptrFromInt(1);
-    try std.testing.expectEqual(
-        HowlRenderPrepareStatus.failed,
-        surfaceTextPrepareHandle(handle, &vt_surface, input.request, &prepared_handle),
-    );
-    try std.testing.expect(prepared_handle == null);
+    const result = surfaceTextPublishVtSource(handle, vt_surface);
+    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.invalid_argument), result.status);
 }
 
 test "ffi surface session rejects missing handle" {
@@ -230,21 +229,24 @@ test "ffi fallback font paths accept abi limit and reject overflow" {
     );
 }
 
-test "ffi vt snapshot rejects invalid dirty spans" {
+test "ffi vt source rejects invalid dirty spans" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
 
-    const result = surfaceTextPublishVtSnapshot(handle, .{
+    const cells = [_]FfiCell{testCell()};
+    const result = surfaceTextPublishVtSource(handle, .{
+        .cells = .{ .ptr = cells[0..].ptr, .len = cells.len },
         .cols = 1,
         .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
         .is_alternate_screen = 0,
         .reserved0 = 0,
         .reserved1 = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
         .dirty_rows = .{ .ptr = null, .len = 1 },
         .dirty_cols_start = .{ .ptr = null, .len = 1 },
         .dirty_cols_end = .{ .ptr = null, .len = 1 },
+        .cursor = testCursor(0),
     });
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.invalid_argument), result.status);
 }
@@ -271,36 +273,36 @@ test "ffi prepared frame rejects invalid damage kind" {
     );
 }
 
-test "ffi prepare handle rejects invalid cell color kind" {
+test "ffi vt source rejects invalid cell color kind" {
     var cell = testCell();
     cell.fg_color.kind = 9;
     const cells = [_]FfiCell{cell};
-    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(0)));
+    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
-test "ffi prepare handle rejects rgb value outside u24" {
+test "ffi vt source rejects rgb value outside u24" {
     var cell = testCell();
     cell.fg_color.kind = 2;
     cell.fg_color.value = std.math.maxInt(u24) + 1;
     const cells = [_]FfiCell{cell};
-    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(0)));
+    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
-test "ffi prepare handle rejects invalid cursor shape" {
+test "ffi vt source rejects invalid cursor shape" {
     const cells = [_]FfiCell{testCell()};
-    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(9)));
+    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(9)));
 }
 
-test "ffi prepare handle rejects invalid underline style" {
+test "ffi vt source rejects invalid underline style" {
     var cell = testCell();
     cell.underline_style = 9;
     const cells = [_]FfiCell{cell};
-    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(0)));
+    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
-test "ffi prepare handle rejects extra cells beyond declared grid" {
+test "ffi vt source rejects extra cells beyond declared grid" {
     const cells = [_]FfiCell{ testCell(), testCell() };
-    try expectPrepareHandleFails(testVtSurface(&cells, testCursor(0)));
+    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
 test "ffi prepare handle rejects missing output pointer" {
@@ -309,24 +311,35 @@ test "ffi prepare handle rejects missing output pointer" {
     try std.testing.expect(handle != null);
 
     const input = try nextPrepareInput(handle);
-    const cells = [_]FfiCell{testCell()};
-    const vt_surface = testVtSurface(&cells, testCursor(0));
     try std.testing.expectEqual(
         HowlRenderPrepareStatus.failed,
-        surfaceTextPrepareHandle(handle, &vt_surface, input.request, null),
+        surfaceTextPrepareHandle(handle, input.request, null),
     );
 }
 
-test "ffi prepare handle clears output when vt surface pointer is missing" {
+test "ffi prepare handle clears output when source was never published" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
     try std.testing.expect(handle != null);
 
-    const input = try nextPrepareInput(handle);
+    const render_px = FfiPixelSize{ .width = 16, .height = 16 };
+    const grid_px = FfiPixelSize{ .width = 16, .height = 16 };
+    const layout = surfaceTextDeriveFrameLayout(handle, render_px, grid_px);
+    try std.testing.expectEqual(@as(c_int, 0), layout.status);
+    const sync = surfaceTextSyncGeometry(handle, .{ .render_px = render_px, .grid_px = grid_px });
+    try std.testing.expectEqual(@as(c_int, 0), sync.status);
+
+    var request = FfiPrepareRequest{
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .geometry_epoch = sync.geometry_epoch,
+        .damage_base_seq = 0,
+        .damage_kind = @intFromEnum(pipeline.DamageKind.full),
+    };
     var prepared_handle: PreparedSurfaceHandle = @ptrFromInt(1);
     try std.testing.expectEqual(
         HowlRenderPrepareStatus.failed,
-        surfaceTextPrepareHandle(handle, null, input.request, &prepared_handle),
+        surfaceTextPrepareHandle(handle, request, &prepared_handle),
     );
     try std.testing.expect(prepared_handle == null);
 }
