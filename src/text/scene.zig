@@ -19,6 +19,8 @@ pub const CursorShape = enum {
     hollow_block,
 };
 
+const CursorDrawCount = u3;
+
 pub const CursorInput = struct {
     cell_col: u16,
     cell_row: u16,
@@ -408,10 +410,11 @@ const IconSpan = enum(u3) {
 };
 
 fn normalizedDamage(damage: DamageInput, rows: u16) NormalizedDamage {
+    const row_len = rowLen(rows);
     const valid = !damage.full and
-        damage.dirty_rows.len == @as(usize, rows) and
-        damage.dirty_cols_start.len == @as(usize, rows) and
-        damage.dirty_cols_end.len == @as(usize, rows);
+        damage.dirty_rows.len == row_len and
+        damage.dirty_cols_start.len == row_len and
+        damage.dirty_cols_end.len == row_len;
     return .{
         .full = !valid,
         .dirty_rows = if (valid) damage.dirty_rows else &.{},
@@ -422,7 +425,7 @@ fn normalizedDamage(damage: DamageInput, rows: u16) NormalizedDamage {
 
 fn rowDirty(damage: NormalizedDamage, row: u16) bool {
     if (damage.full) return true;
-    const idx = @as(usize, row);
+    const idx = rowIndex(row);
     return idx < damage.dirty_rows.len and damage.dirty_rows[idx];
 }
 
@@ -431,7 +434,7 @@ fn dirtyRowSpan(damage: NormalizedDamage, grid_metrics: contract.GridMetrics, ro
     if (!rowDirty(damage, row)) return null;
 
     const cols = @max(grid_metrics.cols, 1);
-    const idx = @as(usize, row);
+    const idx = rowIndex(row);
     const last_col: u16 = cols - 1;
     const start_col = @min(damage.dirty_cols_start[idx], last_col);
     const end_col = @min(damage.dirty_cols_end[idx], last_col);
@@ -521,8 +524,8 @@ pub fn cursorDraws(
     const base_x: i32 = @as(i32, @intCast(cursor.cell_col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
     const base_y: i32 = @as(i32, @intCast(cursor.cell_row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
     const geom = cursorGeometry(cell_metrics);
-    const count: usize = if (cursor.shape == .hollow_block) 4 else 1;
-    const draws = try allocator.alloc(contract.TextCursorDraw, count);
+    const count = cursorDrawCount(cursor.shape);
+    const draws = try allocator.alloc(contract.TextCursorDraw, cursorDrawLen(count));
     errdefer allocator.free(draws);
     switch (cursor.shape) {
         .block => draws[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
@@ -595,10 +598,10 @@ fn appendClearDraws(
     damage: NormalizedDamage,
 ) !void {
     if (damage.full) return;
-    const rows = @as(usize, grid_metrics.rows);
-    var row: usize = 0;
-    while (row < rows and row < damage.dirty_rows.len) : (row += 1) {
-        const dirty = dirtyRowSpan(damage, grid_metrics, @intCast(row)) orelse continue;
+    const rows = @min(grid_metrics.rows, damageRowCount(damage));
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        const dirty = dirtyRowSpan(damage, grid_metrics, row) orelse continue;
         const first_cell = dirty.firstCell(grid_metrics);
         const cell_span = dirty.cellSpan();
         const span_cells = @as(u32, @max(cell_span, 1));
@@ -811,6 +814,29 @@ fn desiredIconCells(group: contract.GlyphGroup, cell_w: u16) u8 {
     return @intCast(std.math.clamp(raw, @as(u32, @max(group.cell_span, 1)), @as(u32, max_cells)));
 }
 
+fn cursorDrawCount(shape: CursorShape) CursorDrawCount {
+    return if (shape == .hollow_block) 4 else 1;
+}
+
+fn cursorDrawLen(count: CursorDrawCount) usize {
+    return @intCast(count);
+}
+
+fn damageRowCount(damage: NormalizedDamage) u16 {
+    std.debug.assert(damage.dirty_rows.len == damage.dirty_cols_start.len);
+    std.debug.assert(damage.dirty_rows.len == damage.dirty_cols_end.len);
+    std.debug.assert(damage.dirty_rows.len <= std.math.maxInt(u16));
+    return @intCast(damage.dirty_rows.len);
+}
+
+fn rowIndex(row: u16) usize {
+    return @intCast(row);
+}
+
+fn rowLen(rows: u16) usize {
+    return @intCast(rows);
+}
+
 test "scene builds ordered sprite draws from groups" {
     const cell = contract.RenderableCell{
         .text_id = .{ .value = 0 },
@@ -928,14 +954,14 @@ test "scene cursor draws emit shared cursor geometry" {
     const cell_metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
     const underline = try cursorDraws(std.testing.allocator, .{ .cell_col = 2, .cell_row = 1, .shape = .underline, .color = color }, cell_metrics);
     defer std.testing.allocator.free(underline);
-    try std.testing.expectEqual(@as(usize, 1), underline.len);
+    try std.testing.expectEqual(cursorDrawLen(cursorDrawCount(.underline)), underline.len);
     try std.testing.expectEqual(@as(i32, 16), underline[0].x_px);
     try std.testing.expectEqual(@as(u16, 8), underline[0].width_px);
     try std.testing.expectEqual(color.r, underline[0].color.r);
 
     const hollow = try cursorDraws(std.testing.allocator, .{ .cell_col = 0, .cell_row = 0, .shape = .hollow_block, .color = color }, cell_metrics);
     defer std.testing.allocator.free(hollow);
-    try std.testing.expectEqual(@as(usize, 4), hollow.len);
+    try std.testing.expectEqual(cursorDrawLen(cursorDrawCount(.hollow_block)), hollow.len);
 }
 
 test "scene build options include cursor draws" {
@@ -944,7 +970,7 @@ test "scene build options include cursor draws" {
         .cursor = .{ .cell_col = 3, .cell_row = 2, .shape = .beam, .color = color },
     });
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 1), owned.scene.cursor_draws.len);
+    try std.testing.expectEqual(cursorDrawLen(cursorDrawCount(.beam)), owned.scene.cursor_draws.len);
     try std.testing.expectEqual(@as(i32, 24), owned.scene.cursor_draws[0].x_px);
     try std.testing.expectEqual(@as(i32, 32), owned.scene.cursor_draws[0].y_px);
     try std.testing.expectEqual(color.g, owned.scene.cursor_draws[0].color.g);
@@ -981,6 +1007,32 @@ test "scene damage filters clean rows" {
     try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
     try std.testing.expectEqual(@as(usize, 1), owned.scene.sprite_draws.len);
     try std.testing.expectEqual(@as(u32, 3), owned.scene.sprite_draws[0].first_cell);
+}
+
+test "scene invalid partial damage falls back to full redraw" {
+    const color = contract.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
+    const cells = [_]contract.RenderableCell{
+        .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = color },
+        .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = color },
+    };
+    const group = contract.GlyphGroup{ .first_cell = 1, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 9 }, .kind = .normal };
+    const dirty_rows = [_]bool{true};
+    const dirty_starts = [_]u16{0};
+    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2, .rows = 2 }, .{
+        .damage = .{
+            .full = false,
+            .dirty_rows = &dirty_rows,
+            .dirty_cols_start = &dirty_starts,
+            .dirty_cols_end = &.{},
+        },
+    });
+    defer owned.deinit();
+
+    try std.testing.expect(owned.scene.full_redraw);
+    try std.testing.expectEqual(@as(usize, 0), owned.scene.clear_draws.len);
+    try std.testing.expectEqual(@as(usize, 1), owned.scene.background_draws.len);
+    try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
+    try std.testing.expectEqual(@as(usize, 1), owned.scene.sprite_draws.len);
 }
 
 test "scene emits shared-geometry decoration draws from cells" {
