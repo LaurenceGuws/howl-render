@@ -210,7 +210,9 @@ pub const VtSnapshot = struct {
     scroll_row: u64,
     snapshot_seq: u64,
     is_alternate_screen: bool,
-    damage_kind: pipeline.DamageKind,
+    dirty_rows: []const u8,
+    dirty_cols_start: []const u16,
+    dirty_cols_end: []const u16,
 };
 
 pub const VtPublishResult = struct {
@@ -281,14 +283,61 @@ const PublicationState = struct {
     }
 
     fn classify(self: *const PublicationState, snapshot: VtSnapshot) pipeline.DamageKind {
-        const prior = self.publication orelse return snapshot.damage_kind;
+        const damage_kind = classifyDirty(snapshot);
+        const prior = self.publication orelse return damage_kind;
         if (snapshot.snapshot_seq == prior.snapshot_seq) return .none;
         if (snapshot.cols != prior.cols or snapshot.rows != prior.rows) return .full;
         if (snapshot.is_alternate_screen != prior.is_alternate_screen) return .full;
         if (snapshot.scroll_row != prior.scroll_row) return .full;
-        return snapshot.damage_kind;
+        return damage_kind;
     }
 };
+
+fn classifyDirty(snapshot: VtSnapshot) pipeline.DamageKind {
+    std.debug.assert(snapshot.dirty_rows.len == snapshot.rows);
+    std.debug.assert(snapshot.dirty_cols_start.len == snapshot.rows);
+    std.debug.assert(snapshot.dirty_cols_end.len == snapshot.rows);
+    var any_dirty = false;
+    var all_rows_dirty = snapshot.rows != 0;
+    var row: u16 = 0;
+    while (row < snapshot.rows) : (row += 1) {
+        if (snapshot.dirty_rows[row] == 0) {
+            all_rows_dirty = false;
+            continue;
+        }
+        any_dirty = true;
+        if (snapshot.dirty_cols_start[row] != 0) {
+            all_rows_dirty = false;
+        }
+        if (snapshot.dirty_cols_end[row] != snapshot.cols -| 1) {
+            all_rows_dirty = false;
+        }
+    }
+    if (!any_dirty) return .none;
+    if (all_rows_dirty) return .full;
+    return .partial;
+}
+
+fn testSnapshot(
+    rows: u16,
+    cols: u16,
+    scroll_row: u64,
+    snapshot_seq: u64,
+    dirty_rows: []const u8,
+    dirty_cols_start: []const u16,
+    dirty_cols_end: []const u16,
+) VtSnapshot {
+    return .{
+        .cols = cols,
+        .rows = rows,
+        .scroll_row = scroll_row,
+        .snapshot_seq = snapshot_seq,
+        .is_alternate_screen = false,
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = dirty_cols_start,
+        .dirty_cols_end = dirty_cols_end,
+    };
+}
 
 pub const Flow = struct {
     surface: TerminalSurface = .{},
@@ -585,15 +634,11 @@ test "flow exposes source pending before queue preparation" {
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
     });
+    const dirty_rows = [_]u8{1} ** 10;
+    const dirty_cols_start = [_]u16{0} ** 10;
+    const dirty_cols_end = [_]u16{9} ** 10;
 
-    const first = flow.acceptSnapshot(.{
-        .cols = 10,
-        .rows = 10,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .damage_kind = .full,
-    });
+    const first = flow.acceptSnapshot(testSnapshot(10, 10, 0, 1, &dirty_rows, &dirty_cols_start, &dirty_cols_end));
     try std.testing.expect(first.published);
     try std.testing.expect(flow.pendingState().source_pending);
     try std.testing.expect(!flow.pendingState().prepare_pending);
@@ -610,23 +655,15 @@ test "flow preserves partial snapshot damage while prior snapshot is still pendi
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
     });
+    const full_dirty_rows = [_]u8{1} ** 10;
+    const full_dirty_cols_start = [_]u16{0} ** 10;
+    const full_dirty_cols_end = [_]u16{9} ** 10;
+    const partial_dirty_rows = [_]u8{ 0, 0, 0, 0, 1, 0, 0, 0, 0, 0 };
+    const partial_dirty_cols_start = [_]u16{ 0, 0, 0, 0, 3, 0, 0, 0, 0, 0 };
+    const partial_dirty_cols_end = [_]u16{ 0, 0, 0, 0, 5, 0, 0, 0, 0, 0 };
 
-    _ = flow.acceptSnapshot(.{
-        .cols = 10,
-        .rows = 10,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .damage_kind = .full,
-    });
-    const second = flow.acceptSnapshot(.{
-        .cols = 10,
-        .rows = 10,
-        .scroll_row = 0,
-        .snapshot_seq = 2,
-        .is_alternate_screen = false,
-        .damage_kind = .partial,
-    });
+    _ = flow.acceptSnapshot(testSnapshot(10, 10, 0, 1, &full_dirty_rows, &full_dirty_cols_start, &full_dirty_cols_end));
+    const second = flow.acceptSnapshot(testSnapshot(10, 10, 0, 2, &partial_dirty_rows, &partial_dirty_cols_start, &partial_dirty_cols_end));
     try std.testing.expect(second.published);
     try std.testing.expectEqual(pipeline.DamageKind.partial, second.damage_kind);
 }
@@ -638,24 +675,16 @@ test "flow forces full snapshot on scroll row change" {
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
     });
+    const full_dirty_rows = [_]u8{1} ** 10;
+    const full_dirty_cols_start = [_]u16{0} ** 10;
+    const full_dirty_cols_end = [_]u16{9} ** 10;
+    const partial_dirty_rows = [_]u8{ 0, 0, 0, 0, 1, 0, 0, 0, 0, 0 };
+    const partial_dirty_cols_start = [_]u16{ 0, 0, 0, 0, 3, 0, 0, 0, 0, 0 };
+    const partial_dirty_cols_end = [_]u16{ 0, 0, 0, 0, 5, 0, 0, 0, 0, 0 };
 
-    _ = flow.acceptSnapshot(.{
-        .cols = 10,
-        .rows = 10,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .damage_kind = .full,
-    });
+    _ = flow.acceptSnapshot(testSnapshot(10, 10, 0, 1, &full_dirty_rows, &full_dirty_cols_start, &full_dirty_cols_end));
     _ = flow.prepare();
-    const second = flow.acceptSnapshot(.{
-        .cols = 10,
-        .rows = 10,
-        .scroll_row = 1,
-        .snapshot_seq = 2,
-        .is_alternate_screen = false,
-        .damage_kind = .partial,
-    });
+    const second = flow.acceptSnapshot(testSnapshot(10, 10, 1, 2, &partial_dirty_rows, &partial_dirty_cols_start, &partial_dirty_cols_end));
     try std.testing.expectEqual(pipeline.DamageKind.full, second.damage_kind);
 }
 
@@ -666,24 +695,16 @@ test "flow drops clean snapshot" {
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
     });
+    const full_dirty_rows = [_]u8{1} ** 10;
+    const full_dirty_cols_start = [_]u16{0} ** 10;
+    const full_dirty_cols_end = [_]u16{9} ** 10;
+    const clean_dirty_rows = [_]u8{0} ** 10;
+    const clean_dirty_cols_start = [_]u16{0} ** 10;
+    const clean_dirty_cols_end = [_]u16{0} ** 10;
 
-    _ = flow.acceptSnapshot(.{
-        .cols = 10,
-        .rows = 10,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .damage_kind = .full,
-    });
+    _ = flow.acceptSnapshot(testSnapshot(10, 10, 0, 1, &full_dirty_rows, &full_dirty_cols_start, &full_dirty_cols_end));
     _ = flow.prepare();
-    const second = flow.acceptSnapshot(.{
-        .cols = 10,
-        .rows = 10,
-        .scroll_row = 0,
-        .snapshot_seq = 2,
-        .is_alternate_screen = false,
-        .damage_kind = .none,
-    });
+    const second = flow.acceptSnapshot(testSnapshot(10, 10, 0, 2, &clean_dirty_rows, &clean_dirty_cols_start, &clean_dirty_cols_end));
     try std.testing.expect(!second.published);
     try std.testing.expectEqual(pipeline.DamageKind.none, second.damage_kind);
 }

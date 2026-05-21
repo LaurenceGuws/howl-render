@@ -228,10 +228,14 @@ typedef struct {
 typedef struct {
   uint16_t cols;
   uint16_t rows;
-  uint64_t scroll_row;
   uint8_t is_alternate_screen;
-  uint8_t damage_kind;
+  uint8_t reserved0;
+  uint16_t reserved1;
+  uint64_t scroll_row;
   uint64_t snapshot_seq;
+  HowlRenderByteSpan dirty_rows;
+  HowlRenderU16Span dirty_cols_start;
+  HowlRenderU16Span dirty_cols_end;
 } HowlRenderVtSnapshot;
 
 typedef struct {

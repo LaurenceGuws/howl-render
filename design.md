@@ -117,7 +117,8 @@ sequenceDiagram
   `...mark_presented` are the retained render-queue control steps. They let hosts publish VT
   snapshot metadata and drive the bounded prepare-submit-present loop without re-owning retained
   render state in host code. VT snapshot publication must carry VT-owned visible projection truth
-  such as `scroll_row`, not host scrollback policy values that only approximate that projection.
+  and VT-owned dirty spans so render can classify coarse damage itself from retained previous-frame
+  state, instead of accepting host-authored damage classification or scrollback approximations.
 - `howl_render_prepared_surface_buffer` is the realized surface-image export. Hosts consume it as
   one complete prepared surface image, not as a render-damage reconstruction contract.
 - `howl_render_prepared_surface_diagnostics` exposes proof/debug counters only.

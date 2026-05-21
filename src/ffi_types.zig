@@ -251,10 +251,14 @@ pub const FfiPreparedFrame = extern struct {
 pub const FfiVtSnapshot = extern struct {
     cols: u16,
     rows: u16,
-    scroll_row: u64,
     is_alternate_screen: u8,
-    damage_kind: u8,
+    reserved0: u8 = 0,
+    reserved1: u16 = 0,
+    scroll_row: u64,
     snapshot_seq: u64,
+    dirty_rows: FfiByteSpan,
+    dirty_cols_start: FfiU16Span,
+    dirty_cols_end: FfiU16Span,
 };
 
 pub const FfiVtPublishResult = extern struct {

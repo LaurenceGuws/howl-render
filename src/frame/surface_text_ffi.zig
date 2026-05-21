@@ -289,14 +289,18 @@ fn geometryOut(value: surface.GeometryResponse) abi.FfiGeometryResponse {
 }
 
 fn vtSnapshotIn(value: abi.FfiVtSnapshot) ?Render.FrameQueue.VtSnapshot {
-    const damage_kind = damageKindIn(value.damage_kind) orelse return null;
+    const dirty_rows = dirtyBytesSpanIn(value.rows, value.dirty_rows) orelse return null;
+    const dirty_cols_start = dirtyU16SpanIn(value.rows, value.dirty_cols_start) orelse return null;
+    const dirty_cols_end = dirtyU16SpanIn(value.rows, value.dirty_cols_end) orelse return null;
     return .{
         .cols = value.cols,
         .rows = value.rows,
         .scroll_row = value.scroll_row,
         .snapshot_seq = value.snapshot_seq,
         .is_alternate_screen = value.is_alternate_screen != 0,
-        .damage_kind = damage_kind,
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = dirty_cols_start,
+        .dirty_cols_end = dirty_cols_end,
     };
 }
 
@@ -437,6 +441,18 @@ fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiU16Span) ![
     if (span.len == 0) return &.{};
     if (span.ptr == null or span.len != rows) return error.InvalidSurfaceSource;
     return try allocator.dupe(u16, span.ptr[0..rows]);
+}
+
+fn dirtyBytesSpanIn(rows: u16, span: abi.FfiByteSpan) ?[]const u8 {
+    if (rows == 0) return if (span.len == 0) &.{} else null;
+    if (span.ptr == null or span.len != rows) return null;
+    return span.ptr[0..rows];
+}
+
+fn dirtyU16SpanIn(rows: u16, span: abi.FfiU16Span) ?[]const u16 {
+    if (rows == 0) return if (span.len == 0) &.{} else null;
+    if (span.ptr == null or span.len != rows) return null;
+    return span.ptr[0..rows];
 }
 
 fn cellValueIn(value: abi.FfiCell) !Render.SurfaceCell {
