@@ -12,6 +12,41 @@ fn ownerFromHandle(handle: abi.SurfaceTextHandle) ?*surface_text.SurfaceTextOwne
     return @ptrCast(@alignCast(owned));
 }
 
+const PublishSlotFfiState = struct {
+    allocator: std.mem.Allocator,
+    cells: []abi.FfiCell,
+
+    fn create(allocator: std.mem.Allocator, cell_count: u32) !*PublishSlotFfiState {
+        const state = try allocator.create(PublishSlotFfiState);
+        errdefer allocator.destroy(state);
+        const cells = try allocator.alloc(abi.FfiCell, @intCast(cell_count));
+        errdefer allocator.free(cells);
+        state.* = .{ .allocator = allocator, .cells = cells };
+        return state;
+    }
+
+    fn destroy(self: *PublishSlotFfiState) void {
+        self.allocator.free(self.cells);
+        self.allocator.destroy(self);
+    }
+};
+
+fn publishSlotFfiState(owner: *surface_text.SurfaceTextOwner) ?*PublishSlotFfiState {
+    const raw = owner.publish_slot_ffi orelse return null;
+    return @ptrCast(@alignCast(raw));
+}
+
+fn clearPublishSlotFfiState(owner: *surface_text.SurfaceTextOwner) void {
+    const state = publishSlotFfiState(owner) orelse return;
+    owner.publish_slot_ffi = null;
+    state.destroy();
+}
+
+fn cancelPublishSlotState(owner: *surface_text.SurfaceTextOwner) void {
+    owner.flow.cancelPublishSlot();
+    clearPublishSlotFfiState(owner);
+}
+
 pub fn isValidFont(handle: abi.SurfaceTextHandle) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     return if (owner.isValidFont())
@@ -37,6 +72,7 @@ pub fn init(config: abi.FfiSurfaceTextConfig) callconv(.c) abi.SurfaceTextHandle
 
 pub fn deinit(handle: abi.SurfaceTextHandle) callconv(.c) void {
     const owner = ownerFromHandle(handle) orelse return;
+    clearPublishSlotFfiState(owner);
     owner.destroy();
 }
 
@@ -101,12 +137,23 @@ pub fn reservePublishSlot(handle: abi.SurfaceTextHandle, cols: u16, rows: u16, o
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     if (cols == 0 or rows == 0) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     const slot = owner.flow.reservePublishSlot(cols, rows) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
-    slot_out.* = publishSlotOut(slot);
+    std.debug.assert(slot.cells.len <= std.math.maxInt(u32));
+    const state = PublishSlotFfiState.create(owner.allocator, @intCast(slot.cells.len)) catch {
+        owner.flow.cancelPublishSlot();
+        return @intFromEnum(abi.HowlRenderCallStatus.failed);
+    };
+    owner.publish_slot_ffi = state;
+    slot_out.* = publishSlotOut(slot, state.cells);
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
 pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSlotCommit) callconv(.c) abi.FfiVtPublishResult {
     const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const state = publishSlotFfiState(owner) orelse {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    defer clearPublishSlotFfiState(owner);
     const cursor = cursorIn(commit.cursor) orelse {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
@@ -114,6 +161,17 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
     if (commit.snapshot_seq == 0) {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    }
+    const cells = owner.flow.reservedPublishSlotCells() orelse {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    std.debug.assert(cells.len == state.cells.len);
+    for (cells, state.cells) |*dst, src| {
+        dst.* = cellValueIn(src) catch {
+            owner.flow.cancelPublishSlot();
+            return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+        };
     }
     const result = owner.flow.commitPublishSlot(.{
         .scroll_row = commit.scroll_row,
@@ -126,7 +184,7 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
 
 pub fn cancelPublishSlot(handle: abi.SurfaceTextHandle) callconv(.c) void {
     const owner = ownerFromHandle(handle) orelse return;
-    owner.flow.cancelPublishSlot();
+    cancelPublishSlotState(owner);
 }
 
 pub fn takePrepareRequest(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPrepareRequest) callconv(.c) abi.HowlRenderPrepareStatus {
@@ -293,9 +351,9 @@ fn vtPublishResultOut(value: queue.VtPublishResult) abi.FfiVtPublishResult {
     };
 }
 
-fn publishSlotOut(value: queue.PublicationSlot) abi.FfiPublishSlot {
+fn publishSlotOut(value: queue.PublicationSlot, cells: []abi.FfiCell) abi.FfiPublishSlot {
     return .{
-        .cells = .{ .ptr = if (value.cells.len == 0) null else @ptrCast(value.cells.ptr), .len = value.cells.len },
+        .cells = .{ .ptr = if (cells.len == 0) null else cells.ptr, .len = cells.len },
         .dirty_rows = .{ .ptr = if (value.dirty_rows.len == 0) null else value.dirty_rows.ptr, .len = value.dirty_rows.len },
         .dirty_cols_start = .{ .ptr = if (value.dirty_cols_start.len == 0) null else value.dirty_cols_start.ptr, .len = value.dirty_cols_start.len },
         .dirty_cols_end = .{ .ptr = if (value.dirty_cols_end.len == 0) null else value.dirty_cols_end.ptr, .len = value.dirty_cols_end.len },

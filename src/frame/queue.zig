@@ -603,6 +603,11 @@ pub const Flow = struct {
         return try self.publication_state.reserveSourceSlot(cols, rows);
     }
 
+    pub fn reservedPublishSlotCells(self: *Flow) ?[]surface_types.Cell {
+        if (self.publication_state.reserved) |source| return source.cells;
+        return null;
+    }
+
     pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
         std.debug.assert(meta.snapshot_seq != 0);
         const had_queued_publication = self.publication_state.pending != null or self.publication_state.active != null;

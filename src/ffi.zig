@@ -18,6 +18,7 @@ const FfiCell = abi.FfiCell;
 const FfiCursor = abi.FfiCursor;
 const FfiGeometry = abi.FfiGeometry;
 const FfiPendingState = abi.FfiPendingState;
+const FfiPublishSlot = abi.FfiPublishSlot;
 const FfiPrepareRequest = abi.FfiPrepareRequest;
 const FfiPreparedFrame = abi.FfiPreparedFrame;
 const FfiSurfaceExecutionInput = abi.FfiSurfaceExecutionInput;
@@ -35,6 +36,9 @@ const surfaceTextSetFontPath = surface_text_ffi.setFontPath;
 const surfaceTextSetFallbackFontPaths = surface_text_ffi.setFallbackFontPaths;
 const surfaceTextSyncGeometry = surface_text_ffi.syncGeometry;
 const surfaceTextPublishVtSource = surface_text_ffi.publishVtSource;
+const surfaceTextReservePublishSlot = surface_text_ffi.reservePublishSlot;
+const surfaceTextCommitPublishSlot = surface_text_ffi.commitPublishSlot;
+const surfaceTextCancelPublishSlot = surface_text_ffi.cancelPublishSlot;
 const surfaceTextTakePrepareRequest = surface_text_ffi.takePrepareRequest;
 const surfaceTextPublishPrepared = surface_text_ffi.publishPrepared;
 const surfaceTextTakeSubmitDecision = surface_text_ffi.takeSubmitDecision;
@@ -303,6 +307,45 @@ test "ffi vt source rejects invalid underline style" {
 test "ffi vt source rejects extra cells beyond declared grid" {
     const cells = [_]FfiCell{ testCell(), testCell() };
     try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
+}
+
+test "ffi publish slot stages abi cells before queue commit" {
+    const handle = testHandle();
+    defer surfaceTextDeinit(handle);
+    try std.testing.expect(handle != null);
+
+    const render_px = FfiPixelSize{ .width = 16, .height = 16 };
+    const grid_px = FfiPixelSize{ .width = 16, .height = 16 };
+    const layout = surfaceTextDeriveFrameLayout(handle, render_px, grid_px);
+    try std.testing.expectEqual(@as(c_int, 0), layout.status);
+    const sync = surfaceTextSyncGeometry(handle, .{ .render_px = render_px, .grid_px = grid_px });
+    try std.testing.expectEqual(@as(c_int, 0), sync.status);
+
+    var slot: FfiPublishSlot = undefined;
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.ok),
+        surfaceTextReservePublishSlot(handle, 1, 1, &slot),
+    );
+    defer surfaceTextCancelPublishSlot(handle);
+
+    try std.testing.expect(slot.cells.ptr != null);
+    try std.testing.expectEqual(@as(c_size_t, 1), slot.cells.len);
+    slot.cells.ptr[0] = testCell();
+    slot.dirty_rows.ptr[0] = 1;
+    slot.dirty_cols_start.ptr[0] = 0;
+    slot.dirty_cols_end.ptr[0] = 0;
+
+    const publish = surfaceTextCommitPublishSlot(handle, .{
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = 0,
+        .cursor = testCursor(0),
+    });
+    try std.testing.expectEqual(@as(c_int, 0), publish.status);
+    try std.testing.expectEqual(@as(u8, 1), publish.published);
+
+    var request: FfiPrepareRequest = undefined;
+    try std.testing.expectEqual(HowlRenderPrepareStatus.ready, surfaceTextTakePrepareRequest(handle, &request));
 }
 
 test "ffi prepare handle rejects missing output pointer" {

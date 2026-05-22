@@ -282,6 +282,7 @@ pub const SurfaceTextOwner = struct {
     session: SurfaceText,
     flow: queue.Flow,
     config: SurfaceTextConfig,
+    publish_slot_ffi: ?*anyopaque = null,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
     retained_surface_pixels: []u8 = &.{},
