@@ -626,6 +626,18 @@ pub const Flow = struct {
         self.publication_state.cancelReservedSource();
     }
 
+    pub fn rejectPublishSlot(self: *Flow, snapshot_seq: u64) VtPublishResult {
+        std.debug.assert(snapshot_seq != 0);
+        self.publication_state.cancelReservedSource();
+        return .{
+            .published = false,
+            .queued = false,
+            .damage_kind = .none,
+            .snapshot_seq = snapshot_seq,
+            .geometry_epoch = self.geometry_epoch,
+        };
+    }
+
     pub fn acceptSnapshot(self: *Flow, snapshot: VtSnapshot) VtPublishResult {
         const source = testSourceFromSnapshot(self.allocator, snapshot) catch unreachable;
         return self.acceptSource(source);
@@ -953,6 +965,27 @@ test "flow exposes source pending before queue preparation" {
     _ = flow.prepare().?;
     try std.testing.expect(!flow.pendingState().source_pending);
     try std.testing.expect(!flow.pendingState().prepare_pending);
+}
+
+test "flow reject publish slot clears reserved source" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    const geometry = flow.syncGeometry(.{
+        .render_px = .{ .width = 10, .height = 10 },
+        .grid_px = .{ .width = 10, .height = 10 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    _ = try flow.reservePublishSlot(1, 1);
+    try std.testing.expect(flow.pendingState().source_pending);
+
+    const result = flow.rejectPublishSlot(7);
+    try std.testing.expectEqual(false, result.published);
+    try std.testing.expectEqual(false, result.queued);
+    try std.testing.expectEqual(pipeline.DamageKind.none, result.damage_kind);
+    try std.testing.expectEqual(@as(u64, 7), result.snapshot_seq);
+    try std.testing.expectEqual(geometry.geometry_epoch, result.geometry_epoch);
+    try std.testing.expect(!flow.pendingState().source_pending);
 }
 
 test "flow keeps latest source when publish A then B before prepare" {

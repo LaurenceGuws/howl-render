@@ -181,6 +181,12 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
     return vtPublishResultOut(result);
 }
 
+pub fn rejectPublishSlot(handle: abi.SurfaceTextHandle, snapshot_seq: u64) callconv(.c) abi.FfiVtPublishResult {
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    if (snapshot_seq == 0) return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    return vtPublishResultWithStatus(owner.flow.rejectPublishSlot(snapshot_seq), .failed);
+}
+
 pub fn cancelPublishSlot(handle: abi.SurfaceTextHandle) callconv(.c) void {
     const owner = ownerFromHandle(handle) orelse return;
     cancelPublishSlotState(owner);
@@ -342,8 +348,12 @@ fn geometryOut(value: surface.GeometryResponse) abi.FfiGeometryResponse {
 }
 
 fn vtPublishResultOut(value: queue.VtPublishResult) abi.FfiVtPublishResult {
+    return vtPublishResultWithStatus(value, .ok);
+}
+
+fn vtPublishResultWithStatus(value: queue.VtPublishResult, status: abi.HowlRenderCallStatus) abi.FfiVtPublishResult {
     return .{
-        .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
+        .status = @intFromEnum(status),
         .published = @intFromBool(value.published),
         .queued = @intFromBool(value.queued),
         .damage_kind = @intFromEnum(value.damage_kind),

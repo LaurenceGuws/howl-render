@@ -131,7 +131,7 @@ sequenceDiagram
   advances geometry epoch, and prepare reads that owner state internally instead of exposing a host
   readback courier API.
 - `howl_render_surface_text_publish_vt_source`, `...reserve_publish_slot`,
-  `...commit_publish_slot`, `...cancel_publish_slot`, `...take_prepare_request`,
+  `...commit_publish_slot`, `...reject_publish_slot`, `...cancel_publish_slot`, `...take_prepare_request`,
   `...publish_prepared`, `...take_submit_decision`, `...accept_submitted`, and
   `...retire_presented` are the retained render-queue control steps. They let hosts either publish
   one full VT source directly or reserve a render-owned publish slot, fill it in place from VT, and
@@ -139,6 +139,9 @@ sequenceDiagram
   VT-owned visible projection truth, cells, cursor, and dirty spans so render can classify coarse
   damage itself from retained previous-frame state, instead of accepting host-authored damage
   classification or scrollback approximations.
+- `howl_render_surface_text_reject_publish_slot` is the render-owned failure exit for the reserved
+  publish-slot path. Hosts pass VT snapshot truth in, and render constructs the publish result,
+  clears any reserved slot, and returns authoritative rejection state.
 - The publish-slot seam uses `HowlVtSurfaceCell` and `HowlVtCursor` directly. Render owns VT-to-
   render translation at that seam; hosts must not prove or depend on VT/render struct identity.
 - `howl_render_surface_text_pending_state` exposes render-owned work flags, including present
