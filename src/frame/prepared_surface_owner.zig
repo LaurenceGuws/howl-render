@@ -82,16 +82,20 @@ pub const Owner = struct {
         };
     }
 
-    pub fn submit(
+    pub fn pipelineFrame(self: *const Owner) pipeline.PreparedFrame {
+        return self.prepared.pipelineFrame();
+    }
+
+    pub fn belongsToSession(self: *const Owner, session_owner: *surface_text.SurfaceTextOwner) bool {
+        return self.session_owner == session_owner;
+    }
+
+    pub fn submitOwned(
         self: *Owner,
         session_owner: *surface_text.SurfaceTextOwner,
-        prepared_frame: pipeline.PreparedFrame,
         execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
     ) SubmitResult {
-        if (self.session_owner != session_owner) return .failed;
-        if (!samePreparedFrame(self.prepared.pipelineFrame(), prepared_frame)) {
-            return .needs_prepare;
-        }
+        if (!self.belongsToSession(session_owner)) return .failed;
         const feedback = session_owner.session.submitSurface(&self.prepared, execution) catch {
             return .failed;
         };
@@ -103,6 +107,19 @@ pub const Owner = struct {
         );
         self.destroy();
         return .{ .rendered = feedback };
+    }
+
+    pub fn submit(
+        self: *Owner,
+        session_owner: *surface_text.SurfaceTextOwner,
+        prepared_frame: pipeline.PreparedFrame,
+        execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
+    ) SubmitResult {
+        if (!self.belongsToSession(session_owner)) return .failed;
+        if (!samePreparedFrame(self.prepared.pipelineFrame(), prepared_frame)) {
+            return .needs_prepare;
+        }
+        return self.submitOwned(session_owner, execution);
     }
 
     fn copySurfaceBuffer(self: *Owner) !void {

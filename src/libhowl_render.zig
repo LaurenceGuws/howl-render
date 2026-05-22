@@ -17,7 +17,9 @@ comptime {
     @export(&surface_text_ffi.cancelPublishSlot, .{ .name = "howl_render_surface_text_cancel_publish_slot" });
     @export(&surface_text_ffi.takePrepareRequest, .{ .name = "howl_render_surface_text_take_prepare_request" });
     @export(&surface_text_ffi.publishPrepared, .{ .name = "howl_render_surface_text_publish_prepared" });
+    @export(&surface_text_ffi.publishPreparedHandle, .{ .name = "howl_render_surface_text_publish_prepared_handle" });
     @export(&surface_text_ffi.takeSubmitDecision, .{ .name = "howl_render_surface_text_take_submit_decision" });
+    @export(&surface_text_ffi.takeSubmitHandle, .{ .name = "howl_render_surface_text_take_submit_handle" });
     @export(&surface_text_ffi.acceptSubmitted, .{ .name = "howl_render_surface_text_accept_submitted" });
     @export(&surface_text_ffi.retirePresented, .{ .name = "howl_render_surface_text_retire_presented" });
     @export(&surface_text_ffi.pendingState, .{ .name = "howl_render_surface_text_pending_state" });
@@ -28,4 +30,5 @@ comptime {
     @export(&prepared_surface_ffi.buffer, .{ .name = "howl_render_prepared_surface_buffer" });
     @export(&prepared_surface_ffi.diagnostics, .{ .name = "howl_render_prepared_surface_diagnostics" });
     @export(&surface_text_ffi.submit, .{ .name = "howl_render_surface_text_submit" });
+    @export(&surface_text_ffi.submitHandle, .{ .name = "howl_render_surface_text_submit_handle" });
 }

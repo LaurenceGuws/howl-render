@@ -1,4 +1,5 @@
 const std = @import("std");
+const abi = @import("../ffi_types.zig");
 const geometry_mod = @import("geometry.zig");
 const input = @import("input.zig");
 const pipeline = @import("pipeline.zig");
@@ -284,6 +285,8 @@ pub const SurfaceTextOwner = struct {
     flow: queue.Flow,
     config: SurfaceTextConfig,
     publish_slot_ffi: ?*anyopaque = null,
+    prepared_publish_handle: abi.PreparedSurfaceHandle = null,
+    prepared_submit_handle: abi.PreparedSurfaceHandle = null,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
     retained_surface_pixels: []u8 = &.{},

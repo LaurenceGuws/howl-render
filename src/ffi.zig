@@ -39,10 +39,13 @@ const surfaceTextSyncGeometry = surface_text_ffi.syncGeometry;
 const surfaceTextPublishVtSource = surface_text_ffi.publishVtSource;
 const surfaceTextReservePublishSlot = surface_text_ffi.reservePublishSlot;
 const surfaceTextCommitPublishSlot = surface_text_ffi.commitPublishSlot;
+const surfaceTextRejectPublishSlot = surface_text_ffi.rejectPublishSlot;
 const surfaceTextCancelPublishSlot = surface_text_ffi.cancelPublishSlot;
 const surfaceTextTakePrepareRequest = surface_text_ffi.takePrepareRequest;
 const surfaceTextPublishPrepared = surface_text_ffi.publishPrepared;
+const surfaceTextPublishPreparedHandle = surface_text_ffi.publishPreparedHandle;
 const surfaceTextTakeSubmitDecision = surface_text_ffi.takeSubmitDecision;
+const surfaceTextTakeSubmitHandle = surface_text_ffi.takeSubmitHandle;
 const surfaceTextAcceptSubmitted = surface_text_ffi.acceptSubmitted;
 const surfaceTextRetirePresented = surface_text_ffi.retirePresented;
 const surfaceTextPendingState = surface_text_ffi.pendingState;
@@ -53,6 +56,7 @@ const preparedSurfaceDescribe = prepared_surface.describe;
 const preparedSurfaceBuffer = prepared_surface.buffer;
 const preparedSurfaceDiagnostics = prepared_surface.diagnostics;
 const surfaceTextSubmit = surface_text_ffi.submit;
+const surfaceTextSubmitHandle = surface_text_ffi.submitHandle;
 
 const TestPrepareInput = struct {
     request: FfiPrepareRequest,
@@ -359,6 +363,33 @@ test "ffi publish slot stages abi cells before queue commit" {
     try std.testing.expectEqual(HowlRenderPrepareStatus.ready, surfaceTextTakePrepareRequest(handle, &request));
 }
 
+test "ffi reject publish slot returns render-owned failure result" {
+    const handle = testHandle();
+    defer surfaceTextDeinit(handle);
+    try std.testing.expect(handle != null);
+
+    const render_px = FfiPixelSize{ .width = 16, .height = 16 };
+    const grid_px = FfiPixelSize{ .width = 16, .height = 16 };
+    const layout = surfaceTextDeriveFrameLayout(handle, render_px, grid_px);
+    try std.testing.expectEqual(@as(c_int, 0), layout.status);
+    const sync = surfaceTextSyncGeometry(handle, .{ .render_px = render_px, .grid_px = grid_px });
+    try std.testing.expectEqual(@as(c_int, 0), sync.status);
+
+    var slot: FfiPublishSlot = undefined;
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.ok),
+        surfaceTextReservePublishSlot(handle, 1, 1, &slot),
+    );
+
+    const publish = surfaceTextRejectPublishSlot(handle, 7);
+    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.failed), publish.status);
+    try std.testing.expectEqual(@as(u8, 0), publish.published);
+    try std.testing.expectEqual(@as(u8, 0), publish.queued);
+    try std.testing.expectEqual(@as(u8, 0), publish.damage_kind);
+    try std.testing.expectEqual(@as(u64, 7), publish.snapshot_seq);
+    try std.testing.expectEqual(sync.geometry_epoch, publish.geometry_epoch);
+}
+
 test "ffi prepare handle rejects missing output pointer" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
@@ -436,6 +467,33 @@ test "ffi submit clears feedback on failure" {
     );
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.failed), feedback.status);
     try std.testing.expectEqual(@as(u64, 0), feedback.surface.host_surface_id);
+}
+
+test "ffi prepared-handle submit decision returns opaque handle" {
+    const handle = testHandle();
+    defer surfaceTextDeinit(handle);
+    try std.testing.expect(handle != null);
+
+    const input = try nextPrepareInput(handle);
+    var prepared_handle: PreparedSurfaceHandle = null;
+    try std.testing.expectEqual(
+        HowlRenderPrepareStatus.ready,
+        surfaceTextPrepareHandle(handle, input.request, &prepared_handle),
+    );
+    defer preparedSurfaceRelease(prepared_handle);
+    try std.testing.expect(prepared_handle != null);
+
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.ok),
+        surfaceTextPublishPreparedHandle(handle, prepared_handle),
+    );
+
+    var submit_handle: PreparedSurfaceHandle = null;
+    try std.testing.expectEqual(
+        HowlRenderSubmitDecisionStatus.submit,
+        surfaceTextTakeSubmitHandle(handle, &submit_handle),
+    );
+    try std.testing.expect(submit_handle == prepared_handle);
 }
 
 test "ffi prepared surface describe writes missing-handle status" {

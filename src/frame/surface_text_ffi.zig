@@ -208,6 +208,16 @@ pub fn publishPrepared(handle: abi.SurfaceTextHandle, prepared_in: abi.FfiPrepar
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
+pub fn publishPreparedHandle(handle: abi.SurfaceTextHandle, prepared_surface_handle: abi.PreparedSurfaceHandle) callconv(.c) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    if (!prepared_owner.belongsToSession(owner)) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    owner.prepared_submit_handle = null;
+    owner.prepared_publish_handle = prepared_surface_handle;
+    owner.flow.publishPrepared(prepared_owner.pipelineFrame());
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
+}
+
 pub fn takeSubmitDecision(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPreparedFrame) callconv(.c) abi.HowlRenderSubmitDecisionStatus {
     const prepared_out = out orelse return .failed;
     prepared_out.* = std.mem.zeroes(abi.FfiPreparedFrame);
@@ -223,6 +233,34 @@ pub fn takeSubmitDecision(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPreparedF
     };
 }
 
+pub fn takeSubmitHandle(handle: abi.SurfaceTextHandle, out: ?*abi.PreparedSurfaceHandle) callconv(.c) abi.HowlRenderSubmitDecisionStatus {
+    const prepared_out = out orelse return .failed;
+    prepared_out.* = null;
+    const owner = ownerFromHandle(handle) orelse return .failed;
+    return switch (owner.flow.submit()) {
+        .idle => .idle,
+        .stale => blk: {
+            owner.prepared_publish_handle = null;
+            owner.prepared_submit_handle = null;
+            break :blk .stale;
+        },
+        .needs_full_prepare => blk: {
+            owner.prepared_publish_handle = null;
+            owner.prepared_submit_handle = null;
+            break :blk .needs_prepare;
+        },
+        .submit => |prepared| blk: {
+            const prepared_handle = owner.prepared_publish_handle orelse break :blk .failed;
+            const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_handle) orelse break :blk .failed;
+            if (!samePreparedFrame(prepared_owner.pipelineFrame(), prepared)) break :blk .failed;
+            owner.prepared_publish_handle = null;
+            owner.prepared_submit_handle = prepared_handle;
+            prepared_out.* = prepared_handle;
+            break :blk .submit;
+        },
+    };
+}
+
 pub fn acceptSubmitted(handle: abi.SurfaceTextHandle, prepared_in: abi.FfiPreparedFrame) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     const prepared = preparedFrameIn(prepared_in) orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
@@ -230,6 +268,25 @@ pub fn acceptSubmitted(handle: abi.SurfaceTextHandle, prepared_in: abi.FfiPrepar
         .token = prepared.token,
     });
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
+}
+
+pub fn submitHandle(surface_text_handle: abi.SurfaceTextHandle, prepared_surface_handle: abi.PreparedSurfaceHandle, execution_in: ?*const abi.FfiSurfaceExecutionInput, feedback_out: ?*abi.FfiSurfaceFeedback) callconv(.c) abi.HowlRenderSubmitStatus {
+    if (feedback_out) |out| out.* = failedSurfaceFeedback();
+    const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
+    const execution = execution_in orelse return .failed;
+    if (owner.prepared_submit_handle != prepared_surface_handle) return .failed;
+    const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return .failed;
+    const submitted = prepared_owner.pipelineFrame().token;
+    return switch (prepared_owner.submitOwned(owner, executionInputIn(execution.*))) {
+        .rendered => |feedback| blk: {
+            owner.prepared_submit_handle = null;
+            owner.flow.acceptSubmitted(.{ .token = submitted });
+            if (feedback_out) |out| out.* = surfaceFeedbackOut(feedback);
+            break :blk .rendered;
+        },
+        .needs_prepare => .needs_prepare,
+        .failed => .failed,
+    };
 }
 
 pub fn retirePresented(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPresentedRetire) callconv(.c) c_int {
@@ -445,6 +502,15 @@ fn prepareTokenIn(value: abi.FfiPrepareRequest) ?pipeline.SnapshotToken {
 fn preparedFrameIn(value: abi.FfiPreparedFrame) ?pipeline.PreparedFrame {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq };
+}
+
+fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool {
+    return a.token.snapshot_seq == b.token.snapshot_seq and
+        a.token.dirty_epoch == b.token.dirty_epoch and
+        a.token.geometry_epoch == b.token.geometry_epoch and
+        a.token.damage_base_seq == b.token.damage_base_seq and
+        a.token.damage_kind == b.token.damage_kind and
+        a.required_base_seq == b.required_base_seq;
 }
 
 fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.PublicationSource {

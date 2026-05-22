@@ -132,13 +132,17 @@ sequenceDiagram
   readback courier API.
 - `howl_render_surface_text_publish_vt_source`, `...reserve_publish_slot`,
   `...commit_publish_slot`, `...reject_publish_slot`, `...cancel_publish_slot`, `...take_prepare_request`,
-  `...publish_prepared`, `...take_submit_decision`, `...accept_submitted`, and
-  `...retire_presented` are the retained render-queue control steps. They let hosts either publish
-  one full VT source directly or reserve a render-owned publish slot, fill it in place from VT, and
-  commit it without a second host-owned visible-surface allocation. VT publication must carry
+  `...publish_prepared_handle`, `...take_submit_handle`, `...submit_handle`, and
+  `...retire_presented` are the retained render-queue control steps for the owned prepared-surface
+  path. They let hosts either publish one full VT source directly or reserve a render-owned publish
+  slot, fill it in place from VT, and commit it without a second host-owned visible-surface
+  allocation. VT publication must carry
   VT-owned visible projection truth, cells, cursor, and dirty spans so render can classify coarse
   damage itself from retained previous-frame state, instead of accepting host-authored damage
   classification or scrollback approximations.
+- The prepared-handle path keeps prepared-frame identity render-owned. Hosts publish, submit, and
+  retire opaque prepared handles; they must not rebuild prepared-frame queue truth from descriptive
+  prepared-surface fields.
 - `howl_render_surface_text_reject_publish_slot` is the render-owned failure exit for the reserved
   publish-slot path. Hosts pass VT snapshot truth in, and render constructs the publish result,
   clears any reserved slot, and returns authoritative rejection state.
