@@ -2,6 +2,7 @@ const std = @import("std");
 const geometry_mod = @import("geometry.zig");
 const input = @import("input.zig");
 const pipeline = @import("pipeline.zig");
+const prepared_surface_owner = @import("prepared_surface_owner.zig");
 const queue = @import("queue.zig");
 const submit_feedback = @import("submit_feedback.zig");
 const surface = @import("surface.zig");
@@ -350,6 +351,18 @@ pub const SurfaceTextOwner = struct {
 
     pub fn isValidFont(self: *SurfaceTextOwner) bool {
         return self.session.isValidFont(self.config);
+    }
+
+    pub fn prepareHandle(self: *SurfaceTextOwner, token: pipeline.SnapshotToken) !*prepared_surface_owner.Owner {
+        const prepare = try self.flow.consumePrepare(token);
+        var prepared = try self.session.prepareSurface(.{
+            .config = self.config,
+            .request = prepare.request,
+            .layout = prepare.layout,
+            .state = prepare.state,
+        });
+        errdefer prepared.deinit();
+        return prepared_surface_owner.Owner.create(self, prepared);
     }
 
     pub fn invalidateTextState(self: *SurfaceTextOwner) void {

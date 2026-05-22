@@ -257,14 +257,7 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, prepare_request
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const value = prepared_out orelse return .failed;
     const token = prepareTokenIn(prepare_request) orelse return .failed;
-    const prepare = owner.flow.consumePrepare(token) catch return .failed;
-    const prepared = owner.session.prepareSurface(.{
-        .config = owner.config,
-        .request = prepare.request,
-        .layout = prepare.layout,
-        .state = prepare.state,
-    }) catch return .failed;
-    const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
+    const prepared_owner = owner.prepareHandle(token) catch return .failed;
     value.* = @ptrCast(prepared_owner);
     return .ready;
 }
