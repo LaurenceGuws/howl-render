@@ -147,6 +147,16 @@ pub const FfiU16Span = extern struct {
     len: c_size_t,
 };
 
+pub const FfiByteWriteSpan = extern struct {
+    ptr: [*c]u8,
+    len: c_size_t,
+};
+
+pub const FfiU16WriteSpan = extern struct {
+    ptr: [*c]u16,
+    len: c_size_t,
+};
+
 pub const FfiFrameLayoutResult = extern struct {
     status: c_int,
     cell_px: FfiCellSize,
@@ -189,6 +199,11 @@ pub const FfiCell = extern struct {
     reserved2: u8 = 0,
     attrs: FfiCellAttrs,
     link_id: u32,
+};
+
+pub const FfiCellWriteSpan = extern struct {
+    ptr: [*c]FfiCell,
+    len: c_size_t,
 };
 
 pub const FfiCursor = extern struct {
@@ -254,6 +269,22 @@ pub const FfiVtPublishResult = extern struct {
     reserved0: u8 = 0,
     snapshot_seq: u64,
     geometry_epoch: u64,
+};
+
+pub const FfiPublishSlot = extern struct {
+    cells: FfiCellWriteSpan,
+    dirty_rows: FfiByteWriteSpan,
+    dirty_cols_start: FfiU16WriteSpan,
+    dirty_cols_end: FfiU16WriteSpan,
+};
+
+pub const FfiPublishSlotCommit = extern struct {
+    scroll_row: u64,
+    snapshot_seq: u64,
+    is_alternate_screen: u8,
+    reserved0: u8 = 0,
+    reserved1: u16 = 0,
+    cursor: FfiCursor,
 };
 
 pub const FfiSurfaceMetrics = extern struct {

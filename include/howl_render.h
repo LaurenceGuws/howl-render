@@ -169,6 +169,21 @@ typedef struct {
 } HowlRenderCellSpan;
 
 typedef struct {
+  HowlRenderCell *ptr;
+  size_t len;
+} HowlRenderCellWriteSpan;
+
+typedef struct {
+  uint8_t *ptr;
+  size_t len;
+} HowlRenderByteWriteSpan;
+
+typedef struct {
+  uint16_t *ptr;
+  size_t len;
+} HowlRenderU16WriteSpan;
+
+typedef struct {
   uint16_t row;
   uint16_t col;
   uint8_t visible;
@@ -232,6 +247,22 @@ typedef struct {
   uint64_t snapshot_seq;
   uint64_t geometry_epoch;
 } HowlRenderVtPublishResult;
+
+typedef struct {
+  HowlRenderCellWriteSpan cells;
+  HowlRenderByteWriteSpan dirty_rows;
+  HowlRenderU16WriteSpan dirty_cols_start;
+  HowlRenderU16WriteSpan dirty_cols_end;
+} HowlRenderPublishSlot;
+
+typedef struct {
+  uint64_t scroll_row;
+  uint64_t snapshot_seq;
+  uint8_t is_alternate_screen;
+  uint8_t reserved0;
+  uint16_t reserved1;
+  HowlRenderCursor cursor;
+} HowlRenderPublishSlotCommit;
 
 typedef struct {
   uint64_t sync_us;
@@ -349,6 +380,9 @@ int howl_render_surface_text_set_font_path(HowlRenderSurfaceTextHandle handle, c
 int howl_render_surface_text_set_fallback_font_paths(HowlRenderSurfaceTextHandle handle, const uint8_t *const *ptrs, size_t count);
 HowlRenderGeometryResponse howl_render_surface_text_sync_geometry(HowlRenderSurfaceTextHandle handle, HowlRenderGeometry geometry);
 HowlRenderVtPublishResult howl_render_surface_text_publish_vt_source(HowlRenderSurfaceTextHandle handle, HowlRenderVtSurface source);
+int howl_render_surface_text_reserve_publish_slot(HowlRenderSurfaceTextHandle handle, uint16_t cols, uint16_t rows, HowlRenderPublishSlot *slot_out);
+HowlRenderVtPublishResult howl_render_surface_text_commit_publish_slot(HowlRenderSurfaceTextHandle handle, HowlRenderPublishSlotCommit commit);
+void howl_render_surface_text_cancel_publish_slot(HowlRenderSurfaceTextHandle handle);
 HowlRenderPrepareStatus howl_render_surface_text_take_prepare_request(HowlRenderSurfaceTextHandle handle, HowlRenderPrepareRequest *prepare_request_out);
 int howl_render_surface_text_publish_prepared(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
 HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_decision(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame *prepared_frame_out);

@@ -39,9 +39,10 @@ classDiagram
 ## Ownership Rules
 
 - `frame/surface.zig` owns render-surface contract types and prepared render-surface state.
-- `frame/queue.zig` owns retained render-surface queue state, geometry epoch/query state, one
-  retained published VT-source packet per active prepare slot, VT snapshot publication
-  classification, retained-base validation, and present retirement.
+- `frame/queue.zig` owns retained render-surface queue state, geometry epoch/query state, the
+  render-owned publish-slot reserve/commit/cancel seam, one retained published VT-source packet per
+  active prepare slot, VT snapshot publication classification, retained-base validation, and
+  present retirement.
 - `frame/surface_text.zig` owns prepare/submit text rendering work against VT-surface input, render
   session font config, fallback-font path copies, and text-state invalidation tied to that config.
 - `frame/surface_text.zig` also owns the render-session allocator policy after init. The shipped C ABI
@@ -129,13 +130,15 @@ sequenceDiagram
 - `howl_render_surface_text_sync_geometry` is the geometry-owner control step. The render owner
   advances geometry epoch, and prepare reads that owner state internally instead of exposing a host
   readback courier API.
-- `howl_render_surface_text_publish_vt_source`, `...take_prepare_request`,
+- `howl_render_surface_text_publish_vt_source`, `...reserve_publish_slot`,
+  `...commit_publish_slot`, `...cancel_publish_slot`, `...take_prepare_request`,
   `...publish_prepared`, `...take_submit_decision`, `...accept_submitted`, and
-  `...mark_presented` are the retained render-queue control steps. They let hosts publish one full
-  VT source and drive the bounded prepare-submit-present loop without re-owning retained render
-  state in host code. VT publication must carry VT-owned visible projection truth, cells, cursor,
-  and dirty spans so render can classify coarse damage itself from retained previous-frame state,
-  instead of accepting host-authored damage classification or scrollback approximations.
+  `...mark_presented` are the retained render-queue control steps. They let hosts either publish
+  one full VT source directly or reserve a render-owned publish slot, fill it in place from VT, and
+  commit it without a second host-owned visible-surface allocation. VT publication must carry
+  VT-owned visible projection truth, cells, cursor, and dirty spans so render can classify coarse
+  damage itself from retained previous-frame state, instead of accepting host-authored damage
+  classification or scrollback approximations.
 - `howl_render_surface_text_pending_state` exposes render-owned work flags, including present
   retirement, so hosts can drive the queue without mirroring a second phase machine.
 - `howl_render_prepared_surface_buffer` is the realized surface-image export. Hosts consume it as

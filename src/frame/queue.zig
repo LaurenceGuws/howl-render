@@ -181,7 +181,6 @@ const TerminalSurface = struct {
         const latest = latest_token orelse return false;
         return latest.isNewerThan(token);
     }
-
 };
 
 pub const VtSnapshot = struct {
@@ -203,7 +202,7 @@ pub const PublicationSource = struct {
     is_alternate_screen: bool,
     cells: []surface_types.Cell,
     cursor: surface_types.CursorInfo,
-    dirty_rows: []bool = &.{},
+    dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
     dirty_cols_end: []u16 = &.{},
 
@@ -216,20 +215,20 @@ pub const PublicationSource = struct {
     }
 
     pub fn snapshot(self: *const PublicationSource) VtSnapshot {
-        const dirty_rows: []const u8 = @ptrCast(self.dirty_rows);
         return .{
             .cols = self.cols,
             .rows = self.rows,
             .scroll_row = self.scroll_row,
             .snapshot_seq = self.snapshot_seq,
             .is_alternate_screen = self.is_alternate_screen,
-            .dirty_rows = dirty_rows,
+            .dirty_rows = self.dirty_rows,
             .dirty_cols_start = self.dirty_cols_start,
             .dirty_cols_end = self.dirty_cols_end,
         };
     }
 
     pub fn frameData(self: *const PublicationSource, full_damage: bool) surface_types.FrameData {
+        const dirty_rows: []const bool = @ptrCast(self.dirty_rows);
         return .{
             .viewport = .{
                 .cols = self.cols,
@@ -245,7 +244,7 @@ pub const PublicationSource = struct {
             .cursor = self.cursor,
             .damage = .{
                 .full = full_damage,
-                .dirty_rows = self.dirty_rows,
+                .dirty_rows = dirty_rows,
                 .dirty_cols_start = self.dirty_cols_start,
                 .dirty_cols_end = self.dirty_cols_end,
             },
@@ -259,6 +258,20 @@ pub const VtPublishResult = struct {
     damage_kind: pipeline.DamageKind,
     snapshot_seq: u64,
     geometry_epoch: u64,
+};
+
+pub const PublicationSlot = struct {
+    cells: []surface_types.Cell,
+    dirty_rows: []u8,
+    dirty_cols_start: []u16,
+    dirty_cols_end: []u16,
+};
+
+pub const ReservedSourceMeta = struct {
+    scroll_row: u64,
+    snapshot_seq: u64,
+    is_alternate_screen: bool,
+    cursor: surface_types.CursorInfo,
 };
 
 pub const PendingState = struct {
@@ -299,6 +312,7 @@ const ActivePrepare = struct {
 
 const PublicationState = struct {
     allocator: std.mem.Allocator,
+    reserved: ?PublicationSource = null,
     pending: ?Publication = null,
     active: ?ActivePrepare = null,
 
@@ -307,10 +321,62 @@ const PublicationState = struct {
     }
 
     fn deinit(self: *PublicationState) void {
+        if (self.reserved) |*source| source.deinit(self.allocator);
+        self.reserved = null;
         if (self.pending) |*publication| publication.deinit(self.allocator);
         self.pending = null;
         if (self.active) |*active| active.deinit(self.allocator);
         self.active = null;
+    }
+
+    fn reserveSourceSlot(self: *PublicationState, cols: u16, rows: u16) !PublicationSlot {
+        std.debug.assert(cols > 0);
+        std.debug.assert(rows > 0);
+        if (self.reserved != null) return error.PublishSlotBusy;
+
+        const cell_count: u32 = @as(u32, cols) * @as(u32, rows);
+        const cells = try self.allocator.alloc(surface_types.Cell, @intCast(cell_count));
+        errdefer self.allocator.free(cells);
+        const dirty_rows = try self.allocator.alloc(u8, rows);
+        errdefer self.allocator.free(dirty_rows);
+        const dirty_cols_start = try self.allocator.alloc(u16, rows);
+        errdefer self.allocator.free(dirty_cols_start);
+        const dirty_cols_end = try self.allocator.alloc(u16, rows);
+        errdefer self.allocator.free(dirty_cols_end);
+
+        self.reserved = .{
+            .cols = cols,
+            .rows = rows,
+            .scroll_row = 0,
+            .snapshot_seq = 0,
+            .is_alternate_screen = false,
+            .cells = cells,
+            .cursor = std.mem.zeroes(surface_types.CursorInfo),
+            .dirty_rows = dirty_rows,
+            .dirty_cols_start = dirty_cols_start,
+            .dirty_cols_end = dirty_cols_end,
+        };
+        return .{
+            .cells = self.reserved.?.cells,
+            .dirty_rows = self.reserved.?.dirty_rows,
+            .dirty_cols_start = self.reserved.?.dirty_cols_start,
+            .dirty_cols_end = self.reserved.?.dirty_cols_end,
+        };
+    }
+
+    fn cancelReservedSource(self: *PublicationState) void {
+        if (self.reserved) |*source| source.deinit(self.allocator);
+        self.reserved = null;
+    }
+
+    fn commitReservedSource(self: *PublicationState, meta: ReservedSourceMeta, geometry_epoch: u64) !VtPublishResult {
+        var source = self.reserved orelse return error.MissingPublishSlot;
+        self.reserved = null;
+        source.scroll_row = meta.scroll_row;
+        source.snapshot_seq = meta.snapshot_seq;
+        source.is_alternate_screen = meta.is_alternate_screen;
+        source.cursor = meta.cursor;
+        return self.acceptSource(source, geometry_epoch);
     }
 
     fn acceptSource(self: *PublicationState, source: PublicationSource, geometry_epoch: u64) VtPublishResult {
@@ -390,7 +456,7 @@ const PublicationState = struct {
     }
 
     fn sourcePending(self: *const PublicationState) bool {
-        return self.pending != null;
+        return self.pending != null or self.reserved != null;
     }
 
     fn preparePending(self: *const PublicationState) bool {
@@ -436,6 +502,9 @@ const PublicationState = struct {
     }
 
     fn priorSnapshot(self: *const PublicationState) ?VtSnapshot {
+        if (self.reserved) |source| {
+            if (source.snapshot_seq != 0) return source.snapshot();
+        }
         if (self.pending) |publication| return publication.source.snapshot();
         if (self.active) |active| return active.publication.source.snapshot();
         return null;
@@ -520,6 +589,24 @@ pub const Flow = struct {
         const result = self.publication_state.acceptSource(source, self.geometry_epoch);
         self.surface.noteSnapshotPublish(result, had_queued_publication and result.published);
         return result;
+    }
+
+    pub fn reservePublishSlot(self: *Flow, cols: u16, rows: u16) !PublicationSlot {
+        std.debug.assert(cols > 0);
+        std.debug.assert(rows > 0);
+        return try self.publication_state.reserveSourceSlot(cols, rows);
+    }
+
+    pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
+        std.debug.assert(meta.snapshot_seq != 0);
+        const had_queued_publication = self.publication_state.pending != null or self.publication_state.active != null;
+        const result = try self.publication_state.commitReservedSource(meta, self.geometry_epoch);
+        self.surface.noteSnapshotPublish(result, had_queued_publication and result.published);
+        return result;
+    }
+
+    pub fn cancelPublishSlot(self: *Flow) void {
+        self.publication_state.cancelReservedSource();
     }
 
     pub fn acceptSnapshot(self: *Flow, snapshot: VtSnapshot) VtPublishResult {
@@ -631,9 +718,9 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
     const cell_count: u32 = @as(u32, snapshot.cols) * @as(u32, snapshot.rows);
     const cells = try allocator.alloc(surface_types.Cell, @intCast(cell_count));
     @memset(cells, std.mem.zeroes(surface_types.Cell));
-    const dirty_rows = try allocator.alloc(bool, snapshot.rows);
+    const dirty_rows = try allocator.alloc(u8, snapshot.rows);
     errdefer allocator.free(dirty_rows);
-    for (dirty_rows, 0..) |*dst, i| dst.* = snapshot.dirty_rows[i] != 0;
+    for (dirty_rows, 0..) |*dst, i| dst.* = snapshot.dirty_rows[i];
     const dirty_cols_start = try allocator.dupe(u16, snapshot.dirty_cols_start);
     errdefer allocator.free(dirty_cols_start);
     const dirty_cols_end = try allocator.dupe(u16, snapshot.dirty_cols_end);
@@ -656,8 +743,8 @@ fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u
     const cells = try allocator.alloc(surface_types.Cell, 1);
     cells[0] = std.mem.zeroes(surface_types.Cell);
     cells[0].codepoint = codepoint;
-    const dirty_rows = try allocator.alloc(bool, 1);
-    dirty_rows[0] = true;
+    const dirty_rows = try allocator.alloc(u8, 1);
+    dirty_rows[0] = 1;
     const dirty_cols_start = try allocator.dupe(u16, &[_]u16{0});
     errdefer allocator.free(dirty_cols_start);
     const dirty_cols_end = try allocator.dupe(u16, &[_]u16{0});

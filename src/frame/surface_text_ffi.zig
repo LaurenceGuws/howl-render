@@ -95,6 +95,40 @@ pub fn publishVtSource(handle: abi.SurfaceTextHandle, source_in: abi.FfiVtSurfac
     return vtPublishResultOut(owner.flow.acceptSource(source));
 }
 
+pub fn reservePublishSlot(handle: abi.SurfaceTextHandle, cols: u16, rows: u16, out: ?*abi.FfiPublishSlot) callconv(.c) c_int {
+    const slot_out = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    slot_out.* = std.mem.zeroes(abi.FfiPublishSlot);
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    if (cols == 0 or rows == 0) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    const slot = owner.flow.reservePublishSlot(cols, rows) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
+    slot_out.* = publishSlotOut(slot);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
+}
+
+pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSlotCommit) callconv(.c) abi.FfiVtPublishResult {
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const cursor = cursorIn(commit.cursor) orelse {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    if (commit.snapshot_seq == 0) {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    }
+    const result = owner.flow.commitPublishSlot(.{
+        .scroll_row = commit.scroll_row,
+        .snapshot_seq = commit.snapshot_seq,
+        .is_alternate_screen = commit.is_alternate_screen != 0,
+        .cursor = cursor,
+    }) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    return vtPublishResultOut(result);
+}
+
+pub fn cancelPublishSlot(handle: abi.SurfaceTextHandle) callconv(.c) void {
+    const owner = ownerFromHandle(handle) orelse return;
+    owner.flow.cancelPublishSlot();
+}
+
 pub fn takePrepareRequest(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPrepareRequest) callconv(.c) abi.HowlRenderPrepareStatus {
     const prepare_out = out orelse return .failed;
     prepare_out.* = std.mem.zeroes(abi.FfiPrepareRequest);
@@ -253,6 +287,15 @@ fn vtPublishResultOut(value: queue.VtPublishResult) abi.FfiVtPublishResult {
     };
 }
 
+fn publishSlotOut(value: queue.PublicationSlot) abi.FfiPublishSlot {
+    return .{
+        .cells = .{ .ptr = if (value.cells.len == 0) null else @ptrCast(value.cells.ptr), .len = value.cells.len },
+        .dirty_rows = .{ .ptr = if (value.dirty_rows.len == 0) null else value.dirty_rows.ptr, .len = value.dirty_rows.len },
+        .dirty_cols_start = .{ .ptr = if (value.dirty_cols_start.len == 0) null else value.dirty_cols_start.ptr, .len = value.dirty_cols_start.len },
+        .dirty_cols_end = .{ .ptr = if (value.dirty_cols_end.len == 0) null else value.dirty_cols_end.ptr, .len = value.dirty_cols_end.len },
+    };
+}
+
 fn pendingStateOut(value: queue.PendingState) abi.FfiPendingState {
     return .{
         .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
@@ -362,11 +405,11 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
     };
 }
 
-fn dirtyRowsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiByteSpan) ![]bool {
+fn dirtyRowsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiByteSpan) ![]u8 {
     if (span.len == 0) return &.{};
     if (span.ptr == null or span.len != rows) return error.InvalidSurfaceSource;
-    const out = try allocator.alloc(bool, rows);
-    for (out, 0..) |*dst, idx| dst.* = span.ptr[idx] != 0;
+    const out = try allocator.alloc(u8, rows);
+    @memcpy(out, span.ptr[0..rows]);
     return out;
 }
 
@@ -374,18 +417,6 @@ fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiU16Span) ![
     if (span.len == 0) return &.{};
     if (span.ptr == null or span.len != rows) return error.InvalidSurfaceSource;
     return try allocator.dupe(u16, span.ptr[0..rows]);
-}
-
-fn dirtyBytesSpanIn(rows: u16, span: abi.FfiByteSpan) ?[]const u8 {
-    if (rows == 0) return if (span.len == 0) &.{} else null;
-    if (span.ptr == null or span.len != rows) return null;
-    return span.ptr[0..rows];
-}
-
-fn dirtyU16SpanIn(rows: u16, span: abi.FfiU16Span) ?[]const u16 {
-    if (rows == 0) return if (span.len == 0) &.{} else null;
-    if (span.ptr == null or span.len != rows) return null;
-    return span.ptr[0..rows];
 }
 
 fn cellValueIn(value: abi.FfiCell) !surface.Cell {
