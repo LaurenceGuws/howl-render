@@ -110,7 +110,7 @@ sequenceDiagram
   at least one usable font path before startup may proceed.
 - `howl_render_surface_text_is_valid_font` reports whether the current ordered font list contains at
   least one usable font path for session startup.
-- `HowlRenderVtSurface` carries VT-surface cells, cursor, viewport, dirty spans, and snapshot
+- `HowlRenderVtSurface` carries VT-owned ABI cells, cursor, viewport, dirty spans, and snapshot
   sequence truth into the render owner at publish time.
 - `howl_render_surface_text_prepare_handle` consumes the exact render-owned published VT-source
   packet previously queued for that prepare token, returns a prepared render-surface handle only,
@@ -139,6 +139,8 @@ sequenceDiagram
   VT-owned visible projection truth, cells, cursor, and dirty spans so render can classify coarse
   damage itself from retained previous-frame state, instead of accepting host-authored damage
   classification or scrollback approximations.
+- The publish-slot seam uses `HowlVtSurfaceCell` and `HowlVtCursor` directly. Render owns VT-to-
+  render translation at that seam; hosts must not prove or depend on VT/render struct identity.
 - `howl_render_surface_text_pending_state` exposes render-owned work flags, including present
   retirement, so hosts can drive the queue without mirroring a second phase machine.
 - `howl_render_surface_text_retire_presented` clears one render-owned present-pending frame and

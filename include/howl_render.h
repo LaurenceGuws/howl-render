@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "howl_vt.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -164,16 +165,6 @@ typedef struct {
 } HowlRenderCell;
 
 typedef struct {
-  const HowlRenderCell *ptr;
-  size_t len;
-} HowlRenderCellSpan;
-
-typedef struct {
-  HowlRenderCell *ptr;
-  size_t len;
-} HowlRenderCellWriteSpan;
-
-typedef struct {
   uint8_t *ptr;
   size_t len;
 } HowlRenderByteWriteSpan;
@@ -249,7 +240,12 @@ typedef struct {
 } HowlRenderVtPublishResult;
 
 typedef struct {
-  HowlRenderCellWriteSpan cells;
+  HowlVtSurfaceCell *ptr;
+  size_t len;
+} HowlRenderVtCellWriteSpan;
+
+typedef struct {
+  HowlRenderVtCellWriteSpan cells;
   HowlRenderByteWriteSpan dirty_rows;
   HowlRenderU16WriteSpan dirty_cols_start;
   HowlRenderU16WriteSpan dirty_cols_end;
@@ -261,7 +257,7 @@ typedef struct {
   uint8_t is_alternate_screen;
   uint8_t reserved0;
   uint16_t reserved1;
-  HowlRenderCursor cursor;
+  HowlVtCursor cursor;
 } HowlRenderPublishSlotCommit;
 
 typedef struct {
@@ -346,7 +342,7 @@ typedef struct {
 } HowlRenderSurfaceExecutionInput;
 
 typedef struct {
-  HowlRenderCellSpan cells;
+  HowlVtSurfaceCellSpan cells;
   uint16_t cols;
   uint16_t rows;
   uint64_t scroll_row;
@@ -354,10 +350,10 @@ typedef struct {
   uint8_t is_alternate_screen;
   uint8_t reserved0;
   uint16_t reserved1;
-  HowlRenderByteSpan dirty_rows;
-  HowlRenderU16Span dirty_cols_start;
-  HowlRenderU16Span dirty_cols_end;
-  HowlRenderCursor cursor;
+  HowlVtByteSpan dirty_rows;
+  HowlVtU16Span dirty_cols_start;
+  HowlVtU16Span dirty_cols_end;
+  HowlVtCursor cursor;
 } HowlRenderVtSurface;
 
 typedef struct {

@@ -117,8 +117,46 @@ pub const FfiColorDrawSpan = extern struct {
     len: c_size_t,
 };
 
-pub const FfiCellSpan = extern struct {
-    ptr: [*c]const FfiCell,
+pub const FfiVtCellFlags = extern struct {
+    continuation: u8,
+    reserved0: u8 = 0,
+    reserved1: u8 = 0,
+    reserved2: u8 = 0,
+};
+
+pub const FfiVtColor = extern struct {
+    kind: u8,
+    value: u32,
+};
+
+pub const FfiVtCellAttrs = extern struct {
+    bold: u8,
+    dim: u8,
+    italic: u8,
+    underline: u8,
+    underline_color_set: u8,
+    blink: u8,
+    inverse: u8,
+    invisible: u8,
+    strikethrough: u8,
+};
+
+pub const FfiVtCell = extern struct {
+    codepoint: u32,
+    flags: FfiVtCellFlags,
+    fg_color: FfiVtColor,
+    bg_color: FfiVtColor,
+    underline_color: FfiVtColor,
+    underline_style: u8,
+    reserved0: u8 = 0,
+    reserved1: u8 = 0,
+    reserved2: u8 = 0,
+    attrs: FfiVtCellAttrs,
+    link_id: u32,
+};
+
+pub const FfiVtCellSpan = extern struct {
+    ptr: [*c]const FfiVtCell,
     len: c_size_t,
 };
 
@@ -163,50 +201,12 @@ pub const FfiFrameLayoutResult = extern struct {
     grid: FfiGridSize,
 };
 
-pub const FfiCellFlags = extern struct {
-    continuation: u8,
-    reserved0: u8 = 0,
-    reserved1: u8 = 0,
-    reserved2: u8 = 0,
-};
-
-pub const FfiColor = extern struct {
-    kind: u8,
-    value: u32,
-};
-
-pub const FfiCellAttrs = extern struct {
-    bold: u8,
-    dim: u8,
-    italic: u8,
-    underline: u8,
-    underline_color_set: u8,
-    blink: u8,
-    inverse: u8,
-    invisible: u8,
-    strikethrough: u8,
-};
-
-pub const FfiCell = extern struct {
-    codepoint: u32,
-    flags: FfiCellFlags,
-    fg_color: FfiColor,
-    bg_color: FfiColor,
-    underline_color: FfiColor,
-    underline_style: u8,
-    reserved0: u8 = 0,
-    reserved1: u8 = 0,
-    reserved2: u8 = 0,
-    attrs: FfiCellAttrs,
-    link_id: u32,
-};
-
-pub const FfiCellWriteSpan = extern struct {
-    ptr: [*c]FfiCell,
+pub const FfiVtCellWriteSpan = extern struct {
+    ptr: [*c]FfiVtCell,
     len: c_size_t,
 };
 
-pub const FfiCursor = extern struct {
+pub const FfiVtCursor = extern struct {
     row: u16,
     col: u16,
     visible: u8,
@@ -272,7 +272,7 @@ pub const FfiVtPublishResult = extern struct {
 };
 
 pub const FfiPublishSlot = extern struct {
-    cells: FfiCellWriteSpan,
+    cells: FfiVtCellWriteSpan,
     dirty_rows: FfiByteWriteSpan,
     dirty_cols_start: FfiU16WriteSpan,
     dirty_cols_end: FfiU16WriteSpan,
@@ -284,7 +284,7 @@ pub const FfiPublishSlotCommit = extern struct {
     is_alternate_screen: u8,
     reserved0: u8 = 0,
     reserved1: u16 = 0,
-    cursor: FfiCursor,
+    cursor: FfiVtCursor,
 };
 
 pub const FfiSurfaceMetrics = extern struct {
@@ -369,7 +369,7 @@ pub const FfiSurfaceExecutionInput = extern struct {
 };
 
 pub const FfiVtSurface = extern struct {
-    cells: FfiCellSpan,
+    cells: FfiVtCellSpan,
     cols: u16,
     rows: u16,
     scroll_row: u64,
@@ -380,7 +380,7 @@ pub const FfiVtSurface = extern struct {
     dirty_rows: FfiByteSpan,
     dirty_cols_start: FfiU16Span,
     dirty_cols_end: FfiU16Span,
-    cursor: FfiCursor,
+    cursor: FfiVtCursor,
 };
 
 pub const FfiSurfaceFeedback = extern struct {
@@ -403,6 +403,6 @@ comptime {
     std.debug.assert(@sizeOf(FfiCellSize) == 4);
     std.debug.assert(@sizeOf(FfiGridSize) == 4);
     std.debug.assert(@sizeOf(FfiByteSpan) == 16);
-    std.debug.assert(@sizeOf(FfiColor) == 8);
-    std.debug.assert(@sizeOf(FfiCursor) == 6);
+    std.debug.assert(@sizeOf(FfiVtColor) == 8);
+    std.debug.assert(@sizeOf(FfiVtCursor) == 6);
 }

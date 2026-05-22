@@ -14,13 +14,13 @@ fn ownerFromHandle(handle: abi.SurfaceTextHandle) ?*surface_text.SurfaceTextOwne
 
 const PublishSlotFfiState = struct {
     allocator: std.mem.Allocator,
-    cells: []abi.FfiCell,
+    cells: []abi.FfiVtCell,
     owned_cells: []surface.Cell,
 
     fn create(allocator: std.mem.Allocator, cell_count: u32) !*PublishSlotFfiState {
         const state = try allocator.create(PublishSlotFfiState);
         errdefer allocator.destroy(state);
-        const cells = try allocator.alloc(abi.FfiCell, @intCast(cell_count));
+        const cells = try allocator.alloc(abi.FfiVtCell, @intCast(cell_count));
         errdefer allocator.free(cells);
         const owned_cells = try allocator.alloc(surface.Cell, @intCast(cell_count));
         errdefer allocator.free(owned_cells);
@@ -352,7 +352,7 @@ fn vtPublishResultOut(value: queue.VtPublishResult) abi.FfiVtPublishResult {
     };
 }
 
-fn publishSlotOut(value: queue.PublicationSlot, cells: []abi.FfiCell) abi.FfiPublishSlot {
+fn publishSlotOut(value: queue.PublicationSlot, cells: []abi.FfiVtCell) abi.FfiPublishSlot {
     return .{
         .cells = .{ .ptr = if (cells.len == 0) null else cells.ptr, .len = cells.len },
         .dirty_rows = .{ .ptr = if (value.dirty_rows.len == 0) null else value.dirty_rows.ptr, .len = value.dirty_rows.len },
@@ -481,7 +481,7 @@ fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiU16Span) ![
     return try allocator.dupe(u16, span.ptr[0..rows]);
 }
 
-fn cellValueIn(value: abi.FfiCell) !surface.Cell {
+fn cellValueIn(value: abi.FfiVtCell) !surface.Cell {
     if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
 
     const fg_color = colorIn(value.fg_color) orelse return error.InvalidSurfaceSource;
@@ -511,7 +511,7 @@ fn cellValueIn(value: abi.FfiCell) !surface.Cell {
     };
 }
 
-fn colorIn(value: abi.FfiColor) ?surface.Color {
+fn colorIn(value: abi.FfiVtColor) ?surface.Color {
     return switch (value.kind) {
         0 => .{ .kind = .default, .value = 0 },
         1 => blk: {
@@ -535,7 +535,7 @@ fn damageKindIn(value: u8) ?pipeline.DamageKind {
     };
 }
 
-fn cursorIn(value: abi.FfiCursor) ?surface.CursorInfo {
+fn cursorIn(value: abi.FfiVtCursor) ?surface.CursorInfo {
     const shape = switch (value.shape) {
         0 => surface.CursorShape.block,
         1 => .underline,

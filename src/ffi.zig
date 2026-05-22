@@ -14,8 +14,8 @@ const HowlRenderSubmitStatus = abi.HowlRenderSubmitStatus;
 const HowlRenderSubmitDecisionStatus = abi.HowlRenderSubmitDecisionStatus;
 
 const FfiPixelSize = abi.FfiPixelSize;
-const FfiCell = abi.FfiCell;
-const FfiCursor = abi.FfiCursor;
+const FfiVtCell = abi.FfiVtCell;
+const FfiVtCursor = abi.FfiVtCursor;
 const FfiGeometry = abi.FfiGeometry;
 const FfiPendingState = abi.FfiPendingState;
 const FfiPresentedRetire = abi.FfiPresentedRetire;
@@ -65,7 +65,7 @@ fn testHandle() SurfaceTextHandle {
     });
 }
 
-fn testCell() FfiCell {
+fn testCell() FfiVtCell {
     return .{
         .codepoint = 'a',
         .flags = .{ .continuation = 0 },
@@ -78,11 +78,11 @@ fn testCell() FfiCell {
     };
 }
 
-fn testCursor(shape: u8) FfiCursor {
+fn testCursor(shape: u8) FfiVtCursor {
     return .{ .row = 0, .col = 0, .visible = 1, .shape = shape };
 }
 
-fn testVtSurface(cells: []const FfiCell, cursor: FfiCursor) FfiVtSurface {
+fn testVtSurface(cells: []const FfiVtCell, cursor: FfiVtCursor) FfiVtSurface {
     return .{
         .cells = .{ .ptr = if (cells.len == 0) null else cells.ptr, .len = cells.len },
         .cols = 1,
@@ -112,7 +112,7 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
     });
     try std.testing.expectEqual(@as(c_int, 0), sync.status);
 
-    const cells = [_]FfiCell{testCell()};
+    const cells = [_]FfiVtCell{testCell()};
     const publish = surfaceTextPublishVtSource(handle, .{
         .cells = .{ .ptr = cells[0..].ptr, .len = cells.len },
         .cols = 1,
@@ -248,7 +248,7 @@ test "ffi vt source rejects invalid dirty spans" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
 
-    const cells = [_]FfiCell{testCell()};
+    const cells = [_]FfiVtCell{testCell()};
     const result = surfaceTextPublishVtSource(handle, .{
         .cells = .{ .ptr = cells[0..].ptr, .len = cells.len },
         .cols = 1,
@@ -291,7 +291,7 @@ test "ffi prepared frame rejects invalid damage kind" {
 test "ffi vt source rejects invalid cell color kind" {
     var cell = testCell();
     cell.fg_color.kind = 9;
-    const cells = [_]FfiCell{cell};
+    const cells = [_]FfiVtCell{cell};
     try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
@@ -299,24 +299,24 @@ test "ffi vt source rejects rgb value outside u24" {
     var cell = testCell();
     cell.fg_color.kind = 2;
     cell.fg_color.value = std.math.maxInt(u24) + 1;
-    const cells = [_]FfiCell{cell};
+    const cells = [_]FfiVtCell{cell};
     try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
 test "ffi vt source rejects invalid cursor shape" {
-    const cells = [_]FfiCell{testCell()};
+    const cells = [_]FfiVtCell{testCell()};
     try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(9)));
 }
 
 test "ffi vt source rejects invalid underline style" {
     var cell = testCell();
     cell.underline_style = 9;
-    const cells = [_]FfiCell{cell};
+    const cells = [_]FfiVtCell{cell};
     try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
 test "ffi vt source rejects extra cells beyond declared grid" {
-    const cells = [_]FfiCell{ testCell(), testCell() };
+    const cells = [_]FfiVtCell{ testCell(), testCell() };
     try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
