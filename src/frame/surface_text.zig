@@ -370,10 +370,6 @@ pub const SurfaceTextOwner = struct {
         });
     }
 
-    pub fn preparePublishedSurface(self: *SurfaceTextOwner, request: pipeline.RenderRequest) !surface.PreparedSurface {
-        return try self.prepareSurface(request, try self.flow.prepareFrameData(request));
-    }
-
     pub fn setOwnedFontPath(self: *SurfaceTextOwner, owned: ?[:0]u8) void {
         if (owned) |path| std.debug.assert(path.len > 0);
         const old = self.font_path;

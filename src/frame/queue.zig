@@ -281,6 +281,12 @@ pub const PendingState = struct {
     present_pending: bool,
 };
 
+pub const PrepareConsume = struct {
+    request: pipeline.RenderRequest,
+    layout: surface_types.PrepareLayout,
+    state: surface_types.FrameData,
+};
+
 const Publication = struct {
     source: PublicationSource,
     damage_kind: pipeline.DamageKind = .none,
@@ -299,10 +305,6 @@ const ActivePrepare = struct {
     fn deinit(self: *ActivePrepare, allocator: std.mem.Allocator) void {
         self.publication.deinit(allocator);
         self.* = undefined;
-    }
-
-    fn matches(self: *const ActivePrepare, request: pipeline.RenderRequest) bool {
-        return sameSnapshotToken(self.request.token, request.token);
     }
 
     fn frameData(self: *const ActivePrepare) surface_types.FrameData {
@@ -406,10 +408,14 @@ const PublicationState = struct {
         return active.request;
     }
 
-    fn frameDataForRequest(self: *PublicationState, request: pipeline.RenderRequest) !surface_types.FrameData {
+    fn consumePrepare(self: *PublicationState, layout: surface_types.PrepareLayout, token: pipeline.SnapshotToken) !PrepareConsume {
         const active = self.active orelse return error.MissingPublishedSource;
-        if (!active.matches(request)) return error.MismatchedPublishedSource;
-        return active.frameData();
+        if (!sameSnapshotToken(active.request.token, token)) return error.MismatchedPublishedSource;
+        return .{
+            .request = active.request,
+            .layout = layout,
+            .state = active.frameData(),
+        };
     }
 
     fn latestToken(self: *const PublicationState) ?pipeline.SnapshotToken {
@@ -653,8 +659,9 @@ pub const Flow = struct {
         return self.publication_state.active.?.request;
     }
 
-    pub fn prepareFrameData(self: *Flow, request: pipeline.RenderRequest) !surface_types.FrameData {
-        return self.publication_state.frameDataForRequest(request);
+    pub fn consumePrepare(self: *Flow, token: pipeline.SnapshotToken) !PrepareConsume {
+        const layout = self.prepareLayout(token.geometry_epoch);
+        return self.publication_state.consumePrepare(layout, token);
     }
 
     pub fn prepareLayout(self: *const Flow, geometry_epoch: u64) surface_types.PrepareLayout {
@@ -941,8 +948,10 @@ test "flow keeps latest source when publish A then B before prepare" {
 
     const request = flow.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), request.token.snapshot_seq);
-    const frame = try flow.prepareFrameData(request);
-    try std.testing.expectEqual(@as(u21, 'B'), frame.grid.cells[0].codepoint);
+    const prepare = try flow.consumePrepare(request.token);
+    try std.testing.expectEqual(@as(u64, 2), prepare.request.token.snapshot_seq);
+    try std.testing.expectEqual(@as(u21, 'B'), prepare.state.grid.cells[0].codepoint);
+    try std.testing.expectEqual(@as(u16, 1), prepare.layout.render_px.width);
 }
 
 test "flow rejects mismatched prepare token against retained source" {
@@ -958,12 +967,12 @@ test "flow rejects mismatched prepare token against retained source" {
     const request_a = flow.prepare() orelse return error.TestUnexpectedResult;
     _ = flow.acceptSource(try ownedTestSource(std.heap.c_allocator, 2, 'B'));
 
-    const frame_a = try flow.prepareFrameData(request_a);
-    try std.testing.expectEqual(@as(u21, 'A'), frame_a.grid.cells[0].codepoint);
+    const prepare_a = try flow.consumePrepare(request_a.token);
+    try std.testing.expectEqual(@as(u21, 'A'), prepare_a.state.grid.cells[0].codepoint);
 
-    var wrong = request_a;
-    wrong.token.snapshot_seq = 2;
-    try std.testing.expectError(error.MismatchedPublishedSource, flow.prepareFrameData(wrong));
+    var wrong = request_a.token;
+    wrong.snapshot_seq = 2;
+    try std.testing.expectError(error.MismatchedPublishedSource, flow.consumePrepare(wrong));
 }
 
 test "flow preserves partial snapshot damage while prior snapshot is still pending" {

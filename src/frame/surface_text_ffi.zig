@@ -198,8 +198,14 @@ pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, prepare_request
     if (prepared_out) |value| value.* = null;
     const owner = ownerFromHandle(surface_text_handle) orelse return .failed;
     const value = prepared_out orelse return .failed;
-    const request = renderRequestIn(prepare_request) orelse return .failed;
-    const prepared = owner.preparePublishedSurface(request) catch return .failed;
+    const token = prepareTokenIn(prepare_request) orelse return .failed;
+    const prepare = owner.flow.consumePrepare(token) catch return .failed;
+    const prepared = owner.session.prepareSurface(.{
+        .config = owner.config,
+        .request = prepare.request,
+        .layout = prepare.layout,
+        .state = prepare.state,
+    }) catch return .failed;
     const prepared_owner = prepared_surface_owner.Owner.create(owner, prepared) catch return .failed;
     value.* = @ptrCast(prepared_owner);
     return .ready;
@@ -356,17 +362,14 @@ fn preparedFrameOut(value: pipeline.PreparedFrame) abi.FfiPreparedFrame {
     };
 }
 
-fn renderRequestIn(value: abi.FfiPrepareRequest) ?pipeline.RenderRequest {
+fn prepareTokenIn(value: abi.FfiPrepareRequest) ?pipeline.SnapshotToken {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     return .{
-        .token = .{
-            .snapshot_seq = value.snapshot_seq,
-            .dirty_epoch = value.dirty_epoch,
-            .geometry_epoch = value.geometry_epoch,
-            .damage_base_seq = value.damage_base_seq,
-            .damage_kind = damage_kind,
-        },
-        .allow_retained_reuse = true,
+        .snapshot_seq = value.snapshot_seq,
+        .dirty_epoch = value.dirty_epoch,
+        .geometry_epoch = value.geometry_epoch,
+        .damage_base_seq = value.damage_base_seq,
+        .damage_kind = damage_kind,
     };
 }
 
