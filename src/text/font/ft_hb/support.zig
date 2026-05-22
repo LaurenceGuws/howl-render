@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const test_font_options = @import("test_font_options");
 const contract = @import("../../contract.zig");
 const surface_text = @import("../../../frame/surface_text.zig");
 const text_mod = @import("../../text.zig");
@@ -637,11 +638,26 @@ fn defaultBoxThickness(_: u16) u16 {
     return 2;
 }
 
+const InjectedTestFontPaths = struct {
+    primary_path: []const u8,
+    symbol_path: []const u8,
+};
+
+fn injectedTestFontPaths() !InjectedTestFontPaths {
+    if (test_font_options.primary_path.len == 0) return error.SkipZigTest;
+    if (test_font_options.symbol_path.len == 0) return error.SkipZigTest;
+    return .{
+        .primary_path = test_font_options.primary_path,
+        .symbol_path = test_font_options.symbol_path,
+    };
+}
+
 test "provider loads fallback face for symbol glyph with primary present" {
+    const font_paths = try injectedTestFontPaths();
     const io = std.Io.Threaded.global_single_threaded.io();
-    const primary_path = try std.Io.Dir.cwd().realPathFileAlloc(io, "../howl-linux-host/assets/fonts/IosevkaTermNerdFont-Regular.ttf", std.testing.allocator);
+    const primary_path = try std.Io.Dir.cwd().realPathFileAlloc(io, font_paths.primary_path, std.testing.allocator);
     defer std.testing.allocator.free(primary_path);
-    const symbol_path = try std.Io.Dir.cwd().realPathFileAlloc(io, "../howl-linux-host/assets/fonts/SymbolsNerdFontMono-Regular.ttf", std.testing.allocator);
+    const symbol_path = try std.Io.Dir.cwd().realPathFileAlloc(io, font_paths.symbol_path, std.testing.allocator);
     defer std.testing.allocator.free(symbol_path);
 
     const owner = surface_text.SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;

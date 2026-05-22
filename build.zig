@@ -14,6 +14,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const perf_optimize: std.builtin.OptimizeMode = .ReleaseFast;
+    const test_font_primary_path = b.option([]const u8, "test-font-primary-path", "Explicit render proof primary font path") orelse "";
+    const test_font_symbol_path = b.option([]const u8, "test-font-symbol-path", "Explicit render proof symbol fallback font path") orelse "";
     const freetype_dep = b.dependency("freetype", .{
         .target = target,
         .optimize = optimize,
@@ -31,12 +33,16 @@ pub fn build(b: *std.Build) void {
     runtime_proof_root_options.addOption(NonProdEntry, "entry", .runtime_proof);
     const benchmark_root_options = b.addOptions();
     benchmark_root_options.addOption(NonProdEntry, "entry", .benchmark);
+    const test_font_options = b.addOptions();
+    test_font_options.addOption([]const u8, "primary_path", test_font_primary_path);
+    test_font_options.addOption([]const u8, "symbol_path", test_font_symbol_path);
     const internal_mod = b.createModule(.{
         .root_source_file = b.path("src/non_prod.zig"),
         .target = target,
         .optimize = optimize,
     });
     internal_mod.addImport("non_prod_options", unit_root_options.createModule());
+    internal_mod.addImport("test_font_options", test_font_options.createModule());
     internal_mod.linkLibrary(freetype_lib);
     internal_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     internal_mod.linkLibrary(harfbuzz_lib);
@@ -69,6 +75,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    render_owner.addImport("test_font_options", test_font_options.createModule());
     render_owner.linkLibrary(freetype_lib);
     render_owner.addIncludePath(freetype_lib.getEmittedIncludeTree());
     render_owner.linkLibrary(harfbuzz_lib);
@@ -90,6 +97,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     runtime_proof_mod.addImport("non_prod_options", runtime_proof_root_options.createModule());
+    runtime_proof_mod.addImport("test_font_options", test_font_options.createModule());
     runtime_proof_mod.linkLibrary(freetype_lib);
     runtime_proof_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     runtime_proof_mod.linkLibrary(harfbuzz_lib);
@@ -147,6 +155,7 @@ pub fn build(b: *std.Build) void {
         .optimize = perf_optimize,
     });
     benchmark_mod.addImport("non_prod_options", benchmark_root_options.createModule());
+    benchmark_mod.addImport("test_font_options", test_font_options.createModule());
     benchmark_mod.linkLibrary(perf_freetype_lib);
     benchmark_mod.addIncludePath(perf_freetype_lib.getEmittedIncludeTree());
     benchmark_mod.linkLibrary(perf_harfbuzz_lib);
