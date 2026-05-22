@@ -45,6 +45,7 @@ const TerminalSurface = struct {
     submit_mailbox: SubmitMailbox = .{},
     submitted_frame: ?pipeline.SubmittedFrame = null,
     present_pending: bool = false,
+    present_snapshot_seq: u64 = 0,
     metrics: QueueMetrics = .{},
 
     fn noteSnapshotPublish(self: *TerminalSurface, result: VtPublishResult, coalesced: bool) void {
@@ -126,15 +127,20 @@ const TerminalSurface = struct {
         defer self.mutex.unlock();
         self.submitted_frame = frame;
         self.present_pending = true;
+        self.present_snapshot_seq = frame.token.snapshot_seq;
         self.metrics.submitted_accepts +%= 1;
     }
 
-    fn markPresented(self: *TerminalSurface) void {
+    fn retirePresented(self: *TerminalSurface) u64 {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        if (!self.present_pending) return;
+        if (!self.present_pending) return 0;
+        const snapshot_seq = self.present_snapshot_seq;
+        std.debug.assert(snapshot_seq != 0);
         self.present_pending = false;
+        self.present_snapshot_seq = 0;
         if (self.submitted_frame != null) self.metrics.presents +%= 1;
+        return snapshot_seq;
     }
 
     fn takeMetrics(self: *TerminalSurface) QueueMetrics {
@@ -707,8 +713,8 @@ pub const Flow = struct {
         self.surface.acceptSubmitted(frame);
     }
 
-    pub fn markPresented(self: *Flow) void {
-        self.surface.markPresented();
+    pub fn retirePresented(self: *Flow) u64 {
+        return self.surface.retirePresented();
     }
 
     pub fn pendingState(self: *const Flow) PendingState {
@@ -803,6 +809,16 @@ test "surface validates submit candidates before GPU mutation" {
     try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.prepared_publishes);
     try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.submit_takes);
     try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.submit_valid);
+}
+
+test "surface retires presented snapshot identity once" {
+    var surface = TerminalSurface{};
+    surface.acceptSubmitted(.{
+        .token = .{ .snapshot_seq = 7, .dirty_epoch = 7, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+    });
+
+    try std.testing.expectEqual(@as(u64, 7), surface.retirePresented());
+    try std.testing.expectEqual(@as(u64, 0), surface.retirePresented());
 }
 
 test "surface reports stale submit when newer snapshot already won" {

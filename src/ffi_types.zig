@@ -324,6 +324,11 @@ pub const FfiQueueMetrics = extern struct {
     presents: u64,
 };
 
+pub const FfiPresentedRetire = extern struct {
+    status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
+    snapshot_seq: u64,
+};
+
 pub const FfiSurfaceHandle = extern struct {
     host_surface_id: u64,
     width: u16,

@@ -302,6 +302,11 @@ typedef struct {
 } HowlRenderQueueMetrics;
 
 typedef struct {
+  int32_t status;
+  uint64_t snapshot_seq;
+} HowlRenderPresentedRetire;
+
+typedef struct {
   uint64_t host_surface_id;
   uint16_t width;
   uint16_t height;
@@ -387,7 +392,7 @@ HowlRenderPrepareStatus howl_render_surface_text_take_prepare_request(HowlRender
 int howl_render_surface_text_publish_prepared(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
 HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_decision(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame *prepared_frame_out);
 int howl_render_surface_text_accept_submitted(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
-void howl_render_surface_text_mark_presented(HowlRenderSurfaceTextHandle handle);
+int howl_render_surface_text_retire_presented(HowlRenderSurfaceTextHandle handle, HowlRenderPresentedRetire *retire_out);
 int howl_render_surface_text_pending_state(HowlRenderSurfaceTextHandle handle, HowlRenderPendingState *pending_out);
 int howl_render_surface_text_take_queue_metrics(HowlRenderSurfaceTextHandle handle, HowlRenderQueueMetrics *metrics_out);
 

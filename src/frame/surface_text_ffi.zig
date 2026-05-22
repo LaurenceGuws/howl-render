@@ -226,9 +226,18 @@ pub fn acceptSubmitted(handle: abi.SurfaceTextHandle, prepared_in: abi.FfiPrepar
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn markPresented(handle: abi.SurfaceTextHandle) callconv(.c) void {
-    const owner = ownerFromHandle(handle) orelse return;
-    owner.flow.markPresented();
+pub fn retirePresented(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPresentedRetire) callconv(.c) c_int {
+    const retire_out = out;
+    const owner = ownerFromHandle(handle) orelse {
+        if (retire_out) |value| value.* = .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .snapshot_seq = 0 };
+        return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    };
+    const value = retire_out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    value.* = .{
+        .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
+        .snapshot_seq = owner.flow.retirePresented(),
+    };
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
 pub fn pendingState(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPendingState) callconv(.c) c_int {

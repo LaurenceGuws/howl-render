@@ -18,6 +18,7 @@ const FfiCell = abi.FfiCell;
 const FfiCursor = abi.FfiCursor;
 const FfiGeometry = abi.FfiGeometry;
 const FfiPendingState = abi.FfiPendingState;
+const FfiPresentedRetire = abi.FfiPresentedRetire;
 const FfiPublishSlot = abi.FfiPublishSlot;
 const FfiPrepareRequest = abi.FfiPrepareRequest;
 const FfiPreparedFrame = abi.FfiPreparedFrame;
@@ -43,7 +44,7 @@ const surfaceTextTakePrepareRequest = surface_text_ffi.takePrepareRequest;
 const surfaceTextPublishPrepared = surface_text_ffi.publishPrepared;
 const surfaceTextTakeSubmitDecision = surface_text_ffi.takeSubmitDecision;
 const surfaceTextAcceptSubmitted = surface_text_ffi.acceptSubmitted;
-const surfaceTextMarkPresented = surface_text_ffi.markPresented;
+const surfaceTextRetirePresented = surface_text_ffi.retirePresented;
 const surfaceTextPendingState = surface_text_ffi.pendingState;
 const surfaceTextTakeQueueMetrics = surface_text_ffi.takeQueueMetrics;
 const surfaceTextPrepareHandle = surface_text_ffi.prepareHandle;
@@ -195,6 +196,16 @@ test "ffi take submit decision clears output on failure" {
     };
     try std.testing.expectEqual(HowlRenderSubmitDecisionStatus.failed, surfaceTextTakeSubmitDecision(null, &prepared));
     try std.testing.expectEqual(@as(u64, 0), prepared.snapshot_seq);
+}
+
+test "ffi retire presented clears output on failure" {
+    var retire = FfiPresentedRetire{ .status = @intFromEnum(HowlRenderCallStatus.ok), .snapshot_seq = 9 };
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.missing_handle),
+        surfaceTextRetirePresented(null, &retire),
+    );
+    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), retire.status);
+    try std.testing.expectEqual(@as(u64, 0), retire.snapshot_seq);
 }
 
 test "ffi surface session initializes" {

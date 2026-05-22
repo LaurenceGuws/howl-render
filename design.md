@@ -133,7 +133,7 @@ sequenceDiagram
 - `howl_render_surface_text_publish_vt_source`, `...reserve_publish_slot`,
   `...commit_publish_slot`, `...cancel_publish_slot`, `...take_prepare_request`,
   `...publish_prepared`, `...take_submit_decision`, `...accept_submitted`, and
-  `...mark_presented` are the retained render-queue control steps. They let hosts either publish
+  `...retire_presented` are the retained render-queue control steps. They let hosts either publish
   one full VT source directly or reserve a render-owned publish slot, fill it in place from VT, and
   commit it without a second host-owned visible-surface allocation. VT publication must carry
   VT-owned visible projection truth, cells, cursor, and dirty spans so render can classify coarse
@@ -141,6 +141,8 @@ sequenceDiagram
   classification or scrollback approximations.
 - `howl_render_surface_text_pending_state` exposes render-owned work flags, including present
   retirement, so hosts can drive the queue without mirroring a second phase machine.
+- `howl_render_surface_text_retire_presented` clears one render-owned present-pending frame and
+  returns the VT `snapshot_seq` that the host must acknowledge through `howl_vt_terminal_ack_surface`.
 - `howl_render_prepared_surface_buffer` is the realized surface-image export. Hosts consume it as
   one complete prepared surface image, not as a render-damage reconstruction contract.
 - `howl_render_prepared_surface_diagnostics` exposes proof/debug counters only.
