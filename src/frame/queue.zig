@@ -371,9 +371,14 @@ const PublicationState = struct {
         self.reserved = null;
     }
 
-    fn commitReservedSource(self: *PublicationState, meta: ReservedSourceMeta, geometry_epoch: u64) !VtPublishResult {
+    fn commitReservedSource(self: *PublicationState, meta: ReservedSourceMeta, cells: []const surface_types.Cell, geometry_epoch: u64) !VtPublishResult {
         var source = self.reserved orelse return error.MissingPublishSlot;
         self.reserved = null;
+        if (cells.len != source.cells.len) {
+            source.deinit(self.allocator);
+            return error.InvalidPublishSlotCells;
+        }
+        @memcpy(source.cells, cells);
         source.scroll_row = meta.scroll_row;
         source.snapshot_seq = meta.snapshot_seq;
         source.is_alternate_screen = meta.is_alternate_screen;
@@ -603,15 +608,10 @@ pub const Flow = struct {
         return try self.publication_state.reserveSourceSlot(cols, rows);
     }
 
-    pub fn reservedPublishSlotCells(self: *Flow) ?[]surface_types.Cell {
-        if (self.publication_state.reserved) |source| return source.cells;
-        return null;
-    }
-
-    pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
+    pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta, cells: []const surface_types.Cell) !VtPublishResult {
         std.debug.assert(meta.snapshot_seq != 0);
         const had_queued_publication = self.publication_state.pending != null or self.publication_state.active != null;
-        const result = try self.publication_state.commitReservedSource(meta, self.geometry_epoch);
+        const result = try self.publication_state.commitReservedSource(meta, cells, self.geometry_epoch);
         self.surface.noteSnapshotPublish(result, had_queued_publication and result.published);
         return result;
     }

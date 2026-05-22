@@ -15,18 +15,22 @@ fn ownerFromHandle(handle: abi.SurfaceTextHandle) ?*surface_text.SurfaceTextOwne
 const PublishSlotFfiState = struct {
     allocator: std.mem.Allocator,
     cells: []abi.FfiCell,
+    owned_cells: []surface.Cell,
 
     fn create(allocator: std.mem.Allocator, cell_count: u32) !*PublishSlotFfiState {
         const state = try allocator.create(PublishSlotFfiState);
         errdefer allocator.destroy(state);
         const cells = try allocator.alloc(abi.FfiCell, @intCast(cell_count));
         errdefer allocator.free(cells);
-        state.* = .{ .allocator = allocator, .cells = cells };
+        const owned_cells = try allocator.alloc(surface.Cell, @intCast(cell_count));
+        errdefer allocator.free(owned_cells);
+        state.* = .{ .allocator = allocator, .cells = cells, .owned_cells = owned_cells };
         return state;
     }
 
     fn destroy(self: *PublishSlotFfiState) void {
         self.allocator.free(self.cells);
+        self.allocator.free(self.owned_cells);
         self.allocator.destroy(self);
     }
 };
@@ -162,12 +166,7 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
-    const cells = owner.flow.reservedPublishSlotCells() orelse {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    std.debug.assert(cells.len == state.cells.len);
-    for (cells, state.cells) |*dst, src| {
+    for (state.owned_cells, state.cells) |*dst, src| {
         dst.* = cellValueIn(src) catch {
             owner.flow.cancelPublishSlot();
             return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
@@ -178,7 +177,7 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         .snapshot_seq = commit.snapshot_seq,
         .is_alternate_screen = commit.is_alternate_screen != 0,
         .cursor = cursor,
-    }) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    }, state.owned_cells) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtPublishResultOut(result);
 }
 
