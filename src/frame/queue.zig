@@ -669,7 +669,7 @@ pub const Flow = struct {
         return self.publication_state.consumePrepare(layout, token);
     }
 
-    pub fn prepareLayout(self: *const Flow, geometry_epoch: u64) surface_types.PrepareLayout {
+    fn prepareLayout(self: *const Flow, geometry_epoch: u64) surface_types.PrepareLayout {
         std.debug.assert(self.geometry_epoch != 0);
         std.debug.assert(self.geometry_epoch == geometry_epoch);
         std.debug.assert(self.render_px.width > 0);

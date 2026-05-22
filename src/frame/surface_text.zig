@@ -361,16 +361,6 @@ pub const SurfaceTextOwner = struct {
         self.clearRetainedSurface();
     }
 
-    pub fn prepareSurface(self: *SurfaceTextOwner, request: pipeline.RenderRequest, state: surface.FrameData) !surface.PreparedSurface {
-        const layout = self.flow.prepareLayout(request.token.geometry_epoch);
-        return try self.session.prepareSurface(.{
-            .config = self.config,
-            .request = request,
-            .layout = layout,
-            .state = state,
-        });
-    }
-
     pub fn setOwnedFontPath(self: *SurfaceTextOwner, owned: ?[:0]u8) void {
         if (owned) |path| std.debug.assert(path.len > 0);
         const old = self.font_path;
