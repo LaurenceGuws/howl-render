@@ -95,73 +95,64 @@ pub const SparseCells = struct {
     }
 };
 
-const ClusterExtractionAssembly = struct {
-    allocator: std.mem.Allocator,
-    clusters: std.ArrayList(contract.CellCluster) = .empty,
+pub const RetainedScratch = struct {
+    renderable: []contract.RenderableCell = &.{},
+    clusters: []contract.CellCluster = &.{},
+    runs: []contract.ResolvedRun = &.{},
+    texts: []contract.CellText = &.{},
+    codepoints: []u32 = &.{},
+    max_items: u32 = 0,
+    max_codepoints: u32 = 0,
 
-    fn deinit(self: *ClusterExtractionAssembly) void {
-        self.clusters.deinit(self.allocator);
+    pub fn deinit(self: *RetainedScratch, allocator: std.mem.Allocator) void {
+        if (self.codepoints.len > 0) allocator.free(self.codepoints);
+        if (self.texts.len > 0) allocator.free(self.texts);
+        if (self.runs.len > 0) allocator.free(self.runs);
+        if (self.clusters.len > 0) allocator.free(self.clusters);
+        if (self.renderable.len > 0) allocator.free(self.renderable);
         self.* = undefined;
     }
 
-    fn append(self: *ClusterExtractionAssembly, cluster_value: contract.CellCluster) !void {
-        try self.clusters.append(self.allocator, cluster_value);
+    pub fn configure(self: *RetainedScratch, allocator: std.mem.Allocator, max_items: u32, max_codepoints: u32) !void {
+        try self.configureItems(allocator, max_items);
+        try self.configureCodepoints(allocator, max_codepoints);
     }
 
-    fn toOwnedClusters(self: *ClusterExtractionAssembly) !OwnedClusters {
-        return .{ .allocator = self.allocator, .clusters = try self.clusters.toOwnedSlice(self.allocator) };
-    }
-};
-
-const InputLineTextCacheAssembly = struct {
-    allocator: std.mem.Allocator,
-    texts: []contract.CellText,
-    codepoints: []u32,
-    text_count: u32 = 0,
-    codepoint_count: u32 = 0,
-
-    fn init(allocator: std.mem.Allocator, input_count: u32, total_codepoints: u32) !InputLineTextCacheAssembly {
-        const texts = try allocator.alloc(contract.CellText, @intCast(input_count));
+    fn configureItems(self: *RetainedScratch, allocator: std.mem.Allocator, max_items: u32) !void {
+        if (max_items <= self.max_items) return;
+        const capacity: usize = @intCast(max_items);
+        const renderable = try allocator.alloc(contract.RenderableCell, capacity);
+        errdefer allocator.free(renderable);
+        const clusters = try allocator.alloc(contract.CellCluster, capacity);
+        errdefer allocator.free(clusters);
+        const runs = try allocator.alloc(contract.ResolvedRun, capacity);
+        errdefer allocator.free(runs);
+        const texts = try allocator.alloc(contract.CellText, capacity);
         errdefer allocator.free(texts);
-        const codepoints = try allocator.alloc(u32, @intCast(total_codepoints));
-        errdefer allocator.free(codepoints);
-        return .{
-            .allocator = allocator,
-            .texts = texts,
-            .codepoints = codepoints,
-        };
+
+        if (self.renderable.len > 0) allocator.free(self.renderable);
+        if (self.clusters.len > 0) allocator.free(self.clusters);
+        if (self.runs.len > 0) allocator.free(self.runs);
+        if (self.texts.len > 0) allocator.free(self.texts);
+
+        self.renderable = renderable;
+        self.clusters = clusters;
+        self.runs = runs;
+        self.texts = texts;
+        self.max_items = max_items;
     }
 
-    fn deinit(self: *InputLineTextCacheAssembly) void {
-        self.allocator.free(self.texts);
-        self.allocator.free(self.codepoints);
-        self.* = undefined;
+    fn configureCodepoints(self: *RetainedScratch, allocator: std.mem.Allocator, max_codepoints: u32) !void {
+        if (max_codepoints <= self.max_codepoints) return;
+        const codepoints = try allocator.alloc(u32, @intCast(max_codepoints));
+        if (self.codepoints.len > 0) allocator.free(self.codepoints);
+        self.codepoints = codepoints;
+        self.max_codepoints = max_codepoints;
     }
 
-    fn knownTexts(self: InputLineTextCacheAssembly) []const contract.CellText {
-        return self.texts[0..@intCast(self.text_count)];
-    }
-
-    fn appendText(self: *InputLineTextCacheAssembly, cps: []const u32) void {
-        const cp_start: u32 = self.codepoint_count;
-        const cp_len: u32 = @intCast(cps.len);
-        @memcpy(self.codepoints[@intCast(cp_start)..@intCast(cp_start + cp_len)], cps);
-        self.texts[@intCast(self.text_count)] = .{
-            .id = .{ .value = self.text_count },
-            .first_cp = cps[0],
-            .codepoints = self.codepoints[@intCast(cp_start)..@intCast(cp_start + cp_len)],
-        };
-        self.text_count += 1;
-        self.codepoint_count += cp_len;
-    }
-
-    fn toOwnedLineTextCache(self: *InputLineTextCacheAssembly) !OwnedLineTextCache {
-        const final_texts = try self.allocator.realloc(self.texts, @intCast(self.text_count));
-        self.texts = &.{};
-        const final_codepoints = self.codepoints;
-        self.codepoints = &.{};
-
-        return .{ .allocator = self.allocator, .texts = final_texts, .codepoints = final_codepoints };
+    fn require(self: RetainedScratch, item_count: u32, codepoint_count: u32) !void {
+        if (item_count > self.max_items) return error.ClusterScratchOverflow;
+        if (codepoint_count > self.max_codepoints) return error.ClusterScratchOverflow;
     }
 };
 
@@ -232,119 +223,6 @@ const CellLineTextCacheAssembly = struct {
     }
 };
 
-const RunAssembly = struct {
-    allocator: std.mem.Allocator,
-    runs: std.ArrayList(contract.ResolvedRun) = .empty,
-
-    fn deinit(self: *RunAssembly) void {
-        self.runs.deinit(self.allocator);
-        self.* = undefined;
-    }
-
-    fn append(self: *RunAssembly, run: contract.ResolvedRun) !void {
-        try self.runs.append(self.allocator, run);
-    }
-
-    fn toOwnedRuns(self: *RunAssembly) !OwnedRuns {
-        return .{ .allocator = self.allocator, .runs = try self.runs.toOwnedSlice(self.allocator) };
-    }
-};
-
-const ComplexSelectionAssembly = struct {
-    allocator: std.mem.Allocator,
-    cells: std.ArrayList(contract.RenderableCell) = .empty,
-    clusters: std.ArrayList(contract.CellCluster) = .empty,
-
-    fn deinit(self: *ComplexSelectionAssembly) void {
-        self.cells.deinit(self.allocator);
-        self.clusters.deinit(self.allocator);
-        self.* = undefined;
-    }
-
-    fn appendCell(self: *ComplexSelectionAssembly, cell: contract.RenderableCell) !void {
-        try self.cells.append(self.allocator, cell);
-    }
-
-    fn appendCluster(self: *ComplexSelectionAssembly, cluster_value: contract.CellCluster) !void {
-        try self.clusters.append(self.allocator, cluster_value);
-    }
-
-    fn toOwnedSelection(self: *ComplexSelectionAssembly) !ComplexSelection {
-        return .{
-            .allocator = self.allocator,
-            .cells = try self.cells.toOwnedSlice(self.allocator),
-            .clusters = try self.clusters.toOwnedSlice(self.allocator),
-        };
-    }
-};
-
-const SparseCellAssembly = struct {
-    allocator: std.mem.Allocator,
-    renderable: []contract.RenderableCell,
-    texts: []contract.CellText,
-    codepoints: []u32,
-    unique_count: u32 = 0,
-    renderable_count: u32 = 0,
-
-    fn init(allocator: std.mem.Allocator, cell_count: u32) !SparseCellAssembly {
-        const renderable = try allocator.alloc(contract.RenderableCell, @intCast(cell_count));
-        errdefer allocator.free(renderable);
-        const texts = try allocator.alloc(contract.CellText, @intCast(cell_count));
-        errdefer allocator.free(texts);
-        const codepoints = try allocator.alloc(u32, @intCast(cell_count));
-        errdefer allocator.free(codepoints);
-        return .{
-            .allocator = allocator,
-            .renderable = renderable,
-            .texts = texts,
-            .codepoints = codepoints,
-        };
-    }
-
-    fn deinit(self: *SparseCellAssembly) void {
-        self.allocator.free(self.renderable);
-        self.allocator.free(self.texts);
-        self.allocator.free(self.codepoints);
-        self.* = undefined;
-    }
-
-    fn appendUniqueText(self: *SparseCellAssembly, text_id: u32, cp: u32) void {
-        writeSingleCodepointText(self.texts, self.codepoints, @intCast(self.unique_count), text_id, cp);
-        self.unique_count += 1;
-    }
-
-    fn appendRenderable(self: *SparseCellAssembly, cell: contract.RenderableCell) void {
-        self.renderable[@intCast(self.renderable_count)] = cell;
-        self.renderable_count += 1;
-    }
-
-    fn toSparseCells(self: *SparseCellAssembly) !SparseCells {
-        const final_renderable = try self.allocator.realloc(self.renderable, @intCast(self.renderable_count));
-        self.renderable = &.{};
-        errdefer self.allocator.free(final_renderable);
-
-        const final_codepoints = try self.allocator.alloc(u32, @intCast(self.unique_count));
-        errdefer self.allocator.free(final_codepoints);
-        @memcpy(final_codepoints, self.codepoints[0..@intCast(self.unique_count)]);
-
-        const final_texts = try self.allocator.alloc(contract.CellText, @intCast(self.unique_count));
-        errdefer self.allocator.free(final_texts);
-        for (0..@as(u32, self.unique_count)) |idx| {
-            writeSingleCodepointText(final_texts, final_codepoints, @intCast(idx), @intCast(idx), final_codepoints[@intCast(idx)]);
-        }
-
-        self.allocator.free(self.texts);
-        self.allocator.free(self.codepoints);
-        self.texts = &.{};
-        self.codepoints = &.{};
-
-        return .{
-            .text_cache = .{ .allocator = self.allocator, .texts = final_texts, .codepoints = final_codepoints },
-            .renderable = .{ .allocator = self.allocator, .cells = final_renderable },
-        };
-    }
-};
-
 pub fn singleCodepointText(id: u32, cp: u32) contract.CellText {
     return .{
         .id = .{ .value = id },
@@ -379,14 +257,26 @@ pub fn buildSparseCellsWithDamage(
     grid_metrics: contract.GridMetrics,
     damage: scene.DamageInput,
 ) !SparseCells {
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(allocator);
+    const total_cells = count32(cells);
+    try scratch.configure(allocator, total_cells, total_cells);
+    return buildSparseCellsWithDamageScratch(allocator, &scratch, cells, grid_metrics, damage);
+}
+
+pub fn buildSparseCellsWithDamageScratch(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    cells: []const contract.CellInput,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.DamageInput,
+) !SparseCells {
     const damage_filter = DamageFilter.init(damage, grid_metrics);
     const total_cells = count32(cells);
-    var assembly = try SparseCellAssembly.init(allocator, total_cells);
-    errdefer assembly.deinit();
+    try scratch.require(total_cells, total_cells);
 
-    var unique_codepoints = std.AutoHashMap(u32, u32).init(allocator);
-    defer unique_codepoints.deinit();
-
+    var unique_count: u32 = 0;
+    var renderable_count: u32 = 0;
     var cell_idx: u32 = 0;
     while (cell_idx < total_cells) {
         if (damage_filter.cleanRowSkip(cell_idx, total_cells)) |next_idx| {
@@ -401,35 +291,53 @@ pub fn buildSparseCellsWithDamage(
         const first_cell = idx;
         const span = inferredCellSpan(cells, first_cell);
         if (!damage_filter.includeSpan(first_cell, span)) continue;
-        const entry = try unique_codepoints.getOrPut(cell.codepoint);
-        const text_id: u32 = if (entry.found_existing)
-            entry.value_ptr.*
-        else blk: {
-            const next_id: u32 = @intCast(assembly.unique_count);
-            entry.value_ptr.* = next_id;
-            assembly.appendUniqueText(next_id, cell.codepoint);
+        const text_id = findSingleCodepointTextId(scratch.codepoints[0..@intCast(unique_count)], cell.codepoint) orelse blk: {
+            const next_id = unique_count;
+            scratch.codepoints[@intCast(unique_count)] = cell.codepoint;
+            unique_count += 1;
             break :blk next_id;
         };
-        assembly.appendRenderable(renderableFromCellInput(.{ .value = text_id }, first_cell, span, cell, false));
+        scratch.renderable[@intCast(renderable_count)] = renderableFromCellInput(.{ .value = text_id }, first_cell, span, cell, false);
+        renderable_count += 1;
     }
 
-    return assembly.toSparseCells();
+    const renderable = try allocator.dupe(contract.RenderableCell, scratch.renderable[0..@intCast(renderable_count)]);
+    errdefer allocator.free(renderable);
+    const text_cache = try cloneSingleCodepointTextCache(allocator, scratch.codepoints[0..@intCast(unique_count)]);
+    errdefer text_cache.deinit();
+    return .{
+        .text_cache = text_cache,
+        .renderable = .{ .allocator = allocator, .cells = renderable },
+    };
 }
 
 pub fn buildLineTextCacheFromInputs(allocator: std.mem.Allocator, inputs: []const CellTextInput) !OwnedLineTextCache {
-    var total_codepoints: u32 = 0;
-    for (inputs) |input| total_codepoints += @intCast(@max(input.codepoints.len, 1));
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(allocator);
+    const input_count = count32(inputs);
+    const total_codepoints = countNormalizedInputCodepoints(inputs);
+    try scratch.configure(allocator, input_count, total_codepoints);
+    return buildLineTextCacheFromInputsScratch(allocator, &scratch, inputs);
+}
 
-    var assembly = try InputLineTextCacheAssembly.init(allocator, count32(inputs), total_codepoints);
-    errdefer assembly.deinit();
+pub fn buildLineTextCacheFromInputsScratch(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    inputs: []const CellTextInput,
+) !OwnedLineTextCache {
+    const input_count = count32(inputs);
+    const total_codepoints = countNormalizedInputCodepoints(inputs);
+    try scratch.require(input_count, total_codepoints);
 
+    var text_count: u32 = 0;
+    var codepoint_count: u32 = 0;
     for (inputs) |input| {
         const cps = normalizedCodepoints(input.codepoints);
-        if (findText(assembly.knownTexts(), cps) != null) continue;
-        assembly.appendText(cps);
+        if (findText(scratch.texts[0..@intCast(text_count)], cps) != null) continue;
+        appendScratchText(scratch, &text_count, &codepoint_count, cps);
     }
 
-    return assembly.toOwnedLineTextCache();
+    return cloneTextCache(allocator, scratch.texts[0..@intCast(text_count)], scratch.codepoints[0..@intCast(codepoint_count)]);
 }
 
 fn normalizedCodepoints(cps: []const u32) []const u32 {
@@ -497,18 +405,33 @@ pub fn extractClustersWithDamage(
     grid_metrics: contract.GridMetrics,
     damage: scene.DamageInput,
 ) !OwnedClusters {
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(allocator);
+    try scratch.configure(allocator, count32(cells), 0);
+    return extractClustersWithDamageScratch(allocator, &scratch, cells, cache, grid_metrics, damage);
+}
+
+pub fn extractClustersWithDamageScratch(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    cells: []const contract.RenderableCell,
+    cache: contract.LineTextCache,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.DamageInput,
+) !OwnedClusters {
     const damage_filter = DamageFilter.init(damage, grid_metrics);
-    var extraction = ClusterExtractionAssembly{ .allocator = allocator };
-    errdefer extraction.deinit();
+    try scratch.require(count32(cells), 0);
+    var cluster_count: u32 = 0;
     for (cells, 0..) |cell, idx| {
         if (cell.continuation) continue;
         if (!damage_filter.includeSpan(cell.first_cell, cell.cell_span)) continue;
         const text = textForCell(cell, cache);
         if (isBlankText(text)) continue;
-        try extraction.append(renderableCluster(cell, text, inferredRenderableCellSpan(cells, @intCast(idx))));
+        scratch.clusters[@intCast(cluster_count)] = renderableCluster(cell, text, inferredRenderableCellSpan(cells, @intCast(idx)));
+        cluster_count += 1;
     }
 
-    return extraction.toOwnedClusters();
+    return .{ .allocator = allocator, .clusters = try allocator.dupe(contract.CellCluster, scratch.clusters[0..@intCast(cluster_count)]) };
 }
 
 pub fn selectComplexWithDamage(
@@ -519,22 +442,47 @@ pub fn selectComplexWithDamage(
     grid_metrics: contract.GridMetrics,
     damage: scene.DamageInput,
 ) !ComplexSelection {
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(allocator);
+    try scratch.configure(allocator, count32(cells), 0);
+    return selectComplexWithDamageScratch(allocator, &scratch, cells, cache, clusters, grid_metrics, damage);
+}
+
+pub fn selectComplexWithDamageScratch(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    cells: []const contract.RenderableCell,
+    cache: contract.LineTextCache,
+    clusters: []const contract.CellCluster,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.DamageInput,
+) !ComplexSelection {
     const damage_filter = DamageFilter.init(damage, grid_metrics);
-    var selection = ComplexSelectionAssembly{ .allocator = allocator };
-    errdefer selection.deinit();
+    try scratch.require(@max(count32(cells), count32(clusters)), 0);
+    var cell_count: u32 = 0;
+    var cluster_count: u32 = 0;
     for (cells) |cell| {
         if (cell.continuation) continue;
         if (!damage_filter.includeSpan(cell.first_cell, cell.cell_span)) continue;
         if (!classifyComplexCell(cell, cache)) continue;
-        try selection.appendCell(cell);
+        scratch.renderable[@intCast(cell_count)] = cell;
+        cell_count += 1;
     }
 
     for (clusters) |cluster_value| {
         if (!classifyComplexCluster(cells, cluster_value, cache)) continue;
-        try selection.appendCluster(cluster_value);
+        scratch.clusters[@intCast(cluster_count)] = cluster_value;
+        cluster_count += 1;
     }
 
-    return selection.toOwnedSelection();
+    const selected_cells = try allocator.dupe(contract.RenderableCell, scratch.renderable[0..@intCast(cell_count)]);
+    errdefer allocator.free(selected_cells);
+    const selected_clusters = try allocator.dupe(contract.CellCluster, scratch.clusters[0..@intCast(cluster_count)]);
+    return .{
+        .allocator = allocator,
+        .cells = selected_cells,
+        .clusters = selected_clusters,
+    };
 }
 
 fn textForCell(cell: contract.RenderableCell, cache: contract.LineTextCache) contract.CellText {
@@ -691,22 +639,38 @@ pub fn buildProvisionalRuns(allocator: std.mem.Allocator, clusters: []const cont
         return .{ .allocator = allocator, .runs = try allocator.alloc(contract.ResolvedRun, 0) };
     }
 
-    var assembly = RunAssembly{ .allocator = allocator };
-    errdefer assembly.deinit();
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(allocator);
+    try scratch.configure(allocator, count32(clusters), 0);
+    return buildProvisionalRunsScratch(allocator, &scratch, clusters, face_id);
+}
+
+pub fn buildProvisionalRunsScratch(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    clusters: []const contract.CellCluster,
+    face_id: contract.FontFaceId,
+) !OwnedRuns {
+    if (clusters.len == 0) {
+        return .{ .allocator = allocator, .runs = try allocator.alloc(contract.ResolvedRun, 0) };
+    }
+    try scratch.require(count32(clusters), 0);
 
     var prev = clusters[0];
     var start: u32 = 0;
-    prev = clusters[0];
+    var run_count: u32 = 0;
     for (clusters[1..], 1..) |cluster, idx| {
         if (cluster.style != prev.style or cluster.presentation != prev.presentation) {
-            try assembly.append(resolvedRun(start, @intCast(idx - start), face_id, prev.style, prev.presentation));
+            scratch.runs[@intCast(run_count)] = resolvedRun(start, @intCast(idx - start), face_id, prev.style, prev.presentation);
+            run_count += 1;
             start = @intCast(idx);
         }
         prev = cluster;
     }
-    try assembly.append(resolvedRun(start, @intCast(clusters.len - start), face_id, prev.style, prev.presentation));
+    scratch.runs[@intCast(run_count)] = resolvedRun(start, @intCast(clusters.len - start), face_id, prev.style, prev.presentation);
+    run_count += 1;
 
-    return assembly.toOwnedRuns();
+    return .{ .allocator = allocator, .runs = try allocator.dupe(contract.ResolvedRun, scratch.runs[0..@intCast(run_count)]) };
 }
 
 fn resolvedRun(cluster_start: u32, cluster_count: u32, face_id: contract.FontFaceId, style: contract.FontStyle, presentation: contract.TextPresentation) contract.ResolvedRun {
@@ -729,6 +693,63 @@ fn count32(items: anytype) u32 {
 fn count16(items: anytype) u16 {
     std.debug.assert(items.len <= std.math.maxInt(u16));
     return @intCast(items.len);
+}
+
+fn appendScratchText(scratch: *RetainedScratch, text_count: *u32, codepoint_count: *u32, cps: []const u32) void {
+    const cp_start = codepoint_count.*;
+    const cp_len: u32 = @intCast(cps.len);
+    @memcpy(scratch.codepoints[@intCast(cp_start)..@intCast(cp_start + cp_len)], cps);
+    scratch.texts[@intCast(text_count.*)] = .{
+        .id = .{ .value = text_count.* },
+        .first_cp = cps[0],
+        .codepoints = scratch.codepoints[@intCast(cp_start)..@intCast(cp_start + cp_len)],
+    };
+    text_count.* += 1;
+    codepoint_count.* += cp_len;
+}
+
+fn cloneSingleCodepointTextCache(allocator: std.mem.Allocator, codepoints: []const u32) !OwnedLineTextCache {
+    const final_codepoints = try allocator.dupe(u32, codepoints);
+    errdefer allocator.free(final_codepoints);
+    const final_texts = try allocator.alloc(contract.CellText, codepoints.len);
+    errdefer allocator.free(final_texts);
+    for (0..codepoints.len) |idx| {
+        writeSingleCodepointText(final_texts, final_codepoints, @intCast(idx), @intCast(idx), final_codepoints[idx]);
+    }
+    return .{ .allocator = allocator, .texts = final_texts, .codepoints = final_codepoints };
+}
+
+fn cloneTextCache(allocator: std.mem.Allocator, texts: []const contract.CellText, codepoints: []const u32) !OwnedLineTextCache {
+    const final_codepoints = try allocator.dupe(u32, codepoints);
+    errdefer allocator.free(final_codepoints);
+    const final_texts = try allocator.alloc(contract.CellText, texts.len);
+    errdefer allocator.free(final_texts);
+
+    var codepoint_offset: u32 = 0;
+    for (texts, 0..) |text, idx| {
+        const cp_len: u32 = @intCast(text.codepoints.len);
+        final_texts[idx] = .{
+            .id = .{ .value = @intCast(idx) },
+            .first_cp = text.first_cp,
+            .codepoints = final_codepoints[@intCast(codepoint_offset)..@intCast(codepoint_offset + cp_len)],
+        };
+        codepoint_offset += cp_len;
+    }
+    std.debug.assert(codepoint_offset == @as(u32, @intCast(codepoints.len)));
+    return .{ .allocator = allocator, .texts = final_texts, .codepoints = final_codepoints };
+}
+
+fn countNormalizedInputCodepoints(inputs: []const CellTextInput) u32 {
+    var total_codepoints: u32 = 0;
+    for (inputs) |input| total_codepoints += @intCast(@max(input.codepoints.len, 1));
+    return total_codepoints;
+}
+
+fn findSingleCodepointTextId(codepoints: []const u32, cp: u32) ?u32 {
+    for (codepoints, 0..) |existing, idx| {
+        if (existing == cp) return @intCast(idx);
+    }
+    return null;
 }
 
 test "single codepoint text preserves first codepoint" {
@@ -941,4 +962,32 @@ test "rich cell text detects emoji and text presentation selectors" {
     defer renderable.deinit();
     try std.testing.expectEqual(contract.TextPresentation.text, renderable.cells[0].presentation);
     try std.testing.expectEqual(contract.TextPresentation.emoji, renderable.cells[1].presentation);
+}
+
+test "retained scratch bounds sparse cell assembly" {
+    const allocator = std.testing.allocator;
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(allocator);
+    try scratch.configure(allocator, 1, 1);
+    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]contract.CellInput{
+        .{ .codepoint = 'A', .fg = white, .bg = black },
+        .{ .codepoint = 'B', .fg = white, .bg = black },
+    };
+
+    try std.testing.expectError(error.ClusterScratchOverflow, buildSparseCellsWithDamageScratch(allocator, &scratch, &cells, .{ .cols = 2, .rows = 1 }, .{ .full = true }));
+}
+
+test "retained scratch bounds rich input codepoint assembly" {
+    const allocator = std.testing.allocator;
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(allocator);
+    try scratch.configure(allocator, 1, 1);
+    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const combining = [_]u32{ 'i', 0x0332 };
+    const inputs = [_]CellTextInput{.{ .codepoints = &combining, .fg = white, .bg = black }};
+
+    try std.testing.expectError(error.ClusterScratchOverflow, buildLineTextCacheFromInputsScratch(allocator, &scratch, &inputs));
 }

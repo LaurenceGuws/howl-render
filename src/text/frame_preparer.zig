@@ -46,6 +46,7 @@ pub const TextFramePreparer = struct {
     sprite_rasterizer: rasterizer.Rasterizer,
     glyph_lookup: provider.LookupGlyphOp,
     glyph_raster: pipeline.RasterizeGlyphOp,
+    cluster_scratch: cluster.RetainedScratch = .{},
     direct_normal: direct_normal.Scratch = .{},
     resolver_scratch: font_resolver.RetainedScratch = .{},
     scene_scratch: scene.RetainedScratch = .{},
@@ -76,9 +77,14 @@ pub const TextFramePreparer = struct {
     pub fn deinit(self: *TextFramePreparer) void {
         self.scene_scratch.deinit(self.allocator);
         self.resolver_scratch.deinit(self.allocator);
+        self.cluster_scratch.deinit(self.allocator);
         self.direct_normal.deinit(self.allocator);
         self.atlas.deinit();
         self.* = undefined;
+    }
+
+    pub fn ensureClusterScratchCapacity(self: *TextFramePreparer, max_items: u32, max_codepoints: u32) !void {
+        try self.cluster_scratch.configure(self.allocator, max_items, max_codepoints);
     }
 
     pub fn ensureResolverScratchCapacity(self: *TextFramePreparer, max_clusters: u32) !void {
@@ -97,7 +103,9 @@ pub const TextFramePreparer = struct {
         }
         var timings = PrepareTimings{};
         const sparse_start_ns = monotonicNs();
-        var sparse = try cluster.buildSparseCellsWithDamage(self.allocator, cells, grid_metrics, options.scene.damage);
+        const cell_count = count32(cells);
+        try self.ensureClusterScratchCapacity(cell_count, cell_count);
+        var sparse = try cluster.buildSparseCellsWithDamageScratch(self.allocator, &self.cluster_scratch, cells, grid_metrics, options.scene.damage);
         timings.sparse_us = elapsedUs(sparse_start_ns);
         errdefer sparse.deinit();
         return self.preparePreparedFrame(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings);
@@ -108,7 +116,11 @@ pub const TextFramePreparer = struct {
         if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report)) |direct| {
             return self.finishNormalOnlyFrame(direct, lane_report, .{});
         }
-        var text_cache = try cluster.buildLineTextCacheFromInputs(self.allocator, inputs);
+        const input_count = count32(inputs);
+        var input_codepoints: u32 = 0;
+        for (inputs) |input| input_codepoints += @intCast(@max(input.codepoints.len, 1));
+        try self.ensureClusterScratchCapacity(input_count, input_codepoints);
+        var text_cache = try cluster.buildLineTextCacheFromInputsScratch(self.allocator, &self.cluster_scratch, inputs);
         errdefer text_cache.deinit();
         var renderable = try cluster.buildRenderableCellsFromInputs(self.allocator, inputs, text_cache.view());
         errdefer renderable.deinit();
@@ -130,7 +142,7 @@ pub const TextFramePreparer = struct {
         var owned_renderable = renderable;
         errdefer owned_renderable.deinit();
         const clusters_start_ns = monotonicNs();
-        var clusters = try cluster.extractClustersWithDamage(self.allocator, owned_renderable.cells, owned_text_cache.view(), grid_metrics, options.scene.damage);
+        var clusters = try cluster.extractClustersWithDamageScratch(self.allocator, &self.cluster_scratch, owned_renderable.cells, owned_text_cache.view(), grid_metrics, options.scene.damage);
         timings.clusters_us = elapsedUs(clusters_start_ns);
         errdefer clusters.deinit();
         var final_lane_report = lane.LaneReport.init(owned_text_cache.view(), owned_renderable.cells, clusters.clusters);
@@ -175,7 +187,7 @@ pub const TextFramePreparer = struct {
     ) !OwnedPreparedTextFrame {
         var final_prepared = prepared;
         errdefer final_prepared.deinit(self.allocator);
-        var complex = try cluster.selectComplexWithDamage(self.allocator, final_prepared.renderable.cells, final_prepared.text_cache.view(), final_prepared.clusters.clusters, grid_metrics, options.scene.damage);
+        var complex = try cluster.selectComplexWithDamageScratch(self.allocator, &self.cluster_scratch, final_prepared.renderable.cells, final_prepared.text_cache.view(), final_prepared.clusters.clusters, grid_metrics, options.scene.damage);
         defer complex.deinit();
         std.debug.assert(@as(u64, @intCast(complex.cells.len)) == final_prepared.lane_report.complex_cells);
         std.debug.assert(@as(u64, @intCast(complex.clusters.len)) == final_prepared.lane_report.complex_clusters);

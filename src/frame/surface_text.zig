@@ -194,6 +194,7 @@ pub const SurfaceText = struct {
             self.text_preparer = try text.TextFramePreparer.initWithProvider(self.allocator, 2048, ft_hb.textProvider());
         }
         try self.text_state.configureFtHbCapacity(capacity);
+        try self.text_preparer.?.ensureClusterScratchCapacity(maxResolveClusters(context), capacity.max_shape_input_codepoints);
         try self.text_preparer.?.ensureResolverScratchCapacity(maxResolveClusters(context));
         return &self.text_preparer.?;
     }
