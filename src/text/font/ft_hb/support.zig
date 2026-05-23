@@ -30,6 +30,7 @@ const ThreadMutex = struct {
 };
 
 pub const State = struct {
+    allocator: std.mem.Allocator,
     ft_lib: ?FtLibrary = null,
     ft_face: ?FtFace = null,
     hb_font: ?HbFont = null,
@@ -43,23 +44,51 @@ pub const State = struct {
     face_text_cache: text_cache.FaceTextCache,
     shape_run_cache: text_cache.ShapeRunCache,
     glyph_cell_cache: text_cache.GlyphCellCache,
+    shape_input_codepoints: []u32 = &.{},
+    shape_input_cluster_map: []u32 = &.{},
+    max_shape_input_codepoints: u32 = 0,
     fallback_font_paths: [max_fallback_fonts]?[:0]const u8 = [_]?[:0]const u8{null} ** max_fallback_fonts,
     fallback_font_paths_len: u8 = 0,
 
     pub fn init(allocator: std.mem.Allocator) State {
         return .{
+            .allocator = allocator,
             .face_text_cache = text_cache.FaceTextCache.init(allocator),
             .shape_run_cache = text_cache.ShapeRunCache.init(allocator),
             .glyph_cell_cache = text_cache.GlyphCellCache.init(allocator),
         };
     }
 
+    pub fn configureFtHbCapacity(self: *State, capacity: FtHbCapacity) !void {
+        try self.face_text_cache.configure(capacity.face_text_cache_entries);
+        try self.shape_run_cache.configure(capacity.shape_run_cache_entries, capacity.max_glyphs_per_run);
+        try self.glyph_cell_cache.configure(capacity.glyph_cell_cache_entries);
+        if (self.max_shape_input_codepoints >= capacity.max_shape_input_codepoints) return;
+        if (self.shape_input_codepoints.len > 0) self.allocator.free(self.shape_input_codepoints);
+        errdefer self.shape_input_codepoints = &.{};
+        self.shape_input_codepoints = try self.allocator.alloc(u32, @intCast(capacity.max_shape_input_codepoints));
+        if (self.shape_input_cluster_map.len > 0) self.allocator.free(self.shape_input_cluster_map);
+        errdefer self.shape_input_cluster_map = &.{};
+        self.shape_input_cluster_map = try self.allocator.alloc(u32, @intCast(capacity.max_shape_input_codepoints));
+        self.max_shape_input_codepoints = capacity.max_shape_input_codepoints;
+    }
+
     pub fn deinit(self: *State) void {
+        if (self.shape_input_cluster_map.len > 0) self.allocator.free(self.shape_input_cluster_map);
+        if (self.shape_input_codepoints.len > 0) self.allocator.free(self.shape_input_codepoints);
         self.shape_run_cache.deinit();
         self.face_text_cache.deinit();
         self.glyph_cell_cache.deinit();
         self.* = undefined;
     }
+};
+
+pub const FtHbCapacity = struct {
+    face_text_cache_entries: u32,
+    shape_run_cache_entries: u32,
+    glyph_cell_cache_entries: u32,
+    max_shape_input_codepoints: u32,
+    max_glyphs_per_run: u32,
 };
 
 // Slice lengths translate immediately into FallbackFontCount before owner state keeps them.
@@ -119,14 +148,8 @@ const ClusterWindow = struct {
 };
 
 const ShapeRunInput = struct {
-    codepoints: std.ArrayList(u32),
-    cluster_map: std.ArrayList(u32),
-
-    fn deinit(self: *ShapeRunInput, allocator: std.mem.Allocator) void {
-        self.cluster_map.deinit(allocator);
-        self.codepoints.deinit(allocator);
-        self.* = undefined;
-    }
+    codepoints: []u32,
+    cluster_map: []u32,
 };
 
 pub fn providerHasCodepoint(comptime ContextType: type, ctx: *anyopaque, face_id: contract.FontFaceId, codepoint: u32) bool {
@@ -144,16 +167,15 @@ pub fn providerHasCellText(comptime ContextType: type, ctx: *anyopaque, face_id:
     const context: *ContextType = @ptrCast(@alignCast(ctx));
     const state = textState(context);
     const key = text_cache.FaceTextKey{ .face_id = face_id.value, .text_hash = text_cache.hashCellText(text) };
-    const entry = state.face_text_cache.map.getOrPut(key) catch return uncachedProviderHasCellText(ContextType, ctx, face_id, text);
-    if (entry.found_existing) {
+    if (state.face_text_cache.map.get(key)) |cached| {
         state.resolve_counters.face_cache_hits += 1;
         if (state.active_resolve) |obs| obs.counters.face_cache_hits += 1;
-        return entry.value_ptr.*;
+        return cached;
     }
     state.resolve_counters.face_checks += 1;
     if (state.active_resolve) |obs| obs.counters.face_checks += 1;
     const result = uncachedProviderHasCellText(ContextType, ctx, face_id, text);
-    entry.value_ptr.* = result;
+    state.face_text_cache.put(key, result) catch {};
     return result;
 }
 
@@ -189,21 +211,23 @@ pub fn providerShapeRun(comptime ContextType: type, ctx: *anyopaque, allocator: 
     else
         try shapeRunViaProviderOrFallback(context, allocator, run, text_cache_view, clusters, cell_metrics, window);
     errdefer shaped.deinit();
-    try state.shape_run_cache.putRun(shape_key, shaped);
+    state.shape_run_cache.putRun(shape_key, shaped) catch |err| switch (err) {
+        error.CacheFull, error.CachedRunTooLarge => {},
+        else => return err,
+    };
     return shaped;
 }
 
 fn shapeRunViaProviderOrFallback(context: anytype, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics, window: ClusterWindow) anyerror!text_mod.ShapeRun.OwnedShapedRun {
-    var input = try gatherShapeRunInput(allocator, text_cache_view, clusters, window);
-    defer input.deinit(allocator);
-    if (input.codepoints.items.len == 0) return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
+    const input = try gatherShapeRunInput(textState(context), text_cache_view, clusters, window);
+    if (input.codepoints.len == 0) return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
     const buffer = c.hb_buffer_create() orelse return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
     defer c.hb_buffer_destroy(buffer);
     c.hb_buffer_set_cluster_level(buffer, c.HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS);
-    c.hb_buffer_add_utf32(buffer, input.codepoints.items.ptr, @intCast(input.codepoints.items.len), 0, @intCast(input.codepoints.items.len));
+    c.hb_buffer_add_utf32(buffer, input.codepoints.ptr, @intCast(input.codepoints.len), 0, @intCast(input.codepoints.len));
     c.hb_buffer_guess_segment_properties(buffer);
     if (!ensureFaceForId(context, run.run.font.face_id)) return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
-    return try shapeRunViaProvider(context, allocator, run, clusters, cell_metrics, buffer, input.cluster_map.items) orelse fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
+    return try shapeRunViaProvider(context, allocator, run, clusters, cell_metrics, buffer, input.cluster_map) orelse fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
 }
 
 fn shapeRunViaProvider(context: anytype, allocator: std.mem.Allocator, run: contract.ResolvedRun, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics, buffer: ?*c.hb_buffer_t, cluster_map: []const u32) anyerror!?text_mod.ShapeRun.OwnedShapedRun {
@@ -279,9 +303,12 @@ pub fn providerLookupGlyph(comptime ContextType: type, ctx: *anyopaque, face_id:
     const context: *ContextType = @ptrCast(@alignCast(ctx));
     const state = textState(context);
     const key = text_cache.GlyphCellKey{ .face_id = face_id.value, .codepoint = codepoint, .cell_w_px = cell_metrics.cell_w_px, .cell_h_px = cell_metrics.cell_h_px, .baseline_px = cell_metrics.baseline_px };
-    const entry = state.glyph_cell_cache.map.getOrPut(key) catch return uncachedProviderLookupGlyph(context, face_id, codepoint, cell_metrics);
-    if (!entry.found_existing) entry.value_ptr.* = glyphCellValue(uncachedProviderLookupGlyph(context, face_id, codepoint, cell_metrics));
-    return .{ .glyph_id = entry.value_ptr.glyph_id, .advance_px = entry.value_ptr.advance_px };
+    if (state.glyph_cell_cache.map.get(key)) |cached| {
+        return .{ .glyph_id = cached.glyph_id, .advance_px = cached.advance_px };
+    }
+    const result = uncachedProviderLookupGlyph(context, face_id, codepoint, cell_metrics);
+    state.glyph_cell_cache.put(key, glyphCellValue(result)) catch {};
+    return result;
 }
 
 fn uncachedProviderLookupGlyph(context: anytype, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) text_mod.Provider.LookupGlyphResult {
@@ -579,16 +606,33 @@ fn resetFallbackFaces(self: anytype) void {
     }
 }
 
-fn gatherShapeRunInput(allocator: std.mem.Allocator, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window: ClusterWindow) !ShapeRunInput {
-    var input = ShapeRunInput{ .codepoints = .empty, .cluster_map = .empty };
-    errdefer input.deinit(allocator);
+fn gatherShapeRunInput(state: *State, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window: ClusterWindow) !ShapeRunInput {
+    const required = shapeRunInputCodepointCount(text_cache_view, clusters, window);
+    if (required > state.max_shape_input_codepoints) return error.ShapeRunInputOverflow;
+    var count: u32 = 0;
     for (window.slice(clusters), 0..) |cluster, local_idx| {
         const text = textForCluster(text_cache_view, cluster);
         const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
-        try input.codepoints.appendSlice(allocator, cps);
-        for (cps) |_| try input.cluster_map.append(allocator, window.start + @as(u32, @intCast(local_idx)));
+        const cp_start = count;
+        const cp_len = count32(cps);
+        @memcpy(state.shape_input_codepoints[@intCast(cp_start)..@intCast(cp_start + cp_len)], cps);
+        for (0..cps.len) |cp_idx| state.shape_input_cluster_map[@as(usize, @intCast(cp_start)) + cp_idx] = window.start + @as(u32, @intCast(local_idx));
+        count += cp_len;
     }
-    return input;
+    return .{
+        .codepoints = state.shape_input_codepoints[0..@intCast(count)],
+        .cluster_map = state.shape_input_cluster_map[0..@intCast(count)],
+    };
+}
+
+fn shapeRunInputCodepointCount(text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window: ClusterWindow) u32 {
+    var total: u32 = 0;
+    for (window.slice(clusters)) |cluster| {
+        const text = textForCluster(text_cache_view, cluster);
+        const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
+        total += count32(cps);
+    }
+    return total;
 }
 
 fn buildProviderShapedRun(allocator: std.mem.Allocator, run: contract.ResolvedRun, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics, face: FtFace, infos: [*c]c.hb_glyph_info_t, positions: [*c]c.hb_glyph_position_t, glyph_count: c_uint, cluster_map: []const u32) !text_mod.ShapeRun.OwnedShapedRun {
@@ -680,6 +724,59 @@ test "provider loads fallback face for symbol glyph with primary present" {
     try std.testing.expect(!providerHasCodepoint(Context, &context, .{ .value = primary_face_id }, 0xf117));
     try std.testing.expect(providerHasCodepoint(Context, &context, .{ .value = 2 }, 0xf117));
     try std.testing.expect(providerGlyphId(&context, .{ .value = 2 }, 0xf117) != 0);
+}
+
+test "ft hb state configures explicit retained cache and input capacities" {
+    var state = State.init(std.testing.allocator);
+    defer state.deinit();
+
+    try state.configureFtHbCapacity(.{
+        .face_text_cache_entries = 4,
+        .shape_run_cache_entries = 2,
+        .glyph_cell_cache_entries = 3,
+        .max_shape_input_codepoints = 6,
+        .max_glyphs_per_run = 5,
+    });
+    try std.testing.expectEqual(@as(u32, 4), state.face_text_cache.capacity);
+    try std.testing.expectEqual(@as(u32, 2), state.shape_run_cache.capacity);
+    try std.testing.expectEqual(@as(u32, 5), state.shape_run_cache.max_glyphs_per_run);
+    try std.testing.expectEqual(@as(u32, 3), state.glyph_cell_cache.capacity);
+    try std.testing.expectEqual(@as(u32, 6), state.max_shape_input_codepoints);
+    try std.testing.expectEqual(@as(usize, 6), state.shape_input_codepoints.len);
+    try std.testing.expectEqual(@as(usize, 6), state.shape_input_cluster_map.len);
+}
+
+test "shape run input assembly reuses retained bounded buffers" {
+    var state = State.init(std.testing.allocator);
+    defer state.deinit();
+    try state.configureFtHbCapacity(.{
+        .face_text_cache_entries = 2,
+        .shape_run_cache_entries = 2,
+        .glyph_cell_cache_entries = 2,
+        .max_shape_input_codepoints = 2,
+        .max_glyphs_per_run = 2,
+    });
+
+    const text_cache_view = contract.LineTextCache{ .texts = &.{
+        .{ .id = .{ .value = 0 }, .first_cp = 'a', .codepoints = &.{'a'} },
+        .{ .id = .{ .value = 1 }, .first_cp = 'b', .codepoints = &.{'b'} },
+    } };
+    const clusters = [_]contract.CellCluster{
+        .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'a', .style = .regular, .presentation = .any },
+        .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'b', .style = .regular, .presentation = .any },
+    };
+
+    const first = try gatherShapeRunInput(&state, text_cache_view, &clusters, .{ .start = 0, .end = 2 });
+    try std.testing.expectEqual(state.shape_input_codepoints.ptr, first.codepoints.ptr);
+    try std.testing.expectEqual(state.shape_input_cluster_map.ptr, first.cluster_map.ptr);
+
+    const second = try gatherShapeRunInput(&state, text_cache_view, &clusters, .{ .start = 0, .end = 2 });
+    try std.testing.expectEqual(first.codepoints.ptr, second.codepoints.ptr);
+    try std.testing.expectEqual(first.cluster_map.ptr, second.cluster_map.ptr);
+
+    const overflow_text_cache = contract.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{ 'x', 0x0332, 0x0308 } }} };
+    const overflow_clusters = [_]contract.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any }};
+    try std.testing.expectError(error.ShapeRunInputOverflow, gatherShapeRunInput(&state, overflow_text_cache, &overflow_clusters, .{ .start = 0, .end = 1 }));
 }
 
 fn baselineFromFaceMetrics(input: contract.FaceMetrics26Dot6, cell_h: u16) i32 {

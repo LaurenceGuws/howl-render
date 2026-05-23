@@ -14,6 +14,11 @@ const text_support = @import("../text/font/ft_hb/support.zig");
 const text_glyph_raster = @import("../text/font/ft_hb/glyph_raster.zig");
 
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
+const ft_hb_face_text_cache_entry_cap: u32 = 4096;
+const ft_hb_glyph_cell_cache_entry_cap: u32 = 4096;
+const ft_hb_shape_run_cache_entry_cap: u32 = 64;
+const ft_hb_shape_input_codepoints_per_cluster_cap: u32 = 16;
+const ft_hb_cached_glyphs_per_run_cap: u32 = 512;
 
 fn count32(items: anytype) u32 {
     std.debug.assert(items.len <= std.math.maxInt(u32));
@@ -183,10 +188,12 @@ pub const SurfaceText = struct {
     }
 
     fn ensureTextPreparer(self: *SurfaceText, context: *TextContext) !*text.TextFramePreparer {
+        const capacity = ftHbCapacity(context);
         if (self.text_preparer == null) {
             var ft_hb = ftHbSource(context);
             self.text_preparer = try text.TextFramePreparer.initWithProvider(self.allocator, 2048, ft_hb.textProvider());
         }
+        try self.text_state.configureFtHbCapacity(capacity);
         try self.text_preparer.?.ensureResolverScratchCapacity(maxResolveClusters(context));
         return &self.text_preparer.?;
     }
@@ -195,6 +202,20 @@ pub const SurfaceText = struct {
         const cell_px = text_support.deriveCellSize(context);
         const grid = geometry_mod.deriveGridSize(context.session_config.surface_px, cell_px);
         return @as(u32, @max(grid.cols, 1)) * @as(u32, @max(grid.rows, 1));
+    }
+
+    fn ftHbCapacity(context: *TextContext) text_support.FtHbCapacity {
+        const cell_px = text_support.deriveCellSize(context);
+        const grid = geometry_mod.deriveGridSize(context.session_config.surface_px, cell_px);
+        const cols = @as(u32, @max(grid.cols, 1));
+        const visible_cells = cols * @as(u32, @max(grid.rows, 1));
+        return .{
+            .face_text_cache_entries = @min(visible_cells, ft_hb_face_text_cache_entry_cap),
+            .shape_run_cache_entries = @min(visible_cells, ft_hb_shape_run_cache_entry_cap),
+            .glyph_cell_cache_entries = @min(visible_cells, ft_hb_glyph_cell_cache_entry_cap),
+            .max_shape_input_codepoints = cols * ft_hb_shape_input_codepoints_per_cluster_cap,
+            .max_glyphs_per_run = ft_hb_cached_glyphs_per_run_cap,
+        };
     }
 
     fn ensureCellInputScratchCapacity(self: *SurfaceText, cell_count: usize) !void {
@@ -517,6 +538,44 @@ test "retainSurfaceImage adopts full image for later partial prepares" {
 
     const base = owner.requiredRetainedSurfaceBase(&prepared);
     try std.testing.expectEqualSlices(u8, pixels, base);
+}
+
+test "ft hb retained capacities separate cache slots from run scratch" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+
+    var context = SurfaceText.TextContext{
+        .session = &session,
+        .session_config = .{
+            .surface_px = .{ .width = 80, .height = 32 },
+            .font_size_px = 16,
+        },
+    };
+
+    const capacity = SurfaceText.ftHbCapacity(&context);
+    try std.testing.expectEqual(@as(u32, 20), capacity.face_text_cache_entries);
+    try std.testing.expectEqual(@as(u32, 20), capacity.glyph_cell_cache_entries);
+    try std.testing.expectEqual(@as(u32, 20), capacity.shape_run_cache_entries);
+    try std.testing.expectEqual(@as(u32, 160), capacity.max_shape_input_codepoints);
+    try std.testing.expectEqual(@as(u32, 512), capacity.max_glyphs_per_run);
+}
+
+test "ft hb retained capacities cap shape run cache slots" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+
+    var context = SurfaceText.TextContext{
+        .session = &session,
+        .session_config = .{
+            .surface_px = .{ .width = 4096, .height = 4096 },
+            .font_size_px = 16,
+        },
+    };
+
+    const capacity = SurfaceText.ftHbCapacity(&context);
+    try std.testing.expectEqual(@as(u32, ft_hb_shape_run_cache_entry_cap), capacity.shape_run_cache_entries);
+    try std.testing.expectEqual(@as(u32, ft_hb_face_text_cache_entry_cap), capacity.face_text_cache_entries);
+    try std.testing.expectEqual(@as(u32, ft_hb_glyph_cell_cache_entry_cap), capacity.glyph_cell_cache_entries);
 }
 
 test "surface text retains translated cell scratch across prepares" {
