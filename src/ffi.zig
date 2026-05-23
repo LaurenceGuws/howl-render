@@ -1,6 +1,7 @@
 const std = @import("std");
 const abi = @import("ffi_types.zig");
 const pipeline = @import("frame/pipeline.zig");
+const surface_text = @import("frame/surface_text.zig");
 const prepared_surface = @import("frame/prepared_surface_ffi.zig");
 const surface_text_ffi = @import("frame/surface_text_ffi.zig");
 const text_support = @import("text/font/ft_hb/support.zig");
@@ -324,7 +325,7 @@ test "ffi vt source rejects extra cells beyond declared grid" {
     try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
-test "ffi publish slot stages abi cells before queue commit" {
+test "ffi publish slot exposes render-owned reserved cells directly" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
     try std.testing.expect(handle != null);
@@ -343,8 +344,11 @@ test "ffi publish slot stages abi cells before queue commit" {
     );
     defer surfaceTextCancelPublishSlot(handle);
 
+    const owner: *surface_text.SurfaceTextOwner = @ptrCast(@alignCast(handle.?));
+    try std.testing.expect(owner.flow.publication_state.reserved != null);
     try std.testing.expect(slot.cells.ptr != null);
     try std.testing.expectEqual(@as(c_size_t, 1), slot.cells.len);
+    try std.testing.expectEqual(owner.flow.publication_state.reserved.?.cells.ptr, slot.cells.ptr);
     slot.cells.ptr[0] = testCell();
     slot.dirty_rows.ptr[0] = 1;
     slot.dirty_cols_start.ptr[0] = 0;

@@ -12,45 +12,6 @@ fn ownerFromHandle(handle: abi.SurfaceTextHandle) ?*surface_text.SurfaceTextOwne
     return @ptrCast(@alignCast(owned));
 }
 
-const PublishSlotFfiState = struct {
-    allocator: std.mem.Allocator,
-    cells: []abi.FfiVtCell,
-    owned_cells: []surface.Cell,
-
-    fn create(allocator: std.mem.Allocator, cell_count: u32) !*PublishSlotFfiState {
-        const state = try allocator.create(PublishSlotFfiState);
-        errdefer allocator.destroy(state);
-        const cells = try allocator.alloc(abi.FfiVtCell, @intCast(cell_count));
-        errdefer allocator.free(cells);
-        const owned_cells = try allocator.alloc(surface.Cell, @intCast(cell_count));
-        errdefer allocator.free(owned_cells);
-        state.* = .{ .allocator = allocator, .cells = cells, .owned_cells = owned_cells };
-        return state;
-    }
-
-    fn destroy(self: *PublishSlotFfiState) void {
-        self.allocator.free(self.cells);
-        self.allocator.free(self.owned_cells);
-        self.allocator.destroy(self);
-    }
-};
-
-fn publishSlotFfiState(owner: *surface_text.SurfaceTextOwner) ?*PublishSlotFfiState {
-    const raw = owner.publish_slot_ffi orelse return null;
-    return @ptrCast(@alignCast(raw));
-}
-
-fn clearPublishSlotFfiState(owner: *surface_text.SurfaceTextOwner) void {
-    const state = publishSlotFfiState(owner) orelse return;
-    owner.publish_slot_ffi = null;
-    state.destroy();
-}
-
-fn cancelPublishSlotState(owner: *surface_text.SurfaceTextOwner) void {
-    owner.flow.cancelPublishSlot();
-    clearPublishSlotFfiState(owner);
-}
-
 pub fn isValidFont(handle: abi.SurfaceTextHandle) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     return if (owner.isValidFont())
@@ -76,7 +37,6 @@ pub fn init(config: abi.FfiSurfaceTextConfig) callconv(.c) abi.SurfaceTextHandle
 
 pub fn deinit(handle: abi.SurfaceTextHandle) callconv(.c) void {
     const owner = ownerFromHandle(handle) orelse return;
-    clearPublishSlotFfiState(owner);
     owner.destroy();
 }
 
@@ -141,23 +101,16 @@ pub fn reservePublishSlot(handle: abi.SurfaceTextHandle, cols: u16, rows: u16, o
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     if (cols == 0 or rows == 0) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     const slot = owner.flow.reservePublishSlot(cols, rows) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
-    std.debug.assert(slot.cells.len <= std.math.maxInt(u32));
-    const state = PublishSlotFfiState.create(owner.allocator, @intCast(slot.cells.len)) catch {
-        owner.flow.cancelPublishSlot();
-        return @intFromEnum(abi.HowlRenderCallStatus.failed);
-    };
-    owner.publish_slot_ffi = state;
-    slot_out.* = publishSlotOut(slot, state.cells);
+    slot_out.* = publishSlotOut(slot);
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
 pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSlotCommit) callconv(.c) abi.FfiVtPublishResult {
     const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    const state = publishSlotFfiState(owner) orelse {
+    const reserved = owner.flow.publication_state.reserved orelse {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    defer clearPublishSlotFfiState(owner);
     const cursor = cursorIn(commit.cursor) orelse {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
@@ -166,8 +119,8 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
-    for (state.owned_cells, state.cells) |*dst, src| {
-        dst.* = cellValueIn(src) catch {
+    for (reserved.cells) |cell| {
+        validateCellValue(cell) catch {
             owner.flow.cancelPublishSlot();
             return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
         };
@@ -177,7 +130,7 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         .snapshot_seq = commit.snapshot_seq,
         .is_alternate_screen = commit.is_alternate_screen != 0,
         .cursor = cursor,
-    }, state.owned_cells) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    }) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtPublishResultOut(result);
 }
 
@@ -189,7 +142,7 @@ pub fn rejectPublishSlot(handle: abi.SurfaceTextHandle, snapshot_seq: u64) callc
 
 pub fn cancelPublishSlot(handle: abi.SurfaceTextHandle) callconv(.c) void {
     const owner = ownerFromHandle(handle) orelse return;
-    cancelPublishSlotState(owner);
+    owner.flow.cancelPublishSlot();
 }
 
 pub fn takePrepareRequest(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPrepareRequest) callconv(.c) abi.HowlRenderPrepareStatus {
@@ -419,9 +372,9 @@ fn vtPublishResultWithStatus(value: queue.VtPublishResult, status: abi.HowlRende
     };
 }
 
-fn publishSlotOut(value: queue.PublicationSlot, cells: []abi.FfiVtCell) abi.FfiPublishSlot {
+fn publishSlotOut(value: queue.PublicationSlot) abi.FfiPublishSlot {
     return .{
-        .cells = .{ .ptr = if (cells.len == 0) null else cells.ptr, .len = cells.len },
+        .cells = .{ .ptr = if (value.cells.len == 0) null else value.cells.ptr, .len = value.cells.len },
         .dirty_rows = .{ .ptr = if (value.dirty_rows.len == 0) null else value.dirty_rows.ptr, .len = value.dirty_rows.len },
         .dirty_cols_start = .{ .ptr = if (value.dirty_cols_start.len == 0) null else value.dirty_cols_start.ptr, .len = value.dirty_cols_start.len },
         .dirty_cols_end = .{ .ptr = if (value.dirty_cols_end.len == 0) null else value.dirty_cols_end.ptr, .len = value.dirty_cols_end.len },
@@ -517,9 +470,10 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
     const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
     if (value.cells.len != cell_count) return error.InvalidSurfaceSource;
 
-    const cells = try allocator.alloc(surface.Cell, @intCast(cell_count));
+    const source_cells = value.cells.ptr[0..@intCast(cell_count)];
+    for (source_cells) |cell| try validateCellValue(cell);
+    const cells = try allocator.dupe(abi.FfiVtCell, source_cells);
     errdefer allocator.free(cells);
-    for (cells, 0..) |*dst, idx| dst.* = try cellValueIn(value.cells.ptr[idx]);
 
     const dirty_rows = try dirtyRowsIn(allocator, value.rows, value.dirty_rows);
     errdefer if (dirty_rows.len > 0) allocator.free(dirty_rows);
@@ -558,20 +512,14 @@ fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiU16Span) ![
 }
 
 fn cellValueIn(value: abi.FfiVtCell) !surface.Cell {
-    if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
-
-    const fg_color = colorIn(value.fg_color) orelse return error.InvalidSurfaceSource;
-    const bg_color = colorIn(value.bg_color) orelse return error.InvalidSurfaceSource;
-    const underline_color = colorIn(value.underline_color) orelse return error.InvalidSurfaceSource;
-    const underline_style = underlineStyleIn(value.underline_style) orelse return error.InvalidSurfaceSource;
-
+    try validateCellValue(value);
     return .{
         .codepoint = @intCast(value.codepoint),
         .flags = .{ .continuation = value.flags.continuation != 0 },
-        .fg_color = fg_color,
-        .bg_color = bg_color,
-        .underline_color = underline_color,
-        .underline_style = underline_style,
+        .fg_color = try colorValueIn(value.fg_color),
+        .bg_color = try colorValueIn(value.bg_color),
+        .underline_color = try colorValueIn(value.underline_color),
+        .underline_style = try underlineStyleValueIn(value.underline_style),
         .attrs = .{
             .bold = value.attrs.bold != 0,
             .dim = value.attrs.dim != 0,
@@ -587,18 +535,26 @@ fn cellValueIn(value: abi.FfiVtCell) !surface.Cell {
     };
 }
 
-fn colorIn(value: abi.FfiVtColor) ?surface.Color {
+fn validateCellValue(value: abi.FfiVtCell) !void {
+    if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
+    _ = try colorValueIn(value.fg_color);
+    _ = try colorValueIn(value.bg_color);
+    _ = try colorValueIn(value.underline_color);
+    _ = try underlineStyleValueIn(value.underline_style);
+}
+
+fn colorValueIn(value: abi.FfiVtColor) !surface.Color {
     return switch (value.kind) {
         0 => .{ .kind = .default, .value = 0 },
         1 => blk: {
-            if (value.value > std.math.maxInt(u8)) return null;
+            if (value.value > std.math.maxInt(u8)) return error.InvalidSurfaceSource;
             break :blk .{ .kind = .indexed, .value = @truncate(value.value) };
         },
         2 => blk: {
-            if (value.value > std.math.maxInt(u24)) return null;
+            if (value.value > std.math.maxInt(u24)) return error.InvalidSurfaceSource;
             break :blk .{ .kind = .rgb, .value = @truncate(value.value) };
         },
-        else => null,
+        else => return error.InvalidSurfaceSource,
     };
 }
 
@@ -622,14 +578,14 @@ fn cursorIn(value: abi.FfiVtCursor) ?surface.CursorInfo {
     return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = shape };
 }
 
-fn underlineStyleIn(value: u8) ?surface.UnderlineStyle {
+fn underlineStyleValueIn(value: u8) !surface.UnderlineStyle {
     return switch (value) {
         0 => .straight,
         1 => .double,
         2 => .curly,
         3 => .dotted,
         4 => .dashed,
-        else => null,
+        else => return error.InvalidSurfaceSource,
     };
 }
 

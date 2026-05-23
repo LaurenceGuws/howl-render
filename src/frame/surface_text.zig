@@ -66,7 +66,7 @@ pub const SurfaceText = struct {
         config: SurfaceTextConfig,
         request: pipeline.RenderRequest,
         layout: surface.PrepareLayout,
-        state: surface.FrameData,
+        state: queue.PublicationSource,
     };
 
     pub fn init(allocator: std.mem.Allocator) SurfaceText {
@@ -116,7 +116,7 @@ pub const SurfaceText = struct {
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
-        var text_input = try input.vtStateToTextSceneInput(self.allocator, prepare.state);
+        var text_input = try input.publicationSourceToTextSceneInput(self.allocator, prepare.state, prepare.request.token.damage_kind == .full);
         defer text_input.deinit();
         var resolve: text_pipeline.ResolveObservability = .{};
         const preparer = try self.ensureTextPreparer(&context);
@@ -284,7 +284,6 @@ pub const SurfaceTextOwner = struct {
     session: SurfaceText,
     flow: queue.Flow,
     config: SurfaceTextConfig,
-    publish_slot_ffi: ?*anyopaque = null,
     prepared_publish_handle: abi.PreparedSurfaceHandle = null,
     prepared_submit_handle: abi.PreparedSurfaceHandle = null,
     font_path: ?[:0]u8 = null,

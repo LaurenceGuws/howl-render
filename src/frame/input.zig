@@ -1,5 +1,6 @@
-
 const std = @import("std");
+const abi = @import("../ffi_types.zig");
+const queue = @import("queue.zig");
 const surface = @import("surface.zig");
 const contract = @import("../text/contract.zig");
 const frame_preparer = @import("../text/frame_preparer.zig");
@@ -103,6 +104,46 @@ fn isAlacrittyEmptyCell(cell: surface.Cell) bool {
     return blank and default_bg and !visible_flags;
 }
 
+fn publicationColorToRgba8(color: abi.FfiVtColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+    return switch (color.kind) {
+        0 => if (is_fg) t.default_fg else t.default_bg,
+        1 => indexed256(@intCast(color.value & 0xFF), t),
+        2 => .{
+            .r = @intCast((color.value >> 16) & 0xFF),
+            .g = @intCast((color.value >> 8) & 0xFF),
+            .b = @intCast(color.value & 0xFF),
+            .a = 255,
+        },
+        else => unreachable,
+    };
+}
+
+fn publicationColorToTextSceneRgba8(color: abi.FfiVtColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+    if (!is_fg and color.kind == 0) return .{ .r = t.default_bg.r, .g = t.default_bg.g, .b = t.default_bg.b, .a = 0 };
+    return publicationColorToRgba8(color, is_fg, t);
+}
+
+fn publicationUnderlineStyle(style: u8) contract.UnderlineStyle {
+    return switch (style) {
+        0 => .straight,
+        1 => .double,
+        2 => .curly,
+        3 => .dotted,
+        4 => .dashed,
+        else => unreachable,
+    };
+}
+
+fn isAlacrittyEmptyPublicationCell(cell: abi.FfiVtCell) bool {
+    const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
+    const default_bg = cell.bg_color.kind == 0;
+    const visible_flags = cell.flags.continuation != 0 or
+        cell.attrs.inverse != 0 or
+        cell.attrs.underline != 0 or
+        cell.attrs.strikethrough != 0;
+    return blank and default_bg and !visible_flags;
+}
+
 fn emptyCellInput() contract.CellInput {
     return .{
         .codepoint = 0,
@@ -123,6 +164,20 @@ fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
         .strikethrough = src.attrs.strikethrough,
         .continuation = src.flags.continuation,
         .empty = isAlacrittyEmptyCell(src),
+    };
+}
+
+fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput {
+    return .{
+        .codepoint = @intCast(src.codepoint),
+        .fg = publicationColorToTextSceneRgba8(src.fg_color, true, t),
+        .bg = publicationColorToTextSceneRgba8(src.bg_color, false, t),
+        .underline_color = if (src.attrs.underline_color_set != 0) publicationColorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        .underline_style = publicationUnderlineStyle(src.underline_style),
+        .underline = src.attrs.underline != 0,
+        .strikethrough = src.attrs.strikethrough != 0,
+        .continuation = src.flags.continuation != 0,
+        .empty = isAlacrittyEmptyPublicationCell(src),
     };
 }
 
@@ -194,11 +249,88 @@ pub fn vtStateToTextSceneInput(
     return vtStateToTextSceneInputWithTheme(allocator, state, default_theme);
 }
 
+pub fn publicationSourceToTextSceneInput(
+    allocator: std.mem.Allocator,
+    source: queue.PublicationSource,
+    full_damage: bool,
+) !OwnedTextSceneInput {
+    return publicationSourceToTextSceneInputWithTheme(allocator, source, full_damage, default_theme);
+}
+
 pub fn vtStateToFrameTextInput(
     allocator: std.mem.Allocator,
     state: anytype,
 ) !OwnedFrameTextInput {
     return vtStateToFrameTextInputWithTheme(allocator, state, default_theme);
+}
+
+pub fn publicationSourceToTextSceneInputWithTheme(
+    allocator: std.mem.Allocator,
+    source: queue.PublicationSource,
+    full_damage: bool,
+    t: FrameTheme,
+) !OwnedTextSceneInput {
+    const cell_inputs = try allocator.alloc(contract.CellInput, source.cells.len);
+    errdefer allocator.free(cell_inputs);
+
+    const dirty_rows: []const bool = @ptrCast(source.dirty_rows);
+    const state = .{
+        .grid = .{ .cells = source.cells, .cols = source.cols, .rows = source.rows },
+        .cursor = source.cursor,
+        .damage = .{
+            .full = full_damage,
+            .dirty_rows = dirty_rows,
+            .dirty_cols_start = source.dirty_cols_start,
+            .dirty_cols_end = source.dirty_cols_end,
+        },
+    };
+
+    if (canMapDirtyOnly(state)) {
+        @memset(cell_inputs, emptyCellInput());
+        const cols: u16 = @max(source.cols, 1);
+        const rows = source.rows;
+        const cell_len = count32(source.cells);
+        var row: u16 = 0;
+        while (row < rows) : (row += 1) {
+            if (!dirty_rows[@intCast(row)]) continue;
+            const base = @as(u32, row) * @as(u32, cols);
+            if (base >= cell_len) continue;
+            const start_col = @min(source.dirty_cols_start[@intCast(row)], cols - 1);
+            const end_col = @min(source.dirty_cols_end[@intCast(row)], cols - 1);
+            if (end_col < start_col) continue;
+            var idx = base + @as(u32, start_col);
+            const end_idx = @min(base + @as(u32, end_col) + 1, cell_len);
+            while (idx < end_idx) : (idx += 1) {
+                cell_inputs[@intCast(idx)] = mapPublicationCellInput(source.cells[@intCast(idx)], t);
+            }
+        }
+    } else {
+        for (source.cells, cell_inputs) |src, *dst| {
+            dst.* = mapPublicationCellInput(src, t);
+        }
+    }
+
+    const cursor: ?scene.CursorInput = if (source.cursor.visible) .{
+        .cell_col = source.cursor.col,
+        .cell_row = source.cursor.row,
+        .shape = mapTextSceneCursorShape(source.cursor.shape),
+        .color = t.cursor_color,
+    } else null;
+
+    return .{
+        .allocator = allocator,
+        .cells = cell_inputs,
+        .grid = .{ .cols = source.cols, .rows = source.rows },
+        .options = .{ .scene = .{
+            .cursor = cursor,
+            .damage = .{
+                .full = full_damage,
+                .dirty_rows = dirty_rows,
+                .dirty_cols_start = source.dirty_cols_start,
+                .dirty_cols_end = source.dirty_cols_end,
+            },
+        } },
+    };
 }
 
 pub fn vtStateToTextSceneInputWithTheme(

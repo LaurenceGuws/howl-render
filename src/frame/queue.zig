@@ -1,4 +1,5 @@
 const std = @import("std");
+const abi = @import("../ffi_types.zig");
 const pipeline = @import("pipeline.zig");
 const surface_types = @import("surface.zig");
 
@@ -206,7 +207,7 @@ pub const PublicationSource = struct {
     scroll_row: u64,
     snapshot_seq: u64,
     is_alternate_screen: bool,
-    cells: []surface_types.Cell,
+    cells: []abi.FfiVtCell,
     cursor: surface_types.CursorInfo,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
@@ -232,30 +233,6 @@ pub const PublicationSource = struct {
             .dirty_cols_end = self.dirty_cols_end,
         };
     }
-
-    pub fn frameData(self: *const PublicationSource, full_damage: bool) surface_types.FrameData {
-        const dirty_rows: []const bool = @ptrCast(self.dirty_rows);
-        return .{
-            .viewport = .{
-                .cols = self.cols,
-                .rows = self.rows,
-                .scroll_row = self.scroll_row,
-                .is_alternate_screen = self.is_alternate_screen,
-            },
-            .grid = .{
-                .cells = self.cells,
-                .cols = self.cols,
-                .rows = self.rows,
-            },
-            .cursor = self.cursor,
-            .damage = .{
-                .full = full_damage,
-                .dirty_rows = dirty_rows,
-                .dirty_cols_start = self.dirty_cols_start,
-                .dirty_cols_end = self.dirty_cols_end,
-            },
-        };
-    }
 };
 
 pub const VtPublishResult = struct {
@@ -267,7 +244,7 @@ pub const VtPublishResult = struct {
 };
 
 pub const PublicationSlot = struct {
-    cells: []surface_types.Cell,
+    cells: []abi.FfiVtCell,
     dirty_rows: []u8,
     dirty_cols_start: []u16,
     dirty_cols_end: []u16,
@@ -290,7 +267,7 @@ pub const PendingState = struct {
 pub const PrepareConsume = struct {
     request: pipeline.RenderRequest,
     layout: surface_types.PrepareLayout,
-    state: surface_types.FrameData,
+    state: PublicationSource,
 };
 
 const Publication = struct {
@@ -311,10 +288,6 @@ const ActivePrepare = struct {
     fn deinit(self: *ActivePrepare, allocator: std.mem.Allocator) void {
         self.publication.deinit(allocator);
         self.* = undefined;
-    }
-
-    fn frameData(self: *const ActivePrepare) surface_types.FrameData {
-        return self.publication.source.frameData(self.request.token.damage_kind == .full);
     }
 };
 
@@ -343,7 +316,7 @@ const PublicationState = struct {
         if (self.reserved != null) return error.PublishSlotBusy;
 
         const cell_count: u32 = @as(u32, cols) * @as(u32, rows);
-        const cells = try self.allocator.alloc(surface_types.Cell, @intCast(cell_count));
+        const cells = try self.allocator.alloc(abi.FfiVtCell, @intCast(cell_count));
         errdefer self.allocator.free(cells);
         const dirty_rows = try self.allocator.alloc(u8, rows);
         errdefer self.allocator.free(dirty_rows);
@@ -377,14 +350,9 @@ const PublicationState = struct {
         self.reserved = null;
     }
 
-    fn commitReservedSource(self: *PublicationState, meta: ReservedSourceMeta, cells: []const surface_types.Cell, geometry_epoch: u64) !VtPublishResult {
+    fn commitReservedSource(self: *PublicationState, meta: ReservedSourceMeta, geometry_epoch: u64) !VtPublishResult {
         var source = self.reserved orelse return error.MissingPublishSlot;
         self.reserved = null;
-        if (cells.len != source.cells.len) {
-            source.deinit(self.allocator);
-            return error.InvalidPublishSlotCells;
-        }
-        @memcpy(source.cells, cells);
         source.scroll_row = meta.scroll_row;
         source.snapshot_seq = meta.snapshot_seq;
         source.is_alternate_screen = meta.is_alternate_screen;
@@ -425,7 +393,7 @@ const PublicationState = struct {
         return .{
             .request = active.request,
             .layout = layout,
-            .state = active.frameData(),
+            .state = active.publication.source,
         };
     }
 
@@ -614,10 +582,10 @@ pub const Flow = struct {
         return try self.publication_state.reserveSourceSlot(cols, rows);
     }
 
-    pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta, cells: []const surface_types.Cell) !VtPublishResult {
+    pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
         std.debug.assert(meta.snapshot_seq != 0);
         const had_queued_publication = self.publication_state.pending != null or self.publication_state.active != null;
-        const result = try self.publication_state.commitReservedSource(meta, cells, self.geometry_epoch);
+        const result = try self.publication_state.commitReservedSource(meta, self.geometry_epoch);
         self.surface.noteSnapshotPublish(result, had_queued_publication and result.published);
         return result;
     }
@@ -746,8 +714,8 @@ pub const Flow = struct {
 
 fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !PublicationSource {
     const cell_count: u32 = @as(u32, snapshot.cols) * @as(u32, snapshot.rows);
-    const cells = try allocator.alloc(surface_types.Cell, @intCast(cell_count));
-    @memset(cells, std.mem.zeroes(surface_types.Cell));
+    const cells = try allocator.alloc(abi.FfiVtCell, @intCast(cell_count));
+    @memset(cells, std.mem.zeroes(abi.FfiVtCell));
     const dirty_rows = try allocator.alloc(u8, snapshot.rows);
     errdefer allocator.free(dirty_rows);
     for (dirty_rows, 0..) |*dst, i| dst.* = snapshot.dirty_rows[i];
@@ -770,8 +738,8 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
 }
 
 fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !PublicationSource {
-    const cells = try allocator.alloc(surface_types.Cell, 1);
-    cells[0] = std.mem.zeroes(surface_types.Cell);
+    const cells = try allocator.alloc(abi.FfiVtCell, 1);
+    cells[0] = std.mem.zeroes(abi.FfiVtCell);
     cells[0].codepoint = codepoint;
     const dirty_rows = try allocator.alloc(u8, 1);
     dirty_rows[0] = 1;
@@ -1004,7 +972,7 @@ test "flow keeps latest source when publish A then B before prepare" {
     try std.testing.expectEqual(@as(u64, 2), request.token.snapshot_seq);
     const prepare = try flow.consumePrepare(request.token);
     try std.testing.expectEqual(@as(u64, 2), prepare.request.token.snapshot_seq);
-    try std.testing.expectEqual(@as(u21, 'B'), prepare.state.grid.cells[0].codepoint);
+    try std.testing.expectEqual(@as(u32, 'B'), prepare.state.cells[0].codepoint);
     try std.testing.expectEqual(@as(u16, 1), prepare.layout.render_px.width);
 }
 
@@ -1022,7 +990,7 @@ test "flow rejects mismatched prepare token against retained source" {
     _ = flow.acceptSource(try ownedTestSource(std.heap.c_allocator, 2, 'B'));
 
     const prepare_a = try flow.consumePrepare(request_a.token);
-    try std.testing.expectEqual(@as(u21, 'A'), prepare_a.state.grid.cells[0].codepoint);
+    try std.testing.expectEqual(@as(u32, 'A'), prepare_a.state.cells[0].codepoint);
 
     var wrong = request_a.token;
     wrong.snapshot_seq = 2;
