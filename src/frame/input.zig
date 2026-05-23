@@ -242,6 +242,14 @@ pub const OwnedFrameTextInput = struct {
 
 pub const OwnedTextSceneInput = OwnedFrameTextInput;
 
+pub const BorrowedFrameTextInput = struct {
+    cells: []const contract.CellInput,
+    grid: contract.GridMetrics,
+    options: frame_preparer.PrepareOptions,
+};
+
+pub const BorrowedTextSceneInput = BorrowedFrameTextInput;
+
 pub fn vtStateToTextSceneInput(
     allocator: std.mem.Allocator,
     state: anytype,
@@ -273,20 +281,50 @@ pub fn publicationSourceToTextSceneInputWithTheme(
     const cell_inputs = try allocator.alloc(contract.CellInput, source.cells.len);
     errdefer allocator.free(cell_inputs);
 
+    const mapped = publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, t);
+    return .{
+        .allocator = allocator,
+        .cells = mapped.cells,
+        .grid = mapped.grid,
+        .options = mapped.options,
+    };
+}
+
+pub fn publicationSourceToTextSceneInputBorrowed(
+    cell_inputs: []contract.CellInput,
+    source: queue.PublicationSource,
+    full_damage: bool,
+) BorrowedTextSceneInput {
+    return publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, default_theme);
+}
+
+pub fn publicationSourceToTextSceneInputBorrowedWithTheme(
+    cell_inputs: []contract.CellInput,
+    source: queue.PublicationSource,
+    full_damage: bool,
+    t: FrameTheme,
+) BorrowedTextSceneInput {
+    std.debug.assert(cell_inputs.len >= source.cells.len);
+    const mapped_cells = cell_inputs[0..source.cells.len];
+
     const dirty_rows: []const bool = @ptrCast(source.dirty_rows);
-    const state = .{
-        .grid = .{ .cells = source.cells, .cols = source.cols, .rows = source.rows },
-        .cursor = source.cursor,
-        .damage = .{
-            .full = full_damage,
-            .dirty_rows = dirty_rows,
-            .dirty_cols_start = source.dirty_cols_start,
-            .dirty_cols_end = source.dirty_cols_end,
-        },
+
+    const damage = scene.DamageInput{
+        .full = full_damage,
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = source.dirty_cols_start,
+        .dirty_cols_end = source.dirty_cols_end,
     };
 
-    if (canMapDirtyOnly(state)) {
-        @memset(cell_inputs, emptyCellInput());
+    const cursor: ?scene.CursorInput = if (source.cursor.visible) .{
+        .cell_col = source.cursor.col,
+        .cell_row = source.cursor.row,
+        .shape = mapTextSceneCursorShape(source.cursor.shape),
+        .color = t.cursor_color,
+    } else null;
+
+    if (!full_damage and count16(dirty_rows) == source.rows and count16(source.dirty_cols_start) == source.rows and count16(source.dirty_cols_end) == source.rows) {
+        @memset(mapped_cells, emptyCellInput());
         const cols: u16 = @max(source.cols, 1);
         const rows = source.rows;
         const cell_len = count32(source.cells);
@@ -301,34 +339,21 @@ pub fn publicationSourceToTextSceneInputWithTheme(
             var idx = base + @as(u32, start_col);
             const end_idx = @min(base + @as(u32, end_col) + 1, cell_len);
             while (idx < end_idx) : (idx += 1) {
-                cell_inputs[@intCast(idx)] = mapPublicationCellInput(source.cells[@intCast(idx)], t);
+                mapped_cells[@intCast(idx)] = mapPublicationCellInput(source.cells[@intCast(idx)], t);
             }
         }
     } else {
-        for (source.cells, cell_inputs) |src, *dst| {
+        for (source.cells, mapped_cells) |src, *dst| {
             dst.* = mapPublicationCellInput(src, t);
         }
     }
 
-    const cursor: ?scene.CursorInput = if (source.cursor.visible) .{
-        .cell_col = source.cursor.col,
-        .cell_row = source.cursor.row,
-        .shape = mapTextSceneCursorShape(source.cursor.shape),
-        .color = t.cursor_color,
-    } else null;
-
     return .{
-        .allocator = allocator,
-        .cells = cell_inputs,
+        .cells = mapped_cells,
         .grid = .{ .cols = source.cols, .rows = source.rows },
         .options = .{ .scene = .{
             .cursor = cursor,
-            .damage = .{
-                .full = full_damage,
-                .dirty_rows = dirty_rows,
-                .dirty_cols_start = source.dirty_cols_start,
-                .dirty_cols_end = source.dirty_cols_end,
-            },
+            .damage = damage,
         } },
     };
 }
@@ -505,4 +530,31 @@ test "frame_input maps only dirty ranges for partial damage" {
     try std.testing.expect(input.cells[2].empty);
     try std.testing.expectEqual(@as(u21, 'D'), input.cells[3].codepoint);
     try std.testing.expect(!input.cells[3].empty);
+}
+
+test "frame_input borrowed publication mapping reuses caller storage" {
+    var cells = [_]abi.FfiVtCell{
+        .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0 }, .link_id = 0 },
+        .{ .codepoint = ' ', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0 }, .link_id = 0 },
+    };
+    var storage: [4]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 2,
+        .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(@intFromPtr(&storage[0]), @intFromPtr(&mapped.cells[0]));
+    try std.testing.expectEqual(@as(u21, 'A'), mapped.cells[0].codepoint);
+    try std.testing.expect(mapped.cells[1].empty);
 }

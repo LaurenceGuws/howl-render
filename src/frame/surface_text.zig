@@ -47,6 +47,7 @@ pub const SurfaceText = struct {
     text_state: text_support.State,
     mutex: ThreadMutex = .{},
     text_preparer: ?text.TextFramePreparer = null,
+    cell_input_scratch: []contract.CellInput = &.{},
 
     const TextContext = struct {
         session: *SurfaceText,
@@ -80,6 +81,8 @@ pub const SurfaceText = struct {
             preparer.deinit();
             self.text_preparer = null;
         }
+        if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
+        self.cell_input_scratch = &.{};
         self.text_state.deinit();
     }
 
@@ -116,8 +119,8 @@ pub const SurfaceText = struct {
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
-        var text_input = try input.publicationSourceToTextSceneInput(self.allocator, prepare.state, prepare.request.token.damage_kind == .full);
-        defer text_input.deinit();
+        try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
+        const text_input = input.publicationSourceToTextSceneInputBorrowed(self.cell_input_scratch, prepare.state, prepare.request.token.damage_kind == .full);
         var resolve: text_pipeline.ResolveObservability = .{};
         const preparer = try self.ensureTextPreparer(&context);
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
@@ -185,6 +188,13 @@ pub const SurfaceText = struct {
             self.text_preparer = try text.TextFramePreparer.initWithProvider(self.allocator, 2048, ft_hb.textProvider());
         }
         return &self.text_preparer.?;
+    }
+
+    fn ensureCellInputScratchCapacity(self: *SurfaceText, cell_count: usize) !void {
+        if (self.cell_input_scratch.len >= cell_count) return;
+        const scratch = try self.allocator.alloc(contract.CellInput, cell_count);
+        if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
+        self.cell_input_scratch = scratch;
     }
 
     fn ftHbSource(context: *TextContext) text.FtHbProvider.FtHbSource {
@@ -500,6 +510,20 @@ test "retainSurfaceImage adopts full image for later partial prepares" {
 
     const base = owner.requiredRetainedSurfaceBase(&prepared);
     try std.testing.expectEqualSlices(u8, pixels, base);
+}
+
+test "surface text retains translated cell scratch across prepares" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+
+    try session.ensureCellInputScratchCapacity(4);
+    const first_ptr = @intFromPtr(session.cell_input_scratch.ptr);
+    try session.ensureCellInputScratchCapacity(4);
+    try std.testing.expectEqual(first_ptr, @intFromPtr(session.cell_input_scratch.ptr));
+    try std.testing.expectEqual(@as(usize, 4), session.cell_input_scratch.len);
+
+    try session.ensureCellInputScratchCapacity(8);
+    try std.testing.expectEqual(@as(usize, 8), session.cell_input_scratch.len);
 }
 
 test "invalidateTextState clears retained image state" {
