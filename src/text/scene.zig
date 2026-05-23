@@ -59,6 +59,47 @@ pub const OwnedTextScene = struct {
     }
 };
 
+pub const BorrowedTextScene = struct {
+    allocator: std.mem.Allocator,
+    scene: contract.TextScene,
+
+    pub fn deinit(self: *BorrowedTextScene) void {
+        self.allocator.free(self.scene.raster_requests);
+        self.allocator.free(self.scene.missing);
+        self.* = undefined;
+    }
+};
+
+pub const RetainedScratch = struct {
+    sprite_draws: std.ArrayList(contract.TextSpriteDraw) = .empty,
+    background_draws: std.ArrayList(contract.TextBackgroundDraw) = .empty,
+    clear_draws: std.ArrayList(contract.TextClearDraw) = .empty,
+    decoration_draws: std.ArrayList(contract.TextDecorationDraw) = .empty,
+    cursor_draws: std.ArrayList(contract.TextCursorDraw) = .empty,
+
+    pub fn deinit(self: *RetainedScratch, allocator: std.mem.Allocator) void {
+        self.cursor_draws.deinit(allocator);
+        self.decoration_draws.deinit(allocator);
+        self.clear_draws.deinit(allocator);
+        self.background_draws.deinit(allocator);
+        self.sprite_draws.deinit(allocator);
+        self.* = undefined;
+    }
+
+    fn reset(self: *RetainedScratch, allocator: std.mem.Allocator, capacities: DrawCapacities) !void {
+        try self.sprite_draws.ensureTotalCapacity(allocator, capacities.sprite_draws);
+        try self.background_draws.ensureTotalCapacity(allocator, capacities.background_draws);
+        try self.clear_draws.ensureTotalCapacity(allocator, capacities.clear_draws);
+        try self.decoration_draws.ensureTotalCapacity(allocator, capacities.decoration_draws);
+        try self.cursor_draws.ensureTotalCapacity(allocator, capacities.cursor_draws);
+        self.sprite_draws.clearRetainingCapacity();
+        self.background_draws.clearRetainingCapacity();
+        self.clear_draws.clearRetainingCapacity();
+        self.decoration_draws.clearRetainingCapacity();
+        self.cursor_draws.clearRetainingCapacity();
+    }
+};
+
 pub fn buildSceneWithOptions(
     allocator: std.mem.Allocator,
     cells: []const contract.RenderableCell,
@@ -97,6 +138,35 @@ pub fn buildSceneWithAtlasCacheOptions(
     return assembly.toOwnedScene(damage);
 }
 
+pub fn buildBorrowedSceneWithAtlasCacheOptions(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    cells: []const contract.RenderableCell,
+    groups: []const contract.GlyphGroup,
+    missing: []const contract.MissingGlyph,
+    cell_metrics: contract.CellMetrics,
+    grid_metrics: contract.GridMetrics,
+    cache: *atlas_cache.OwnedAtlasCache,
+    options: BuildOptions,
+) !BorrowedTextScene {
+    const damage = normalizedDamage(options.damage, grid_metrics.rows);
+    const capacities = drawCapacities(cells, groups, cell_metrics, grid_metrics, damage, options.cursor);
+    try scratch.reset(allocator, capacities);
+
+    var assembly = SceneAssembly{ .allocator = allocator };
+    assembly.adoptRetainedScratch(scratch);
+    errdefer assembly.deinit();
+    try assembly.missing.appendSlice(allocator, missing);
+
+    try appendGroupSpriteDraws(&assembly, cache, cells, groups, cell_metrics, grid_metrics, damage);
+    try appendSceneCursorDraws(&assembly, options.cursor, damage, cell_metrics);
+
+    try appendClearDraws(allocator, &assembly.clear_draws, cells, cell_metrics, grid_metrics, damage);
+    try appendBackgroundDraws(allocator, &assembly.background_draws, cells, cell_metrics, grid_metrics, damage);
+    try appendDecorationDraws(&assembly, cache, cells, cell_metrics, grid_metrics, damage);
+    return assembly.toBorrowedScene(damage);
+}
+
 const NormalizedDamage = struct {
     full: bool,
     dirty_rows: []const bool,
@@ -104,8 +174,17 @@ const NormalizedDamage = struct {
     dirty_cols_end: []const u16,
 };
 
+const DrawCapacities = struct {
+    sprite_draws: usize,
+    background_draws: usize,
+    clear_draws: usize,
+    decoration_draws: usize,
+    cursor_draws: usize,
+};
+
 const SceneAssembly = struct {
     allocator: std.mem.Allocator,
+    retained_scratch: ?*RetainedScratch = null,
     sprite_draws: std.ArrayList(contract.TextSpriteDraw) = .empty,
     background_draws: std.ArrayList(contract.TextBackgroundDraw) = .empty,
     clear_draws: std.ArrayList(contract.TextClearDraw) = .empty,
@@ -114,18 +193,41 @@ const SceneAssembly = struct {
     raster_requests: std.ArrayList(contract.SpriteRasterRequest) = .empty,
     missing: std.ArrayList(contract.MissingGlyph) = .empty,
 
+    fn adoptRetainedScratch(self: *SceneAssembly, scratch: *RetainedScratch) void {
+        self.retained_scratch = scratch;
+        self.sprite_draws = scratch.sprite_draws;
+        self.background_draws = scratch.background_draws;
+        self.clear_draws = scratch.clear_draws;
+        self.decoration_draws = scratch.decoration_draws;
+        self.cursor_draws = scratch.cursor_draws;
+    }
+
+    fn releaseRetainedScratch(self: *SceneAssembly) void {
+        const scratch = self.retained_scratch orelse return;
+        scratch.sprite_draws = self.sprite_draws;
+        scratch.background_draws = self.background_draws;
+        scratch.clear_draws = self.clear_draws;
+        scratch.decoration_draws = self.decoration_draws;
+        scratch.cursor_draws = self.cursor_draws;
+    }
+
     fn deinit(self: *SceneAssembly) void {
-        self.sprite_draws.deinit(self.allocator);
-        self.background_draws.deinit(self.allocator);
-        self.clear_draws.deinit(self.allocator);
-        self.decoration_draws.deinit(self.allocator);
-        self.cursor_draws.deinit(self.allocator);
+        if (self.retained_scratch == null) {
+            self.sprite_draws.deinit(self.allocator);
+            self.background_draws.deinit(self.allocator);
+            self.clear_draws.deinit(self.allocator);
+            self.decoration_draws.deinit(self.allocator);
+            self.cursor_draws.deinit(self.allocator);
+        } else {
+            self.releaseRetainedScratch();
+        }
         self.raster_requests.deinit(self.allocator);
         self.missing.deinit(self.allocator);
         self.* = undefined;
     }
 
     fn toOwnedScene(self: *SceneAssembly, damage: NormalizedDamage) !OwnedTextScene {
+        defer if (self.retained_scratch != null) self.releaseRetainedScratch();
         return .{ .allocator = self.allocator, .scene = .{
             .full_redraw = damage.full,
             .clear_draws = try self.clear_draws.toOwnedSlice(self.allocator),
@@ -135,6 +237,24 @@ const SceneAssembly = struct {
             .cursor_draws = try self.cursor_draws.toOwnedSlice(self.allocator),
             .raster_requests = try self.raster_requests.toOwnedSlice(self.allocator),
             .missing = try self.missing.toOwnedSlice(self.allocator),
+        } };
+    }
+
+    fn toBorrowedScene(self: *SceneAssembly, damage: NormalizedDamage) !BorrowedTextScene {
+        std.debug.assert(self.retained_scratch != null);
+        defer self.releaseRetainedScratch();
+        const raster_requests = try self.raster_requests.toOwnedSlice(self.allocator);
+        errdefer self.allocator.free(raster_requests);
+        const missing = try self.missing.toOwnedSlice(self.allocator);
+        return .{ .allocator = self.allocator, .scene = .{
+            .full_redraw = damage.full,
+            .clear_draws = self.clear_draws.items,
+            .background_draws = self.background_draws.items,
+            .sprite_draws = self.sprite_draws.items,
+            .decoration_draws = self.decoration_draws.items,
+            .cursor_draws = self.cursor_draws.items,
+            .raster_requests = raster_requests,
+            .missing = missing,
         } };
     }
 
@@ -256,6 +376,96 @@ fn appendSceneCursorDraws(
     const cursor_value = cursor orelse return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
     try assembly.appendCursorDraws(cursor_value, cell_metrics);
+}
+
+fn drawCapacities(
+    cells: []const contract.RenderableCell,
+    groups: []const contract.GlyphGroup,
+    cell_metrics: contract.CellMetrics,
+    grid_metrics: contract.GridMetrics,
+    damage: NormalizedDamage,
+    cursor: ?CursorInput,
+) DrawCapacities {
+    return .{
+        .sprite_draws = countGroupSpriteDraws(groups, grid_metrics, damage) + countCurlyUnderlineSprites(cells, grid_metrics, damage),
+        .background_draws = cells.len,
+        .clear_draws = countClearDraws(grid_metrics, damage),
+        .decoration_draws = countDecorationDraws(cells, cell_metrics, grid_metrics, damage),
+        .cursor_draws = countCursorDraws(cursor, damage),
+    };
+}
+
+fn countGroupSpriteDraws(groups: []const contract.GlyphGroup, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) usize {
+    var count: usize = 0;
+    for (groups) |group| {
+        if (classifyGroupLead(damage, grid_metrics, group) != .draw) continue;
+        count += 1;
+    }
+    return count;
+}
+
+fn countCurlyUnderlineSprites(cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) usize {
+    var count: usize = 0;
+    for (cells) |cell| {
+        if (classifyDecorationLead(damage, grid_metrics, cell) != .draw) continue;
+        if (!cell.underline) continue;
+        if (underlineRoute(cell.underline_style) != .curly) continue;
+        count += 1;
+    }
+    return count;
+}
+
+fn countClearDraws(grid_metrics: contract.GridMetrics, damage: NormalizedDamage) usize {
+    if (damage.full) return 0;
+    const rows = @min(grid_metrics.rows, damageRowCount(damage));
+    var count: usize = 0;
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        if (dirtyRowSpan(damage, grid_metrics, row) == null) continue;
+        count += 1;
+    }
+    return count;
+}
+
+fn countDecorationDraws(
+    cells: []const contract.RenderableCell,
+    cell_metrics: contract.CellMetrics,
+    grid_metrics: contract.GridMetrics,
+    damage: NormalizedDamage,
+) usize {
+    const font_metrics = defaultFontMetrics(cell_metrics);
+    const deco = decorationGeometry(cell_metrics, font_metrics);
+    var count: usize = 0;
+    for (cells) |cell| {
+        if (classifyDecorationLead(damage, grid_metrics, cell) != .draw) continue;
+        const width_px: u16 = @intCast(@as(u32, @max(cell.cell_span, 1)) * @as(u32, cell_metrics.cell_w_px));
+        if (cell.underline) count += countUnderlineDecorationDraws(width_px, deco.underline_h_px, cell.underline_style);
+        if (cell.strikethrough) count += 1;
+    }
+    return count;
+}
+
+fn countUnderlineDecorationDraws(width_px: u16, height_px: u16, style: contract.UnderlineStyle) usize {
+    return switch (underlineRoute(style)) {
+        .straight => 1,
+        .double => 2,
+        .curly => 0,
+        .dotted => countSteppedDecorationDraws(width_px, @max(height_px, 1) * 2),
+        .dashed => countSteppedDecorationDraws(width_px, @max(@max(width_px / 3, @as(u16, 2)) + 2, 3)),
+    };
+}
+
+fn countSteppedDecorationDraws(width_px: u16, step_px: u16) usize {
+    std.debug.assert(step_px > 0);
+    const width = @as(usize, @max(width_px, 1));
+    const step = @as(usize, step_px);
+    return (width + step - 1) / step;
+}
+
+fn countCursorDraws(cursor: ?CursorInput, damage: NormalizedDamage) usize {
+    const cursor_value = cursor orelse return 0;
+    if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
+    return @intCast(cursorDrawCount(cursor_value.shape));
 }
 
 fn classifyCursorLead(damage: NormalizedDamage, cursor: CursorInput) CursorLead {
@@ -1183,6 +1393,38 @@ test "scene does not request raster for cache hit" {
     var owned = try buildSceneWithAtlasCacheOptions(std.testing.allocator, &.{}, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 8 }, &cache, .{});
     defer owned.deinit();
     try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.raster_requests));
+}
+
+test "borrowed scene reuses retained draw list storage" {
+    const fg = contract.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
+    const bg = contract.Rgba8{ .r = 4, .g = 5, .b = 6, .a = 255 };
+    const cells = [_]contract.RenderableCell{
+        .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = fg, .bg = bg, .underline = true, .underline_style = .straight },
+        .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = fg, .bg = bg },
+    };
+    const groups = [_]contract.GlyphGroup{
+        .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .placement = .{}, .sprite_key = .{ .value = 7 }, .kind = .normal },
+    };
+    var cache = try atlas_cache.OwnedAtlasCache.init(std.testing.allocator, 8);
+    defer cache.deinit();
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(std.testing.allocator);
+
+    var first = try buildBorrowedSceneWithAtlasCacheOptions(std.testing.allocator, &scratch, &cells, &groups, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2, .rows = 1 }, &cache, .{ .cursor = .{ .cell_col = 0, .cell_row = 0, .shape = .beam, .color = fg } });
+    defer first.deinit();
+
+    const sprite_ptr = first.scene.sprite_draws.ptr;
+    const background_ptr = first.scene.background_draws.ptr;
+    const decoration_ptr = first.scene.decoration_draws.ptr;
+    const cursor_ptr = first.scene.cursor_draws.ptr;
+
+    var second = try buildBorrowedSceneWithAtlasCacheOptions(std.testing.allocator, &scratch, &cells, &groups, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2, .rows = 1 }, &cache, .{ .cursor = .{ .cell_col = 0, .cell_row = 0, .shape = .beam, .color = fg } });
+    defer second.deinit();
+
+    try std.testing.expectEqual(sprite_ptr, second.scene.sprite_draws.ptr);
+    try std.testing.expectEqual(background_ptr, second.scene.background_draws.ptr);
+    try std.testing.expectEqual(decoration_ptr, second.scene.decoration_draws.ptr);
+    try std.testing.expectEqual(cursor_ptr, second.scene.cursor_draws.ptr);
 }
 
 fn defaultFontMetrics(cell_metrics: contract.CellMetrics) contract.FontMetrics {

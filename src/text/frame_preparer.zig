@@ -48,6 +48,7 @@ pub const TextFramePreparer = struct {
     glyph_lookup: provider.LookupGlyphOp,
     glyph_raster: pipeline.RasterizeGlyphOp,
     direct_normal: direct_normal.Scratch = .{},
+    scene_scratch: scene.RetainedScratch = .{},
 
     pub fn init(allocator: std.mem.Allocator) TextFramePreparer {
         return initCapacity(allocator, 4096) catch unreachable;
@@ -73,6 +74,7 @@ pub const TextFramePreparer = struct {
     }
 
     pub fn deinit(self: *TextFramePreparer) void {
+        self.scene_scratch.deinit(self.allocator);
         self.direct_normal.deinit(self.allocator);
         self.atlas.deinit();
         self.* = undefined;
@@ -177,7 +179,7 @@ pub const TextFramePreparer = struct {
         final_prepared.shaped_runs = try shapeComplexRuns(self, final_prepared.runs.?.runs, final_prepared.text_cache.view(), complex.clusters, session.metrics, timings, &final_prepared.lane_report, complex.cells);
         final_prepared.grouped = try groupComplexRuns(self, final_prepared.shaped_runs.?.runs, final_prepared.runs.?.sprite_routes, complex.clusters, session.metrics, timings, &final_prepared.lane_report, final_prepared.text_cache.view(), complex.cells);
         const scene_start_ns = monotonicNs();
-        var text_scene = try scene.buildSceneWithAtlasCacheOptions(self.allocator, complex.cells, final_prepared.grouped.?.groups.groups, final_prepared.runs.?.missing, session.metrics, grid_metrics, &self.atlas, options.scene);
+        var text_scene = try scene.buildBorrowedSceneWithAtlasCacheOptions(self.allocator, &self.scene_scratch, complex.cells, final_prepared.grouped.?.groups.groups, final_prepared.runs.?.missing, session.metrics, grid_metrics, &self.atlas, options.scene);
         timings.scene_us = elapsedUs(scene_start_ns);
         errdefer text_scene.deinit();
         for (text_scene.scene.sprite_draws) |draw| final_prepared.lane_report.recordLegacySceneSpriteDraw(final_prepared.text_cache.view(), complex.cells, draw);
@@ -218,7 +220,7 @@ pub const TextFramePreparer = struct {
     fn mergePreparedScene(
         self: *TextFramePreparer,
         direct: direct_normal.Product,
-        text_scene: *scene.OwnedTextScene,
+        text_scene: *scene.BorrowedTextScene,
         raster_plan: *rasterizer.OwnedRasterPlan,
     ) !PreparedSceneMerge {
         const merged_clear_draws = try cloneSlice(contract.TextClearDraw, self.allocator, self.direct_normal.clear_draws.items);
@@ -236,15 +238,22 @@ pub const TextFramePreparer = struct {
         var merged_raster_plan = try mergeRasterPlans(self.allocator, direct.outputs, direct.outputs_owned, raster_plan);
         errdefer merged_raster_plan.deinit();
 
-        direct_scene.installMergedScene(text_scene, direct.damage, .{
-            .clear_draws = merged_clear_draws,
-            .cursor_draws = merged_cursor_draws,
-            .background_draws = merged_background_draws,
-            .sprite_draws = merged_sprite_draws,
-            .decoration_draws = merged_decoration_draws,
-            .missing = merged_missing,
-        });
-        return .{ .scene = text_scene.*, .raster_plan = merged_raster_plan };
+        const merged_scene = scene.OwnedTextScene{
+            .allocator = self.allocator,
+            .scene = .{
+                .full_redraw = direct.damage.full,
+                .clear_draws = merged_clear_draws,
+                .background_draws = merged_background_draws,
+                .sprite_draws = merged_sprite_draws,
+                .decoration_draws = merged_decoration_draws,
+                .cursor_draws = merged_cursor_draws,
+                .raster_requests = text_scene.scene.raster_requests,
+                .missing = merged_missing,
+            },
+        };
+        text_scene.scene.raster_requests = &.{};
+        text_scene.scene.missing = &.{};
+        return .{ .scene = merged_scene, .raster_plan = merged_raster_plan };
     }
 
     fn finishNormalOnlyFrame(
