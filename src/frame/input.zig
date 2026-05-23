@@ -316,11 +316,13 @@ pub fn publicationSourceToTextSceneInputBorrowedWithTheme(
         .dirty_cols_end = source.dirty_cols_end,
     };
 
-    const cursor: ?scene.CursorInput = if (source.cursor.visible) .{
+    const cursor_visible = source.cursor.visible and (!source.cursor.blink or source.cursor_phase_visible);
+    const cursor: ?scene.CursorInput = if (cursor_visible) .{
         .cell_col = source.cursor.col,
         .cell_row = source.cursor.row,
         .shape = mapTextSceneCursorShape(source.cursor.shape),
         .color = t.cursor_color,
+        .blink = source.cursor.blink,
     } else null;
 
     if (!full_damage and count16(dirty_rows) == source.rows and count16(source.dirty_cols_start) == source.rows and count16(source.dirty_cols_end) == source.rows) {
@@ -397,6 +399,7 @@ pub fn vtStateToFrameTextInputWithTheme(
         .cell_row = state.cursor.row,
         .shape = mapTextSceneCursorShape(state.cursor.shape),
         .color = t.cursor_color,
+        .blink = state.cursor.blink,
     } else null;
 
     return .{
@@ -423,7 +426,7 @@ test "frame_input converts frame state to text scene input" {
     }};
     const state = .{
         .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
-        .cursor = .{ .visible = true, .col = 0, .row = 0, .shape = .beam },
+        .cursor = .{ .visible = true, .col = 0, .row = 0, .shape = .beam, .blink = true },
         .damage = .{ .full = true, .dirty_rows = &[_]bool{}, .dirty_cols_start = &[_]u16{}, .dirty_cols_end = &[_]u16{} },
     };
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
@@ -435,6 +438,7 @@ test "frame_input converts frame state to text scene input" {
     try std.testing.expectEqual(@as(u8, 0), input.cells[0].bg.a);
     try std.testing.expect(!input.cells[0].empty);
     try std.testing.expect(input.options.scene.cursor != null);
+    try std.testing.expect(input.options.scene.cursor.?.blink);
     try std.testing.expect(input.options.scene.damage.full);
 }
 
@@ -546,9 +550,11 @@ test "frame_input borrowed publication mapping reuses caller storage" {
         .rows = 1,
         .scroll_row = 0,
         .snapshot_seq = 1,
+        .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
         .dirty_cols_end = @constCast(&dirty_ends),
@@ -557,4 +563,72 @@ test "frame_input borrowed publication mapping reuses caller storage" {
     try std.testing.expectEqual(@intFromPtr(&storage[0]), @intFromPtr(&mapped.cells[0]));
     try std.testing.expectEqual(@as(u21, 'A'), mapped.cells[0].codepoint);
     try std.testing.expect(mapped.cells[1].empty);
+}
+
+test "frame_input borrowed publication mapping preserves cursor blink truth" {
+    var cells = [_]abi.FfiVtCell{.{
+        .codepoint = 'A',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0 },
+        .link_id = 0,
+    }};
+    var storage: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expect(mapped.options.scene.cursor != null);
+    try std.testing.expectEqual(scene.CursorShape.beam, mapped.options.scene.cursor.?.shape);
+    try std.testing.expect(mapped.options.scene.cursor.?.blink);
+}
+
+test "frame_input borrowed publication mapping hides blinking cursor when host phase is off" {
+    var cells = [_]abi.FfiVtCell{.{
+        .codepoint = 'A',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0 },
+        .link_id = 0,
+    }};
+    var storage: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 2,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true },
+        .cursor_phase_visible = false,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(@as(?scene.CursorInput, null), mapped.options.scene.cursor);
 }

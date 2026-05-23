@@ -75,6 +75,12 @@ pub fn setFallbackFontPaths(handle: abi.SurfaceTextHandle, ptrs: ?[*]const ?[*]c
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
+pub fn setCursorBlinkVisible(handle: abi.SurfaceTextHandle, visible: u8) callconv(.c) c_int {
+    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
+    _ = owner.flow.setCursorBlinkVisible(visible != 0);
+    return @intFromEnum(abi.HowlRenderCallStatus.ok);
+}
+
 pub fn syncGeometry(handle: abi.SurfaceTextHandle, geometry: abi.FfiGeometry) callconv(.c) abi.FfiGeometryResponse {
     const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 };
     const layout = owner.session.deriveFrameLayout(owner.config, pixelIn(geometry.render_px), pixelIn(geometry.grid_px)) catch {
@@ -488,9 +494,11 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
         .rows = value.rows,
         .scroll_row = value.scroll_row,
         .snapshot_seq = value.snapshot_seq,
+        .dirty_epoch = 0,
         .is_alternate_screen = value.is_alternate_screen != 0,
         .cells = cells,
         .cursor = cursor,
+        .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
         .dirty_cols_end = dirty_cols_end,
@@ -575,7 +583,7 @@ fn cursorIn(value: abi.FfiVtCursor) ?surface.CursorInfo {
         3 => .hollow_block,
         else => return null,
     };
-    return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = shape };
+    return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = shape, .blink = value.blink != 0 };
 }
 
 fn underlineStyleValueIn(value: u8) !surface.UnderlineStyle {

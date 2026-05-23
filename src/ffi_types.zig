@@ -211,6 +211,7 @@ pub const FfiVtCursor = extern struct {
     col: u16,
     visible: u8,
     shape: u8,
+    blink: u8,
 };
 
 pub const FfiGeometry = extern struct {
@@ -404,5 +405,5 @@ comptime {
     std.debug.assert(@sizeOf(FfiGridSize) == 4);
     std.debug.assert(@sizeOf(FfiByteSpan) == 16);
     std.debug.assert(@sizeOf(FfiVtColor) == 8);
-    std.debug.assert(@sizeOf(FfiVtCursor) == 6);
+    std.debug.assert(@sizeOf(FfiVtCursor) == 8);
 }

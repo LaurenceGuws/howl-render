@@ -195,6 +195,7 @@ pub const VtSnapshot = struct {
     rows: u16,
     scroll_row: u64,
     snapshot_seq: u64,
+    dirty_epoch: u64,
     is_alternate_screen: bool,
     dirty_rows: []const u8,
     dirty_cols_start: []const u16,
@@ -206,9 +207,11 @@ pub const PublicationSource = struct {
     rows: u16,
     scroll_row: u64,
     snapshot_seq: u64,
+    dirty_epoch: u64,
     is_alternate_screen: bool,
     cells: []abi.FfiVtCell,
     cursor: surface_types.CursorInfo,
+    cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
     dirty_cols_end: []u16 = &.{},
@@ -224,12 +227,40 @@ pub const PublicationSource = struct {
         self.* = undefined;
     }
 
+    pub fn clone(self: *const PublicationSource, allocator: std.mem.Allocator) !PublicationSource {
+        const cells = try allocator.dupe(abi.FfiVtCell, self.cells);
+        errdefer allocator.free(cells);
+        const dirty_rows = try allocator.dupe(u8, self.dirty_rows);
+        errdefer allocator.free(dirty_rows);
+        const dirty_cols_start = try allocator.dupe(u16, self.dirty_cols_start);
+        errdefer allocator.free(dirty_cols_start);
+        const dirty_cols_end = try allocator.dupe(u16, self.dirty_cols_end);
+        errdefer allocator.free(dirty_cols_end);
+
+        return .{
+            .cols = self.cols,
+            .rows = self.rows,
+            .scroll_row = self.scroll_row,
+            .snapshot_seq = self.snapshot_seq,
+            .dirty_epoch = self.dirty_epoch,
+            .is_alternate_screen = self.is_alternate_screen,
+            .cells = cells,
+            .cursor = self.cursor,
+            .cursor_phase_visible = self.cursor_phase_visible,
+            .dirty_rows = dirty_rows,
+            .dirty_cols_start = dirty_cols_start,
+            .dirty_cols_end = dirty_cols_end,
+            .retained_storage = false,
+        };
+    }
+
     pub fn snapshot(self: *const PublicationSource) VtSnapshot {
         return .{
             .cols = self.cols,
             .rows = self.rows,
             .scroll_row = self.scroll_row,
             .snapshot_seq = self.snapshot_seq,
+            .dirty_epoch = self.dirty_epoch,
             .is_alternate_screen = self.is_alternate_screen,
             .dirty_rows = self.dirty_rows,
             .dirty_cols_start = self.dirty_cols_start,
@@ -355,6 +386,7 @@ const PublicationState = struct {
     reserved: ?PublicationSource = null,
     pending: ?Publication = null,
     active: ?ActivePrepare = null,
+    blink_refresh_pending: bool = false,
 
     fn init(allocator: std.mem.Allocator) PublicationState {
         return .{ .allocator = allocator };
@@ -367,6 +399,7 @@ const PublicationState = struct {
         self.pending = null;
         if (self.active) |*active| active.deinit(self.allocator);
         self.active = null;
+        self.blink_refresh_pending = false;
         self.retained_slot.deinit(self.allocator);
     }
 
@@ -404,13 +437,27 @@ const PublicationState = struct {
 
     fn acceptSource(self: *PublicationState, source: PublicationSource, geometry_epoch: u64) VtPublishResult {
         const snapshot = source.snapshot();
-        const damage_kind = self.classify(snapshot);
+        const damage_kind = self.classify(source);
         const published = damage_kind != .none;
         if (!published) {
             var dropped = source;
             dropped.deinit(self.allocator);
         } else {
-            self.replacePending(.{ .source = source, .damage_kind = damage_kind });
+            var queued_source = source;
+            if (source.retained_storage) {
+                queued_source = source.clone(self.allocator) catch {
+                    var dropped = source;
+                    dropped.deinit(self.allocator);
+                    return .{
+                        .published = false,
+                        .queued = false,
+                        .damage_kind = .none,
+                        .snapshot_seq = snapshot.snapshot_seq,
+                        .geometry_epoch = geometry_epoch,
+                    };
+                };
+            }
+            self.replacePending(.{ .source = queued_source, .damage_kind = damage_kind });
         }
         return .{
             .published = published,
@@ -422,11 +469,28 @@ const PublicationState = struct {
     }
 
     fn takePrepareRequest(self: *PublicationState, geometry_epoch: u64, submitted_token: ?pipeline.SnapshotToken) ?pipeline.RenderRequest {
-        if (self.active == null) self.activatePending(geometry_epoch, submitted_token);
+        if (self.active == null or (self.active.?.taken and self.pending != null)) {
+            self.blink_refresh_pending = false;
+            self.activatePending(geometry_epoch, submitted_token);
+        }
         const active = self.active orelse return null;
-        if (active.taken) return null;
+        if (active.taken) {
+            if (!self.blink_refresh_pending) return null;
+            self.blink_refresh_pending = false;
+            const prior_token = self.active.?.request.token;
+            self.active.?.request = .{
+                .token = .{
+                    .snapshot_seq = prior_token.snapshot_seq,
+                    .dirty_epoch = prior_token.dirty_epoch,
+                    .geometry_epoch = geometry_epoch,
+                    .damage_base_seq = 0,
+                    .damage_kind = .full,
+                },
+                .allow_retained_reuse = false,
+            };
+        }
         self.active.?.taken = true;
-        return active.request;
+        return self.active.?.request;
     }
 
     fn consumePrepare(self: *PublicationState, layout: surface_types.PrepareLayout, token: pipeline.SnapshotToken) !PrepareConsume {
@@ -443,7 +507,7 @@ const PublicationState = struct {
         if (self.pending) |publication| {
             return .{
                 .snapshot_seq = publication.source.snapshot_seq,
-                .dirty_epoch = publication.source.snapshot_seq,
+                .dirty_epoch = publication.source.dirty_epoch,
                 .geometry_epoch = 0,
                 .damage_base_seq = 0,
                 .damage_kind = publication.damage_kind,
@@ -467,6 +531,21 @@ const PublicationState = struct {
         return true;
     }
 
+    fn setCursorBlinkVisible(self: *PublicationState, visible: bool) bool {
+        var changed = false;
+        if (self.reserved) |*source| changed = setSourceCursorBlinkVisible(source, visible) or changed;
+        if (self.pending) |*publication| changed = setSourceCursorBlinkVisible(&publication.source, visible) or changed;
+        if (self.active) |*active| changed = setSourceCursorBlinkVisible(&active.publication.source, visible) or changed;
+        return changed;
+    }
+
+    fn requestBlinkRefresh(self: *PublicationState) void {
+        if (self.pending != null) return;
+        const active = self.active orelse return;
+        if (!active.taken) return;
+        self.blink_refresh_pending = true;
+    }
+
     fn retireAtOrBefore(self: *PublicationState, token: pipeline.SnapshotToken) void {
         if (self.pending) |*publication| {
             if (publication.source.snapshot_seq <= token.snapshot_seq) {
@@ -482,11 +561,21 @@ const PublicationState = struct {
         }
     }
 
+    fn retirePendingAtOrBefore(self: *PublicationState, token: pipeline.SnapshotToken) void {
+        if (self.pending) |*publication| {
+            if (publication.source.snapshot_seq <= token.snapshot_seq) {
+                publication.deinit(self.allocator);
+                self.pending = null;
+            }
+        }
+    }
+
     fn sourcePending(self: *const PublicationState) bool {
         return self.pending != null or self.reserved != null;
     }
 
     fn preparePending(self: *const PublicationState) bool {
+        if (self.blink_refresh_pending) return true;
         if (self.active) |active| return !active.taken;
         return false;
     }
@@ -494,11 +583,13 @@ const PublicationState = struct {
     fn replacePending(self: *PublicationState, publication: Publication) void {
         if (self.pending) |*prior| prior.deinit(self.allocator);
         self.pending = publication;
+        self.blink_refresh_pending = false;
     }
 
     fn dropActive(self: *PublicationState) void {
         if (self.active) |*active| active.deinit(self.allocator);
         self.active = null;
+        self.blink_refresh_pending = false;
     }
 
     fn activatePending(self: *PublicationState, geometry_epoch: u64, submitted_token: ?pipeline.SnapshotToken) void {
@@ -506,7 +597,7 @@ const PublicationState = struct {
         self.pending = null;
         const token = pipeline.SnapshotToken{
             .snapshot_seq = publication.source.snapshot_seq,
-            .dirty_epoch = publication.source.snapshot_seq,
+            .dirty_epoch = publication.source.dirty_epoch,
             .geometry_epoch = geometry_epoch,
             .damage_base_seq = if (submitted_token) |token_value| token_value.snapshot_seq else 0,
             .damage_kind = publication.damage_kind,
@@ -518,22 +609,29 @@ const PublicationState = struct {
         };
     }
 
-    fn classify(self: *const PublicationState, snapshot: VtSnapshot) pipeline.DamageKind {
+    fn classify(self: *const PublicationState, source: PublicationSource) pipeline.DamageKind {
+        const snapshot = source.snapshot();
         const damage_kind = classifyDirty(snapshot);
-        const prior = self.priorSnapshot() orelse return damage_kind;
-        if (snapshot.snapshot_seq == prior.snapshot_seq) return .none;
-        if (snapshot.cols != prior.cols or snapshot.rows != prior.rows) return .full;
-        if (snapshot.is_alternate_screen != prior.is_alternate_screen) return .full;
-        if (snapshot.scroll_row != prior.scroll_row) return .full;
+        const prior = self.priorSource() orelse return damage_kind;
+        const prior_snapshot = prior.snapshot();
+        if (snapshot.snapshot_seq == prior_snapshot.snapshot_seq) {
+            if (snapshot.dirty_epoch == prior_snapshot.dirty_epoch) return .none;
+            if (cursorPresentationChanged(prior, source)) return .full;
+            return .none;
+        }
+        if (cursorPresentationChanged(prior, source)) return .full;
+        if (snapshot.cols != prior_snapshot.cols or snapshot.rows != prior_snapshot.rows) return .full;
+        if (snapshot.is_alternate_screen != prior_snapshot.is_alternate_screen) return .full;
+        if (snapshot.scroll_row != prior_snapshot.scroll_row) return .full;
         return damage_kind;
     }
 
-    fn priorSnapshot(self: *const PublicationState) ?VtSnapshot {
+    fn priorSource(self: *const PublicationState) ?PublicationSource {
         if (self.reserved) |source| {
-            if (source.snapshot_seq != 0) return source.snapshot();
+            if (source.snapshot_seq != 0) return source;
         }
-        if (self.pending) |publication| return publication.source.snapshot();
-        if (self.active) |active| return active.publication.source.snapshot();
+        if (self.pending) |publication| return publication.source;
+        if (self.active) |active| return active.publication.source;
         return null;
     }
 
@@ -544,9 +642,11 @@ const PublicationState = struct {
             .rows = rows,
             .scroll_row = 0,
             .snapshot_seq = 0,
+            .dirty_epoch = 0,
             .is_alternate_screen = false,
             .cells = slot.cells,
             .cursor = std.mem.zeroes(surface_types.CursorInfo),
+            .cursor_phase_visible = true,
             .dirty_rows = slot.dirty_rows,
             .dirty_cols_start = slot.dirty_cols_start,
             .dirty_cols_end = slot.dirty_cols_end,
@@ -576,15 +676,34 @@ const PublicationState = struct {
     fn refreshRetainedSource(self: *PublicationState, source: *PublicationSource) void {
         const scroll_row = source.scroll_row;
         const snapshot_seq = source.snapshot_seq;
+        const dirty_epoch = source.dirty_epoch;
         const is_alternate_screen = source.is_alternate_screen;
         const cursor = source.cursor;
+        const cursor_phase_visible = source.cursor_phase_visible;
         source.* = self.retainedSource(source.cols, source.rows);
         source.scroll_row = scroll_row;
         source.snapshot_seq = snapshot_seq;
+        source.dirty_epoch = dirty_epoch;
         source.is_alternate_screen = is_alternate_screen;
         source.cursor = cursor;
+        source.cursor_phase_visible = cursor_phase_visible;
     }
 };
+
+fn cursorPresentationChanged(prior: PublicationSource, current: PublicationSource) bool {
+    if (prior.cursor.visible != current.cursor.visible) return true;
+    if (prior.cursor.row != current.cursor.row or prior.cursor.col != current.cursor.col) return true;
+    if (prior.cursor.shape != current.cursor.shape) return true;
+    if (prior.cursor.blink != current.cursor.blink) return true;
+    if ((prior.cursor.blink or current.cursor.blink) and prior.cursor_phase_visible != current.cursor_phase_visible) return true;
+    return false;
+}
+
+fn setSourceCursorBlinkVisible(source: *PublicationSource, visible: bool) bool {
+    if (!source.cursor.blink or source.cursor_phase_visible == visible) return false;
+    source.cursor_phase_visible = visible;
+    return true;
+}
 
 fn slotCellCount(cols: u16, rows: u16) usize {
     return @as(usize, cols) * @as(usize, rows);
@@ -637,6 +756,7 @@ fn testSnapshot(
         .rows = rows,
         .scroll_row = scroll_row,
         .snapshot_seq = snapshot_seq,
+        .dirty_epoch = snapshot_seq,
         .is_alternate_screen = false,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -651,6 +771,8 @@ pub const Flow = struct {
     grid_px: surface_types.PixelSize = .{ .width = 0, .height = 0 },
     cell_px: surface_types.CellSize = .{ .width = 0, .height = 0 },
     geometry_epoch: u64 = 0,
+    source_dirty_epoch: u64 = 0,
+    cursor_blink_visible: bool = true,
     publication_state: PublicationState,
 
     pub fn init(allocator: std.mem.Allocator) Flow {
@@ -662,12 +784,24 @@ pub const Flow = struct {
     }
 
     pub fn acceptSource(self: *Flow, source: PublicationSource) VtPublishResult {
-        std.debug.assert(source.cols > 0);
-        std.debug.assert(source.rows > 0);
+        var owned = source;
+        std.debug.assert(owned.cols > 0);
+        std.debug.assert(owned.rows > 0);
+        owned.dirty_epoch = self.nextSourceDirtyEpoch();
+        owned.cursor_phase_visible = self.cursor_blink_visible;
         const had_queued_publication = self.publication_state.pending != null or self.publication_state.active != null;
-        const result = self.publication_state.acceptSource(source, self.geometry_epoch);
+        const result = self.publication_state.acceptSource(owned, self.geometry_epoch);
         self.surface.noteSnapshotPublish(result, had_queued_publication and result.published);
         return result;
+    }
+
+    pub fn setCursorBlinkVisible(self: *Flow, visible: bool) bool {
+        if (self.cursor_blink_visible == visible) return false;
+        self.cursor_blink_visible = visible;
+        if (self.publication_state.setCursorBlinkVisible(visible)) {
+            self.publication_state.requestBlinkRefresh();
+        }
+        return true;
     }
 
     pub fn reservePublishSlot(self: *Flow, cols: u16, rows: u16) !PublicationSlot {
@@ -786,7 +920,7 @@ pub const Flow = struct {
             if (self.publication_state.requestFullPrepare()) self.surface.noteFullPrepareRequest();
             return;
         }
-        self.publication_state.retireAtOrBefore(frame.token);
+        self.publication_state.retirePendingAtOrBefore(frame.token);
         self.surface.acceptSubmitted(frame);
     }
 
@@ -807,6 +941,12 @@ pub const Flow = struct {
     pub fn takeMetrics(self: *Flow) QueueMetrics {
         return self.surface.takeMetrics();
     }
+
+    fn nextSourceDirtyEpoch(self: *Flow) u64 {
+        self.source_dirty_epoch +%= 1;
+        if (self.source_dirty_epoch == 0) self.source_dirty_epoch = 1;
+        return self.source_dirty_epoch;
+    }
 };
 
 fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !PublicationSource {
@@ -825,9 +965,11 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
         .rows = snapshot.rows,
         .scroll_row = snapshot.scroll_row,
         .snapshot_seq = snapshot.snapshot_seq,
+        .dirty_epoch = snapshot.dirty_epoch,
         .is_alternate_screen = snapshot.is_alternate_screen,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
         .dirty_cols_end = dirty_cols_end,
@@ -849,9 +991,11 @@ fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u
         .rows = 1,
         .scroll_row = 0,
         .snapshot_seq = snapshot_seq,
+        .dirty_epoch = snapshot_seq,
         .is_alternate_screen = false,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
         .dirty_cols_end = dirty_cols_end,
@@ -907,6 +1051,158 @@ test "surface reports stale submit when newer snapshot already won" {
         .stale => |token| try std.testing.expectEqual(@as(u64, 2), token.snapshot_seq),
         else => return error.TestUnexpectedResult,
     }
+}
+
+test "flow keeps blink refresh out of source publication queue" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var source = try ownedTestSource(std.heap.c_allocator, 7, 'A');
+    source.cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true };
+    const first = flow.acceptSource(source);
+    try std.testing.expect(first.published);
+    const first_request = flow.prepare() orelse return error.TestUnexpectedResult;
+    flow.acceptSubmitted(.{ .token = first_request.token });
+
+    try std.testing.expect(flow.setCursorBlinkVisible(false));
+    const second_request = flow.prepare() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 7), second_request.token.snapshot_seq);
+    try std.testing.expectEqual(pipeline.DamageKind.full, second_request.token.damage_kind);
+    try std.testing.expectEqual(first_request.token.dirty_epoch, second_request.token.dirty_epoch);
+    const pending = flow.pendingState();
+    try std.testing.expect(!pending.source_pending);
+}
+
+test "flow redraws blinking cursor phase without a fresh vt source" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var source = try ownedTestSource(std.heap.c_allocator, 9, 'A');
+    source.cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true };
+    _ = flow.acceptSource(source);
+
+    const first_request = flow.prepare() orelse return error.TestUnexpectedResult;
+    flow.acceptSubmitted(.{ .token = first_request.token });
+
+    try std.testing.expect(flow.setCursorBlinkVisible(false));
+    try std.testing.expect(flow.pendingState().prepare_pending);
+    try std.testing.expect(!flow.pendingState().source_pending);
+
+    const second_request = flow.prepare() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 9), second_request.token.snapshot_seq);
+    try std.testing.expectEqual(pipeline.DamageKind.full, second_request.token.damage_kind);
+    try std.testing.expectEqual(first_request.token.dirty_epoch, second_request.token.dirty_epoch);
+
+    const prepare = try flow.consumePrepare(second_request.token);
+    try std.testing.expect(!prepare.state.cursor_phase_visible);
+    try std.testing.expect(prepare.state.cursor.blink);
+}
+
+test "new vt source supersedes pending blink refresh" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var source = try ownedTestSource(std.heap.c_allocator, 2, 'A');
+    source.cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true };
+    _ = flow.acceptSource(source);
+    const first_request = flow.prepare() orelse return error.TestUnexpectedResult;
+    flow.acceptSubmitted(.{ .token = first_request.token });
+
+    try std.testing.expect(flow.setCursorBlinkVisible(false));
+
+    source = try ownedTestSource(std.heap.c_allocator, 3, 'B');
+    source.cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true };
+    const published = flow.acceptSource(source);
+    try std.testing.expect(published.published);
+
+    const request = flow.prepare() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 3), request.token.snapshot_seq);
+    const prepare = try flow.consumePrepare(request.token);
+    try std.testing.expectEqual(@as(u32, 'B'), prepare.state.cells[0].codepoint);
+    try std.testing.expect(!prepare.state.cursor_phase_visible);
+}
+
+test "cursor movement republishes clean later vt snapshot" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 16, .height = 16 },
+        .grid_px = .{ .width = 16, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    const dirty = [_]u8{1};
+    const dirty_start = [_]u16{0};
+    const dirty_end = [_]u16{1};
+    _ = flow.acceptSnapshot(testSnapshot(2, 1, 0, 2, &dirty, &dirty_start, &dirty_end));
+    _ = flow.prepare() orelse return error.TestUnexpectedResult;
+
+    const clean_cells = try std.heap.c_allocator.alloc(abi.FfiVtCell, 2);
+    clean_cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    clean_cells[0].codepoint = 'A';
+    clean_cells[1] = std.mem.zeroes(abi.FfiVtCell);
+    clean_cells[1].codepoint = 'B';
+    const clean_dirty_rows = try std.heap.c_allocator.dupe(u8, &[_]u8{0});
+    const clean_dirty_start = try std.heap.c_allocator.dupe(u16, &[_]u16{0});
+    const clean_dirty_end = try std.heap.c_allocator.dupe(u16, &[_]u16{0});
+    const clean_source = PublicationSource{
+        .cols = 2,
+        .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = 3,
+        .dirty_epoch = 3,
+        .is_alternate_screen = false,
+        .cells = clean_cells,
+        .cursor = .{ .visible = true, .row = 0, .col = 1, .shape = .beam, .blink = false },
+        .cursor_phase_visible = true,
+        .dirty_rows = clean_dirty_rows,
+        .dirty_cols_start = clean_dirty_start,
+        .dirty_cols_end = clean_dirty_end,
+    };
+
+    const published = flow.acceptSource(clean_source);
+    try std.testing.expect(published.published);
+    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
+}
+
+test "cursor shape change republishes clean later vt snapshot" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var first = try ownedTestSource(std.heap.c_allocator, 2, 'A');
+    first.cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .block, .blink = false };
+    _ = flow.acceptSource(first);
+    _ = flow.prepare() orelse return error.TestUnexpectedResult;
+
+    var second = try ownedTestSource(std.heap.c_allocator, 3, 'A');
+    second.dirty_rows[0] = 0;
+    second.dirty_cols_start[0] = 0;
+    second.dirty_cols_end[0] = 0;
+    second.cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = false };
+
+    const published = flow.acceptSource(second);
+    try std.testing.expect(published.published);
+    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
 }
 
 test "flow coalesces snapshots into latest prepare request" {
@@ -1074,6 +1370,36 @@ test "flow reuses retained publish slot storage across reservations" {
     try std.testing.expectEqual(first_dirty_rows, second.dirty_rows.ptr);
     try std.testing.expectEqual(first_dirty_cols_start, second.dirty_cols_start.ptr);
     try std.testing.expectEqual(first_dirty_cols_end, second.dirty_cols_end.ptr);
+}
+
+test "flow can reserve a new publish slot after submitting retained source" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 1, .height = 1 },
+        .grid_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const first = try flow.reservePublishSlot(1, 1);
+    first.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    first.cells[0].codepoint = 'A';
+    first.dirty_rows[0] = 1;
+    first.dirty_cols_start[0] = 0;
+    first.dirty_cols_end[0] = 0;
+
+    const published = try flow.commitPublishSlot(.{
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+    });
+    try std.testing.expect(published.published);
+
+    const request = flow.prepare() orelse return error.TestUnexpectedResult;
+    flow.acceptSubmitted(.{ .token = request.token });
+
+    _ = try flow.reservePublishSlot(1, 1);
 }
 
 test "flow keeps latest source when publish A then B before prepare" {

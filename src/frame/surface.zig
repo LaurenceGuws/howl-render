@@ -213,6 +213,8 @@ pub const CursorInfo = struct {
     col: u16 = 0,
     visible: bool = true,
     shape: CursorShape = .block,
+    // Render carries VT cursor blink truth; the host still owns blink cadence.
+    blink: bool = false,
 };
 
 pub const FrameData = struct {

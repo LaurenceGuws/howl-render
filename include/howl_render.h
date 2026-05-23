@@ -179,6 +179,7 @@ typedef struct {
   uint16_t col;
   uint8_t visible;
   uint8_t shape;
+  uint8_t blink;
 } HowlRenderCursor;
 
 typedef struct {
@@ -379,6 +380,7 @@ int howl_render_surface_text_is_valid_font(HowlRenderSurfaceTextHandle handle);
 int howl_render_surface_text_set_font_size_px(HowlRenderSurfaceTextHandle handle, uint16_t font_size_px);
 int howl_render_surface_text_set_font_path(HowlRenderSurfaceTextHandle handle, const uint8_t *ptr, size_t len);
 int howl_render_surface_text_set_fallback_font_paths(HowlRenderSurfaceTextHandle handle, const uint8_t *const *ptrs, size_t count);
+int howl_render_surface_text_set_cursor_blink_visible(HowlRenderSurfaceTextHandle handle, uint8_t visible);
 HowlRenderGeometryResponse howl_render_surface_text_sync_geometry(HowlRenderSurfaceTextHandle handle, HowlRenderGeometry geometry);
 HowlRenderVtPublishResult howl_render_surface_text_publish_vt_source(HowlRenderSurfaceTextHandle handle, HowlRenderVtSurface source);
 int howl_render_surface_text_reserve_publish_slot(HowlRenderSurfaceTextHandle handle, uint16_t cols, uint16_t rows, HowlRenderPublishSlot *slot_out);

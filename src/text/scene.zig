@@ -26,6 +26,8 @@ pub const CursorInput = struct {
     cell_row: u16,
     shape: CursorShape,
     color: contract.Rgba8,
+    // Render uses this as surface truth only; host cadence decides blink presentation.
+    blink: bool = false,
 };
 
 pub const DamageInput = struct {

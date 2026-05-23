@@ -36,6 +36,7 @@ const surfaceTextIsValidFont = surface_text_ffi.isValidFont;
 const surfaceTextSetFontSizePx = surface_text_ffi.setFontSize;
 const surfaceTextSetFontPath = surface_text_ffi.setFontPath;
 const surfaceTextSetFallbackFontPaths = surface_text_ffi.setFallbackFontPaths;
+const surfaceTextSetCursorBlinkVisible = surface_text_ffi.setCursorBlinkVisible;
 const surfaceTextSyncGeometry = surface_text_ffi.syncGeometry;
 const surfaceTextPublishVtSource = surface_text_ffi.publishVtSource;
 const surfaceTextReservePublishSlot = surface_text_ffi.reservePublishSlot;
@@ -84,7 +85,7 @@ fn testCell() FfiVtCell {
 }
 
 fn testCursor(shape: u8) FfiVtCursor {
-    return .{ .row = 0, .col = 0, .visible = 1, .shape = shape };
+    return .{ .row = 0, .col = 0, .visible = 1, .shape = shape, .blink = 0 };
 }
 
 fn testVtSurface(cells: []const FfiVtCell, cursor: FfiVtCursor) FfiVtSurface {

@@ -9,6 +9,7 @@ comptime {
     @export(&surface_text_ffi.setFontSize, .{ .name = "howl_render_surface_text_set_font_size_px" });
     @export(&surface_text_ffi.setFontPath, .{ .name = "howl_render_surface_text_set_font_path" });
     @export(&surface_text_ffi.setFallbackFontPaths, .{ .name = "howl_render_surface_text_set_fallback_font_paths" });
+    @export(&surface_text_ffi.setCursorBlinkVisible, .{ .name = "howl_render_surface_text_set_cursor_blink_visible" });
     @export(&surface_text_ffi.syncGeometry, .{ .name = "howl_render_surface_text_sync_geometry" });
     @export(&surface_text_ffi.publishVtSource, .{ .name = "howl_render_surface_text_publish_vt_source" });
     @export(&surface_text_ffi.reservePublishSlot, .{ .name = "howl_render_surface_text_reserve_publish_slot" });
