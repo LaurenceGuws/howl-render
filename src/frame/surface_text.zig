@@ -187,7 +187,14 @@ pub const SurfaceText = struct {
             var ft_hb = ftHbSource(context);
             self.text_preparer = try text.TextFramePreparer.initWithProvider(self.allocator, 2048, ft_hb.textProvider());
         }
+        try self.text_preparer.?.ensureResolverScratchCapacity(maxResolveClusters(context));
         return &self.text_preparer.?;
+    }
+
+    fn maxResolveClusters(context: *TextContext) u32 {
+        const cell_px = text_support.deriveCellSize(context);
+        const grid = geometry_mod.deriveGridSize(context.session_config.surface_px, cell_px);
+        return @as(u32, @max(grid.cols, 1)) * @as(u32, @max(grid.rows, 1));
     }
 
     fn ensureCellInputScratchCapacity(self: *SurfaceText, cell_count: usize) !void {

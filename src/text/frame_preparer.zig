@@ -1,4 +1,3 @@
-
 const std = @import("std");
 const builtin = @import("builtin");
 const contract = @import("contract.zig");
@@ -48,6 +47,7 @@ pub const TextFramePreparer = struct {
     glyph_lookup: provider.LookupGlyphOp,
     glyph_raster: pipeline.RasterizeGlyphOp,
     direct_normal: direct_normal.Scratch = .{},
+    resolver_scratch: font_resolver.RetainedScratch = .{},
     scene_scratch: scene.RetainedScratch = .{},
 
     pub fn init(allocator: std.mem.Allocator) TextFramePreparer {
@@ -75,9 +75,14 @@ pub const TextFramePreparer = struct {
 
     pub fn deinit(self: *TextFramePreparer) void {
         self.scene_scratch.deinit(self.allocator);
+        self.resolver_scratch.deinit(self.allocator);
         self.direct_normal.deinit(self.allocator);
         self.atlas.deinit();
         self.* = undefined;
+    }
+
+    pub fn ensureResolverScratchCapacity(self: *TextFramePreparer, max_clusters: u32) !void {
+        try self.resolver_scratch.configure(self.allocator, max_clusters);
     }
 
     pub fn clearAtlas(self: *TextFramePreparer) void {
@@ -299,7 +304,6 @@ pub const TextFramePreparer = struct {
             lane_report,
         );
     }
-
 };
 
 const PreparedSceneMerge = struct {
@@ -353,7 +357,7 @@ fn resolveComplexRuns(
     cells: []const contract.RenderableCell,
 ) !font_resolver.OwnedResolvedRuns {
     const resolve_start_ns = monotonicNs();
-    const runs = try font_resolver.resolveClusters(self.allocator, session, clusters, text_cache, grid_metrics);
+    const runs = try font_resolver.resolveClusters(self.allocator, &self.resolver_scratch, session, clusters, text_cache, grid_metrics);
     timings.resolve_us = elapsedUs(resolve_start_ns);
     for (runs.runs) |run| lane_report.recordLegacyResolvedRunWithCells(text_cache, cells, clusters, run);
     return runs;
@@ -492,7 +496,7 @@ fn count32(items: anytype) u32 {
     return @intCast(items.len);
 }
 
-    pub const PrepareOptions = struct {
+pub const PrepareOptions = struct {
     scene: scene.BuildOptions = .{},
 };
 

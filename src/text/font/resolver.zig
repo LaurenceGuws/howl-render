@@ -1,4 +1,3 @@
-
 const std = @import("std");
 const contract = @import("../contract.zig");
 const pipeline = @import("../pipeline.zig");
@@ -70,37 +69,73 @@ const ResolveMemoValue = union(enum) {
     miss,
 };
 
+const ResolveMemoEntry = struct {
+    key: ResolveMemoKey,
+    value: ResolveMemoValue,
+};
+
+pub const RetainedScratch = struct {
+    runs: std.ArrayListUnmanaged(contract.ResolvedRun) = .empty,
+    cluster_faces: std.ArrayListUnmanaged(ResolvedClusterFace) = .empty,
+    missing: std.ArrayListUnmanaged(contract.MissingGlyph) = .empty,
+    sprite_routes: std.ArrayListUnmanaged(SpriteRouteHit) = .empty,
+    memo: std.ArrayListUnmanaged(ResolveMemoEntry) = .empty,
+    max_clusters: u32 = 0,
+
+    pub fn deinit(self: *RetainedScratch, allocator: std.mem.Allocator) void {
+        self.memo.deinit(allocator);
+        self.sprite_routes.deinit(allocator);
+        self.missing.deinit(allocator);
+        self.cluster_faces.deinit(allocator);
+        self.runs.deinit(allocator);
+        self.* = undefined;
+    }
+
+    pub fn configure(self: *RetainedScratch, allocator: std.mem.Allocator, max_clusters: u32) !void {
+        if (self.max_clusters >= max_clusters) return;
+        const capacity: usize = @intCast(max_clusters);
+        try self.runs.ensureTotalCapacity(allocator, capacity);
+        try self.cluster_faces.ensureTotalCapacity(allocator, capacity);
+        try self.missing.ensureTotalCapacity(allocator, capacity);
+        try self.sprite_routes.ensureTotalCapacity(allocator, capacity);
+        try self.memo.ensureTotalCapacity(allocator, capacity);
+        self.max_clusters = max_clusters;
+    }
+
+    fn reset(self: *RetainedScratch, cluster_count: u32) !void {
+        if (cluster_count > self.max_clusters) return error.ResolveScratchOverflow;
+        self.runs.clearRetainingCapacity();
+        self.cluster_faces.clearRetainingCapacity();
+        self.missing.clearRetainingCapacity();
+        self.sprite_routes.clearRetainingCapacity();
+        self.memo.clearRetainingCapacity();
+    }
+};
+
 pub fn resolveClusters(
     allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
     session: font_session.FontSession,
     clusters: []const contract.CellCluster,
     text_cache: contract.LineTextCache,
     grid_metrics: contract.GridMetrics,
 ) !OwnedResolvedRuns {
-    var runs = std.ArrayList(contract.ResolvedRun).empty;
-    errdefer runs.deinit(allocator);
-    var missing_list = std.ArrayList(contract.MissingGlyph).empty;
-    errdefer missing_list.deinit(allocator);
-    var sprite_routes = std.ArrayList(SpriteRouteHit).empty;
-    errdefer sprite_routes.deinit(allocator);
-    var resolve_memo = std.AutoHashMap(ResolveMemoKey, ResolveMemoValue).init(allocator);
-    defer resolve_memo.deinit();
-
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const cluster_count = count32(clusters);
+    try scratch.reset(cluster_count);
     var idx: u32 = 0;
     while (idx < cluster_count) {
         const cluster = clusters[@intCast(idx)];
         const route = symbol_map.builtinRoute(cluster.first_cp);
         if (route) |r| {
-            try sprite_routes.append(allocator, .{ .cluster_index = idx, .route = r });
+            scratch.sprite_routes.appendAssumeCapacity(.{ .cluster_index = idx, .route = r });
             idx += 1;
             continue;
         }
 
         const text = textForCluster(text_cache, cluster);
-        const face = (try resolveFaceMemoized(&resolve_memo, session, cluster, text)) orelse {
-            try missing_list.append(allocator, .{
+        const face = (try resolveFaceMemoized(scratch, session, cluster, text)) orelse {
+            scratch.missing.appendAssumeCapacity(.{
                 .codepoint = cluster.first_cp,
                 .style = cluster.style,
                 .presentation = cluster.presentation,
@@ -116,38 +151,34 @@ pub fn resolveClusters(
             const next = clusters[@intCast(idx)];
             if (symbol_map.builtinRoute(next.first_cp) != null) break;
             if (next.first_cell / cols != cluster.first_cell / cols) break;
-            const next_face = (try resolveFaceMemoized(&resolve_memo, session, next, textForCluster(text_cache, next))) orelse break;
+            const next_face = (try resolveFaceMemoized(scratch, session, next, textForCluster(text_cache, next))) orelse break;
             if (next_face.id.value != face.id.value or next.style != cluster.style or next.presentation != cluster.presentation) break;
         }
 
-        try runs.append(allocator, resolvedRun(@intCast(start), @intCast(idx - start), face.id, cluster.style, cluster.presentation));
+        scratch.runs.appendAssumeCapacity(resolvedRun(@intCast(start), @intCast(idx - start), face.id, cluster.style, cluster.presentation));
     }
 
-    return .{
-        .allocator = allocator,
-        .runs = try runs.toOwnedSlice(allocator),
-        .missing = try missing_list.toOwnedSlice(allocator),
-        .sprite_routes = try sprite_routes.toOwnedSlice(allocator),
-    };
+    const runs = try allocator.dupe(contract.ResolvedRun, scratch.runs.items);
+    errdefer allocator.free(runs);
+    const missing_list = try allocator.dupe(contract.MissingGlyph, scratch.missing.items);
+    errdefer allocator.free(missing_list);
+    const sprite_routes = try allocator.dupe(SpriteRouteHit, scratch.sprite_routes.items);
+    return .{ .allocator = allocator, .runs = runs, .missing = missing_list, .sprite_routes = sprite_routes };
 }
 
 pub fn resolveClusterFaces(
     allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
     session: font_session.FontSession,
     clusters: []const contract.CellCluster,
     text_cache: contract.LineTextCache,
 ) !OwnedResolvedClusterFaces {
-    var faces = std.ArrayList(ResolvedClusterFace).empty;
-    errdefer faces.deinit(allocator);
-    var missing_list = std.ArrayList(contract.MissingGlyph).empty;
-    errdefer missing_list.deinit(allocator);
-    var resolve_memo = std.AutoHashMap(ResolveMemoKey, ResolveMemoValue).init(allocator);
-    defer resolve_memo.deinit();
+    try scratch.reset(count32(clusters));
 
     for (clusters, 0..) |cluster, idx| {
         const text = textForCluster(text_cache, cluster);
-        const face = (try resolveFaceMemoized(&resolve_memo, session, cluster, text)) orelse {
-            try missing_list.append(allocator, .{
+        const face = (try resolveFaceMemoized(scratch, session, cluster, text)) orelse {
+            scratch.missing.appendAssumeCapacity(.{
                 .codepoint = cluster.first_cp,
                 .style = cluster.style,
                 .presentation = cluster.presentation,
@@ -155,14 +186,13 @@ pub fn resolveClusterFaces(
             });
             continue;
         };
-        try faces.append(allocator, .{ .cluster_index = @intCast(idx), .face_id = face.id });
+        scratch.cluster_faces.appendAssumeCapacity(.{ .cluster_index = @intCast(idx), .face_id = face.id });
     }
 
-    return .{
-        .allocator = allocator,
-        .faces = try faces.toOwnedSlice(allocator),
-        .missing = try missing_list.toOwnedSlice(allocator),
-    };
+    const faces = try allocator.dupe(ResolvedClusterFace, scratch.cluster_faces.items);
+    errdefer allocator.free(faces);
+    const missing_list = try allocator.dupe(contract.MissingGlyph, scratch.missing.items);
+    return .{ .allocator = allocator, .faces = faces, .missing = missing_list };
 }
 
 fn resolveFace(session: font_session.FontSession, cluster: contract.CellCluster, text: contract.CellText) ?font_session.FontFaceRecord {
@@ -172,7 +202,7 @@ fn resolveFace(session: font_session.FontSession, cluster: contract.CellCluster,
 }
 
 fn resolveFaceMemoized(
-    memo: *std.AutoHashMap(ResolveMemoKey, ResolveMemoValue),
+    scratch: *RetainedScratch,
     session: font_session.FontSession,
     cluster: contract.CellCluster,
     text: contract.CellText,
@@ -182,17 +212,27 @@ fn resolveFaceMemoized(
         .style = cluster.style,
         .presentation = cluster.presentation,
     };
-    const entry = try memo.getOrPut(key);
-    if (!entry.found_existing) {
-        entry.value_ptr.* = if (resolveFace(session, cluster, text)) |face|
-            .{ .hit = face }
-        else
-            .miss;
+    for (scratch.memo.items) |entry| {
+        if (memoKeyEql(entry.key, key)) return switch (entry.value) {
+            .hit => |face| face,
+            .miss => null,
+        };
     }
-    return switch (entry.value_ptr.*) {
+
+    if (scratch.memo.items.len >= scratch.memo.capacity) return error.ResolveScratchOverflow;
+    const value = if (resolveFace(session, cluster, text)) |face|
+        ResolveMemoValue{ .hit = face }
+    else
+        .miss;
+    scratch.memo.appendAssumeCapacity(.{ .key = key, .value = value });
+    return switch (value) {
         .hit => |face| face,
         .miss => null,
     };
+}
+
+fn memoKeyEql(lhs: ResolveMemoKey, rhs: ResolveMemoKey) bool {
+    return lhs.text_id == rhs.text_id and lhs.style == rhs.style and lhs.presentation == rhs.presentation;
 }
 
 fn textForCluster(cache: contract.LineTextCache, cluster: contract.CellCluster) contract.CellText {
@@ -245,7 +285,10 @@ test "resolver groups adjacent primary clusters and separates sprite routes" {
         .{ .id = .{ .value = 1 }, .first_cp = 'b', .codepoints = &.{'b'} },
         .{ .id = .{ .value = 2 }, .first_cp = 0x2500, .codepoints = &.{0x2500} },
     };
-    var resolved = try resolveClusters(std.testing.allocator, .{}, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(std.testing.allocator);
+    try scratch.configure(std.testing.allocator, count32(clusters));
+    var resolved = try resolveClusters(std.testing.allocator, &scratch, .{}, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(resolved.runs));
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.cluster_count);
@@ -261,7 +304,10 @@ test "resolver falls back when primary cannot cover whole cell text" {
     const session = font_session.FontSession{ .faces = &faces };
     const clusters = [_]contract.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'i', .style = .regular, .presentation = .any }};
     const texts = [_]contract.CellText{.{ .id = .{ .value = 0 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } }};
-    var resolved = try resolveClusters(std.testing.allocator, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(std.testing.allocator);
+    try scratch.configure(std.testing.allocator, count32(clusters));
+    var resolved = try resolveClusters(std.testing.allocator, &scratch, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(resolved.runs));
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.font.face_id.value);
@@ -283,7 +329,10 @@ test "resolver uses face provider validation" {
     const session = font_session.FontSession{ .faces = &faces, .provider = .{ .ctx = &dummy, .has_cell_text = Provider.has } };
     const clusters = [_]contract.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any }};
     const texts = [_]contract.CellText{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{ 'x', 0x0332 } }};
-    var resolved = try resolveClusters(std.testing.allocator, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(std.testing.allocator);
+    try scratch.configure(std.testing.allocator, count32(clusters));
+    var resolved = try resolveClusters(std.testing.allocator, &scratch, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.font.face_id.value);
 }
@@ -313,9 +362,33 @@ test "resolver memoizes repeated text face validation" {
     var provider = Provider{};
     const session = font_session.FontSession{ .faces = &faces, .provider = .{ .ctx = &provider, .has_cell_text = Provider.has } };
 
-    var resolved = try resolveClusters(std.testing.allocator, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(std.testing.allocator);
+    try scratch.configure(std.testing.allocator, count32(clusters));
+    var resolved = try resolveClusters(std.testing.allocator, &scratch, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(resolved.runs));
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.font.face_id.value);
     try std.testing.expectEqual(@as(u8, 2), provider.calls);
+}
+
+test "resolver retained scratch is bounded by configured cluster limit" {
+    const clusters = [_]contract.CellCluster{
+        .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'a', .style = .regular, .presentation = .any },
+        .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'b', .style = .regular, .presentation = .any },
+        .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .first_cp = 'c', .style = .regular, .presentation = .any },
+    };
+    const texts = [_]contract.CellText{
+        .{ .id = .{ .value = 0 }, .first_cp = 'a', .codepoints = &.{'a'} },
+        .{ .id = .{ .value = 1 }, .first_cp = 'b', .codepoints = &.{'b'} },
+        .{ .id = .{ .value = 2 }, .first_cp = 'c', .codepoints = &.{'c'} },
+    };
+
+    var scratch = RetainedScratch{};
+    defer scratch.deinit(std.testing.allocator);
+    try scratch.configure(std.testing.allocator, 2);
+    try std.testing.expectError(
+        error.ResolveScratchOverflow,
+        resolveClusters(std.testing.allocator, &scratch, .{}, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 }),
+    );
 }
