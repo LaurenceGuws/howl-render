@@ -154,7 +154,7 @@ fn emptyCellInput() contract.CellInput {
 }
 
 fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
-    return .{
+    var out: contract.CellInput = .{
         .codepoint = src.codepoint,
         .fg = colorToTextSceneRgba8(src.fg_color, true, t),
         .bg = colorToTextSceneRgba8(src.bg_color, false, t),
@@ -165,10 +165,12 @@ fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
         .continuation = src.flags.continuation,
         .empty = isAlacrittyEmptyCell(src),
     };
+    if (src.attrs.selected) applySelectionStyle(&out, t);
+    return out;
 }
 
 fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput {
-    return .{
+    var out: contract.CellInput = .{
         .codepoint = @intCast(src.codepoint),
         .fg = publicationColorToTextSceneRgba8(src.fg_color, true, t),
         .bg = publicationColorToTextSceneRgba8(src.bg_color, false, t),
@@ -179,6 +181,14 @@ fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput
         .continuation = src.flags.continuation != 0,
         .empty = isAlacrittyEmptyPublicationCell(src),
     };
+    if (src.attrs.selected != 0) applySelectionStyle(&out, t);
+    return out;
+}
+
+fn applySelectionStyle(cell: *contract.CellInput, t: FrameTheme) void {
+    cell.fg = t.default_bg;
+    cell.bg = t.default_fg;
+    cell.empty = false;
 }
 
 fn canMapDirtyOnly(state: anytype) bool {
@@ -538,8 +548,8 @@ test "frame_input maps only dirty ranges for partial damage" {
 
 test "frame_input borrowed publication mapping reuses caller storage" {
     var cells = [_]abi.FfiVtCell{
-        .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0 }, .link_id = 0 },
-        .{ .codepoint = ' ', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0 }, .link_id = 0 },
+        .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
+        .{ .codepoint = ' ', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
     };
     var storage: [4]contract.CellInput = undefined;
     const dirty_rows = [_]u8{1};
@@ -554,6 +564,7 @@ test "frame_input borrowed publication mapping reuses caller storage" {
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
@@ -573,7 +584,7 @@ test "frame_input borrowed publication mapping preserves cursor blink truth" {
         .bg_color = .{ .kind = 0, .value = 0 },
         .underline_color = .{ .kind = 0, .value = 0 },
         .underline_style = 0,
-        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0 },
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
         .link_id = 0,
     }};
     var storage: [1]contract.CellInput = undefined;
@@ -589,6 +600,7 @@ test "frame_input borrowed publication mapping preserves cursor blink truth" {
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true },
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
@@ -608,7 +620,7 @@ test "frame_input borrowed publication mapping hides blinking cursor when host p
         .bg_color = .{ .kind = 0, .value = 0 },
         .underline_color = .{ .kind = 0, .value = 0 },
         .underline_style = 0,
-        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0 },
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
         .link_id = 0,
     }};
     var storage: [1]contract.CellInput = undefined;
@@ -624,6 +636,7 @@ test "frame_input borrowed publication mapping hides blinking cursor when host p
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true },
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = false,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
@@ -631,4 +644,34 @@ test "frame_input borrowed publication mapping hides blinking cursor when host p
     }, false);
 
     try std.testing.expectEqual(@as(?scene.CursorInput, null), mapped.options.scene.cursor);
+}
+
+test "frame_input borrowed publication mapping applies selection styling across scrollback rows" {
+    var cells = [_]abi.FfiVtCell{
+        .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 2, .value = 0x102030 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 1 }, .link_id = 0 },
+        .{ .codepoint = 'B', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 2, .value = 0x405060 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
+    };
+    var storage: [2]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{1};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 2,
+        .rows = 1,
+        .scroll_row = 1,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(default_theme.default_bg.r, mapped.cells[0].fg.r);
+    try std.testing.expectEqual(default_theme.default_fg.r, mapped.cells[0].bg.r);
+    try std.testing.expectEqual(@as(u21, 'B'), mapped.cells[1].codepoint);
 }

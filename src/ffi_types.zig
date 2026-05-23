@@ -139,6 +139,7 @@ pub const FfiVtCellAttrs = extern struct {
     inverse: u8,
     invisible: u8,
     strikethrough: u8,
+    selected: u8,
 };
 
 pub const FfiVtCell = extern struct {
@@ -214,6 +215,20 @@ pub const FfiVtCursor = extern struct {
     blink: u8,
 };
 
+pub const FfiVtSelectionPos = extern struct {
+    row: i32,
+    col: u16,
+    reserved0: u16 = 0,
+};
+
+pub const FfiVtSelection = extern struct {
+    active: u8,
+    selecting: u8,
+    reserved0: u16 = 0,
+    start: FfiVtSelectionPos,
+    end: FfiVtSelectionPos,
+};
+
 pub const FfiGeometry = extern struct {
     render_px: FfiPixelSize,
     grid_px: FfiPixelSize,
@@ -286,6 +301,7 @@ pub const FfiPublishSlotCommit = extern struct {
     reserved0: u8 = 0,
     reserved1: u16 = 0,
     cursor: FfiVtCursor,
+    selection: FfiVtSelection,
 };
 
 pub const FfiSurfaceMetrics = extern struct {
@@ -382,6 +398,7 @@ pub const FfiVtSurface = extern struct {
     dirty_cols_start: FfiU16Span,
     dirty_cols_end: FfiU16Span,
     cursor: FfiVtCursor,
+    selection: FfiVtSelection,
 };
 
 pub const FfiSurfaceFeedback = extern struct {

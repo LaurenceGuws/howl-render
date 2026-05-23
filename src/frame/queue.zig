@@ -211,6 +211,7 @@ pub const PublicationSource = struct {
     is_alternate_screen: bool,
     cells: []abi.FfiVtCell,
     cursor: surface_types.CursorInfo,
+    selection: abi.FfiVtSelection,
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
@@ -246,6 +247,7 @@ pub const PublicationSource = struct {
             .is_alternate_screen = self.is_alternate_screen,
             .cells = cells,
             .cursor = self.cursor,
+            .selection = self.selection,
             .cursor_phase_visible = self.cursor_phase_visible,
             .dirty_rows = dirty_rows,
             .dirty_cols_start = dirty_cols_start,
@@ -289,6 +291,7 @@ pub const ReservedSourceMeta = struct {
     snapshot_seq: u64,
     is_alternate_screen: bool,
     cursor: surface_types.CursorInfo,
+    selection: abi.FfiVtSelection,
 };
 
 pub const PendingState = struct {
@@ -433,6 +436,7 @@ const PublicationState = struct {
         source.dirty_epoch = dirty_epoch;
         source.is_alternate_screen = meta.is_alternate_screen;
         source.cursor = meta.cursor;
+        source.selection = meta.selection;
         return self.acceptSource(source, submitted_token, geometry_epoch);
     }
 
@@ -653,6 +657,7 @@ const PublicationState = struct {
             .is_alternate_screen = false,
             .cells = slot.cells,
             .cursor = std.mem.zeroes(surface_types.CursorInfo),
+            .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
             .cursor_phase_visible = true,
             .dirty_rows = slot.dirty_rows,
             .dirty_cols_start = slot.dirty_cols_start,
@@ -686,6 +691,7 @@ const PublicationState = struct {
         const dirty_epoch = source.dirty_epoch;
         const is_alternate_screen = source.is_alternate_screen;
         const cursor = source.cursor;
+        const selected = source.selection;
         const cursor_phase_visible = source.cursor_phase_visible;
         source.* = self.retainedSource(source.cols, source.rows);
         source.scroll_row = scroll_row;
@@ -693,6 +699,7 @@ const PublicationState = struct {
         source.dirty_epoch = dirty_epoch;
         source.is_alternate_screen = is_alternate_screen;
         source.cursor = cursor;
+        source.selection = selected;
         source.cursor_phase_visible = cursor_phase_visible;
     }
 };
@@ -730,6 +737,7 @@ fn samePublicationSource(a: PublicationSource, b: PublicationSource) bool {
         a.scroll_row == b.scroll_row and
         a.snapshot_seq == b.snapshot_seq and
         a.is_alternate_screen == b.is_alternate_screen and
+        std.mem.eql(u8, std.mem.asBytes(&a.selection), std.mem.asBytes(&b.selection)) and
         a.cursor_phase_visible == b.cursor_phase_visible and
         a.cursor.row == b.cursor.row and
         a.cursor.col == b.cursor.col and
@@ -1000,6 +1008,7 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
         .is_alternate_screen = snapshot.is_alternate_screen,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -1026,6 +1035,7 @@ fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u
         .is_alternate_screen = false,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -1200,6 +1210,7 @@ test "cursor movement republishes clean later vt snapshot" {
         .is_alternate_screen = false,
         .cells = clean_cells,
         .cursor = .{ .visible = true, .row = 0, .col = 1, .shape = .beam, .blink = false },
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = clean_dirty_rows,
         .dirty_cols_start = clean_dirty_start,
@@ -1424,6 +1435,7 @@ test "flow can reserve a new publish slot after submitting retained source" {
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     });
     try std.testing.expect(published.published);
 

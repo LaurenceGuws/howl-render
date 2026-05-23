@@ -112,6 +112,7 @@ sequenceDiagram
   least one usable font path for session startup.
 - `HowlRenderVtSurface` carries VT-owned ABI cells, cursor, viewport, dirty spans, and snapshot
   sequence truth into the render owner at publish time.
+- `HowlRenderVtSurface` also carries VT-owned selection truth so render owns selection presentation instead of asking the host to repaint selected cells itself.
 - `howl_render_surface_text_prepare_handle` consumes the exact render-owned published VT-source
   packet previously queued for that prepare token, returns a prepared render-surface handle only,
   and does not allocate or mutate host backend resources.

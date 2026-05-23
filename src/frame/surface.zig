@@ -160,6 +160,7 @@ pub const CellAttrs = packed struct {
     inverse: bool = false,
     invisible: bool = false,
     strikethrough: bool = false,
+    selected: bool = false,
 };
 
 pub const UnderlineStyle = enum {
