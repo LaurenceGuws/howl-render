@@ -78,6 +78,33 @@ const Workload = struct {
     dirty_cells_per_run: u32,
 };
 
+const WorkloadPrepareContext = struct {
+    session: text_mod.FontSession.FontSession,
+    options: text_mod.PrepareOptions,
+};
+
+const ColdRun = struct {
+    observation: RunObservation,
+    fills: u64,
+    glyphs: u64,
+    uploads: u64,
+};
+
+const WarmSummary = struct {
+    median_ns: u64,
+    p95_ns: u64,
+    median_resolve_us: u64,
+    median_shape_us: u64,
+    median_group_us: u64,
+    median_scene_us: u64,
+    median_alloc_count: u64,
+    median_alloc_bytes: u64,
+    median_peak_live_bytes: u64,
+    median_fills: u64,
+    median_glyphs: u64,
+    median_uploads: u64,
+};
+
 const CountingAllocator = struct {
     child: std.mem.Allocator,
     alloc_count: u64 = 0,
@@ -583,6 +610,205 @@ fn buildIconPuaMixedWorkload(allocator: std.mem.Allocator) !Workload {
     };
 }
 
+fn initPrepareContext(workload: Workload) WorkloadPrepareContext {
+    return .{
+        .session = .{
+            .primary_face = .{ .value = 1 },
+            .metrics = defaultCellMetrics(workload.cell_px),
+        },
+        .options = .{
+            .scene = .{
+                .damage = .{
+                    .full = workload.damage.full,
+                    .dirty_rows = workload.damage.dirty_rows,
+                    .dirty_cols_start = workload.damage.dirty_cols_start,
+                    .dirty_cols_end = workload.damage.dirty_cols_end,
+                },
+            },
+        },
+    };
+}
+
+fn prepareWorkloadFrame(preparer: *text_mod.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !text_mod.OwnedPreparedTextFrame {
+    return switch (workload.input) {
+        .cells => |cells| preparer.prepareCellsWithSessionOptions(
+            cells,
+            workload.grid,
+            context.session,
+            context.options,
+        ),
+        .cell_texts => |cells| preparer.prepareCellTextInputsWithSessionOptions(
+            cells,
+            workload.grid,
+            context.session,
+            context.options,
+        ),
+    };
+}
+
+fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: text_mod.OwnedPreparedTextFrame) RunObservation {
+    return .{
+        .ns = duration_ns,
+        .alloc_count = counting.window_alloc_count,
+        .alloc_bytes = counting.window_alloc_bytes,
+        .peak_live_bytes = counting.window_peak_live_bytes,
+        .resolve_us = analysis.timings.resolve_us,
+        .shape_us = analysis.timings.shape_us,
+        .group_us = analysis.timings.group_us,
+        .scene_us = analysis.timings.scene_us,
+    };
+}
+
+fn countSceneFills(analysis: text_mod.OwnedPreparedTextFrame) u64 {
+    return count64(analysis.scene.scene.background_draws) +
+        count64(analysis.scene.scene.decoration_draws) +
+        count64(analysis.scene.scene.cursor_draws);
+}
+
+fn markAtlasOutputs(preparer: *text_mod.TextFramePreparer, analysis: text_mod.OwnedPreparedTextFrame) void {
+    for (analysis.raster_plan.outputs) |output| {
+        _ = preparer.atlas.markRendered(output.key);
+    }
+}
+
+fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *text_mod.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !ColdRun {
+    counting.resetWindow();
+    const start_ns = nowNs(io);
+    var analysis = try prepareWorkloadFrame(preparer, workload, context);
+    defer analysis.deinit();
+    const duration_ns = nowNs(io) - start_ns;
+    const uploads = count64(analysis.raster_plan.outputs);
+    const result: ColdRun = .{
+        .observation = extractObservation(duration_ns, counting.*, analysis),
+        .fills = countSceneFills(analysis),
+        .glyphs = count64(analysis.scene.scene.sprite_draws),
+        .uploads = uploads,
+    };
+    markAtlasOutputs(preparer, analysis);
+    return result;
+}
+
+fn runWorkloadWarm(
+    io: std.Io,
+    counting: *CountingAllocator,
+    preparer: *text_mod.TextFramePreparer,
+    workload: Workload,
+    context: WorkloadPrepareContext,
+    observations: []RunObservation,
+    fill_values: []u64,
+    glyph_values: []u64,
+    upload_values: []u64,
+) !void {
+    for (observations, 0..) |*observation, idx| {
+        counting.resetWindow();
+        const start_ns = nowNs(io);
+        var analysis = try prepareWorkloadFrame(preparer, workload, context);
+        defer analysis.deinit();
+        const duration_ns = nowNs(io) - start_ns;
+        observation.* = extractObservation(duration_ns, counting.*, analysis);
+        markAtlasOutputs(preparer, analysis);
+        fill_values[idx] = countSceneFills(analysis);
+        glyph_values[idx] = count64(analysis.scene.scene.sprite_draws);
+        upload_values[idx] = count64(analysis.raster_plan.outputs);
+    }
+}
+
+fn summarizeWarmRuns(
+    allocator: std.mem.Allocator,
+    observations: []const RunObservation,
+    fill_values: []u64,
+    glyph_values: []u64,
+    upload_values: []u64,
+) !WarmSummary {
+    const ns_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(ns_values);
+    const alloc_count_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(alloc_count_values);
+    const alloc_bytes_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(alloc_bytes_values);
+    const peak_live_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(peak_live_values);
+    const resolve_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(resolve_values);
+    const shape_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(shape_values);
+    const group_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(group_values);
+    const scene_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(scene_values);
+
+    for (observations, 0..) |observation, idx| {
+        ns_values[idx] = observation.ns;
+        alloc_count_values[idx] = observation.alloc_count;
+        alloc_bytes_values[idx] = observation.alloc_bytes;
+        peak_live_values[idx] = observation.peak_live_bytes;
+        resolve_values[idx] = observation.resolve_us;
+        shape_values[idx] = observation.shape_us;
+        group_values[idx] = observation.group_us;
+        scene_values[idx] = observation.scene_us;
+    }
+
+    return .{
+        .median_ns = medianU64(ns_values),
+        .p95_ns = p95U64(ns_values),
+        .median_resolve_us = medianU64(resolve_values),
+        .median_shape_us = medianU64(shape_values),
+        .median_group_us = medianU64(group_values),
+        .median_scene_us = medianU64(scene_values),
+        .median_alloc_count = medianU64(alloc_count_values),
+        .median_alloc_bytes = medianU64(alloc_bytes_values),
+        .median_peak_live_bytes = medianU64(peak_live_values),
+        .median_fills = medianU64(fill_values),
+        .median_glyphs = medianU64(glyph_values),
+        .median_uploads = medianU64(upload_values),
+    };
+}
+
+fn runWorkloadInitState(
+    allocator: std.mem.Allocator,
+    workload: Workload,
+    counting: *CountingAllocator,
+    preparer: *text_mod.TextFramePreparer,
+    context: *WorkloadPrepareContext,
+) void {
+    context.* = initPrepareContext(workload);
+    counting.* = CountingAllocator.init(allocator);
+    preparer.* = text_mod.TextFramePreparer.init(counting.allocator());
+}
+
+fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: WarmSummary) WorkloadResult {
+    return .{
+        .name = workload.name,
+        .grid_cols = workload.grid.cols,
+        .grid_rows = workload.grid.rows,
+        .dirty_cells_per_run = workload.dirty_cells_per_run,
+        .runs = runs,
+        .cold_ns = cold.observation.ns,
+        .cold_resolve_us = cold.observation.resolve_us,
+        .cold_shape_us = cold.observation.shape_us,
+        .cold_group_us = cold.observation.group_us,
+        .cold_scene_us = cold.observation.scene_us,
+        .cold_alloc_count = cold.observation.alloc_count,
+        .cold_alloc_bytes = cold.observation.alloc_bytes,
+        .cold_peak_live_bytes = cold.observation.peak_live_bytes,
+        .cold_fills = cold.fills,
+        .cold_glyphs = cold.glyphs,
+        .cold_uploads = cold.uploads,
+        .warm_median_ns = warm.median_ns,
+        .warm_p95_ns = warm.p95_ns,
+        .warm_median_resolve_us = warm.median_resolve_us,
+        .warm_median_shape_us = warm.median_shape_us,
+        .warm_median_group_us = warm.median_group_us,
+        .warm_median_scene_us = warm.median_scene_us,
+        .warm_median_alloc_count = warm.median_alloc_count,
+        .warm_median_alloc_bytes = warm.median_alloc_bytes,
+        .warm_median_peak_live_bytes = warm.median_peak_live_bytes,
+        .warm_median_fills = warm.median_fills,
+        .warm_median_glyphs = warm.median_glyphs,
+        .warm_median_uploads = warm.median_uploads,
+    };
+}
+
 fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, runs: RunCount) !WorkloadResult {
     const observations = try allocator.alloc(RunObservation, runs);
     defer allocator.free(observations);
@@ -593,166 +819,17 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
     const upload_values = try allocator.alloc(u64, runs);
     defer allocator.free(upload_values);
 
-    const cell_metrics = defaultCellMetrics(workload.cell_px);
-    const session = text_mod.FontSession.FontSession{
-        .primary_face = .{ .value = 1 },
-        .metrics = cell_metrics,
-    };
-    const prepare_options = text_mod.PrepareOptions{
-        .scene = .{
-            .damage = .{
-                .full = workload.damage.full,
-                .dirty_rows = workload.damage.dirty_rows,
-                .dirty_cols_start = workload.damage.dirty_cols_start,
-                .dirty_cols_end = workload.damage.dirty_cols_end,
-            },
-        },
-    };
-    var counting = CountingAllocator.init(allocator);
-    var preparer = text_mod.TextFramePreparer.init(counting.allocator());
+    var context: WorkloadPrepareContext = undefined;
+    var counting: CountingAllocator = undefined;
+    var preparer: text_mod.TextFramePreparer = undefined;
+    runWorkloadInitState(allocator, workload, &counting, &preparer, &context);
     defer preparer.deinit();
 
-    counting.resetWindow();
-    const cold_start = nowNs(io);
-    var cold = switch (workload.input) {
-        .cells => |cells| try preparer.prepareCellsWithSessionOptions(
-            cells,
-            workload.grid,
-            session,
-            prepare_options,
-        ),
-        .cell_texts => |cells| try preparer.prepareCellTextInputsWithSessionOptions(
-            cells,
-            workload.grid,
-            session,
-            prepare_options,
-        ),
-    };
-    const cold_end = nowNs(io);
-    const cold_observation = RunObservation{
-        .ns = cold_end - cold_start,
-        .alloc_count = counting.window_alloc_count,
-        .alloc_bytes = counting.window_alloc_bytes,
-        .peak_live_bytes = counting.window_peak_live_bytes,
-        .resolve_us = cold.timings.resolve_us,
-        .shape_us = cold.timings.shape_us,
-        .group_us = cold.timings.group_us,
-        .scene_us = cold.timings.scene_us,
-    };
-    const cold_fills = count64(cold.scene.scene.background_draws) + count64(cold.scene.scene.decoration_draws) + count64(cold.scene.scene.cursor_draws);
-    const cold_glyphs = count64(cold.scene.scene.sprite_draws);
-    const cold_uploads = count64(cold.raster_plan.outputs);
-    for (cold.raster_plan.outputs) |output| _ = preparer.atlas.markRendered(output.key);
-    cold.deinit();
-
-    var i: RunCount = 0;
-    while (i < runs) : (i += 1) {
-        counting.resetWindow();
-        const start = nowNs(io);
-        var analysis = switch (workload.input) {
-            .cells => |cells| try preparer.prepareCellsWithSessionOptions(
-                cells,
-                workload.grid,
-                session,
-                prepare_options,
-            ),
-            .cell_texts => |cells| try preparer.prepareCellTextInputsWithSessionOptions(
-                cells,
-                workload.grid,
-                session,
-                prepare_options,
-            ),
-        };
-        const end = nowNs(io);
-        defer analysis.deinit();
-        observations[@intCast(i)] = .{
-            .ns = end - start,
-            .alloc_count = counting.window_alloc_count,
-            .alloc_bytes = counting.window_alloc_bytes,
-            .peak_live_bytes = counting.window_peak_live_bytes,
-            .resolve_us = analysis.timings.resolve_us,
-            .shape_us = analysis.timings.shape_us,
-            .group_us = analysis.timings.group_us,
-            .scene_us = analysis.timings.scene_us,
-        };
-        for (analysis.raster_plan.outputs) |output| _ = preparer.atlas.markRendered(output.key);
-        fill_values[@intCast(i)] = count64(analysis.scene.scene.background_draws) + count64(analysis.scene.scene.decoration_draws) + count64(analysis.scene.scene.cursor_draws);
-        glyph_values[@intCast(i)] = count64(analysis.scene.scene.sprite_draws);
-        upload_values[@intCast(i)] = count64(analysis.raster_plan.outputs);
-    }
-
-    const ns_values = try allocator.alloc(u64, runs);
-    defer allocator.free(ns_values);
-    const alloc_count_values = try allocator.alloc(u64, runs);
-    defer allocator.free(alloc_count_values);
-    const alloc_bytes_values = try allocator.alloc(u64, runs);
-    defer allocator.free(alloc_bytes_values);
-    const peak_live_values = try allocator.alloc(u64, runs);
-    defer allocator.free(peak_live_values);
-    const resolve_values = try allocator.alloc(u64, runs);
-    defer allocator.free(resolve_values);
-    const shape_values = try allocator.alloc(u64, runs);
-    defer allocator.free(shape_values);
-    const group_values = try allocator.alloc(u64, runs);
-    defer allocator.free(group_values);
-    const scene_values = try allocator.alloc(u64, runs);
-    defer allocator.free(scene_values);
-
-    for (observations, 0..) |obs, idx| {
-        ns_values[idx] = obs.ns;
-        alloc_count_values[idx] = obs.alloc_count;
-        alloc_bytes_values[idx] = obs.alloc_bytes;
-        peak_live_values[idx] = obs.peak_live_bytes;
-        resolve_values[idx] = obs.resolve_us;
-        shape_values[idx] = obs.shape_us;
-        group_values[idx] = obs.group_us;
-        scene_values[idx] = obs.scene_us;
-    }
-
-    const warm_median_ns = medianU64(ns_values);
-    const warm_p95_ns = p95U64(ns_values);
-    const warm_median_resolve_us = medianU64(resolve_values);
-    const warm_median_shape_us = medianU64(shape_values);
-    const warm_median_group_us = medianU64(group_values);
-    const warm_median_scene_us = medianU64(scene_values);
-    const warm_median_alloc_count = medianU64(alloc_count_values);
-    const warm_median_alloc_bytes = medianU64(alloc_bytes_values);
-    const warm_median_peak_live_bytes = medianU64(peak_live_values);
-    const warm_median_fills = medianU64(fill_values);
-    const warm_median_glyphs = medianU64(glyph_values);
-    const warm_median_uploads = medianU64(upload_values);
-    std.debug.assert(cold_uploads >= warm_median_uploads);
-
-    return .{
-        .name = workload.name,
-        .grid_cols = workload.grid.cols,
-        .grid_rows = workload.grid.rows,
-        .dirty_cells_per_run = workload.dirty_cells_per_run,
-        .runs = runs,
-        .cold_ns = cold_observation.ns,
-        .cold_resolve_us = cold_observation.resolve_us,
-        .cold_shape_us = cold_observation.shape_us,
-        .cold_group_us = cold_observation.group_us,
-        .cold_scene_us = cold_observation.scene_us,
-        .cold_alloc_count = cold_observation.alloc_count,
-        .cold_alloc_bytes = cold_observation.alloc_bytes,
-        .cold_peak_live_bytes = cold_observation.peak_live_bytes,
-        .cold_fills = cold_fills,
-        .cold_glyphs = cold_glyphs,
-        .cold_uploads = cold_uploads,
-        .warm_median_ns = warm_median_ns,
-        .warm_p95_ns = warm_p95_ns,
-        .warm_median_resolve_us = warm_median_resolve_us,
-        .warm_median_shape_us = warm_median_shape_us,
-        .warm_median_group_us = warm_median_group_us,
-        .warm_median_scene_us = warm_median_scene_us,
-        .warm_median_alloc_count = warm_median_alloc_count,
-        .warm_median_alloc_bytes = warm_median_alloc_bytes,
-        .warm_median_peak_live_bytes = warm_median_peak_live_bytes,
-        .warm_median_fills = warm_median_fills,
-        .warm_median_glyphs = warm_median_glyphs,
-        .warm_median_uploads = warm_median_uploads,
-    };
+    const cold = try runWorkloadCold(io, &counting, &preparer, workload, context);
+    try runWorkloadWarm(io, &counting, &preparer, workload, context, observations, fill_values, glyph_values, upload_values);
+    const warm = try summarizeWarmRuns(allocator, observations, fill_values, glyph_values, upload_values);
+    std.debug.assert(cold.uploads >= warm.median_uploads);
+    return runWorkloadResult(workload, runs, cold, warm);
 }
 
 fn parseArgs(argv: []const [:0]const u8) !Options {
