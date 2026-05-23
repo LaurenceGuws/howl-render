@@ -212,12 +212,15 @@ pub const PublicationSource = struct {
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
     dirty_cols_end: []u16 = &.{},
+    retained_storage: bool = false,
 
     pub fn deinit(self: *PublicationSource, allocator: std.mem.Allocator) void {
-        allocator.free(self.cells);
-        if (self.dirty_rows.len > 0) allocator.free(self.dirty_rows);
-        if (self.dirty_cols_start.len > 0) allocator.free(self.dirty_cols_start);
-        if (self.dirty_cols_end.len > 0) allocator.free(self.dirty_cols_end);
+        if (!self.retained_storage) {
+            allocator.free(self.cells);
+            if (self.dirty_rows.len > 0) allocator.free(self.dirty_rows);
+            if (self.dirty_cols_start.len > 0) allocator.free(self.dirty_cols_start);
+            if (self.dirty_cols_end.len > 0) allocator.free(self.dirty_cols_end);
+        }
         self.* = undefined;
     }
 
@@ -292,7 +295,63 @@ const ActivePrepare = struct {
 };
 
 const PublicationState = struct {
+    const RetainedSlot = struct {
+        cells: []abi.FfiVtCell = &.{},
+        dirty_rows: []u8 = &.{},
+        dirty_cols_start: []u16 = &.{},
+        dirty_cols_end: []u16 = &.{},
+        cols_capacity: u16 = 0,
+        rows_capacity: u16 = 0,
+
+        fn deinit(self: *RetainedSlot, allocator: std.mem.Allocator) void {
+            if (self.cells.len > 0) allocator.free(self.cells);
+            if (self.dirty_rows.len > 0) allocator.free(self.dirty_rows);
+            if (self.dirty_cols_start.len > 0) allocator.free(self.dirty_cols_start);
+            if (self.dirty_cols_end.len > 0) allocator.free(self.dirty_cols_end);
+            self.* = .{};
+        }
+
+        fn ensureCapacity(self: *RetainedSlot, allocator: std.mem.Allocator, cols: u16, rows: u16) !void {
+            std.debug.assert(cols > 0);
+            std.debug.assert(rows > 0);
+            if (self.cols_capacity >= cols and self.rows_capacity >= rows) return;
+
+            const cell_count = slotCellCount(cols, rows);
+            const cells = try allocator.alloc(abi.FfiVtCell, cell_count);
+            errdefer allocator.free(cells);
+            const dirty_rows = try allocator.alloc(u8, rows);
+            errdefer allocator.free(dirty_rows);
+            const dirty_cols_start = try allocator.alloc(u16, rows);
+            errdefer allocator.free(dirty_cols_start);
+            const dirty_cols_end = try allocator.alloc(u16, rows);
+            errdefer allocator.free(dirty_cols_end);
+
+            self.deinit(allocator);
+            self.cells = cells;
+            self.dirty_rows = dirty_rows;
+            self.dirty_cols_start = dirty_cols_start;
+            self.dirty_cols_end = dirty_cols_end;
+            self.cols_capacity = cols;
+            self.rows_capacity = rows;
+        }
+
+        fn canHold(self: *const RetainedSlot, cols: u16, rows: u16) bool {
+            return self.cols_capacity >= cols and self.rows_capacity >= rows;
+        }
+
+        fn publicationSlot(self: *const RetainedSlot, cols: u16, rows: u16) PublicationSlot {
+            std.debug.assert(self.canHold(cols, rows));
+            return .{
+                .cells = self.cells[0..slotCellCount(cols, rows)],
+                .dirty_rows = self.dirty_rows[0..rows],
+                .dirty_cols_start = self.dirty_cols_start[0..rows],
+                .dirty_cols_end = self.dirty_cols_end[0..rows],
+            };
+        }
+    };
+
     allocator: std.mem.Allocator,
+    retained_slot: RetainedSlot = .{},
     reserved: ?PublicationSource = null,
     pending: ?Publication = null,
     active: ?ActivePrepare = null,
@@ -308,45 +367,28 @@ const PublicationState = struct {
         self.pending = null;
         if (self.active) |*active| active.deinit(self.allocator);
         self.active = null;
+        self.retained_slot.deinit(self.allocator);
+    }
+
+    fn syncReservedSlotCapacity(self: *PublicationState, cols: u16, rows: u16) !void {
+        std.debug.assert(cols > 0);
+        std.debug.assert(rows > 0);
+        try self.retained_slot.ensureCapacity(self.allocator, cols, rows);
+        self.refreshRetainedSlotViews();
     }
 
     fn reserveSourceSlot(self: *PublicationState, cols: u16, rows: u16) !PublicationSlot {
         std.debug.assert(cols > 0);
         std.debug.assert(rows > 0);
         if (self.reserved != null) return error.PublishSlotBusy;
+        if (self.retainedSlotInUse()) return error.PublishSlotBusy;
+        if (!self.retained_slot.canHold(cols, rows)) return error.PublishSlotOutOfRange;
 
-        const cell_count: u32 = @as(u32, cols) * @as(u32, rows);
-        const cells = try self.allocator.alloc(abi.FfiVtCell, @intCast(cell_count));
-        errdefer self.allocator.free(cells);
-        const dirty_rows = try self.allocator.alloc(u8, rows);
-        errdefer self.allocator.free(dirty_rows);
-        const dirty_cols_start = try self.allocator.alloc(u16, rows);
-        errdefer self.allocator.free(dirty_cols_start);
-        const dirty_cols_end = try self.allocator.alloc(u16, rows);
-        errdefer self.allocator.free(dirty_cols_end);
-
-        self.reserved = .{
-            .cols = cols,
-            .rows = rows,
-            .scroll_row = 0,
-            .snapshot_seq = 0,
-            .is_alternate_screen = false,
-            .cells = cells,
-            .cursor = std.mem.zeroes(surface_types.CursorInfo),
-            .dirty_rows = dirty_rows,
-            .dirty_cols_start = dirty_cols_start,
-            .dirty_cols_end = dirty_cols_end,
-        };
-        return .{
-            .cells = self.reserved.?.cells,
-            .dirty_rows = self.reserved.?.dirty_rows,
-            .dirty_cols_start = self.reserved.?.dirty_cols_start,
-            .dirty_cols_end = self.reserved.?.dirty_cols_end,
-        };
+        self.reserved = self.retainedSource(cols, rows);
+        return self.retained_slot.publicationSlot(cols, rows);
     }
 
     fn cancelReservedSource(self: *PublicationState) void {
-        if (self.reserved) |*source| source.deinit(self.allocator);
         self.reserved = null;
     }
 
@@ -494,7 +536,59 @@ const PublicationState = struct {
         if (self.active) |active| return active.publication.source.snapshot();
         return null;
     }
+
+    fn retainedSource(self: *const PublicationState, cols: u16, rows: u16) PublicationSource {
+        const slot = self.retained_slot.publicationSlot(cols, rows);
+        return .{
+            .cols = cols,
+            .rows = rows,
+            .scroll_row = 0,
+            .snapshot_seq = 0,
+            .is_alternate_screen = false,
+            .cells = slot.cells,
+            .cursor = std.mem.zeroes(surface_types.CursorInfo),
+            .dirty_rows = slot.dirty_rows,
+            .dirty_cols_start = slot.dirty_cols_start,
+            .dirty_cols_end = slot.dirty_cols_end,
+            .retained_storage = true,
+        };
+    }
+
+    fn retainedSlotInUse(self: *const PublicationState) bool {
+        if (self.reserved) |source| if (source.retained_storage) return true;
+        if (self.pending) |publication| if (publication.source.retained_storage) return true;
+        if (self.active) |active| if (active.publication.source.retained_storage) return true;
+        return false;
+    }
+
+    fn refreshRetainedSlotViews(self: *PublicationState) void {
+        if (self.reserved) |*source| {
+            if (source.retained_storage) self.refreshRetainedSource(source);
+        }
+        if (self.pending) |*publication| {
+            if (publication.source.retained_storage) self.refreshRetainedSource(&publication.source);
+        }
+        if (self.active) |*active| {
+            if (active.publication.source.retained_storage) self.refreshRetainedSource(&active.publication.source);
+        }
+    }
+
+    fn refreshRetainedSource(self: *PublicationState, source: *PublicationSource) void {
+        const scroll_row = source.scroll_row;
+        const snapshot_seq = source.snapshot_seq;
+        const is_alternate_screen = source.is_alternate_screen;
+        const cursor = source.cursor;
+        source.* = self.retainedSource(source.cols, source.rows);
+        source.scroll_row = scroll_row;
+        source.snapshot_seq = snapshot_seq;
+        source.is_alternate_screen = is_alternate_screen;
+        source.cursor = cursor;
+    }
 };
+
+fn slotCellCount(cols: u16, rows: u16) usize {
+    return @as(usize, cols) * @as(usize, rows);
+}
 
 fn sameSnapshotToken(a: pipeline.SnapshotToken, b: pipeline.SnapshotToken) bool {
     return a.snapshot_seq == b.snapshot_seq and
@@ -611,7 +705,7 @@ pub const Flow = struct {
         return self.acceptSource(source);
     }
 
-    pub fn syncGeometry(self: *Flow, layout: surface_types.Geometry) surface_types.GeometryResponse {
+    pub fn syncGeometry(self: *Flow, layout: surface_types.Geometry) !surface_types.GeometryResponse {
         const changed = self.geometry_epoch == 0 or
             self.render_px.width != layout.render_px.width or
             self.render_px.height != layout.render_px.height or
@@ -620,6 +714,9 @@ pub const Flow = struct {
             self.cell_px.width != layout.cell_px.width or
             self.cell_px.height != layout.cell_px.height;
         if (changed) {
+            const cols = @max(1, @divTrunc(layout.grid_px.width, @max(layout.cell_px.width, 1)));
+            const rows = @max(1, @divTrunc(layout.grid_px.height, @max(layout.cell_px.height, 1)));
+            try self.publication_state.syncReservedSlotCapacity(cols, rows);
             self.geometry_epoch +%= 1;
             self.render_px = layout.render_px;
             self.grid_px = layout.grid_px;
@@ -815,7 +912,7 @@ test "surface reports stale submit when newer snapshot already won" {
 test "flow coalesces snapshots into latest prepare request" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -840,7 +937,7 @@ test "flow coalesces snapshots into latest prepare request" {
 test "flow turns partial snapshot full without retained base" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -861,7 +958,7 @@ test "flow turns partial snapshot full without retained base" {
 test "flow rejects stale submit and requests full latest prepare" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -896,7 +993,7 @@ test "flow rejects stale submit and requests full latest prepare" {
 test "flow drops pending prepare at submitted token" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -916,7 +1013,7 @@ test "flow drops pending prepare at submitted token" {
 test "flow exposes source pending before queue preparation" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -938,7 +1035,7 @@ test "flow exposes source pending before queue preparation" {
 test "flow reject publish slot clears reserved source" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    const geometry = flow.syncGeometry(.{
+    const geometry = try flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -956,10 +1053,33 @@ test "flow reject publish slot clears reserved source" {
     try std.testing.expect(!flow.pendingState().source_pending);
 }
 
+test "flow reuses retained publish slot storage across reservations" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 10, .height = 10 },
+        .grid_px = .{ .width = 10, .height = 10 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const first = try flow.reservePublishSlot(1, 1);
+    const first_cells = first.cells.ptr;
+    const first_dirty_rows = first.dirty_rows.ptr;
+    const first_dirty_cols_start = first.dirty_cols_start.ptr;
+    const first_dirty_cols_end = first.dirty_cols_end.ptr;
+    flow.cancelPublishSlot();
+
+    const second = try flow.reservePublishSlot(1, 1);
+    try std.testing.expectEqual(first_cells, second.cells.ptr);
+    try std.testing.expectEqual(first_dirty_rows, second.dirty_rows.ptr);
+    try std.testing.expectEqual(first_dirty_cols_start, second.dirty_cols_start.ptr);
+    try std.testing.expectEqual(first_dirty_cols_end, second.dirty_cols_end.ptr);
+}
+
 test "flow keeps latest source when publish A then B before prepare" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 1, .height = 1 },
         .grid_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -979,7 +1099,7 @@ test "flow keeps latest source when publish A then B before prepare" {
 test "flow rejects mismatched prepare token against retained source" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 1, .height = 1 },
         .grid_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -1000,7 +1120,7 @@ test "flow rejects mismatched prepare token against retained source" {
 test "flow preserves partial snapshot damage while prior snapshot is still pending" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -1021,7 +1141,7 @@ test "flow preserves partial snapshot damage while prior snapshot is still pendi
 test "flow forces full snapshot on scroll row change" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },
@@ -1042,7 +1162,7 @@ test "flow forces full snapshot on scroll row change" {
 test "flow drops clean snapshot" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
-    _ = flow.syncGeometry(.{
+    _ = try flow.syncGeometry(.{
         .render_px = .{ .width = 10, .height = 10 },
         .grid_px = .{ .width = 10, .height = 10 },
         .cell_px = .{ .width = 1, .height = 1 },

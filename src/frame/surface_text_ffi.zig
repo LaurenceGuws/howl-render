@@ -84,7 +84,7 @@ pub fn syncGeometry(handle: abi.SurfaceTextHandle, geometry: abi.FfiGeometry) ca
         .render_px = pixelIn(geometry.render_px),
         .grid_px = pixelIn(geometry.grid_px),
         .cell_px = layout.cell_px,
-    }));
+    }) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.failed), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 });
 }
 
 pub fn publishVtSource(handle: abi.SurfaceTextHandle, source_in: abi.FfiVtSurface) callconv(.c) abi.FfiVtPublishResult {
