@@ -425,19 +425,20 @@ const PublicationState = struct {
         self.reserved = null;
     }
 
-    fn commitReservedSource(self: *PublicationState, meta: ReservedSourceMeta, geometry_epoch: u64) !VtPublishResult {
+    fn commitReservedSource(self: *PublicationState, meta: ReservedSourceMeta, dirty_epoch: u64, submitted_token: ?pipeline.SnapshotToken, geometry_epoch: u64) !VtPublishResult {
         var source = self.reserved orelse return error.MissingPublishSlot;
         self.reserved = null;
         source.scroll_row = meta.scroll_row;
         source.snapshot_seq = meta.snapshot_seq;
+        source.dirty_epoch = dirty_epoch;
         source.is_alternate_screen = meta.is_alternate_screen;
         source.cursor = meta.cursor;
-        return self.acceptSource(source, geometry_epoch);
+        return self.acceptSource(source, submitted_token, geometry_epoch);
     }
 
-    fn acceptSource(self: *PublicationState, source: PublicationSource, geometry_epoch: u64) VtPublishResult {
+    fn acceptSource(self: *PublicationState, source: PublicationSource, submitted_token: ?pipeline.SnapshotToken, geometry_epoch: u64) VtPublishResult {
         const snapshot = source.snapshot();
-        const damage_kind = self.classify(source);
+        const damage_kind = self.classify(source, submitted_token);
         const published = damage_kind != .none;
         if (!published) {
             var dropped = source;
@@ -609,20 +610,26 @@ const PublicationState = struct {
         };
     }
 
-    fn classify(self: *const PublicationState, source: PublicationSource) pipeline.DamageKind {
+    fn classify(self: *const PublicationState, source: PublicationSource, submitted_token: ?pipeline.SnapshotToken) pipeline.DamageKind {
         const snapshot = source.snapshot();
         const damage_kind = classifyDirty(snapshot);
         const prior = self.priorSource() orelse return damage_kind;
         const prior_snapshot = prior.snapshot();
+        const prior_matches_submitted = if (submitted_token) |token|
+            prior_snapshot.snapshot_seq == token.snapshot_seq
+        else
+            false;
         if (snapshot.snapshot_seq == prior_snapshot.snapshot_seq) {
-            if (snapshot.dirty_epoch == prior_snapshot.dirty_epoch) return .none;
+            if (samePublicationSource(prior, source)) return .none;
             if (cursorPresentationChanged(prior, source)) return .full;
-            return .none;
+            if (damage_kind == .partial and !prior_matches_submitted) return .full;
+            return damage_kind;
         }
         if (cursorPresentationChanged(prior, source)) return .full;
         if (snapshot.cols != prior_snapshot.cols or snapshot.rows != prior_snapshot.rows) return .full;
         if (snapshot.is_alternate_screen != prior_snapshot.is_alternate_screen) return .full;
         if (snapshot.scroll_row != prior_snapshot.scroll_row) return .full;
+        if (damage_kind == .partial and !prior_matches_submitted) return .full;
         return damage_kind;
     }
 
@@ -717,6 +724,24 @@ fn sameSnapshotToken(a: pipeline.SnapshotToken, b: pipeline.SnapshotToken) bool 
         a.damage_kind == b.damage_kind;
 }
 
+fn samePublicationSource(a: PublicationSource, b: PublicationSource) bool {
+    return a.cols == b.cols and
+        a.rows == b.rows and
+        a.scroll_row == b.scroll_row and
+        a.snapshot_seq == b.snapshot_seq and
+        a.is_alternate_screen == b.is_alternate_screen and
+        a.cursor_phase_visible == b.cursor_phase_visible and
+        a.cursor.row == b.cursor.row and
+        a.cursor.col == b.cursor.col and
+        a.cursor.visible == b.cursor.visible and
+        a.cursor.shape == b.cursor.shape and
+        a.cursor.blink == b.cursor.blink and
+        std.mem.eql(u8, std.mem.sliceAsBytes(a.cells), std.mem.sliceAsBytes(b.cells)) and
+        std.mem.eql(u8, a.dirty_rows, b.dirty_rows) and
+        std.mem.eql(u16, a.dirty_cols_start, b.dirty_cols_start) and
+        std.mem.eql(u16, a.dirty_cols_end, b.dirty_cols_end);
+}
+
 fn classifyDirty(snapshot: VtSnapshot) pipeline.DamageKind {
     std.debug.assert(snapshot.dirty_rows.len == snapshot.rows);
     std.debug.assert(snapshot.dirty_cols_start.len == snapshot.rows);
@@ -790,7 +815,7 @@ pub const Flow = struct {
         owned.dirty_epoch = self.nextSourceDirtyEpoch();
         owned.cursor_phase_visible = self.cursor_blink_visible;
         const had_queued_publication = self.publication_state.pending != null or self.publication_state.active != null;
-        const result = self.publication_state.acceptSource(owned, self.geometry_epoch);
+        const result = self.publication_state.acceptSource(owned, self.submittedToken(), self.geometry_epoch);
         self.surface.noteSnapshotPublish(result, had_queued_publication and result.published);
         return result;
     }
@@ -813,7 +838,7 @@ pub const Flow = struct {
     pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
         std.debug.assert(meta.snapshot_seq != 0);
         const had_queued_publication = self.publication_state.pending != null or self.publication_state.active != null;
-        const result = try self.publication_state.commitReservedSource(meta, self.geometry_epoch);
+        const result = try self.publication_state.commitReservedSource(meta, self.nextSourceDirtyEpoch(), self.submittedToken(), self.geometry_epoch);
         self.surface.noteSnapshotPublish(result, had_queued_publication and result.published);
         return result;
     }
@@ -946,6 +971,12 @@ pub const Flow = struct {
         self.source_dirty_epoch +%= 1;
         if (self.source_dirty_epoch == 0) self.source_dirty_epoch = 1;
         return self.source_dirty_epoch;
+    }
+
+    fn submittedToken(self: *Flow) ?pipeline.SnapshotToken {
+        lockMutex(&self.surface.mutex);
+        defer self.surface.mutex.unlock();
+        return if (self.surface.submitted_frame) |frame| frame.token else null;
     }
 };
 
@@ -1443,7 +1474,7 @@ test "flow rejects mismatched prepare token against retained source" {
     try std.testing.expectError(error.MismatchedPublishedSource, flow.consumePrepare(wrong));
 }
 
-test "flow preserves partial snapshot damage while prior snapshot is still pending" {
+test "flow forces full snapshot damage while prior snapshot is still pending" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
     _ = try flow.syncGeometry(.{
@@ -1461,7 +1492,7 @@ test "flow preserves partial snapshot damage while prior snapshot is still pendi
     _ = flow.acceptSnapshot(testSnapshot(10, 10, 0, 1, &full_dirty_rows, &full_dirty_cols_start, &full_dirty_cols_end));
     const second = flow.acceptSnapshot(testSnapshot(10, 10, 0, 2, &partial_dirty_rows, &partial_dirty_cols_start, &partial_dirty_cols_end));
     try std.testing.expect(second.published);
-    try std.testing.expectEqual(pipeline.DamageKind.partial, second.damage_kind);
+    try std.testing.expectEqual(pipeline.DamageKind.full, second.damage_kind);
 }
 
 test "flow forces full snapshot on scroll row change" {
