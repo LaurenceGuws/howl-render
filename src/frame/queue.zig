@@ -1380,6 +1380,95 @@ test "graphics publication change republishes clean later vt snapshot" {
     try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
 }
 
+test "graphics publication change replaces retained copied item metadata" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var first = try ownedTestSource(std.heap.c_allocator, 2, 'A');
+    first.graphics.publication_seq = 1;
+    first.graphics.dirty_generation = 1;
+    first.graphics.image_count = 1;
+    first.graphics.placement_count = 1;
+    first.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsImage, &.{.{
+        .image_id = 7,
+        .image_number = 1,
+        .format = 24,
+        .width = 2,
+        .height = 1,
+        .payload_len = 4,
+    }});
+    first.graphics_placements = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsPlacement, &.{.{
+        .image_id = 7,
+        .placement_id = 4,
+        .z_index = 0,
+        .anchor = .{ .kind = 1, .value = 1 },
+        .anchor_col = 2,
+        .source_x = 0,
+        .source_y = 0,
+        .source_width = 2,
+        .source_height = 1,
+        .cell_x_offset = 0,
+        .cell_y_offset = 0,
+        .columns = 4,
+        .rows = 2,
+        .effective_columns = 4,
+        .effective_rows = 2,
+    }});
+    try std.testing.expect(flow.acceptSource(first).published);
+    _ = flow.prepare() orelse return error.TestUnexpectedResult;
+
+    var second = try ownedTestSource(std.heap.c_allocator, 3, 'A');
+    second.dirty_rows[0] = 0;
+    second.dirty_cols_start[0] = 0;
+    second.dirty_cols_end[0] = 0;
+    second.graphics.publication_seq = 2;
+    second.graphics.dirty_generation = 2;
+    second.graphics.image_count = 1;
+    second.graphics.placement_count = 1;
+    second.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsImage, &.{.{
+        .image_id = 8,
+        .image_number = 2,
+        .format = 24,
+        .width = 3,
+        .height = 1,
+        .payload_len = 8,
+    }});
+    second.graphics_placements = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsPlacement, &.{.{
+        .image_id = 8,
+        .placement_id = 5,
+        .z_index = 1,
+        .anchor = .{ .kind = 1, .value = 2 },
+        .anchor_col = 3,
+        .source_x = 1,
+        .source_y = 0,
+        .source_width = 3,
+        .source_height = 1,
+        .cell_x_offset = 1,
+        .cell_y_offset = 0,
+        .columns = 5,
+        .rows = 2,
+        .effective_columns = 5,
+        .effective_rows = 2,
+    }});
+
+    const published = flow.acceptSource(second);
+    try std.testing.expect(published.published);
+    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
+
+    const request = flow.prepare() orelse return error.TestUnexpectedResult;
+    const prepare = try flow.consumePrepare(request.token);
+    try std.testing.expectEqual(@as(u64, 2), prepare.state.graphics.publication_seq);
+    try std.testing.expectEqual(@as(usize, 1), prepare.state.graphics_images.len);
+    try std.testing.expectEqual(@as(usize, 1), prepare.state.graphics_placements.len);
+    try std.testing.expectEqual(@as(u32, 8), prepare.state.graphics_images[0].image_id);
+    try std.testing.expectEqual(@as(u32, 5), prepare.state.graphics_placements[0].placement_id);
+}
+
 test "flow coalesces snapshots into latest prepare request" {
     var flow = Flow.init(std.heap.c_allocator);
     defer flow.deinit();
