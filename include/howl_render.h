@@ -253,6 +253,16 @@ typedef struct {
 } HowlRenderPublishSlot;
 
 typedef struct {
+  uint32_t image_count;
+  uint32_t placement_count;
+  uint8_t is_alternate_screen;
+  uint8_t reserved0;
+  uint16_t reserved1;
+  uint64_t publication_seq;
+  uint64_t dirty_generation;
+} HowlRenderVtGraphicsMeta;
+
+typedef struct {
   uint64_t scroll_row;
   uint64_t snapshot_seq;
   uint8_t is_alternate_screen;
@@ -261,6 +271,7 @@ typedef struct {
   HowlVtCursor cursor;
   HowlVtRenderColorState colors;
   HowlVtSelection selection;
+  HowlRenderVtGraphicsMeta graphics;
 } HowlRenderPublishSlotCommit;
 
 typedef struct {
@@ -343,16 +354,6 @@ typedef struct {
   uint64_t uploads_committed;
   uint64_t render_us;
 } HowlRenderSurfaceExecutionInput;
-
-typedef struct {
-  uint32_t image_count;
-  uint32_t placement_count;
-  uint8_t is_alternate_screen;
-  uint8_t reserved0;
-  uint16_t reserved1;
-  uint64_t publication_seq;
-  uint64_t dirty_generation;
-} HowlRenderVtGraphicsMeta;
 
 typedef struct {
   HowlVtSurfaceCellSpan cells;
