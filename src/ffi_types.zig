@@ -252,6 +252,42 @@ pub const FfiVtGraphicsMeta = extern struct {
     dirty_generation: u64,
 };
 
+pub const FfiVtGraphicsRowAnchor = extern struct {
+    kind: u8,
+    reserved0: u8 = 0,
+    reserved1: u16 = 0,
+    value: u32,
+};
+
+pub const FfiVtGraphicsImage = extern struct {
+    image_id: u32,
+    image_number: u32,
+    format: u16,
+    reserved0: u16 = 0,
+    width: u32,
+    height: u32,
+    payload_len: u64,
+};
+
+pub const FfiVtGraphicsPlacement = extern struct {
+    image_id: u32,
+    placement_id: u32,
+    z_index: i32,
+    anchor: FfiVtGraphicsRowAnchor,
+    anchor_col: u16,
+    reserved0: u16 = 0,
+    source_x: u32,
+    source_y: u32,
+    source_width: u32,
+    source_height: u32,
+    cell_x_offset: u32,
+    cell_y_offset: u32,
+    columns: u32,
+    rows: u32,
+    effective_columns: u32,
+    effective_rows: u32,
+};
+
 pub const FfiGeometry = extern struct {
     render_px: FfiPixelSize,
     grid_px: FfiPixelSize,
@@ -327,6 +363,8 @@ pub const FfiPublishSlotCommit = extern struct {
     colors: FfiVtRenderColorState,
     selection: FfiVtSelection,
     graphics: FfiVtGraphicsMeta,
+    graphics_images: FfiVtGraphicsImageSpan,
+    graphics_placements: FfiVtGraphicsPlacementSpan,
 };
 
 pub const FfiSurfaceMetrics = extern struct {
@@ -426,6 +464,18 @@ pub const FfiVtSurface = extern struct {
     colors: FfiVtRenderColorState,
     selection: FfiVtSelection,
     graphics: FfiVtGraphicsMeta,
+    graphics_images: FfiVtGraphicsImageSpan,
+    graphics_placements: FfiVtGraphicsPlacementSpan,
+};
+
+pub const FfiVtGraphicsImageSpan = extern struct {
+    ptr: [*c]const FfiVtGraphicsImage,
+    len: c_size_t,
+};
+
+pub const FfiVtGraphicsPlacementSpan = extern struct {
+    ptr: [*c]const FfiVtGraphicsPlacement,
+    len: c_size_t,
 };
 
 pub const FfiSurfaceFeedback = extern struct {

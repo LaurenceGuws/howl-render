@@ -219,6 +219,8 @@ pub const PublicationSource = struct {
     colors: abi.FfiVtRenderColorState,
     selection: abi.FfiVtSelection,
     graphics: abi.FfiVtGraphicsMeta,
+    graphics_images: []abi.FfiVtGraphicsImage = &.{},
+    graphics_placements: []abi.FfiVtGraphicsPlacement = &.{},
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
@@ -232,6 +234,8 @@ pub const PublicationSource = struct {
             if (self.dirty_cols_start.len > 0) allocator.free(self.dirty_cols_start);
             if (self.dirty_cols_end.len > 0) allocator.free(self.dirty_cols_end);
         }
+        if (self.graphics_images.len > 0) allocator.free(self.graphics_images);
+        if (self.graphics_placements.len > 0) allocator.free(self.graphics_placements);
         self.* = undefined;
     }
 
@@ -244,6 +248,10 @@ pub const PublicationSource = struct {
         errdefer allocator.free(dirty_cols_start);
         const dirty_cols_end = try allocator.dupe(u16, self.dirty_cols_end);
         errdefer allocator.free(dirty_cols_end);
+        const graphics_images = try allocator.dupe(abi.FfiVtGraphicsImage, self.graphics_images);
+        errdefer allocator.free(graphics_images);
+        const graphics_placements = try allocator.dupe(abi.FfiVtGraphicsPlacement, self.graphics_placements);
+        errdefer allocator.free(graphics_placements);
 
         return .{
             .cols = self.cols,
@@ -257,6 +265,8 @@ pub const PublicationSource = struct {
             .colors = self.colors,
             .selection = self.selection,
             .graphics = self.graphics,
+            .graphics_images = graphics_images,
+            .graphics_placements = graphics_placements,
             .cursor_phase_visible = self.cursor_phase_visible,
             .dirty_rows = dirty_rows,
             .dirty_cols_start = dirty_cols_start,
@@ -308,6 +318,8 @@ pub const ReservedSourceMeta = struct {
     colors: abi.FfiVtRenderColorState,
     selection: abi.FfiVtSelection,
     graphics: abi.FfiVtGraphicsMeta,
+    graphics_images: []const abi.FfiVtGraphicsImage = &.{},
+    graphics_placements: []const abi.FfiVtGraphicsPlacement = &.{},
 };
 
 pub const PendingState = struct {
@@ -455,6 +467,10 @@ const PublicationState = struct {
         source.colors = meta.colors;
         source.selection = meta.selection;
         source.graphics = meta.graphics;
+        source.graphics_images = try self.allocator.dupe(abi.FfiVtGraphicsImage, meta.graphics_images);
+        errdefer self.allocator.free(source.graphics_images);
+        source.graphics_placements = try self.allocator.dupe(abi.FfiVtGraphicsPlacement, meta.graphics_placements);
+        errdefer self.allocator.free(source.graphics_placements);
         return self.acceptSource(source, submitted_token, geometry_epoch);
     }
 
@@ -682,6 +698,8 @@ const PublicationState = struct {
             .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
             .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
             .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+            .graphics_images = &.{},
+            .graphics_placements = &.{},
             .cursor_phase_visible = true,
             .dirty_rows = slot.dirty_rows,
             .dirty_cols_start = slot.dirty_cols_start,
@@ -718,6 +736,8 @@ const PublicationState = struct {
         const colors = source.colors;
         const selected = source.selection;
         const graphics = source.graphics;
+        const graphics_images = source.graphics_images;
+        const graphics_placements = source.graphics_placements;
         const cursor_phase_visible = source.cursor_phase_visible;
         source.* = self.retainedSource(source.cols, source.rows);
         source.scroll_row = scroll_row;
@@ -728,6 +748,8 @@ const PublicationState = struct {
         source.colors = colors;
         source.selection = selected;
         source.graphics = graphics;
+        source.graphics_images = graphics_images;
+        source.graphics_placements = graphics_placements;
         source.cursor_phase_visible = cursor_phase_visible;
     }
 };
@@ -781,6 +803,8 @@ fn samePublicationSource(a: PublicationSource, b: PublicationSource) bool {
         a.cursor.shape == b.cursor.shape and
         a.cursor.blink == b.cursor.blink and
         std.mem.eql(u8, std.mem.asBytes(&a.colors), std.mem.asBytes(&b.colors)) and
+        std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_images), std.mem.sliceAsBytes(b.graphics_images)) and
+        std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_placements), std.mem.sliceAsBytes(b.graphics_placements)) and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.cells), std.mem.sliceAsBytes(b.cells)) and
         std.mem.eql(u8, a.dirty_rows, b.dirty_rows) and
         std.mem.eql(u16, a.dirty_cols_start, b.dirty_cols_start) and
@@ -1554,6 +1578,70 @@ test "flow can reserve a new publish slot after submitting retained source" {
     flow.acceptSubmitted(.{ .token = request.token });
 
     _ = try flow.reservePublishSlot(1, 1);
+}
+
+test "flow commit publish slot copies graphics item metadata" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 1, .height = 1 },
+        .grid_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const slot = try flow.reservePublishSlot(1, 1);
+    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[0].codepoint = 'A';
+    slot.dirty_rows[0] = 1;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 0;
+
+    const images = [_]abi.FfiVtGraphicsImage{.{
+        .image_id = 7,
+        .image_number = 9,
+        .format = 24,
+        .width = 2,
+        .height = 1,
+        .payload_len = 4,
+    }};
+    const placements = [_]abi.FfiVtGraphicsPlacement{.{
+        .image_id = 7,
+        .placement_id = 4,
+        .z_index = 0,
+        .anchor = .{ .kind = 1, .value = 1 },
+        .anchor_col = 2,
+        .source_x = 0,
+        .source_y = 0,
+        .source_width = 2,
+        .source_height = 1,
+        .cell_x_offset = 0,
+        .cell_y_offset = 0,
+        .columns = 4,
+        .rows = 2,
+        .effective_columns = 4,
+        .effective_rows = 2,
+    }};
+
+    const published = try flow.commitPublishSlot(.{
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{ .image_count = 1, .placement_count = 1, .is_alternate_screen = 0, .publication_seq = 3, .dirty_generation = 5 },
+        .graphics_images = images[0..],
+        .graphics_placements = placements[0..],
+    });
+    try std.testing.expect(published.published);
+
+    const request = flow.prepare() orelse return error.TestUnexpectedResult;
+    const prepare = try flow.consumePrepare(request.token);
+    try std.testing.expectEqual(@as(usize, 1), prepare.state.graphics_images.len);
+    try std.testing.expectEqual(@as(usize, 1), prepare.state.graphics_placements.len);
+    try std.testing.expectEqual(@as(u32, 7), prepare.state.graphics_images[0].image_id);
+    try std.testing.expectEqual(@as(u32, 4), prepare.state.graphics_placements[0].placement_id);
+    try std.testing.expectEqual(@as(u64, 3), prepare.state.graphics.publication_seq);
 }
 
 test "flow keeps latest source when publish A then B before prepare" {

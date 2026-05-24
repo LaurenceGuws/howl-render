@@ -263,6 +263,16 @@ typedef struct {
 } HowlRenderVtGraphicsMeta;
 
 typedef struct {
+  const HowlVtGraphicsImage *ptr;
+  size_t len;
+} HowlRenderVtGraphicsImageSpan;
+
+typedef struct {
+  const HowlVtGraphicsPlacement *ptr;
+  size_t len;
+} HowlRenderVtGraphicsPlacementSpan;
+
+typedef struct {
   uint64_t scroll_row;
   uint64_t snapshot_seq;
   uint8_t is_alternate_screen;
@@ -272,6 +282,8 @@ typedef struct {
   HowlVtRenderColorState colors;
   HowlVtSelection selection;
   HowlRenderVtGraphicsMeta graphics;
+  HowlRenderVtGraphicsImageSpan graphics_images;
+  HowlRenderVtGraphicsPlacementSpan graphics_placements;
 } HowlRenderPublishSlotCommit;
 
 typedef struct {
@@ -371,6 +383,8 @@ typedef struct {
   HowlVtRenderColorState colors;
   HowlVtSelection selection;
   HowlRenderVtGraphicsMeta graphics;
+  HowlRenderVtGraphicsImageSpan graphics_images;
+  HowlRenderVtGraphicsPlacementSpan graphics_placements;
 } HowlRenderVtSurface;
 
 typedef struct {

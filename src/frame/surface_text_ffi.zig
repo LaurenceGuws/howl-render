@@ -131,6 +131,18 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
             return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
         };
     }
+    const graphics_images = graphicsImagesIn(commit.graphics_images) catch {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    const graphics_placements = graphicsPlacementsIn(commit.graphics_placements) catch {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    if (graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count) {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    }
     const result = owner.flow.commitPublishSlot(.{
         .scroll_row = commit.scroll_row,
         .snapshot_seq = commit.snapshot_seq,
@@ -139,6 +151,8 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         .colors = commit.colors,
         .selection = commit.selection,
         .graphics = commit.graphics,
+        .graphics_images = graphics_images,
+        .graphics_placements = graphics_placements,
     }) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtPublishResultOut(result);
 }
@@ -490,6 +504,13 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
     errdefer if (dirty_cols_start.len > 0) allocator.free(dirty_cols_start);
     const dirty_cols_end = try dirtyColsIn(allocator, value.rows, value.dirty_cols_end);
     errdefer if (dirty_cols_end.len > 0) allocator.free(dirty_cols_end);
+    const graphics_images = try graphicsImagesDup(allocator, value.graphics_images);
+    errdefer if (graphics_images.len > 0) allocator.free(graphics_images);
+    const graphics_placements = try graphicsPlacementsDup(allocator, value.graphics_placements);
+    errdefer if (graphics_placements.len > 0) allocator.free(graphics_placements);
+    if (graphics_images.len != value.graphics.image_count or graphics_placements.len != value.graphics.placement_count) {
+        return error.InvalidSurfaceSource;
+    }
 
     const cursor = cursorIn(value.cursor) orelse return error.InvalidSurfaceSource;
     return .{
@@ -504,6 +525,8 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
         .colors = value.colors,
         .selection = value.selection,
         .graphics = value.graphics,
+        .graphics_images = graphics_images,
+        .graphics_placements = graphics_placements,
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -591,6 +614,28 @@ fn cursorIn(value: abi.FfiVtCursor) ?surface.CursorInfo {
         else => return null,
     };
     return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = shape, .blink = value.blink != 0 };
+}
+
+fn graphicsImagesIn(span: abi.FfiVtGraphicsImageSpan) ![]const abi.FfiVtGraphicsImage {
+    if (span.len == 0) return &.{};
+    if (span.ptr == null) return error.InvalidSurfaceSource;
+    return span.ptr[0..span.len];
+}
+
+fn graphicsPlacementsIn(span: abi.FfiVtGraphicsPlacementSpan) ![]const abi.FfiVtGraphicsPlacement {
+    if (span.len == 0) return &.{};
+    if (span.ptr == null) return error.InvalidSurfaceSource;
+    return span.ptr[0..span.len];
+}
+
+fn graphicsImagesDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsImageSpan) ![]abi.FfiVtGraphicsImage {
+    const items = try graphicsImagesIn(span);
+    return try allocator.dupe(abi.FfiVtGraphicsImage, items);
+}
+
+fn graphicsPlacementsDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsPlacementSpan) ![]abi.FfiVtGraphicsPlacement {
+    const items = try graphicsPlacementsIn(span);
+    return try allocator.dupe(abi.FfiVtGraphicsPlacement, items);
 }
 
 fn underlineStyleValueIn(value: u8) !surface.UnderlineStyle {
