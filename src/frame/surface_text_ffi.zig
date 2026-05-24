@@ -139,11 +139,16 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
+    const graphics_payload_bytes = byteSpanIn(commit.graphics_payload_bytes) catch {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
     if (graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count) {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
     const result = owner.flow.commitPublishSlot(.{
+        .history_count = commit.history_count,
         .scroll_row = commit.scroll_row,
         .snapshot_seq = commit.snapshot_seq,
         .is_alternate_screen = commit.is_alternate_screen != 0,
@@ -153,6 +158,7 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         .graphics = commit.graphics,
         .graphics_images = graphics_images,
         .graphics_placements = graphics_placements,
+        .graphics_payload_bytes = graphics_payload_bytes,
     }) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtPublishResultOut(result);
 }
@@ -508,6 +514,8 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
     errdefer if (graphics_images.len > 0) allocator.free(graphics_images);
     const graphics_placements = try graphicsPlacementsDup(allocator, value.graphics_placements);
     errdefer if (graphics_placements.len > 0) allocator.free(graphics_placements);
+    const graphics_payload_bytes = try byteSpanDup(allocator, value.graphics_payload_bytes);
+    errdefer if (graphics_payload_bytes.len > 0) allocator.free(graphics_payload_bytes);
     if (graphics_images.len != value.graphics.image_count or graphics_placements.len != value.graphics.placement_count) {
         return error.InvalidSurfaceSource;
     }
@@ -516,6 +524,7 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
     return .{
         .cols = value.cols,
         .rows = value.rows,
+        .history_count = value.history_count,
         .scroll_row = value.scroll_row,
         .snapshot_seq = value.snapshot_seq,
         .dirty_epoch = 0,
@@ -527,6 +536,7 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
         .graphics = value.graphics,
         .graphics_images = graphics_images,
         .graphics_placements = graphics_placements,
+        .graphics_payload_bytes = graphics_payload_bytes,
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -540,6 +550,17 @@ fn dirtyRowsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiByteSpan) !
     const out = try allocator.alloc(u8, rows);
     @memcpy(out, span.ptr[0..rows]);
     return out;
+}
+
+fn byteSpanIn(span: abi.FfiByteSpan) ![]const u8 {
+    if (span.len == 0) return &.{};
+    if (span.ptr == null) return error.InvalidSurfaceSource;
+    return span.ptr[0..span.len];
+}
+
+fn byteSpanDup(allocator: std.mem.Allocator, span: abi.FfiByteSpan) ![]u8 {
+    const bytes = try byteSpanIn(span);
+    return try allocator.dupe(u8, bytes);
 }
 
 fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiU16Span) ![]u16 {

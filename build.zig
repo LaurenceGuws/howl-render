@@ -4,6 +4,11 @@
 
 const std = @import("std");
 
+fn addStbImage(module: *std.Build.Module, b: *std.Build) void {
+    module.addIncludePath(b.path("src"));
+    module.addCSourceFile(.{ .file = b.path("src/stb_image.c") });
+}
+
 const NonProdEntry = enum {
     unit,
     runtime_proof,
@@ -40,6 +45,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/non_prod.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     internal_mod.addImport("non_prod_options", unit_root_options.createModule());
     internal_mod.addImport("test_font_options", test_font_options.createModule());
@@ -47,6 +53,7 @@ pub fn build(b: *std.Build) void {
     internal_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     internal_mod.linkLibrary(harfbuzz_lib);
     internal_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    addStbImage(internal_mod, b);
 
     const perf_freetype_dep = b.dependency("freetype", .{
         .target = target,
@@ -80,6 +87,7 @@ pub fn build(b: *std.Build) void {
     render_owner.addIncludePath(freetype_lib.getEmittedIncludeTree());
     render_owner.linkLibrary(harfbuzz_lib);
     render_owner.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    addStbImage(render_owner, b);
     const render_tests = b.addTest(.{
         .name = "test-render",
         .root_module = render_owner,
@@ -95,6 +103,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/non_prod.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     runtime_proof_mod.addImport("non_prod_options", runtime_proof_root_options.createModule());
     runtime_proof_mod.addImport("test_font_options", test_font_options.createModule());
@@ -102,6 +111,7 @@ pub fn build(b: *std.Build) void {
     runtime_proof_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     runtime_proof_mod.linkLibrary(harfbuzz_lib);
     runtime_proof_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    addStbImage(runtime_proof_mod, b);
     const runtime_proof_tests = b.addTest(.{
         .name = "test-runtime-proof",
         .root_module = runtime_proof_mod,
@@ -134,11 +144,13 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/libhowl_render.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     ffi_mod.linkLibrary(freetype_lib);
     ffi_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     ffi_mod.linkLibrary(harfbuzz_lib);
     ffi_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    addStbImage(ffi_mod, b);
     const ffi_lib = b.addLibrary(.{
         .name = "howl_render",
         .linkage = .dynamic,
@@ -153,6 +165,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/non_prod.zig"),
         .target = target,
         .optimize = perf_optimize,
+        .link_libc = true,
     });
     benchmark_mod.addImport("non_prod_options", benchmark_root_options.createModule());
     benchmark_mod.addImport("test_font_options", test_font_options.createModule());
@@ -160,6 +173,7 @@ pub fn build(b: *std.Build) void {
     benchmark_mod.addIncludePath(perf_freetype_lib.getEmittedIncludeTree());
     benchmark_mod.linkLibrary(perf_harfbuzz_lib);
     benchmark_mod.addIncludePath(perf_harfbuzz_lib.getEmittedIncludeTree());
+    addStbImage(benchmark_mod, b);
 
     const benchmark_exe = b.addExecutable(.{
         .name = "render_benchmark",

@@ -273,6 +273,7 @@ typedef struct {
 } HowlRenderVtGraphicsPlacementSpan;
 
 typedef struct {
+  uint64_t history_count;
   uint64_t scroll_row;
   uint64_t snapshot_seq;
   uint8_t is_alternate_screen;
@@ -284,6 +285,7 @@ typedef struct {
   HowlRenderVtGraphicsMeta graphics;
   HowlRenderVtGraphicsImageSpan graphics_images;
   HowlRenderVtGraphicsPlacementSpan graphics_placements;
+  HowlRenderByteSpan graphics_payload_bytes;
 } HowlRenderPublishSlotCommit;
 
 typedef struct {
@@ -371,6 +373,7 @@ typedef struct {
   HowlVtSurfaceCellSpan cells;
   uint16_t cols;
   uint16_t rows;
+  uint64_t history_count;
   uint64_t scroll_row;
   uint64_t snapshot_seq;
   uint8_t is_alternate_screen;
@@ -385,6 +388,7 @@ typedef struct {
   HowlRenderVtGraphicsMeta graphics;
   HowlRenderVtGraphicsImageSpan graphics_images;
   HowlRenderVtGraphicsPlacementSpan graphics_placements;
+  HowlRenderByteSpan graphics_payload_bytes;
 } HowlRenderVtSurface;
 
 typedef struct {

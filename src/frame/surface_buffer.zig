@@ -19,32 +19,83 @@ pub fn compose(
     errdefer allocator.free(pixels);
     std.debug.assert(pixels.len == pixels_len);
     seedSurfacePixels(pixels, base_pixels);
-    drawColorSpan(
-        pixels,
-        width,
-        height,
-        prepared.text_frame.scene.scene.clear_draws,
-    );
-    drawColorSpan(
-        pixels,
-        width,
-        height,
-        prepared.text_frame.scene.scene.background_draws,
-    );
-    drawDecorationSpan(
-        pixels,
-        width,
-        height,
-        prepared.text_frame.scene.scene.decoration_draws,
-    );
-    try drawSprites(pixels, width, height, session, prepared);
-    drawColorSpan(
-        pixels,
-        width,
-        height,
-        prepared.text_frame.scene.scene.cursor_draws,
-    );
+    var composer = Composer{
+        .pixels = pixels,
+        .width = width,
+        .height = height,
+        .session = session,
+        .prepared = prepared,
+    };
+    try composePreparedSurface(&composer, prepared);
     return pixels;
+}
+
+const ComposePass = enum {
+    clear,
+    graphics_below_bg,
+    background,
+    graphics_below_text,
+    decoration,
+    sprites,
+    graphics_above_text,
+    cursor,
+};
+
+const Composer = struct {
+    pixels: []u8,
+    width: u16,
+    height: u16,
+    session: *surface_text.SurfaceText,
+    prepared: *const surface.PreparedSurface,
+
+    fn clear(self: *Composer) !void {
+        drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_frame.scene.scene.clear_draws);
+    }
+
+    fn graphics_below_bg(self: *Composer, start: u32, end: u32) !void {
+        drawGraphicsRange(self.pixels, self.width, self.height, self.session, &self.prepared.graphics, start, end);
+    }
+
+    fn background(self: *Composer) !void {
+        drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_frame.scene.scene.background_draws);
+    }
+
+    fn decoration(self: *Composer) !void {
+        drawDecorationSpan(self.pixels, self.width, self.height, self.prepared.text_frame.scene.scene.decoration_draws);
+    }
+
+    fn sprites(self: *Composer) !void {
+        try drawSprites(self.pixels, self.width, self.height, self.session, self.prepared);
+    }
+
+    fn graphics_below_text(self: *Composer, start: u32, end: u32) !void {
+        drawGraphicsRange(self.pixels, self.width, self.height, self.session, &self.prepared.graphics, start, end);
+    }
+
+    fn graphics_above_text(self: *Composer, start: u32, end: u32) !void {
+        drawGraphicsRange(self.pixels, self.width, self.height, self.session, &self.prepared.graphics, start, end);
+    }
+
+    fn cursor(self: *Composer) !void {
+        drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_frame.scene.scene.cursor_draws);
+    }
+};
+
+fn composePreparedSurface(composer: anytype, prepared: *const surface.PreparedSurface) !void {
+    const graphics = &prepared.graphics;
+    const below_bg_end = graphics.below_bg_count;
+    const below_text_end = std.math.add(u32, below_bg_end, graphics.below_text_count) catch unreachable;
+    const above_text_end = std.math.add(u32, below_text_end, graphics.above_text_count) catch unreachable;
+    std.debug.assert(above_text_end == graphics.placements.len);
+
+    try composer.clear();
+    try composer.graphics_below_bg(0, below_bg_end);
+    try composer.background();
+    try composer.graphics_below_text(below_bg_end, below_text_end);
+    try composer.decoration();
+    try composer.sprites();
+    try composer.graphics_above_text(below_text_end, above_text_end);
+    try composer.cursor();
 }
 
 fn seedSurfacePixels(pixels: []u8, base_pixels: ?[]const u8) void {
@@ -94,6 +145,93 @@ fn drawColorSpan(
             draw.color,
         );
     }
+}
+
+fn drawGraphicsRange(
+    pixels: []u8,
+    width: u16,
+    height: u16,
+    session: *surface_text.SurfaceText,
+    graphics: *const surface.PreparedGraphics,
+    start: u32,
+    end: u32,
+) void {
+    std.debug.assert(start <= end);
+    std.debug.assert(end <= graphics.placements.len);
+    for (graphics.placements[start..end]) |placement| {
+        const image = graphics.images[@intCast(placement.image_index)];
+        drawGraphicsPlacement(pixels, width, height, session, image, placement);
+    }
+}
+
+fn drawGraphicsPlacement(
+    pixels: []u8,
+    width: u16,
+    height: u16,
+    session: *surface_text.SurfaceText,
+    image: surface.PreparedGraphicsImageRef,
+    placement: surface.PreparedGraphicsPlacement,
+) void {
+    const raster = session.graphicsRaster(image.raster_index) orelse return;
+    if (placement.src_x_px >= raster.width or placement.src_y_px >= raster.height) return;
+    if (placement.dest_width_px == 0 or placement.dest_height_px == 0) return;
+    const src_right = placement.src_x_px + placement.src_width_px;
+    const src_bottom = placement.src_y_px + placement.src_height_px;
+    if (src_right > raster.width or src_bottom > raster.height) return;
+    drawScaledRgbaPlacement(pixels, width, height, raster, placement);
+}
+
+fn drawScaledRgbaPlacement(
+    pixels: []u8,
+    width: u16,
+    height: u16,
+    raster: surface_text.SurfaceText.GraphicsRasterView,
+    placement: surface.PreparedGraphicsPlacement,
+) void {
+    var dy: u32 = 0;
+    while (dy < placement.dest_height_px) : (dy += 1) {
+        const dy_i32 = std.math.cast(i32, dy) orelse return;
+        const dst_y = placement.dest_y_px + dy_i32;
+        if (dst_y < 0 or dst_y >= height) continue;
+        const src_y = placement.src_y_px + @as(u32, @intCast((@as(u64, dy) * placement.src_height_px) / placement.dest_height_px));
+        var dx: u32 = 0;
+        while (dx < placement.dest_width_px) : (dx += 1) {
+            const dx_i32 = std.math.cast(i32, dx) orelse return;
+            const dst_x = placement.dest_x_px + dx_i32;
+            if (dst_x < 0 or dst_x >= width) continue;
+            const src_x = placement.src_x_px + @as(u32, @intCast((@as(u64, dx) * placement.src_width_px) / placement.dest_width_px));
+            blendRgbaPixel(pixels, width, raster, dst_x, dst_y, src_x, src_y);
+        }
+    }
+}
+
+fn blendRgbaPixel(
+    pixels: []u8,
+    width: u16,
+    raster: surface_text.SurfaceText.GraphicsRasterView,
+    dst_x: i32,
+    dst_y: i32,
+    src_x: u32,
+    src_y: u32,
+) void {
+    const dst_index = (@as(usize, @intCast(dst_y)) * width + @as(usize, @intCast(dst_x))) * 4;
+    const src_index = @as(usize, src_y) * raster.stride + @as(usize, src_x) * 4;
+    const alpha = raster.pixels_rgba[src_index + 3];
+    if (alpha == 0) return;
+    if (alpha == 255) {
+        @memcpy(pixels[dst_index..][0..4], raster.pixels_rgba[src_index..][0..4]);
+        return;
+    }
+    blendChannel(&pixels[dst_index], raster.pixels_rgba[src_index], alpha);
+    blendChannel(&pixels[dst_index + 1], raster.pixels_rgba[src_index + 1], alpha);
+    blendChannel(&pixels[dst_index + 2], raster.pixels_rgba[src_index + 2], alpha);
+    pixels[dst_index + 3] = 255;
+}
+
+fn blendChannel(dst: *u8, src: u8, alpha: u8) void {
+    const src_part = @as(u16, src) * alpha;
+    const dst_part = @as(u16, dst.*) * (255 - alpha);
+    dst.* = @intCast((src_part + dst_part + 127) / 255);
 }
 
 fn drawDecorationSpan(
@@ -356,4 +494,217 @@ test "compose preserves retained content outside partial updates" {
     try std.testing.expectEqual(@as(u8, 7), pixels[8]);
     try std.testing.expectEqual(@as(u8, 7), pixels[9]);
     try std.testing.expectEqual(@as(u8, 7), pixels[10]);
+}
+
+const ComposeTrace = struct {
+    passes: std.ArrayList(ComposePass),
+
+    fn clear(self: *ComposeTrace) !void {
+        try self.passes.append(std.testing.allocator, .clear);
+    }
+
+    fn graphics_below_bg(self: *ComposeTrace, start: u32, end: u32) !void {
+        std.debug.assert(end >= start);
+        try self.passes.append(std.testing.allocator, .graphics_below_bg);
+    }
+
+    fn background(self: *ComposeTrace) !void {
+        try self.passes.append(std.testing.allocator, .background);
+    }
+
+    fn decoration(self: *ComposeTrace) !void {
+        try self.passes.append(std.testing.allocator, .decoration);
+    }
+
+    fn sprites(self: *ComposeTrace) !void {
+        try self.passes.append(std.testing.allocator, .sprites);
+    }
+
+    fn graphics_below_text(self: *ComposeTrace, start: u32, end: u32) !void {
+        std.debug.assert(end >= start);
+        try self.passes.append(std.testing.allocator, .graphics_below_text);
+    }
+
+    fn graphics_above_text(self: *ComposeTrace, start: u32, end: u32) !void {
+        std.debug.assert(end >= start);
+        try self.passes.append(std.testing.allocator, .graphics_above_text);
+    }
+
+    fn cursor(self: *ComposeTrace) !void {
+        try self.passes.append(std.testing.allocator, .cursor);
+    }
+};
+
+fn testPreparedSurface(
+    allocator: std.mem.Allocator,
+    clear_draws: []const contract.TextClearDraw,
+    background_draws: []const contract.TextBackgroundDraw,
+    decoration_draws: []const contract.TextDecorationDraw,
+    cursor_draws: []const contract.TextCursorDraw,
+    graphics: surface.PreparedGraphics,
+) surface.PreparedSurface {
+    return .{
+        .allocator = allocator,
+        .request = .{
+            .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
+        },
+        .geometry_epoch = 1,
+        .render_px = .{ .width = 4, .height = 4 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 4, .rows = 4 },
+        .graphics = graphics,
+        .text_frame = .{
+            .scene = .{
+                .allocator = allocator,
+                .owned = false,
+                .scene = .{
+                    .clear_draws = clear_draws,
+                    .background_draws = background_draws,
+                    .sprite_draws = &.{},
+                    .decoration_draws = decoration_draws,
+                    .cursor_draws = cursor_draws,
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = false,
+                },
+            },
+            .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+        },
+    };
+}
+
+test "compose inserts graphics bands at existing composition boundaries" {
+    const allocator = std.testing.allocator;
+
+    const clear_draws = try allocator.alloc(contract.TextClearDraw, 1);
+    defer allocator.free(clear_draws);
+    clear_draws[0] = .{
+        .x_px = 0,
+        .y_px = 0,
+        .width_px = 1,
+        .height_px = 1,
+        .color = .{ .r = 1, .g = 1, .b = 1, .a = 255 },
+        .first_cell = 0,
+        .cell_span = 1,
+    };
+
+    const background_draws = try allocator.alloc(contract.TextBackgroundDraw, 1);
+    defer allocator.free(background_draws);
+    background_draws[0] = .{
+        .x_px = 0,
+        .y_px = 0,
+        .width_px = 1,
+        .height_px = 1,
+        .color = .{ .r = 2, .g = 2, .b = 2, .a = 255 },
+        .first_cell = 0,
+        .cell_span = 1,
+    };
+
+    const decoration_draws = try allocator.alloc(contract.TextDecorationDraw, 1);
+    defer allocator.free(decoration_draws);
+    decoration_draws[0] = .{
+        .kind = .underline,
+        .x_px = 0,
+        .y_px = 0,
+        .width_px = 1,
+        .height_px = 1,
+        .color = .{ .r = 3, .g = 3, .b = 3, .a = 255 },
+        .first_cell = 0,
+        .cell_span = 1,
+    };
+
+    const cursor_draws = try allocator.alloc(contract.TextCursorDraw, 1);
+    defer allocator.free(cursor_draws);
+    cursor_draws[0] = .{
+        .x_px = 0,
+        .y_px = 0,
+        .width_px = 1,
+        .height_px = 1,
+        .color = .{ .r = 4, .g = 4, .b = 4, .a = 255 },
+    };
+
+    const images = try allocator.alloc(surface.PreparedGraphicsImageRef, 1);
+    defer allocator.free(images);
+    images[0] = .{ .image_id = 9, .width = 1, .height = 1, .format = 24, .raster_index = 0 };
+
+    const placements = try allocator.alloc(surface.PreparedGraphicsPlacement, 3);
+    defer allocator.free(placements);
+    placements[0] = .{
+        .image_index = 0,
+        .placement_ordinal = 0,
+        .z_index = std.math.minInt(i32),
+        .layer = .below_bg,
+        .dest_x_px = 0,
+        .dest_y_px = 0,
+        .dest_width_px = 1,
+        .dest_height_px = 1,
+        .src_x_px = 0,
+        .src_y_px = 0,
+        .src_width_px = 1,
+        .src_height_px = 1,
+    };
+    placements[1] = .{
+        .image_index = 0,
+        .placement_ordinal = 1,
+        .z_index = -1,
+        .layer = .below_text,
+        .dest_x_px = 0,
+        .dest_y_px = 0,
+        .dest_width_px = 1,
+        .dest_height_px = 1,
+        .src_x_px = 0,
+        .src_y_px = 0,
+        .src_width_px = 1,
+        .src_height_px = 1,
+    };
+    placements[2] = .{
+        .image_index = 0,
+        .placement_ordinal = 2,
+        .z_index = 0,
+        .layer = .above_text,
+        .dest_x_px = 0,
+        .dest_y_px = 0,
+        .dest_width_px = 1,
+        .dest_height_px = 1,
+        .src_x_px = 0,
+        .src_y_px = 0,
+        .src_width_px = 1,
+        .src_height_px = 1,
+    };
+
+    var prepared = testPreparedSurface(
+        allocator,
+        clear_draws,
+        background_draws,
+        decoration_draws,
+        cursor_draws,
+        .{
+            .publication_seq = 7,
+            .images = images,
+            .placements = placements,
+            .below_bg_count = 1,
+            .below_text_count = 1,
+            .above_text_count = 1,
+        },
+    );
+
+    var trace = ComposeTrace{ .passes = std.ArrayList(ComposePass).empty };
+    defer trace.passes.deinit(allocator);
+
+    try composePreparedSurface(&trace, &prepared);
+
+    try std.testing.expectEqualSlices(
+        ComposePass,
+        &.{
+            .clear,
+            .graphics_below_bg,
+            .background,
+            .graphics_below_text,
+            .decoration,
+            .sprites,
+            .graphics_above_text,
+            .cursor,
+        },
+        trace.passes.items,
+    );
 }

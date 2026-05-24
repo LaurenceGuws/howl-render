@@ -593,6 +593,7 @@ test "frame_input borrowed publication mapping reuses caller storage" {
     const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 2,
         .rows = 1,
+        .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
         .dirty_epoch = 1,
@@ -635,6 +636,7 @@ test "frame_input borrowed publication mapping preserves cursor blink truth" {
     const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 1,
         .rows = 1,
+        .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
         .dirty_epoch = 1,
@@ -673,6 +675,7 @@ test "frame_input borrowed publication mapping hides blinking cursor when host p
     const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 1,
         .rows = 1,
+        .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
         .dirty_epoch = 2,
@@ -707,6 +710,7 @@ test "frame_input borrowed publication mapping applies selection styling across 
     const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 2,
         .rows = 1,
+        .history_count = 1,
         .scroll_row = 1,
         .snapshot_seq = 1,
         .dirty_epoch = 1,
@@ -750,6 +754,7 @@ test "frame_input borrowed publication mapping uses vt-owned color state" {
     const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 1,
         .rows = 1,
+        .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
         .dirty_epoch = 1,
@@ -794,6 +799,7 @@ test "frame_input remaps semantic default and indexed cells when vt colors chang
     const mapped_a = publicationSourceToTextSceneInputBorrowed(storage_a[0..], .{
         .cols = 1,
         .rows = 1,
+        .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
         .dirty_epoch = 1,
@@ -815,6 +821,7 @@ test "frame_input remaps semantic default and indexed cells when vt colors chang
     const mapped_b = publicationSourceToTextSceneInputBorrowed(storage_b[0..], .{
         .cols = 1,
         .rows = 1,
+        .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 2,
         .dirty_epoch = 2,

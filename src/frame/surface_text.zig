@@ -2,6 +2,7 @@ const std = @import("std");
 const abi = @import("../ffi_types.zig");
 const geometry_mod = @import("geometry.zig");
 const input = @import("input.zig");
+const graphics_viewport = @import("graphics_viewport.zig");
 const pipeline = @import("pipeline.zig");
 const prepared_surface_owner = @import("prepared_surface_owner.zig");
 const queue = @import("queue.zig");
@@ -12,6 +13,7 @@ const text_pipeline = @import("../text/pipeline.zig");
 const text = @import("../text/text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
 const text_glyph_raster = @import("../text/font/ft_hb/glyph_raster.zig");
+const stb_image = @import("../stb_image.zig");
 
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
 const ft_hb_face_text_cache_entry_cap: u32 = 4096;
@@ -19,6 +21,7 @@ const ft_hb_glyph_cell_cache_entry_cap: u32 = 4096;
 const ft_hb_shape_run_cache_entry_cap: u32 = 64;
 const ft_hb_shape_input_codepoints_per_cluster_cap: u32 = 16;
 const ft_hb_cached_glyphs_per_run_cap: u32 = 512;
+const invalid_graphics_raster_index = std.math.maxInt(u32);
 
 fn count32(items: anytype) u32 {
     std.debug.assert(items.len <= std.math.maxInt(u32));
@@ -53,6 +56,41 @@ pub const SurfaceText = struct {
     mutex: ThreadMutex = .{},
     text_preparer: ?text.TextFramePreparer = null,
     cell_input_scratch: []contract.CellInput = &.{},
+    graphics_publication_image_keys: []GraphicsPublicationImageKey = &.{},
+    decoded_graphics_rasters: []DecodedGraphicsRaster = &.{},
+
+    const DecodedGraphicsKey = struct {
+        format: u16,
+        width: u32,
+        height: u32,
+        payload_len: u64,
+        payload_hash64: u64,
+    };
+
+    const GraphicsPublicationImageKey = struct {
+        image_id: u32,
+        key: DecodedGraphicsKey,
+    };
+
+    const DecodedGraphicsRaster = struct {
+        key: DecodedGraphicsKey,
+        width: u32,
+        height: u32,
+        stride: u32,
+        pixels_rgba: []u8,
+    };
+
+    pub const GraphicsRasterView = struct {
+        width: u32,
+        height: u32,
+        stride: u32,
+        pixels_rgba: []const u8,
+    };
+
+    const SourceGraphicsPayload = struct {
+        image: abi.FfiVtGraphicsImage,
+        payload: []const u8,
+    };
 
     const TextContext = struct {
         session: *SurfaceText,
@@ -88,6 +126,7 @@ pub const SurfaceText = struct {
         }
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
         self.cell_input_scratch = &.{};
+        self.clearGraphicsCache();
         self.text_state.deinit();
     }
 
@@ -126,11 +165,14 @@ pub const SurfaceText = struct {
         errdefer self.mutex.unlock();
         try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
         const text_input = input.publicationSourceToTextSceneInputBorrowed(self.cell_input_scratch, prepare.state, prepare.request.token.damage_kind == .full);
+        var graphics = try prepareSurfaceGraphics(self.allocator, prepare);
+        errdefer graphics.deinit(self.allocator);
+        try self.resolvePreparedGraphicsRasters(&graphics, prepare.state.graphics_images, prepare.state.graphics_payload_bytes);
         var resolve: text_pipeline.ResolveObservability = .{};
         const preparer = try self.ensureTextPreparer(&context);
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
         errdefer prepared.deinit();
-        const owned = ownPreparedSurface(self.allocator, prepare, text_input.grid, prepared, resolve);
+        const owned = ownPreparedSurface(self.allocator, prepare, text_input.grid, graphics, prepared, resolve);
         self.mutex.unlock();
         return owned;
     }
@@ -167,10 +209,24 @@ pub const SurfaceText = struct {
         return preparer.atlas.rasterForKey(key);
     }
 
+    pub fn graphicsRaster(self: *SurfaceText, raster_index: u32) ?GraphicsRasterView {
+        lockMutex(&self.mutex);
+        defer self.mutex.unlock();
+        if (raster_index >= self.decoded_graphics_rasters.len) return null;
+        const raster = self.decoded_graphics_rasters[raster_index];
+        return .{
+            .width = raster.width,
+            .height = raster.height,
+            .stride = raster.stride,
+            .pixels_rgba = raster.pixels_rgba,
+        };
+    }
+
     fn ownPreparedSurface(
         allocator: std.mem.Allocator,
         prepare: PrepareInput,
         grid: contract.GridMetrics,
+        graphics: surface.PreparedGraphics,
         prepared: text.OwnedPreparedTextFrame,
         resolve: text_pipeline.ResolveObservability,
     ) surface.PreparedSurface {
@@ -181,10 +237,27 @@ pub const SurfaceText = struct {
             .render_px = prepare.layout.render_px,
             .cell_px = prepare.layout.cell_px,
             .grid = .{ .cols = grid.cols, .rows = grid.rows },
+            .graphics = graphics,
             .text_frame = prepared,
             .resolve = resolve,
             .prepare_metrics = prepareMetrics(prepared.timings),
         };
+    }
+
+    fn prepareSurfaceGraphics(allocator: std.mem.Allocator, prepare: PrepareInput) !surface.PreparedGraphics {
+        return graphics_viewport.prepareGraphics(
+            allocator,
+            prepare.layout,
+            .{
+                .rows = prepare.state.rows,
+                .history_count = prepare.state.history_count,
+                .scroll_row = prepare.state.scroll_row,
+                .is_alternate_screen = prepare.state.is_alternate_screen,
+            },
+            prepare.state.graphics.publication_seq,
+            prepare.state.graphics_images,
+            prepare.state.graphics_placements,
+        );
     }
 
     fn ensureTextPreparer(self: *SurfaceText, context: *TextContext) !*text.TextFramePreparer {
@@ -224,6 +297,166 @@ pub const SurfaceText = struct {
         const scratch = try self.allocator.alloc(contract.CellInput, cell_count);
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
         self.cell_input_scratch = scratch;
+    }
+
+    fn clearGraphicsCache(self: *SurfaceText) void {
+        if (self.graphics_publication_image_keys.len > 0) self.allocator.free(self.graphics_publication_image_keys);
+        self.graphics_publication_image_keys = &.{};
+        for (self.decoded_graphics_rasters) |raster| {
+            self.allocator.free(raster.pixels_rgba);
+        }
+        if (self.decoded_graphics_rasters.len > 0) self.allocator.free(self.decoded_graphics_rasters);
+        self.decoded_graphics_rasters = &.{};
+    }
+
+    fn resolvePreparedGraphicsRasters(
+        self: *SurfaceText,
+        prepared: *surface.PreparedGraphics,
+        source_images: []const abi.FfiVtGraphicsImage,
+        payload_bytes: []const u8,
+    ) !void {
+        const source_payloads = try self.sourceGraphicsPayloads(source_images, payload_bytes);
+        defer self.allocator.free(source_payloads);
+
+        var publication_keys = try self.allocator.alloc(GraphicsPublicationImageKey, source_payloads.len);
+        errdefer self.allocator.free(publication_keys);
+        for (source_payloads, 0..) |source_payload, i| {
+            const key = graphicsKey(source_payload.image, source_payload.payload);
+            publication_keys[i] = .{ .image_id = source_payload.image.image_id, .key = key };
+            _ = try self.ensureDecodedGraphicsRaster(source_payload, key);
+        }
+        self.replaceGraphicsPublicationImageKeys(publication_keys);
+        self.sweepDecodedGraphicsRasters();
+        try self.bindPreparedGraphicsRasters(prepared);
+    }
+
+    fn sourceGraphicsPayloads(
+        self: *SurfaceText,
+        source_images: []const abi.FfiVtGraphicsImage,
+        payload_bytes: []const u8,
+    ) ![]SourceGraphicsPayload {
+        var payloads = try self.allocator.alloc(SourceGraphicsPayload, source_images.len);
+        errdefer self.allocator.free(payloads);
+        var offset: usize = 0;
+        for (source_images, 0..) |image, i| {
+            const payload_len = std.math.cast(usize, image.payload_len) orelse return error.InvalidGraphicsPayload;
+            const next_offset = std.math.add(usize, offset, payload_len) catch return error.InvalidGraphicsPayload;
+            if (next_offset > payload_bytes.len) return error.InvalidGraphicsPayload;
+            payloads[i] = .{ .image = image, .payload = payload_bytes[offset..next_offset] };
+            offset = next_offset;
+        }
+        if (offset != payload_bytes.len) return error.InvalidGraphicsPayload;
+        return payloads;
+    }
+
+    fn replaceGraphicsPublicationImageKeys(self: *SurfaceText, next: []GraphicsPublicationImageKey) void {
+        if (self.graphics_publication_image_keys.len > 0) self.allocator.free(self.graphics_publication_image_keys);
+        self.graphics_publication_image_keys = next;
+    }
+
+    fn ensureDecodedGraphicsRaster(self: *SurfaceText, source_payload: SourceGraphicsPayload, key: DecodedGraphicsKey) !?u32 {
+        if (self.findDecodedGraphicsRasterIndex(key)) |index| return index;
+        const decoded = try decodeGraphicsRaster(self.allocator, source_payload, key);
+        if (decoded == null) return null;
+        const raster = decoded.?;
+        const next_len = std.math.add(usize, self.decoded_graphics_rasters.len, 1) catch return error.OutOfMemory;
+        var next = try self.allocator.alloc(DecodedGraphicsRaster, next_len);
+        errdefer self.allocator.free(next);
+        @memcpy(next[0..self.decoded_graphics_rasters.len], self.decoded_graphics_rasters);
+        next[self.decoded_graphics_rasters.len] = raster;
+        if (self.decoded_graphics_rasters.len > 0) self.allocator.free(self.decoded_graphics_rasters);
+        self.decoded_graphics_rasters = next;
+        return std.math.cast(u32, next_len - 1) orelse return error.OutOfMemory;
+    }
+
+    fn bindPreparedGraphicsRasters(self: *SurfaceText, prepared: *surface.PreparedGraphics) !void {
+        const old_images = prepared.images;
+        const old_placements = prepared.placements;
+        const image_remap = try self.allocator.alloc(u32, old_images.len);
+        defer self.allocator.free(image_remap);
+        @memset(image_remap, invalid_graphics_raster_index);
+
+        var images = std.ArrayList(surface.PreparedGraphicsImageRef).empty;
+        defer images.deinit(self.allocator);
+        for (old_images, 0..) |image, old_index| {
+            const raster_index = self.publicationRasterIndex(image.image_id) orelse continue;
+            image_remap[old_index] = std.math.cast(u32, images.items.len) orelse return error.OutOfMemory;
+            try images.append(self.allocator, .{
+                .image_id = image.image_id,
+                .width = image.width,
+                .height = image.height,
+                .format = image.format,
+                .raster_index = raster_index,
+            });
+        }
+
+        var placements = std.ArrayList(surface.PreparedGraphicsPlacement).empty;
+        defer placements.deinit(self.allocator);
+        var below_bg_count: u32 = 0;
+        var below_text_count: u32 = 0;
+        var above_text_count: u32 = 0;
+        for (old_placements) |placement| {
+            const next_image_index = image_remap[placement.image_index];
+            if (next_image_index == invalid_graphics_raster_index) continue;
+            var next = placement;
+            next.image_index = next_image_index;
+            try placements.append(self.allocator, next);
+            switch (placement.layer) {
+                .below_bg => below_bg_count +%= 1,
+                .below_text => below_text_count +%= 1,
+                .above_text => above_text_count +%= 1,
+            }
+        }
+
+        if (old_images.len > 0) self.allocator.free(old_images);
+        if (old_placements.len > 0) self.allocator.free(old_placements);
+        prepared.images = try images.toOwnedSlice(self.allocator);
+        prepared.placements = try placements.toOwnedSlice(self.allocator);
+        prepared.below_bg_count = below_bg_count;
+        prepared.below_text_count = below_text_count;
+        prepared.above_text_count = above_text_count;
+    }
+
+    fn publicationRasterIndex(self: *const SurfaceText, image_id: u32) ?u32 {
+        const key = self.publicationKey(image_id) orelse return null;
+        return self.findDecodedGraphicsRasterIndex(key);
+    }
+
+    fn publicationKey(self: *const SurfaceText, image_id: u32) ?DecodedGraphicsKey {
+        for (self.graphics_publication_image_keys) |entry| {
+            if (entry.image_id == image_id) return entry.key;
+        }
+        return null;
+    }
+
+    fn findDecodedGraphicsRasterIndex(self: *const SurfaceText, key: DecodedGraphicsKey) ?u32 {
+        for (self.decoded_graphics_rasters, 0..) |raster, i| {
+            if (decodedGraphicsKeyEqual(raster.key, key)) {
+                return std.math.cast(u32, i) orelse unreachable;
+            }
+        }
+        return null;
+    }
+
+    fn sweepDecodedGraphicsRasters(self: *SurfaceText) void {
+        var kept = std.ArrayList(DecodedGraphicsRaster).empty;
+        defer kept.deinit(self.allocator);
+        for (self.decoded_graphics_rasters) |raster| {
+            if (self.publicationReferencesKey(raster.key)) {
+                kept.append(self.allocator, raster) catch unreachable;
+            } else {
+                self.allocator.free(raster.pixels_rgba);
+            }
+        }
+        if (self.decoded_graphics_rasters.len > 0) self.allocator.free(self.decoded_graphics_rasters);
+        self.decoded_graphics_rasters = kept.toOwnedSlice(self.allocator) catch unreachable;
+    }
+
+    fn publicationReferencesKey(self: *const SurfaceText, key: DecodedGraphicsKey) bool {
+        for (self.graphics_publication_image_keys) |entry| {
+            if (decodedGraphicsKeyEqual(entry.key, key)) return true;
+        }
+        return false;
     }
 
     fn ftHbSource(context: *TextContext) text.FtHbProvider.FtHbSource {
@@ -317,6 +550,118 @@ pub const SurfaceText = struct {
         };
     }
 };
+
+fn graphicsKey(image: abi.FfiVtGraphicsImage, payload: []const u8) SurfaceText.DecodedGraphicsKey {
+    var hasher = std.hash.Wyhash.init(0x4752415048494353);
+    hasher.update(payload);
+    return .{
+        .format = image.format,
+        .width = image.width,
+        .height = image.height,
+        .payload_len = image.payload_len,
+        .payload_hash64 = hasher.final(),
+    };
+}
+
+fn decodedGraphicsKeyEqual(a: SurfaceText.DecodedGraphicsKey, b: SurfaceText.DecodedGraphicsKey) bool {
+    return a.format == b.format and
+        a.width == b.width and
+        a.height == b.height and
+        a.payload_len == b.payload_len and
+        a.payload_hash64 == b.payload_hash64;
+}
+
+fn decodeGraphicsRaster(
+    allocator: std.mem.Allocator,
+    source_payload: SurfaceText.SourceGraphicsPayload,
+    key: SurfaceText.DecodedGraphicsKey,
+) !?SurfaceText.DecodedGraphicsRaster {
+    switch (source_payload.image.format) {
+        24 => return try decodeRawGraphicsRaster(allocator, source_payload, key, 3),
+        32 => return try decodeRawGraphicsRaster(allocator, source_payload, key, 4),
+        100 => return try decodePngGraphicsRaster(allocator, source_payload, key),
+        else => return null,
+    }
+}
+
+fn decodePngGraphicsRaster(
+    allocator: std.mem.Allocator,
+    source_payload: SurfaceText.SourceGraphicsPayload,
+    key: SurfaceText.DecodedGraphicsKey,
+) !SurfaceText.DecodedGraphicsRaster {
+    const metadata_width = source_payload.image.width;
+    const metadata_height = source_payload.image.height;
+    const expected_stride = try graphicsBytesLen(metadata_width, 4);
+    const expected_len = try graphicsBytesLen(try graphicsPixelCount(metadata_width, metadata_height), 4);
+    const png_len = std.base64.standard.Decoder.calcSizeForSlice(source_payload.payload) catch return error.InvalidGraphicsPayload;
+    const png_bytes = try allocator.alloc(u8, png_len);
+    defer allocator.free(png_bytes);
+    try std.base64.standard.Decoder.decode(png_bytes, source_payload.payload);
+
+    const decoded = stb_image.decodeRgba(png_bytes) catch return error.InvalidGraphicsPayload;
+    defer decoded.deinit(allocator);
+    if (decoded.width != metadata_width) return error.InvalidGraphicsPayload;
+    if (decoded.height != metadata_height) return error.InvalidGraphicsPayload;
+    if (decoded.pixels_rgba.len != expected_len) return error.InvalidGraphicsPayload;
+    if (decoded.stride != expected_stride) return error.InvalidGraphicsPayload;
+
+    return .{
+        .key = key,
+        .width = decoded.width,
+        .height = decoded.height,
+        .stride = std.math.cast(u32, decoded.stride) orelse return error.InvalidGraphicsPayload,
+        .pixels_rgba = try allocator.dupe(u8, decoded.pixels_rgba),
+    };
+}
+
+fn decodeRawGraphicsRaster(
+    allocator: std.mem.Allocator,
+    source_payload: SurfaceText.SourceGraphicsPayload,
+    key: SurfaceText.DecodedGraphicsKey,
+    channels: u32,
+) !SurfaceText.DecodedGraphicsRaster {
+    const pixel_count = try graphicsPixelCount(source_payload.image.width, source_payload.image.height);
+    const expected_len = try graphicsBytesLen(pixel_count, channels);
+    const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(source_payload.payload) catch return error.InvalidGraphicsPayload;
+    if (decoded_len != expected_len) return error.InvalidGraphicsPayload;
+    const stride = try graphicsBytesLen(source_payload.image.width, 4);
+    const pixels_rgba = try allocator.alloc(u8, try graphicsBytesLen(pixel_count, 4));
+    errdefer allocator.free(pixels_rgba);
+
+    if (channels == 4) {
+        try std.base64.standard.Decoder.decode(pixels_rgba, source_payload.payload);
+    } else {
+        const rgb = try allocator.alloc(u8, expected_len);
+        defer allocator.free(rgb);
+        try std.base64.standard.Decoder.decode(rgb, source_payload.payload);
+        var src_index: usize = 0;
+        var dst_index: usize = 0;
+        while (src_index < rgb.len) : (src_index += 3) {
+            pixels_rgba[dst_index] = rgb[src_index];
+            pixels_rgba[dst_index + 1] = rgb[src_index + 1];
+            pixels_rgba[dst_index + 2] = rgb[src_index + 2];
+            pixels_rgba[dst_index + 3] = 255;
+            dst_index += 4;
+        }
+    }
+
+    return .{
+        .key = key,
+        .width = source_payload.image.width,
+        .height = source_payload.image.height,
+        .stride = std.math.cast(u32, stride) orelse return error.InvalidGraphicsPayload,
+        .pixels_rgba = pixels_rgba,
+    };
+}
+
+fn graphicsPixelCount(width: u32, height: u32) !u32 {
+    return std.math.mul(u32, width, height) catch return error.InvalidGraphicsPayload;
+}
+
+fn graphicsBytesLen(left: u32, right: u32) !usize {
+    const total = std.math.mul(u64, left, right) catch return error.InvalidGraphicsPayload;
+    return std.math.cast(usize, total) orelse return error.InvalidGraphicsPayload;
+}
 
 pub const SurfaceTextOwner = struct {
     allocator: std.mem.Allocator,
@@ -539,6 +884,215 @@ test "retainSurfaceImage adopts full image for later partial prepares" {
 
     const base = owner.requiredRetainedSurfaceBase(&prepared);
     try std.testing.expectEqualSlices(u8, pixels, base);
+}
+
+test "prepareSurfaceGraphics wires prepared graphics into surface prepare contract" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+    var source = try testPublicationSource(std.testing.allocator, 2, 'A');
+    defer source.deinit(std.testing.allocator);
+    source.history_count = 0;
+    source.scroll_row = 0;
+    source.graphics.publication_seq = 9;
+    source.graphics.image_count = 1;
+    source.graphics.placement_count = 2;
+    source.graphics_images = try std.testing.allocator.dupe(abi.FfiVtGraphicsImage, &.{.{
+        .image_id = 5,
+        .image_number = 0,
+        .format = 24,
+        .width = 1,
+        .height = 1,
+        .payload_len = 4,
+    }});
+    source.graphics_payload_bytes = try std.testing.allocator.dupe(u8, "QUJD");
+    var placement0 = std.mem.zeroes(abi.FfiVtGraphicsPlacement);
+    placement0.image_id = 5;
+    placement0.placement_id = 1;
+    placement0.z_index = 2;
+    placement0.anchor = .{ .kind = 1, .value = 0 };
+    placement0.source_width = 1;
+    placement0.source_height = 1;
+    placement0.dest_right_cell_px = 20;
+    placement0.dest_bottom_cell_px = 20;
+    var placement1 = placement0;
+    placement1.placement_id = 2;
+    placement1.z_index = -1;
+    source.graphics_placements = try std.testing.allocator.dupe(abi.FfiVtGraphicsPlacement, &.{ placement0, placement1 });
+
+    var graphics = try SurfaceText.prepareSurfaceGraphics(std.testing.allocator, .{
+        .config = .{ .surface_px = .{ .width = 20, .height = 20 } },
+        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+        .layout = .{
+            .render_px = .{ .width = 20, .height = 20 },
+            .grid_px = .{ .width = 20, .height = 20 },
+            .cell_px = .{ .width = 20, .height = 20 },
+        },
+        .state = source,
+    });
+    try session.resolvePreparedGraphicsRasters(&graphics, source.graphics_images, source.graphics_payload_bytes);
+    const prepared = SurfaceText.ownPreparedSurface(
+        std.testing.allocator,
+        .{
+            .config = .{ .surface_px = .{ .width = 20, .height = 20 } },
+            .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+            .layout = .{
+                .render_px = .{ .width = 20, .height = 20 },
+                .grid_px = .{ .width = 20, .height = 20 },
+                .cell_px = .{ .width = 20, .height = 20 },
+            },
+            .state = source,
+        },
+        .{ .cols = 1, .rows = 1 },
+        graphics,
+        .{
+            .scene = .{
+                .allocator = std.testing.allocator,
+                .owned = false,
+                .scene = .{
+                    .clear_draws = &.{},
+                    .background_draws = &.{},
+                    .sprite_draws = &.{},
+                    .decoration_draws = &.{},
+                    .cursor_draws = &.{},
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = true,
+                },
+            },
+            .raster_plan = .{ .allocator = std.testing.allocator, .outputs = &.{}, .owned = false },
+            .timings = .{},
+        },
+        .{},
+    );
+    defer {
+        var owned = prepared;
+        owned.deinit();
+    }
+
+    try std.testing.expectEqual(@as(u64, 9), prepared.graphics.publication_seq);
+    try std.testing.expectEqual(@as(usize, 1), prepared.graphics.images.len);
+    try std.testing.expectEqual(@as(usize, 2), prepared.graphics.placements.len);
+    try std.testing.expectEqual(@as(u32, 0), prepared.graphics.images[0].raster_index);
+    try std.testing.expectEqual(surface.PreparedGraphicsLayer.below_text, prepared.graphics.placements[0].layer);
+    try std.testing.expectEqual(surface.PreparedGraphicsLayer.above_text, prepared.graphics.placements[1].layer);
+}
+
+fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !queue.PublicationSource {
+    const cells = try allocator.alloc(abi.FfiVtCell, 1);
+    errdefer allocator.free(cells);
+    cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    cells[0].codepoint = codepoint;
+    const dirty_rows = try allocator.dupe(u8, &.{1});
+    errdefer allocator.free(dirty_rows);
+    const dirty_cols_start = try allocator.dupe(u16, &.{0});
+    errdefer allocator.free(dirty_cols_start);
+    const dirty_cols_end = try allocator.dupe(u16, &.{0});
+    errdefer allocator.free(dirty_cols_end);
+    return .{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = snapshot_seq,
+        .dirty_epoch = snapshot_seq,
+        .is_alternate_screen = false,
+        .cells = cells,
+        .cursor = std.mem.zeroes(surface.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = std.mem.zeroes(abi.FfiVtSelection),
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .graphics_payload_bytes = &.{},
+        .cursor_phase_visible = true,
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = dirty_cols_start,
+        .dirty_cols_end = dirty_cols_end,
+    };
+}
+
+test "graphics cache reuses same payload across later publication changes" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+
+    var graphics = surface.PreparedGraphics{
+        .publication_seq = 1,
+        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 1, .height = 1, .format = 24, .raster_index = invalid_graphics_raster_index }}),
+        .placements = &.{},
+    };
+    defer graphics.deinit(std.testing.allocator);
+
+    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 4 }};
+    try session.resolvePreparedGraphicsRasters(&graphics, source_images[0..], "QUJD");
+    try std.testing.expectEqual(@as(usize, 1), session.decoded_graphics_rasters.len);
+    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
+
+    std.testing.allocator.free(graphics.images);
+    graphics.images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 1, .height = 1, .format = 24, .raster_index = invalid_graphics_raster_index }});
+    try session.resolvePreparedGraphicsRasters(&graphics, source_images[0..], "QUJD");
+    try std.testing.expectEqual(@as(usize, 1), session.decoded_graphics_rasters.len);
+    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
+}
+
+test "png graphics decode succeeds" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+
+    var graphics = surface.PreparedGraphics{
+        .publication_seq = 1,
+        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 1, .height = 1, .format = 100, .raster_index = invalid_graphics_raster_index }}),
+        .placements = &.{},
+    };
+    defer graphics.deinit(std.testing.allocator);
+
+    const payload = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQVDJ2AQABWQCrEyolqwAAAABJRU5ErkJggg==";
+    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 100, .width = 1, .height = 1, .payload_len = payload.len }};
+    try session.resolvePreparedGraphicsRasters(&graphics, source_images[0..], payload);
+
+    try std.testing.expectEqual(@as(usize, 1), session.decoded_graphics_rasters.len);
+    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
+    const raster = session.graphicsRaster(0).?;
+    try std.testing.expectEqual(@as(u32, 1), raster.width);
+    try std.testing.expectEqual(@as(u32, 1), raster.height);
+    try std.testing.expectEqual(@as(u32, 4), raster.stride);
+    try std.testing.expectEqualSlices(u8, &.{ 17, 34, 51, 68 }, raster.pixels_rgba);
+}
+
+test "png graphics decode rejects metadata mismatch" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+
+    var graphics = surface.PreparedGraphics{
+        .publication_seq = 1,
+        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 2, .height = 1, .format = 100, .raster_index = invalid_graphics_raster_index }}),
+        .placements = &.{},
+    };
+    defer graphics.deinit(std.testing.allocator);
+
+    const payload = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQVDJ2AQABWQCrEyolqwAAAABJRU5ErkJggg==";
+    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 100, .width = 2, .height = 1, .payload_len = payload.len }};
+    try std.testing.expectError(error.InvalidGraphicsPayload, session.resolvePreparedGraphicsRasters(&graphics, source_images[0..], payload));
+    try std.testing.expectEqual(@as(usize, 0), session.decoded_graphics_rasters.len);
+}
+
+test "graphics cache replaces same image id when payload changes" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+
+    var graphics = surface.PreparedGraphics{
+        .publication_seq = 1,
+        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 1, .height = 1, .format = 24, .raster_index = invalid_graphics_raster_index }}),
+        .placements = &.{},
+    };
+    defer graphics.deinit(std.testing.allocator);
+
+    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 4 }};
+    try session.resolvePreparedGraphicsRasters(&graphics, source_images[0..], "QUJD");
+    const first_key = session.graphics_publication_image_keys[0].key;
+
+    std.testing.allocator.free(graphics.images);
+    graphics.images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 1, .height = 1, .format = 24, .raster_index = invalid_graphics_raster_index }});
+    try session.resolvePreparedGraphicsRasters(&graphics, source_images[0..], "REVG");
+    try std.testing.expectEqual(@as(usize, 1), session.decoded_graphics_rasters.len);
+    try std.testing.expect(!decodedGraphicsKeyEqual(first_key, session.graphics_publication_image_keys[0].key));
 }
 
 test "ft hb retained capacities separate cache slots from run scratch" {

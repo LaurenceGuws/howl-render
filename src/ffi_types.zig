@@ -284,6 +284,12 @@ pub const FfiVtGraphicsPlacement = extern struct {
     cell_y_offset: u32,
     columns: u32,
     rows: u32,
+    dest_left_cell_px: u32,
+    dest_top_cell_px: u32,
+    dest_right_cell_px: u32,
+    dest_bottom_cell_px: u32,
+    dest_grid_columns: u32,
+    dest_grid_rows: u32,
     effective_columns: u32,
     effective_rows: u32,
 };
@@ -354,6 +360,7 @@ pub const FfiPublishSlot = extern struct {
 };
 
 pub const FfiPublishSlotCommit = extern struct {
+    history_count: u64,
     scroll_row: u64,
     snapshot_seq: u64,
     is_alternate_screen: u8,
@@ -365,6 +372,7 @@ pub const FfiPublishSlotCommit = extern struct {
     graphics: FfiVtGraphicsMeta,
     graphics_images: FfiVtGraphicsImageSpan,
     graphics_placements: FfiVtGraphicsPlacementSpan,
+    graphics_payload_bytes: FfiByteSpan,
 };
 
 pub const FfiSurfaceMetrics = extern struct {
@@ -452,6 +460,7 @@ pub const FfiVtSurface = extern struct {
     cells: FfiVtCellSpan,
     cols: u16,
     rows: u16,
+    history_count: u64,
     scroll_row: u64,
     snapshot_seq: u64,
     is_alternate_screen: u8,
@@ -466,6 +475,7 @@ pub const FfiVtSurface = extern struct {
     graphics: FfiVtGraphicsMeta,
     graphics_images: FfiVtGraphicsImageSpan,
     graphics_placements: FfiVtGraphicsPlacementSpan,
+    graphics_payload_bytes: FfiByteSpan,
 };
 
 pub const FfiVtGraphicsImageSpan = extern struct {
