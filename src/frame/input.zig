@@ -10,34 +10,51 @@ pub const FrameTheme = struct {
     default_fg: contract.Rgba8,
     default_bg: contract.Rgba8,
     cursor_color: contract.Rgba8,
-    ansi16: [16]contract.Rgba8,
+    palette: [256]contract.Rgba8,
 };
-pub const default_theme = FrameTheme{
-    .default_fg = .{ .r = 204, .g = 204, .b = 204, .a = 255 },
-    .default_bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-    .cursor_color = .{ .r = 204, .g = 204, .b = 204, .a = 255 },
-    .ansi16 = .{
-        .{ .r = 0, .g = 0, .b = 0, .a = 255 },
-        .{ .r = 170, .g = 0, .b = 0, .a = 255 },
-        .{ .r = 0, .g = 170, .b = 0, .a = 255 },
-        .{ .r = 170, .g = 85, .b = 0, .a = 255 },
-        .{ .r = 0, .g = 0, .b = 170, .a = 255 },
-        .{ .r = 170, .g = 0, .b = 170, .a = 255 },
-        .{ .r = 0, .g = 170, .b = 170, .a = 255 },
-        .{ .r = 170, .g = 170, .b = 170, .a = 255 },
-        .{ .r = 85, .g = 85, .b = 85, .a = 255 },
-        .{ .r = 255, .g = 85, .b = 85, .a = 255 },
-        .{ .r = 85, .g = 255, .b = 85, .a = 255 },
-        .{ .r = 255, .g = 255, .b = 85, .a = 255 },
-        .{ .r = 85, .g = 85, .b = 255, .a = 255 },
-        .{ .r = 255, .g = 85, .b = 255, .a = 255 },
-        .{ .r = 85, .g = 255, .b = 255, .a = 255 },
-        .{ .r = 255, .g = 255, .b = 255, .a = 255 },
-    },
-};
+pub const default_theme = defaultTheme();
 
 fn indexed256(idx: u8, t: FrameTheme) contract.Rgba8 {
-    if (idx < 16) return t.ansi16[idx];
+    return t.palette[idx];
+}
+
+fn defaultTheme() FrameTheme {
+    const palette = defaultPalette();
+    return .{
+        .default_fg = .{ .r = 204, .g = 204, .b = 204, .a = 255 },
+        .default_bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+        .cursor_color = .{ .r = 204, .g = 204, .b = 204, .a = 255 },
+        .palette = palette,
+    };
+}
+
+fn defaultPalette() [256]contract.Rgba8 {
+    @setEvalBranchQuota(4096);
+    var palette: [256]contract.Rgba8 = undefined;
+    var idx: u16 = 0;
+    while (idx < 256) : (idx += 1) palette[idx] = indexedDefaultColor(@intCast(idx));
+    return palette;
+}
+
+fn indexedDefaultColor(idx: u8) contract.Rgba8 {
+    if (idx < 16) return switch (idx) {
+        0 => .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+        1 => .{ .r = 170, .g = 0, .b = 0, .a = 255 },
+        2 => .{ .r = 0, .g = 170, .b = 0, .a = 255 },
+        3 => .{ .r = 170, .g = 85, .b = 0, .a = 255 },
+        4 => .{ .r = 0, .g = 0, .b = 170, .a = 255 },
+        5 => .{ .r = 170, .g = 0, .b = 170, .a = 255 },
+        6 => .{ .r = 0, .g = 170, .b = 170, .a = 255 },
+        7 => .{ .r = 170, .g = 170, .b = 170, .a = 255 },
+        8 => .{ .r = 85, .g = 85, .b = 85, .a = 255 },
+        9 => .{ .r = 255, .g = 85, .b = 85, .a = 255 },
+        10 => .{ .r = 85, .g = 255, .b = 85, .a = 255 },
+        11 => .{ .r = 255, .g = 255, .b = 85, .a = 255 },
+        12 => .{ .r = 85, .g = 85, .b = 255, .a = 255 },
+        13 => .{ .r = 255, .g = 85, .b = 255, .a = 255 },
+        14 => .{ .r = 85, .g = 255, .b = 255, .a = 255 },
+        else => .{ .r = 255, .g = 255, .b = 255, .a = 255 },
+    };
     if (idx < 232) {
         const i: u32 = idx - 16;
         const r: u8 = @intCast((i / 36) * 51);
@@ -47,6 +64,21 @@ fn indexed256(idx: u8, t: FrameTheme) contract.Rgba8 {
     }
     const gray: u8 = @intCast((@as(u32, idx) - 232) * 10 + 8);
     return .{ .r = gray, .g = gray, .b = gray, .a = 255 };
+}
+
+fn rgbaFromVtRgb(color: abi.FfiVtRgb8) contract.Rgba8 {
+    return .{ .r = color.r, .g = color.g, .b = color.b, .a = 255 };
+}
+
+fn themeFromPublicationColors(colors: abi.FfiVtRenderColorState) FrameTheme {
+    var palette: [256]contract.Rgba8 = undefined;
+    for (colors.palette, 0..) |color, idx| palette[idx] = rgbaFromVtRgb(color);
+    return .{
+        .default_fg = rgbaFromVtRgb(colors.foreground),
+        .default_bg = rgbaFromVtRgb(colors.background),
+        .cursor_color = rgbaFromVtRgb(colors.cursor),
+        .palette = palette,
+    };
 }
 
 fn colorToRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
@@ -119,7 +151,6 @@ fn publicationColorToRgba8(color: abi.FfiVtColor, is_fg: bool, t: FrameTheme) co
 }
 
 fn publicationColorToTextSceneRgba8(color: abi.FfiVtColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
-    if (!is_fg and color.kind == 0) return .{ .r = t.default_bg.r, .g = t.default_bg.g, .b = t.default_bg.b, .a = 0 };
     return publicationColorToRgba8(color, is_fg, t);
 }
 
@@ -134,14 +165,13 @@ fn publicationUnderlineStyle(style: u8) contract.UnderlineStyle {
     };
 }
 
-fn isAlacrittyEmptyPublicationCell(cell: abi.FfiVtCell) bool {
+fn isAlacrittyEmptyPublicationCell(cell: abi.FfiVtCell, bg: contract.Rgba8) bool {
     const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
-    const default_bg = cell.bg_color.kind == 0;
     const visible_flags = cell.flags.continuation != 0 or
         cell.attrs.inverse != 0 or
         cell.attrs.underline != 0 or
         cell.attrs.strikethrough != 0;
-    return blank and default_bg and !visible_flags;
+    return blank and bg.a == 0 and !visible_flags;
 }
 
 fn emptyCellInput() contract.CellInput {
@@ -170,16 +200,17 @@ fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
 }
 
 fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput {
+    const bg = publicationColorToTextSceneRgba8(src.bg_color, false, t);
     var out: contract.CellInput = .{
         .codepoint = @intCast(src.codepoint),
         .fg = publicationColorToTextSceneRgba8(src.fg_color, true, t),
-        .bg = publicationColorToTextSceneRgba8(src.bg_color, false, t),
+        .bg = bg,
         .underline_color = if (src.attrs.underline_color_set != 0) publicationColorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
         .underline_style = publicationUnderlineStyle(src.underline_style),
         .underline = src.attrs.underline != 0,
         .strikethrough = src.attrs.strikethrough != 0,
         .continuation = src.flags.continuation != 0,
-        .empty = isAlacrittyEmptyPublicationCell(src),
+        .empty = isAlacrittyEmptyPublicationCell(src, bg),
     };
     if (src.attrs.selected != 0) applySelectionStyle(&out, t);
     return out;
@@ -272,7 +303,7 @@ pub fn publicationSourceToTextSceneInput(
     source: queue.PublicationSource,
     full_damage: bool,
 ) !OwnedTextSceneInput {
-    return publicationSourceToTextSceneInputWithTheme(allocator, source, full_damage, default_theme);
+    return publicationSourceToTextSceneInputWithTheme(allocator, source, full_damage, themeFromPublicationColors(source.colors));
 }
 
 pub fn vtStateToFrameTextInput(
@@ -305,7 +336,7 @@ pub fn publicationSourceToTextSceneInputBorrowed(
     source: queue.PublicationSource,
     full_damage: bool,
 ) BorrowedTextSceneInput {
-    return publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, default_theme);
+    return publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, themeFromPublicationColors(source.colors));
 }
 
 pub fn publicationSourceToTextSceneInputBorrowedWithTheme(
@@ -555,6 +586,10 @@ test "frame_input borrowed publication mapping reuses caller storage" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
+    var colors = std.mem.zeroes(abi.FfiVtRenderColorState);
+    colors.foreground = .{ .r = default_theme.default_fg.r, .g = default_theme.default_fg.g, .b = default_theme.default_fg.b };
+    colors.background = .{ .r = default_theme.default_bg.r, .g = default_theme.default_bg.g, .b = default_theme.default_bg.b };
+    colors.cursor = .{ .r = default_theme.cursor_color.r, .g = default_theme.cursor_color.g, .b = default_theme.cursor_color.b };
     const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 2,
         .rows = 1,
@@ -564,6 +599,7 @@ test "frame_input borrowed publication mapping reuses caller storage" {
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = colors,
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
@@ -591,6 +627,10 @@ test "frame_input borrowed publication mapping preserves cursor blink truth" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
+    var colors = std.mem.zeroes(abi.FfiVtRenderColorState);
+    colors.foreground = .{ .r = default_theme.default_fg.r, .g = default_theme.default_fg.g, .b = default_theme.default_fg.b };
+    colors.background = .{ .r = default_theme.default_bg.r, .g = default_theme.default_bg.g, .b = default_theme.default_bg.b };
+    colors.cursor = .{ .r = default_theme.cursor_color.r, .g = default_theme.cursor_color.g, .b = default_theme.cursor_color.b };
     const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 1,
         .rows = 1,
@@ -600,6 +640,7 @@ test "frame_input borrowed publication mapping preserves cursor blink truth" {
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true },
+        .colors = colors,
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
@@ -636,6 +677,7 @@ test "frame_input borrowed publication mapping hides blinking cursor when host p
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true },
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = false,
         .dirty_rows = @constCast(&dirty_rows),
@@ -655,6 +697,10 @@ test "frame_input borrowed publication mapping applies selection styling across 
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
+    var colors = std.mem.zeroes(abi.FfiVtRenderColorState);
+    colors.foreground = .{ .r = default_theme.default_fg.r, .g = default_theme.default_fg.g, .b = default_theme.default_fg.b };
+    colors.background = .{ .r = default_theme.default_bg.r, .g = default_theme.default_bg.g, .b = default_theme.default_bg.b };
+    colors.cursor = .{ .r = default_theme.cursor_color.r, .g = default_theme.cursor_color.g, .b = default_theme.cursor_color.b };
     const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 2,
         .rows = 1,
@@ -664,6 +710,7 @@ test "frame_input borrowed publication mapping applies selection styling across 
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = colors,
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
@@ -674,4 +721,110 @@ test "frame_input borrowed publication mapping applies selection styling across 
     try std.testing.expectEqual(default_theme.default_bg.r, mapped.cells[0].fg.r);
     try std.testing.expectEqual(default_theme.default_fg.r, mapped.cells[0].bg.r);
     try std.testing.expectEqual(@as(u21, 'B'), mapped.cells[1].codepoint);
+}
+
+test "frame_input borrowed publication mapping uses vt-owned color state" {
+    var cells = [_]abi.FfiVtCell{.{
+        .codepoint = 'A',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 1, .value = 1 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    }};
+    var storage: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    var colors = std.mem.zeroes(abi.FfiVtRenderColorState);
+    colors.foreground = .{ .r = 1, .g = 2, .b = 3 };
+    colors.background = .{ .r = 4, .g = 5, .b = 6 };
+    colors.cursor = .{ .r = 7, .g = 8, .b = 9 };
+    colors.palette[1] = .{ .r = 10, .g = 11, .b = 12 };
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .block, .blink = false },
+        .colors = colors,
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(@as(u8, 1), mapped.cells[0].fg.r);
+    try std.testing.expectEqual(@as(u8, 10), mapped.cells[0].bg.r);
+    try std.testing.expectEqual(@as(u8, 7), mapped.options.scene.cursor.?.color.r);
+}
+
+test "frame_input remaps semantic default and indexed cells when vt colors change" {
+    var cells = [_]abi.FfiVtCell{.{
+        .codepoint = 'A',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 1, .value = 3 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    }};
+    var storage_a: [1]contract.CellInput = undefined;
+    var storage_b: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+
+    var colors_a = std.mem.zeroes(abi.FfiVtRenderColorState);
+    colors_a.foreground = .{ .r = 1, .g = 2, .b = 3 };
+    colors_a.background = .{ .r = 4, .g = 5, .b = 6 };
+    colors_a.palette[3] = .{ .r = 7, .g = 8, .b = 9 };
+    const mapped_a = publicationSourceToTextSceneInputBorrowed(storage_a[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = colors_a,
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    var colors_b = colors_a;
+    colors_b.foreground = .{ .r = 10, .g = 11, .b = 12 };
+    colors_b.palette[3] = .{ .r = 13, .g = 14, .b = 15 };
+    const mapped_b = publicationSourceToTextSceneInputBorrowed(storage_b[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .scroll_row = 0,
+        .snapshot_seq = 2,
+        .dirty_epoch = 2,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = colors_b,
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(@as(u8, 1), mapped_a.cells[0].fg.r);
+    try std.testing.expectEqual(@as(u8, 7), mapped_a.cells[0].bg.r);
+    try std.testing.expectEqual(@as(u8, 10), mapped_b.cells[0].fg.r);
+    try std.testing.expectEqual(@as(u8, 13), mapped_b.cells[0].bg.r);
 }

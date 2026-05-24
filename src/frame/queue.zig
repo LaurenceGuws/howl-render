@@ -211,6 +211,7 @@ pub const PublicationSource = struct {
     is_alternate_screen: bool,
     cells: []abi.FfiVtCell,
     cursor: surface_types.CursorInfo,
+    colors: abi.FfiVtRenderColorState,
     selection: abi.FfiVtSelection,
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
@@ -247,6 +248,7 @@ pub const PublicationSource = struct {
             .is_alternate_screen = self.is_alternate_screen,
             .cells = cells,
             .cursor = self.cursor,
+            .colors = self.colors,
             .selection = self.selection,
             .cursor_phase_visible = self.cursor_phase_visible,
             .dirty_rows = dirty_rows,
@@ -291,6 +293,7 @@ pub const ReservedSourceMeta = struct {
     snapshot_seq: u64,
     is_alternate_screen: bool,
     cursor: surface_types.CursorInfo,
+    colors: abi.FfiVtRenderColorState,
     selection: abi.FfiVtSelection,
 };
 
@@ -436,6 +439,7 @@ const PublicationState = struct {
         source.dirty_epoch = dirty_epoch;
         source.is_alternate_screen = meta.is_alternate_screen;
         source.cursor = meta.cursor;
+        source.colors = meta.colors;
         source.selection = meta.selection;
         return self.acceptSource(source, submitted_token, geometry_epoch);
     }
@@ -626,10 +630,12 @@ const PublicationState = struct {
         if (snapshot.snapshot_seq == prior_snapshot.snapshot_seq) {
             if (samePublicationSource(prior, source)) return .none;
             if (cursorPresentationChanged(prior, source)) return .full;
+            if (colorPresentationChanged(prior, source)) return .full;
             if (damage_kind == .partial and !prior_matches_submitted) return .full;
             return damage_kind;
         }
         if (cursorPresentationChanged(prior, source)) return .full;
+        if (colorPresentationChanged(prior, source)) return .full;
         if (snapshot.cols != prior_snapshot.cols or snapshot.rows != prior_snapshot.rows) return .full;
         if (snapshot.is_alternate_screen != prior_snapshot.is_alternate_screen) return .full;
         if (snapshot.scroll_row != prior_snapshot.scroll_row) return .full;
@@ -657,6 +663,7 @@ const PublicationState = struct {
             .is_alternate_screen = false,
             .cells = slot.cells,
             .cursor = std.mem.zeroes(surface_types.CursorInfo),
+            .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
             .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
             .cursor_phase_visible = true,
             .dirty_rows = slot.dirty_rows,
@@ -691,6 +698,7 @@ const PublicationState = struct {
         const dirty_epoch = source.dirty_epoch;
         const is_alternate_screen = source.is_alternate_screen;
         const cursor = source.cursor;
+        const colors = source.colors;
         const selected = source.selection;
         const cursor_phase_visible = source.cursor_phase_visible;
         source.* = self.retainedSource(source.cols, source.rows);
@@ -699,6 +707,7 @@ const PublicationState = struct {
         source.dirty_epoch = dirty_epoch;
         source.is_alternate_screen = is_alternate_screen;
         source.cursor = cursor;
+        source.colors = colors;
         source.selection = selected;
         source.cursor_phase_visible = cursor_phase_visible;
     }
@@ -711,6 +720,10 @@ fn cursorPresentationChanged(prior: PublicationSource, current: PublicationSourc
     if (prior.cursor.blink != current.cursor.blink) return true;
     if ((prior.cursor.blink or current.cursor.blink) and prior.cursor_phase_visible != current.cursor_phase_visible) return true;
     return false;
+}
+
+fn colorPresentationChanged(prior: PublicationSource, current: PublicationSource) bool {
+    return !std.mem.eql(u8, std.mem.asBytes(&prior.colors), std.mem.asBytes(&current.colors));
 }
 
 fn setSourceCursorBlinkVisible(source: *PublicationSource, visible: bool) bool {
@@ -744,6 +757,7 @@ fn samePublicationSource(a: PublicationSource, b: PublicationSource) bool {
         a.cursor.visible == b.cursor.visible and
         a.cursor.shape == b.cursor.shape and
         a.cursor.blink == b.cursor.blink and
+        std.mem.eql(u8, std.mem.asBytes(&a.colors), std.mem.asBytes(&b.colors)) and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.cells), std.mem.sliceAsBytes(b.cells)) and
         std.mem.eql(u8, a.dirty_rows, b.dirty_rows) and
         std.mem.eql(u16, a.dirty_cols_start, b.dirty_cols_start) and
@@ -1008,6 +1022,7 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
         .is_alternate_screen = snapshot.is_alternate_screen,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
@@ -1035,6 +1050,7 @@ fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u
         .is_alternate_screen = false,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
@@ -1210,6 +1226,7 @@ test "cursor movement republishes clean later vt snapshot" {
         .is_alternate_screen = false,
         .cells = clean_cells,
         .cursor = .{ .visible = true, .row = 0, .col = 1, .shape = .beam, .blink = false },
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = clean_dirty_rows,
@@ -1242,6 +1259,35 @@ test "cursor shape change republishes clean later vt snapshot" {
     second.dirty_cols_end[0] = 0;
     second.cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = false };
 
+    const published = flow.acceptSource(second);
+    try std.testing.expect(published.published);
+    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
+}
+
+test "color state change republishes clean later vt snapshot" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var first = try ownedTestSource(std.heap.c_allocator, 2, 'A');
+    first.colors.foreground = .{ .r = 1, .g = 2, .b = 3 };
+    first.colors.background = .{ .r = 4, .g = 5, .b = 6 };
+    first.colors.cursor = .{ .r = 7, .g = 8, .b = 9 };
+    first.colors.palette[1] = .{ .r = 10, .g = 11, .b = 12 };
+    defer first.deinit(std.heap.c_allocator);
+    try std.testing.expect(flow.acceptSource(first).published);
+    _ = flow.prepare() orelse return error.TestUnexpectedResult;
+
+    var second = try ownedTestSource(std.heap.c_allocator, 3, 'A');
+    second.dirty_rows[0] = 0;
+    second.colors.foreground = .{ .r = 9, .g = 8, .b = 7 };
+    second.colors.background = .{ .r = 4, .g = 5, .b = 6 };
+    second.colors.cursor = .{ .r = 7, .g = 8, .b = 9 };
+    second.colors.palette[1] = .{ .r = 10, .g = 11, .b = 12 };
     const published = flow.acceptSource(second);
     try std.testing.expect(published.published);
     try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
@@ -1435,6 +1481,7 @@ test "flow can reserve a new publish slot after submitting retained source" {
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     });
     try std.testing.expect(published.published);

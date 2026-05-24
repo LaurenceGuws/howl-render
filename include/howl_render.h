@@ -259,6 +259,7 @@ typedef struct {
   uint8_t reserved0;
   uint16_t reserved1;
   HowlVtCursor cursor;
+  HowlVtRenderColorState colors;
   HowlVtSelection selection;
 } HowlRenderPublishSlotCommit;
 
@@ -356,6 +357,7 @@ typedef struct {
   HowlVtU16Span dirty_cols_start;
   HowlVtU16Span dirty_cols_end;
   HowlVtCursor cursor;
+  HowlVtRenderColorState colors;
   HowlVtSelection selection;
 } HowlRenderVtSurface;
 

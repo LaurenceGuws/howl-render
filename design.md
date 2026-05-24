@@ -110,8 +110,8 @@ sequenceDiagram
   at least one usable font path before startup may proceed.
 - `howl_render_surface_text_is_valid_font` reports whether the current ordered font list contains at
   least one usable font path for session startup.
-- `HowlRenderVtSurface` carries VT-owned ABI cells, cursor, viewport, dirty spans, and snapshot
-  sequence truth into the render owner at publish time.
+- `HowlRenderVtSurface` carries VT-owned ABI cells, cursor, render-relevant dynamic color state,
+  viewport, dirty spans, and snapshot sequence truth into the render owner at publish time.
 - `HowlRenderVtSurface` also carries VT-owned selection truth so render owns selection presentation instead of asking the host to repaint selected cells itself.
 - `howl_render_surface_text_prepare_handle` consumes the exact render-owned published VT-source
   packet previously queued for that prepare token, returns a prepared render-surface handle only,
@@ -138,9 +138,9 @@ sequenceDiagram
   path. They let hosts either publish one full VT source directly or reserve a render-owned publish
   slot, fill it in place from VT, and commit it without a second host-owned visible-surface
   allocation. VT publication must carry
-  VT-owned visible projection truth, cells, cursor, and dirty spans so render can classify coarse
-  damage itself from retained previous-frame state, instead of accepting host-authored damage
-  classification or scrollback approximations.
+  VT-owned visible projection truth, cells, cursor, render-relevant dynamic color state, and dirty
+  spans so render can classify coarse damage itself from retained previous-frame state, instead of
+  accepting host-authored damage classification or scrollback approximations.
 - The prepared-handle path keeps prepared-frame identity render-owned. Hosts publish, submit, and
   retire opaque prepared handles; they must not rebuild prepared-frame queue truth from descriptive
   prepared-surface fields.

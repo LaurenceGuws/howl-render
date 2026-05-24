@@ -129,6 +129,19 @@ pub const FfiVtColor = extern struct {
     value: u32,
 };
 
+pub const FfiVtRgb8 = extern struct {
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
+pub const FfiVtRenderColorState = extern struct {
+    foreground: FfiVtRgb8,
+    background: FfiVtRgb8,
+    cursor: FfiVtRgb8,
+    palette: [256]FfiVtRgb8,
+};
+
 pub const FfiVtCellAttrs = extern struct {
     bold: u8,
     dim: u8,
@@ -301,6 +314,7 @@ pub const FfiPublishSlotCommit = extern struct {
     reserved0: u8 = 0,
     reserved1: u16 = 0,
     cursor: FfiVtCursor,
+    colors: FfiVtRenderColorState,
     selection: FfiVtSelection,
 };
 
@@ -398,6 +412,7 @@ pub const FfiVtSurface = extern struct {
     dirty_cols_start: FfiU16Span,
     dirty_cols_end: FfiU16Span,
     cursor: FfiVtCursor,
+    colors: FfiVtRenderColorState,
     selection: FfiVtSelection,
 };
 
@@ -422,5 +437,7 @@ comptime {
     std.debug.assert(@sizeOf(FfiGridSize) == 4);
     std.debug.assert(@sizeOf(FfiByteSpan) == 16);
     std.debug.assert(@sizeOf(FfiVtColor) == 8);
+    std.debug.assert(@sizeOf(FfiVtRgb8) == 3);
+    std.debug.assert(@sizeOf(FfiVtRenderColorState) == 777);
     std.debug.assert(@sizeOf(FfiVtCursor) == 8);
 }

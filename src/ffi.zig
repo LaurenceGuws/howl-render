@@ -27,6 +27,7 @@ const FfiSurfaceExecutionInput = abi.FfiSurfaceExecutionInput;
 const FfiSurfaceFeedback = abi.FfiSurfaceFeedback;
 const FfiPreparedSurfaceInfo = abi.FfiPreparedSurfaceInfo;
 const FfiQueueMetrics = abi.FfiQueueMetrics;
+const FfiVtRenderColorState = abi.FfiVtRenderColorState;
 const FfiVtSurface = abi.FfiVtSurface;
 
 const surfaceTextDeriveFrameLayout = surface_text_ffi.deriveFrameLayout;
@@ -100,6 +101,7 @@ fn testVtSurface(cells: []const FfiVtCell, cursor: FfiVtCursor) FfiVtSurface {
         .dirty_cols_start = .{ .ptr = null, .len = 0 },
         .dirty_cols_end = .{ .ptr = null, .len = 0 },
         .cursor = cursor,
+        .colors = std.mem.zeroes(FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     };
 }
@@ -133,6 +135,7 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
         .dirty_cols_start = .{ .ptr = dirty_cols_start[0..].ptr, .len = dirty_cols_start.len },
         .dirty_cols_end = .{ .ptr = dirty_cols_end[0..].ptr, .len = dirty_cols_end.len },
         .cursor = testCursor(0),
+        .colors = std.mem.zeroes(FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     });
     try std.testing.expectEqual(@as(c_int, 0), publish.status);
@@ -270,6 +273,7 @@ test "ffi vt source rejects invalid dirty spans" {
         .dirty_cols_start = .{ .ptr = null, .len = 1 },
         .dirty_cols_end = .{ .ptr = null, .len = 1 },
         .cursor = testCursor(0),
+        .colors = std.mem.zeroes(FfiVtRenderColorState),
     });
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.invalid_argument), result.status);
 }
@@ -362,6 +366,7 @@ test "ffi publish slot exposes render-owned reserved cells directly" {
         .snapshot_seq = 1,
         .is_alternate_screen = 0,
         .cursor = testCursor(0),
+        .colors = std.mem.zeroes(FfiVtRenderColorState),
     });
     try std.testing.expectEqual(@as(c_int, 0), publish.status);
     try std.testing.expectEqual(@as(u8, 1), publish.published);
