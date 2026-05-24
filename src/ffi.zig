@@ -103,6 +103,7 @@ fn testVtSurface(cells: []const FfiVtCell, cursor: FfiVtCursor) FfiVtSurface {
         .cursor = cursor,
         .colors = std.mem.zeroes(FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
     };
 }
 

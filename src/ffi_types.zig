@@ -242,6 +242,16 @@ pub const FfiVtSelection = extern struct {
     end: FfiVtSelectionPos,
 };
 
+pub const FfiVtGraphicsMeta = extern struct {
+    image_count: u32,
+    placement_count: u32,
+    is_alternate_screen: u8,
+    reserved0: u8 = 0,
+    reserved1: u16 = 0,
+    publication_seq: u64,
+    dirty_generation: u64,
+};
+
 pub const FfiGeometry = extern struct {
     render_px: FfiPixelSize,
     grid_px: FfiPixelSize,
@@ -316,6 +326,7 @@ pub const FfiPublishSlotCommit = extern struct {
     cursor: FfiVtCursor,
     colors: FfiVtRenderColorState,
     selection: FfiVtSelection,
+    graphics: FfiVtGraphicsMeta,
 };
 
 pub const FfiSurfaceMetrics = extern struct {
@@ -414,6 +425,7 @@ pub const FfiVtSurface = extern struct {
     cursor: FfiVtCursor,
     colors: FfiVtRenderColorState,
     selection: FfiVtSelection,
+    graphics: FfiVtGraphicsMeta,
 };
 
 pub const FfiSurfaceFeedback = extern struct {

@@ -345,6 +345,16 @@ typedef struct {
 } HowlRenderSurfaceExecutionInput;
 
 typedef struct {
+  uint32_t image_count;
+  uint32_t placement_count;
+  uint8_t is_alternate_screen;
+  uint8_t reserved0;
+  uint16_t reserved1;
+  uint64_t publication_seq;
+  uint64_t dirty_generation;
+} HowlRenderVtGraphicsMeta;
+
+typedef struct {
   HowlVtSurfaceCellSpan cells;
   uint16_t cols;
   uint16_t rows;
@@ -359,6 +369,7 @@ typedef struct {
   HowlVtCursor cursor;
   HowlVtRenderColorState colors;
   HowlVtSelection selection;
+  HowlRenderVtGraphicsMeta graphics;
 } HowlRenderVtSurface;
 
 typedef struct {

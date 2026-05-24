@@ -138,6 +138,7 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         .cursor = cursor,
         .colors = commit.colors,
         .selection = commit.selection,
+        .graphics = commit.graphics,
     }) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtPublishResultOut(result);
 }
@@ -502,6 +503,7 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
         .cursor = cursor,
         .colors = value.colors,
         .selection = value.selection,
+        .graphics = value.graphics,
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,

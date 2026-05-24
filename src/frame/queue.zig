@@ -197,6 +197,11 @@ pub const VtSnapshot = struct {
     snapshot_seq: u64,
     dirty_epoch: u64,
     is_alternate_screen: bool,
+    graphics_publication_seq: u64,
+    graphics_dirty_generation: u64,
+    graphics_image_count: u32,
+    graphics_placement_count: u32,
+    graphics_is_alternate_screen: bool,
     dirty_rows: []const u8,
     dirty_cols_start: []const u16,
     dirty_cols_end: []const u16,
@@ -213,6 +218,7 @@ pub const PublicationSource = struct {
     cursor: surface_types.CursorInfo,
     colors: abi.FfiVtRenderColorState,
     selection: abi.FfiVtSelection,
+    graphics: abi.FfiVtGraphicsMeta,
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
@@ -250,6 +256,7 @@ pub const PublicationSource = struct {
             .cursor = self.cursor,
             .colors = self.colors,
             .selection = self.selection,
+            .graphics = self.graphics,
             .cursor_phase_visible = self.cursor_phase_visible,
             .dirty_rows = dirty_rows,
             .dirty_cols_start = dirty_cols_start,
@@ -266,6 +273,11 @@ pub const PublicationSource = struct {
             .snapshot_seq = self.snapshot_seq,
             .dirty_epoch = self.dirty_epoch,
             .is_alternate_screen = self.is_alternate_screen,
+            .graphics_publication_seq = self.graphics.publication_seq,
+            .graphics_dirty_generation = self.graphics.dirty_generation,
+            .graphics_image_count = self.graphics.image_count,
+            .graphics_placement_count = self.graphics.placement_count,
+            .graphics_is_alternate_screen = self.graphics.is_alternate_screen != 0,
             .dirty_rows = self.dirty_rows,
             .dirty_cols_start = self.dirty_cols_start,
             .dirty_cols_end = self.dirty_cols_end,
@@ -295,6 +307,7 @@ pub const ReservedSourceMeta = struct {
     cursor: surface_types.CursorInfo,
     colors: abi.FfiVtRenderColorState,
     selection: abi.FfiVtSelection,
+    graphics: abi.FfiVtGraphicsMeta,
 };
 
 pub const PendingState = struct {
@@ -441,6 +454,7 @@ const PublicationState = struct {
         source.cursor = meta.cursor;
         source.colors = meta.colors;
         source.selection = meta.selection;
+        source.graphics = meta.graphics;
         return self.acceptSource(source, submitted_token, geometry_epoch);
     }
 
@@ -631,11 +645,13 @@ const PublicationState = struct {
             if (samePublicationSource(prior, source)) return .none;
             if (cursorPresentationChanged(prior, source)) return .full;
             if (colorPresentationChanged(prior, source)) return .full;
+            if (graphicsPublicationChanged(prior, source)) return .full;
             if (damage_kind == .partial and !prior_matches_submitted) return .full;
             return damage_kind;
         }
         if (cursorPresentationChanged(prior, source)) return .full;
         if (colorPresentationChanged(prior, source)) return .full;
+        if (graphicsPublicationChanged(prior, source)) return .full;
         if (snapshot.cols != prior_snapshot.cols or snapshot.rows != prior_snapshot.rows) return .full;
         if (snapshot.is_alternate_screen != prior_snapshot.is_alternate_screen) return .full;
         if (snapshot.scroll_row != prior_snapshot.scroll_row) return .full;
@@ -665,6 +681,7 @@ const PublicationState = struct {
             .cursor = std.mem.zeroes(surface_types.CursorInfo),
             .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
             .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+            .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
             .cursor_phase_visible = true,
             .dirty_rows = slot.dirty_rows,
             .dirty_cols_start = slot.dirty_cols_start,
@@ -700,6 +717,7 @@ const PublicationState = struct {
         const cursor = source.cursor;
         const colors = source.colors;
         const selected = source.selection;
+        const graphics = source.graphics;
         const cursor_phase_visible = source.cursor_phase_visible;
         source.* = self.retainedSource(source.cols, source.rows);
         source.scroll_row = scroll_row;
@@ -709,6 +727,7 @@ const PublicationState = struct {
         source.cursor = cursor;
         source.colors = colors;
         source.selection = selected;
+        source.graphics = graphics;
         source.cursor_phase_visible = cursor_phase_visible;
     }
 };
@@ -724,6 +743,10 @@ fn cursorPresentationChanged(prior: PublicationSource, current: PublicationSourc
 
 fn colorPresentationChanged(prior: PublicationSource, current: PublicationSource) bool {
     return !std.mem.eql(u8, std.mem.asBytes(&prior.colors), std.mem.asBytes(&current.colors));
+}
+
+fn graphicsPublicationChanged(prior: PublicationSource, current: PublicationSource) bool {
+    return !std.mem.eql(u8, std.mem.asBytes(&prior.graphics), std.mem.asBytes(&current.graphics));
 }
 
 fn setSourceCursorBlinkVisible(source: *PublicationSource, visible: bool) bool {
@@ -805,6 +828,11 @@ fn testSnapshot(
         .snapshot_seq = snapshot_seq,
         .dirty_epoch = snapshot_seq,
         .is_alternate_screen = false,
+        .graphics_publication_seq = 0,
+        .graphics_dirty_generation = 0,
+        .graphics_image_count = 0,
+        .graphics_placement_count = 0,
+        .graphics_is_alternate_screen = false,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
         .dirty_cols_end = dirty_cols_end,
@@ -1024,6 +1052,13 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{
+            .image_count = snapshot.graphics_image_count,
+            .placement_count = snapshot.graphics_placement_count,
+            .is_alternate_screen = if (snapshot.graphics_is_alternate_screen) 1 else 0,
+            .publication_seq = snapshot.graphics_publication_seq,
+            .dirty_generation = snapshot.graphics_dirty_generation,
+        },
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -1052,6 +1087,7 @@ fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -1228,6 +1264,7 @@ test "cursor movement republishes clean later vt snapshot" {
         .cursor = .{ .visible = true, .row = 0, .col = 1, .shape = .beam, .blink = false },
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
         .cursor_phase_visible = true,
         .dirty_rows = clean_dirty_rows,
         .dirty_cols_start = clean_dirty_start,
@@ -1288,6 +1325,32 @@ test "color state change republishes clean later vt snapshot" {
     second.colors.background = .{ .r = 4, .g = 5, .b = 6 };
     second.colors.cursor = .{ .r = 7, .g = 8, .b = 9 };
     second.colors.palette[1] = .{ .r = 10, .g = 11, .b = 12 };
+    const published = flow.acceptSource(second);
+    try std.testing.expect(published.published);
+    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
+}
+
+test "graphics publication change republishes clean later vt snapshot" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var first = try ownedTestSource(std.heap.c_allocator, 2, 'A');
+    first.graphics.publication_seq = 1;
+    first.graphics.dirty_generation = 1;
+    first.graphics.image_count = 1;
+    try std.testing.expect(flow.acceptSource(first).published);
+    _ = flow.prepare() orelse return error.TestUnexpectedResult;
+
+    var second = try ownedTestSource(std.heap.c_allocator, 3, 'A');
+    second.dirty_rows[0] = 0;
+    second.graphics.publication_seq = 2;
+    second.graphics.dirty_generation = 2;
+    second.graphics.image_count = 1;
     const published = flow.acceptSource(second);
     try std.testing.expect(published.published);
     try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
@@ -1483,6 +1546,7 @@ test "flow can reserve a new publish slot after submitting retained source" {
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
     });
     try std.testing.expect(published.published);
 
