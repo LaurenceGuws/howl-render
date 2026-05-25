@@ -315,23 +315,6 @@ typedef struct {
 } HowlRenderSurfaceMetrics;
 
 typedef struct {
-  uint64_t snapshot_publishes;
-  uint64_t snapshot_clean_drops;
-  uint64_t prepare_requests;
-  uint64_t prepare_coalesces;
-  uint64_t prepare_forced_full;
-  uint64_t prepare_takes;
-  uint64_t prepared_publishes;
-  uint64_t prepared_coalesces;
-  uint64_t submit_takes;
-  uint64_t submit_valid;
-  uint64_t submit_rejected;
-  uint64_t full_prepare_requests;
-  uint64_t submitted_accepts;
-  uint64_t presents;
-} HowlRenderQueueMetrics;
-
-typedef struct {
   int32_t status;
   uint64_t snapshot_seq;
 } HowlRenderPresentedRetire;
@@ -435,7 +418,6 @@ HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_handle(HowlR
 int howl_render_surface_text_accept_submitted(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
 int howl_render_surface_text_retire_presented(HowlRenderSurfaceTextHandle handle, HowlRenderPresentedRetire *retire_out);
 int howl_render_surface_text_pending_state(HowlRenderSurfaceTextHandle handle, HowlRenderPendingState *pending_out);
-int howl_render_surface_text_take_queue_metrics(HowlRenderSurfaceTextHandle handle, HowlRenderQueueMetrics *metrics_out);
 
 /* Owned prepared-surface ABI target. */
 HowlRenderPrepareStatus howl_render_surface_text_prepare_handle(HowlRenderSurfaceTextHandle surface_text_handle, HowlRenderPrepareRequest prepare_request, HowlRenderPreparedSurfaceHandle *prepared_handle_out);

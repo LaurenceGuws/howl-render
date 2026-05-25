@@ -26,7 +26,6 @@ const FfiPreparedFrame = abi.FfiPreparedFrame;
 const FfiSurfaceExecutionInput = abi.FfiSurfaceExecutionInput;
 const FfiSurfaceFeedback = abi.FfiSurfaceFeedback;
 const FfiPreparedSurfaceInfo = abi.FfiPreparedSurfaceInfo;
-const FfiQueueMetrics = abi.FfiQueueMetrics;
 const FfiVtRenderColorState = abi.FfiVtRenderColorState;
 const FfiVtSurface = abi.FfiVtSurface;
 
@@ -52,7 +51,6 @@ const surfaceTextTakeSubmitHandle = surface_text_ffi.takeSubmitHandle;
 const surfaceTextAcceptSubmitted = surface_text_ffi.acceptSubmitted;
 const surfaceTextRetirePresented = surface_text_ffi.retirePresented;
 const surfaceTextPendingState = surface_text_ffi.pendingState;
-const surfaceTextTakeQueueMetrics = surface_text_ffi.takeQueueMetrics;
 const surfaceTextPrepareHandle = surface_text_ffi.prepareHandle;
 const preparedSurfaceRelease = prepared_surface.release;
 const preparedSurfaceDescribe = prepared_surface.describe;
@@ -534,28 +532,4 @@ test "ffi prepared surface describe writes missing-handle status" {
     );
     try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), info.status);
     try std.testing.expectEqual(@as(u64, 0), info.snapshot_seq);
-}
-
-test "ffi queue metrics clears output on failure" {
-    var metrics = FfiQueueMetrics{
-        .snapshot_publishes = 9,
-        .snapshot_clean_drops = 9,
-        .prepare_requests = 9,
-        .prepare_coalesces = 9,
-        .prepare_forced_full = 9,
-        .prepare_takes = 9,
-        .prepared_publishes = 9,
-        .prepared_coalesces = 9,
-        .submit_takes = 9,
-        .submit_valid = 9,
-        .submit_rejected = 9,
-        .full_prepare_requests = 9,
-        .submitted_accepts = 9,
-        .presents = 9,
-    };
-    try std.testing.expectEqual(
-        @intFromEnum(HowlRenderCallStatus.missing_handle),
-        surfaceTextTakeQueueMetrics(null, &metrics),
-    );
-    try std.testing.expectEqual(@as(u64, 0), metrics.snapshot_publishes);
 }

@@ -412,23 +412,6 @@ pub const FfiSurfaceMetrics = extern struct {
     missing_glyphs: u64,
 };
 
-pub const FfiQueueMetrics = extern struct {
-    snapshot_publishes: u64,
-    snapshot_clean_drops: u64,
-    prepare_requests: u64,
-    prepare_coalesces: u64,
-    prepare_forced_full: u64,
-    prepare_takes: u64,
-    prepared_publishes: u64,
-    prepared_coalesces: u64,
-    submit_takes: u64,
-    submit_valid: u64,
-    submit_rejected: u64,
-    full_prepare_requests: u64,
-    submitted_accepts: u64,
-    presents: u64,
-};
-
 pub const FfiPresentedRetire = extern struct {
     status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
     snapshot_seq: u64,

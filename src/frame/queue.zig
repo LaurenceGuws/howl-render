@@ -22,23 +22,6 @@ pub const SubmitDecision = union(enum) {
     idle,
 };
 
-pub const QueueMetrics = struct {
-    snapshot_publishes: u64 = 0,
-    snapshot_clean_drops: u64 = 0,
-    prepare_requests: u64 = 0,
-    prepare_coalesces: u64 = 0,
-    prepare_forced_full: u64 = 0,
-    prepare_takes: u64 = 0,
-    prepared_publishes: u64 = 0,
-    prepared_coalesces: u64 = 0,
-    submit_takes: u64 = 0,
-    submit_valid: u64 = 0,
-    submit_rejected: u64 = 0,
-    full_prepare_requests: u64 = 0,
-    submitted_accepts: u64 = 0,
-    presents: u64 = 0,
-};
-
 const TerminalSurface = struct {
     const SubmitMailbox = pipeline.LatestMailbox(pipeline.PreparedFrame);
 
@@ -47,44 +30,10 @@ const TerminalSurface = struct {
     submitted_frame: ?pipeline.SubmittedFrame = null,
     present_pending: bool = false,
     present_snapshot_seq: u64 = 0,
-    metrics: QueueMetrics = .{},
-
-    fn noteSnapshotPublish(self: *TerminalSurface, result: VtPublishResult, coalesced: bool) void {
-        lockMutex(&self.mutex);
-        defer self.mutex.unlock();
-        if (!result.published) {
-            self.metrics.snapshot_clean_drops +%= 1;
-            return;
-        }
-        self.metrics.snapshot_publishes +%= 1;
-        self.metrics.prepare_requests +%= 1;
-        if (coalesced) self.metrics.prepare_coalesces +%= 1;
-    }
-
-    fn notePrepareForcedFull(self: *TerminalSurface) void {
-        lockMutex(&self.mutex);
-        defer self.mutex.unlock();
-        self.metrics.prepare_forced_full +%= 1;
-    }
-
-    fn notePrepareTake(self: *TerminalSurface) void {
-        lockMutex(&self.mutex);
-        defer self.mutex.unlock();
-        self.metrics.prepare_takes +%= 1;
-    }
-
-    fn noteFullPrepareRequest(self: *TerminalSurface) void {
-        lockMutex(&self.mutex);
-        defer self.mutex.unlock();
-        self.metrics.full_prepare_requests +%= 1;
-        self.metrics.prepare_requests +%= 1;
-    }
 
     fn publishPrepared(self: *TerminalSurface, prepared: pipeline.PreparedFrame) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        if (self.submit_mailbox.hasPending()) self.metrics.prepared_coalesces +%= 1;
-        self.metrics.prepared_publishes +%= 1;
         self.submit_mailbox.publish(prepared);
     }
 
@@ -94,22 +43,13 @@ const TerminalSurface = struct {
             self.mutex.unlock();
             return .idle;
         };
-        self.metrics.submit_takes +%= 1;
         self.mutex.unlock();
         if (self.isStalePrepared(latest_token, prepared.token)) return .{ .stale = prepared.token };
 
         const validation = self.validatePrepared(prepared);
-        if (validation == .valid) {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            self.metrics.submit_valid +%= 1;
-            return .{ .submit = prepared };
-        }
+        if (validation == .valid) return .{ .submit = prepared };
 
         const reason = fullPrepareReason(validation);
-        lockMutex(&self.mutex);
-        self.metrics.submit_rejected +%= 1;
-        self.mutex.unlock();
         return .{ .needs_full_prepare = reason };
     }
 
@@ -129,7 +69,6 @@ const TerminalSurface = struct {
         self.submitted_frame = frame;
         self.present_pending = true;
         self.present_snapshot_seq = frame.token.snapshot_seq;
-        self.metrics.submitted_accepts +%= 1;
     }
 
     fn retirePresented(self: *TerminalSurface) u64 {
@@ -140,16 +79,7 @@ const TerminalSurface = struct {
         std.debug.assert(snapshot_seq != 0);
         self.present_pending = false;
         self.present_snapshot_seq = 0;
-        if (self.submitted_frame != null) self.metrics.presents +%= 1;
         return snapshot_seq;
-    }
-
-    fn takeMetrics(self: *TerminalSurface) QueueMetrics {
-        lockMutex(&self.mutex);
-        defer self.mutex.unlock();
-        const out = self.metrics;
-        self.metrics = .{};
-        return out;
     }
 
     fn pendingState(self: *const TerminalSurface) struct {
@@ -936,10 +866,7 @@ pub const Flow = struct {
         std.debug.assert(owned.rows > 0);
         owned.dirty_epoch = self.nextSourceDirtyEpoch();
         owned.cursor_phase_visible = self.cursor_blink_visible;
-        const had_queued_publication = self.publication_state.pending != null or self.publication_state.active != null;
-        const result = self.publication_state.acceptSource(owned, self.submittedToken(), self.geometry_epoch);
-        self.surface.noteSnapshotPublish(result, had_queued_publication and result.published);
-        return result;
+        return self.publication_state.acceptSource(owned, self.submittedToken(), self.geometry_epoch);
     }
 
     pub fn setCursorBlinkVisible(self: *Flow, visible: bool) bool {
@@ -959,10 +886,7 @@ pub const Flow = struct {
 
     pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
         std.debug.assert(meta.snapshot_seq != 0);
-        const had_queued_publication = self.publication_state.pending != null or self.publication_state.active != null;
-        const result = try self.publication_state.commitReservedSource(meta, self.nextSourceDirtyEpoch(), self.submittedToken(), self.geometry_epoch);
-        self.surface.noteSnapshotPublish(result, had_queued_publication and result.published);
-        return result;
+        return try self.publication_state.commitReservedSource(meta, self.nextSourceDirtyEpoch(), self.submittedToken(), self.geometry_epoch);
     }
 
     pub fn cancelPublishSlot(self: *Flow) void {
@@ -1020,11 +944,9 @@ pub const Flow = struct {
         };
         const request = self.publication_state.takePrepareRequest(self.geometry_epoch, submitted_token) orelse return null;
         const effective_token = TerminalSurface.prepareTokenForRetainedState(request.token, submitted_token);
-        if (effective_token.damage_kind == .full and request.token.damage_kind != .full) self.surface.notePrepareForcedFull();
         if (!sameSnapshotToken(effective_token, request.token)) {
             self.publication_state.active.?.request = .{ .token = effective_token, .allow_retained_reuse = request.allow_retained_reuse };
         }
-        self.surface.notePrepareTake();
         return self.publication_state.active.?.request;
     }
 
@@ -1055,9 +977,7 @@ pub const Flow = struct {
         const decision = self.surface.takeValidatedSubmitWithLatest(self.publication_state.latestToken());
         switch (decision) {
             .stale => |token| self.publication_state.retireAtOrBefore(token),
-            .needs_full_prepare => {
-                if (self.publication_state.requestFullPrepare()) self.surface.noteFullPrepareRequest();
-            },
+            .needs_full_prepare => _ = self.publication_state.requestFullPrepare(),
             else => {},
         }
         return decision;
@@ -1065,7 +985,7 @@ pub const Flow = struct {
 
     pub fn acceptSubmitted(self: *Flow, frame: pipeline.SubmittedFrame) void {
         if (frame.token.geometry_epoch != self.geometry_epoch) {
-            if (self.publication_state.requestFullPrepare()) self.surface.noteFullPrepareRequest();
+            _ = self.publication_state.requestFullPrepare();
             return;
         }
         self.publication_state.retirePendingAtOrBefore(frame.token);
@@ -1084,10 +1004,6 @@ pub const Flow = struct {
             .submit_pending = pending.submit_pending,
             .present_pending = pending.present_pending,
         };
-    }
-
-    pub fn takeMetrics(self: *Flow) QueueMetrics {
-        return self.surface.takeMetrics();
     }
 
     fn nextSourceDirtyEpoch(self: *Flow) u64 {
@@ -1211,10 +1127,6 @@ test "surface validates submit candidates before GPU mutation" {
         .submit => |prepared| try std.testing.expectEqual(@as(u64, 2), prepared.token.snapshot_seq),
         else => return error.TestUnexpectedResult,
     }
-    const metrics_snapshot = surface.takeMetrics();
-    try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.prepared_publishes);
-    try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.submit_takes);
-    try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.submit_valid);
 }
 
 test "surface retires presented snapshot identity once" {
@@ -1577,11 +1489,6 @@ test "flow coalesces snapshots into latest prepare request" {
     const request = flow.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), request.token.snapshot_seq);
     try std.testing.expect(flow.prepare() == null);
-    const metrics_snapshot = flow.takeMetrics();
-    try std.testing.expectEqual(@as(u64, 2), metrics_snapshot.snapshot_publishes);
-    try std.testing.expectEqual(@as(u64, 2), metrics_snapshot.prepare_requests);
-    try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.prepare_coalesces);
-    try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.prepare_takes);
 }
 
 test "flow turns partial snapshot full without retained base" {
@@ -1600,9 +1507,6 @@ test "flow turns partial snapshot full without retained base" {
     const request = flow.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
     try std.testing.expectEqual(@as(u64, 0), request.token.damage_base_seq);
-    const metrics_snapshot = flow.takeMetrics();
-    try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.prepare_forced_full);
-    try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.prepare_takes);
 }
 
 test "flow rejects stale submit and requests full latest prepare" {
@@ -1635,9 +1539,6 @@ test "flow rejects stale submit and requests full latest prepare" {
     const request = flow.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), request.token.snapshot_seq);
     try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
-    const metrics_snapshot = flow.takeMetrics();
-    try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.submit_rejected);
-    try std.testing.expectEqual(@as(u64, 1), metrics_snapshot.full_prepare_requests);
 }
 
 test "flow drops pending prepare at submitted token" {

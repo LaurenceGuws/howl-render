@@ -9,12 +9,6 @@ fn addStbImage(module: *std.Build.Module, b: *std.Build) void {
     module.addCSourceFile(.{ .file = b.path("src/stb_image.c") });
 }
 
-const NonProdEntry = enum {
-    unit,
-    runtime_proof,
-    benchmark,
-};
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -32,22 +26,15 @@ pub fn build(b: *std.Build) void {
     });
     const harfbuzz_lib = harfbuzz_dep.artifact("harfbuzz");
 
-    const unit_root_options = b.addOptions();
-    unit_root_options.addOption(NonProdEntry, "entry", .unit);
-    const runtime_proof_root_options = b.addOptions();
-    runtime_proof_root_options.addOption(NonProdEntry, "entry", .runtime_proof);
-    const benchmark_root_options = b.addOptions();
-    benchmark_root_options.addOption(NonProdEntry, "entry", .benchmark);
     const test_font_options = b.addOptions();
     test_font_options.addOption([]const u8, "primary_path", test_font_primary_path);
     test_font_options.addOption([]const u8, "symbol_path", test_font_symbol_path);
     const internal_mod = b.createModule(.{
-        .root_source_file = b.path("src/non_prod.zig"),
+        .root_source_file = b.path("src/test_unit.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
-    internal_mod.addImport("non_prod_options", unit_root_options.createModule());
     internal_mod.addImport("test_font_options", test_font_options.createModule());
     internal_mod.linkLibrary(freetype_lib);
     internal_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
@@ -99,46 +86,47 @@ pub fn build(b: *std.Build) void {
         run_render_tests.has_side_effects = true;
     }
 
-    const runtime_proof_mod = b.createModule(.{
-        .root_source_file = b.path("src/non_prod.zig"),
+    const abi_mod = b.createModule(.{
+        .root_source_file = b.path("src/test_abi.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
-    runtime_proof_mod.addImport("non_prod_options", runtime_proof_root_options.createModule());
-    runtime_proof_mod.addImport("test_font_options", test_font_options.createModule());
-    runtime_proof_mod.linkLibrary(freetype_lib);
-    runtime_proof_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
-    runtime_proof_mod.linkLibrary(harfbuzz_lib);
-    runtime_proof_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    addStbImage(runtime_proof_mod, b);
-    const runtime_proof_tests = b.addTest(.{
-        .name = "test-runtime-proof",
-        .root_module = runtime_proof_mod,
+    abi_mod.addIncludePath(b.path("include"));
+    abi_mod.addIncludePath(b.path("../howl-vt/include"));
+    abi_mod.addImport("test_font_options", test_font_options.createModule());
+    abi_mod.linkLibrary(freetype_lib);
+    abi_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
+    abi_mod.linkLibrary(harfbuzz_lib);
+    abi_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    addStbImage(abi_mod, b);
+    const abi_tests = b.addTest(.{
+        .name = "test-abi",
+        .root_module = abi_mod,
         .filters = b.args orelse &.{},
     });
-    runtime_proof_tests.use_llvm = true;
-    const run_runtime_proof_tests = b.addRunArtifact(runtime_proof_tests);
+    abi_tests.use_llvm = true;
+    const run_abi_tests = b.addRunArtifact(abi_tests);
     if (b.args != null) {
-        run_runtime_proof_tests.has_side_effects = true;
+        run_abi_tests.has_side_effects = true;
     }
 
     const check_step = b.step("check", "Compile owner surfaces without installing or running");
     const test_step = b.step("test", "Run all tests");
+    const test_abi_step = b.step("test:abi", "Run shipped render ABI contract tests");
+    const test_abi_build_step = b.step("test:abi:build", "Build shipped render ABI contract tests");
     const test_render_step = b.step("test:render", "Run repo-local render tests");
     const test_render_build_step = b.step("test:render:build", "Build repo-local render tests");
-    const test_runtime_proof_step = b.step("test:runtime-proof", "Run runtime proof tests");
-    const test_runtime_proof_build_step = b.step("test:runtime-proof:build", "Build runtime proof tests");
-    const test_unit_step = b.step("test:unit", "Run unit tests");
-    const test_unit_build_step = b.step("test:unit:build", "Build unit tests");
+    const test_unit_step = b.step("test:unit", "Run owner-local render correctness tests");
+    const test_unit_build_step = b.step("test:unit:build", "Build owner-local render correctness tests");
+    test_abi_build_step.dependOn(&abi_tests.step);
+    test_abi_step.dependOn(&run_abi_tests.step);
     test_render_build_step.dependOn(&render_tests.step);
     test_render_step.dependOn(&run_render_tests.step);
-    test_runtime_proof_build_step.dependOn(&runtime_proof_tests.step);
-    test_runtime_proof_step.dependOn(&run_runtime_proof_tests.step);
     test_unit_build_step.dependOn(&mod_tests.step);
     test_unit_step.dependOn(&run_mod_tests.step);
+    test_step.dependOn(test_abi_step);
     test_step.dependOn(test_render_step);
-    test_step.dependOn(test_runtime_proof_step);
     test_step.dependOn(test_unit_step);
 
     const ffi_mod = b.createModule(.{
@@ -161,16 +149,14 @@ pub fn build(b: *std.Build) void {
     b.installFile("include/howl_render.h", "include/howl_render.h");
     check_step.dependOn(&ffi_lib.step);
     check_step.dependOn(test_render_build_step);
-    check_step.dependOn(test_runtime_proof_build_step);
     check_step.dependOn(test_unit_build_step);
 
     const benchmark_mod = b.createModule(.{
-        .root_source_file = b.path("src/non_prod.zig"),
+        .root_source_file = b.path("src/benchmark_main.zig"),
         .target = target,
         .optimize = perf_optimize,
         .link_libc = true,
     });
-    benchmark_mod.addImport("non_prod_options", benchmark_root_options.createModule());
     benchmark_mod.addImport("test_font_options", test_font_options.createModule());
     benchmark_mod.linkLibrary(perf_freetype_lib);
     benchmark_mod.addIncludePath(perf_freetype_lib.getEmittedIncludeTree());
@@ -185,9 +171,9 @@ pub fn build(b: *std.Build) void {
     benchmark_exe.use_llvm = true;
     const run_benchmark = b.addRunArtifact(benchmark_exe);
     if (b.args) |args| run_benchmark.addArgs(args);
-    const benchmark_build_step = b.step("render-benchmark:build", "Build render benchmark suite");
+    const benchmark_build_step = b.step("benchmark:render:build", "Build the render measurement benchmark");
     benchmark_build_step.dependOn(&benchmark_exe.step);
-    const benchmark_step = b.step("render-benchmark", "Run render benchmark suite");
+    const benchmark_step = b.step("benchmark:render", "Run the render measurement benchmark");
     benchmark_step.dependOn(&run_benchmark.step);
     check_step.dependOn(benchmark_build_step);
 }

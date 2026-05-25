@@ -301,14 +301,6 @@ pub fn pendingState(handle: abi.SurfaceTextHandle, out: ?*abi.FfiPendingState) c
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn takeQueueMetrics(handle: abi.SurfaceTextHandle, out: ?*abi.FfiQueueMetrics) callconv(.c) c_int {
-    const metrics_out = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
-    metrics_out.* = std.mem.zeroes(abi.FfiQueueMetrics);
-    const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
-    metrics_out.* = queueMetricsOut(owner.flow.takeMetrics());
-    return @intFromEnum(abi.HowlRenderCallStatus.ok);
-}
-
 pub fn prepareHandle(surface_text_handle: abi.SurfaceTextHandle, prepare_request: abi.FfiPrepareRequest, prepared_handle_out: ?*abi.PreparedSurfaceHandle) callconv(.c) abi.HowlRenderPrepareStatus {
     const prepared_out = prepared_handle_out;
     if (prepared_out) |value| value.* = null;
@@ -432,25 +424,6 @@ fn pendingStateFailure(status: c_int) abi.FfiPendingState {
         .prepare_pending = 0,
         .submit_pending = 0,
         .present_pending = 0,
-    };
-}
-
-fn queueMetricsOut(value: queue.QueueMetrics) abi.FfiQueueMetrics {
-    return .{
-        .snapshot_publishes = value.snapshot_publishes,
-        .snapshot_clean_drops = value.snapshot_clean_drops,
-        .prepare_requests = value.prepare_requests,
-        .prepare_coalesces = value.prepare_coalesces,
-        .prepare_forced_full = value.prepare_forced_full,
-        .prepare_takes = value.prepare_takes,
-        .prepared_publishes = value.prepared_publishes,
-        .prepared_coalesces = value.prepared_coalesces,
-        .submit_takes = value.submit_takes,
-        .submit_valid = value.submit_valid,
-        .submit_rejected = value.submit_rejected,
-        .full_prepare_requests = value.full_prepare_requests,
-        .submitted_accepts = value.submitted_accepts,
-        .presents = value.presents,
     };
 }
 
