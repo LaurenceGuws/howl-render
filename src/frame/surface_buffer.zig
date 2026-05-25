@@ -1,4 +1,5 @@
 const std = @import("std");
+const graphics_prepare = @import("graphics_prepare.zig");
 const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
 const contract = @import("../text/contract.zig");
@@ -337,7 +338,7 @@ fn placeholderSortLess(
 
 fn resolvePlaceholderDrawPlacement(
     cell_px: surface.CellSize,
-    raster: surface_text.SurfaceText.GraphicsRasterView,
+    raster: graphics_prepare.GraphicsRasterView,
     virtual_placement: surface.PreparedGraphicsVirtualPlacement,
     run: surface.PreparedGraphicsPlaceholderRun,
 ) ?PlaceholderDrawPlacement {
@@ -440,7 +441,7 @@ fn resolvePlaceholderDrawPlacement(
 }
 
 fn placeholderSourceRect(
-    raster: surface_text.SurfaceText.GraphicsRasterView,
+    raster: graphics_prepare.GraphicsRasterView,
     virtual_placement: surface.PreparedGraphicsVirtualPlacement,
 ) ?PlaceholderSourceRect {
     if (virtual_placement.source_x >= raster.width) return null;
@@ -514,7 +515,7 @@ fn drawScaledRgbaPlacement(
     pixels: []u8,
     width: u16,
     height: u16,
-    raster: surface_text.SurfaceText.GraphicsRasterView,
+    raster: graphics_prepare.GraphicsRasterView,
     placement: surface.PreparedGraphicsPlacement,
 ) void {
     var dy: u32 = 0;
@@ -537,7 +538,7 @@ fn drawScaledRgbaPlacement(
 fn blendRgbaPixel(
     pixels: []u8,
     width: u16,
-    raster: surface_text.SurfaceText.GraphicsRasterView,
+    raster: graphics_prepare.GraphicsRasterView,
     dst_x: i32,
     dst_y: i32,
     src_x: u32,
@@ -1048,12 +1049,12 @@ test "compose draws prepared placeholder runs below text with cursor last" {
         200, 10,  10, 255,
         10,  200, 10, 255,
     });
-    session.decoded_graphics_rasters = try allocator.alloc(@TypeOf(session.decoded_graphics_rasters[0]), 1);
-    session.decoded_graphics_rasters[0] = std.mem.zeroes(@TypeOf(session.decoded_graphics_rasters[0]));
-    session.decoded_graphics_rasters[0].width = 2;
-    session.decoded_graphics_rasters[0].height = 1;
-    session.decoded_graphics_rasters[0].stride = 8;
-    session.decoded_graphics_rasters[0].pixels_rgba = raster_pixels;
+    session.graphics_preparer.decoded_graphics_rasters = try allocator.alloc(@TypeOf(session.graphics_preparer.decoded_graphics_rasters[0]), 1);
+    session.graphics_preparer.decoded_graphics_rasters[0] = std.mem.zeroes(@TypeOf(session.graphics_preparer.decoded_graphics_rasters[0]));
+    session.graphics_preparer.decoded_graphics_rasters[0].width = 2;
+    session.graphics_preparer.decoded_graphics_rasters[0].height = 1;
+    session.graphics_preparer.decoded_graphics_rasters[0].stride = 8;
+    session.graphics_preparer.decoded_graphics_rasters[0].pixels_rgba = raster_pixels;
 
     const cursor_draws = try allocator.dupe(contract.TextCursorDraw, &.{.{
         .x_px = 0,
