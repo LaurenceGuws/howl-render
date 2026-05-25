@@ -1,5 +1,8 @@
 const std = @import("std");
+const abi = @import("../ffi_types.zig");
+const stb_image = @import("../stb_image.zig");
 const graphics_prepare = @import("graphics_prepare.zig");
+const graphics_viewport = @import("graphics_viewport.zig");
 const surface = @import("surface.zig");
 const surface_text = @import("surface_text.zig");
 const contract = @import("../text/contract.zig");
@@ -754,6 +757,29 @@ fn blendPixel(pixels: []u8, dst_index: u32, r: u8, g: u8, b: u8, a: u8) void {
     ));
 }
 
+const howl_app_icon_png_path = "/home/home/personal/projects/howl/howl-linux-host/assets/icon/howl_window_icon.png";
+
+fn appIconPngPublication(allocator: std.mem.Allocator) !struct {
+    width: u32,
+    height: u32,
+    payload_base64: []u8,
+} {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const png_bytes = try std.Io.Dir.cwd().readFileAlloc(io, howl_app_icon_png_path, allocator, .unlimited);
+    defer allocator.free(png_bytes);
+
+    const decoded = try stb_image.decodeRgba(png_bytes);
+    defer decoded.deinit(allocator);
+
+    const payload_base64 = try allocator.alloc(u8, std.base64.standard.Encoder.calcSize(png_bytes.len));
+    _ = std.base64.standard.Encoder.encode(payload_base64, png_bytes);
+    return .{
+        .width = decoded.width,
+        .height = decoded.height,
+        .payload_base64 = payload_base64,
+    };
+}
+
 test "compose preserves retained content outside partial updates" {
     var session = surface_text.SurfaceText.init(std.heap.c_allocator);
     defer session.deinit();
@@ -824,6 +850,97 @@ test "compose preserves retained content outside partial updates" {
     try std.testing.expectEqual(@as(u8, 7), pixels[8]);
     try std.testing.expectEqual(@as(u8, 7), pixels[9]);
     try std.testing.expectEqual(@as(u8, 7), pixels[10]);
+}
+
+test "real app icon kitty publication survives render prepare and composition" {
+    const allocator = std.testing.allocator;
+    var session = surface_text.SurfaceText.init(allocator);
+    defer session.deinit();
+
+    const icon = try appIconPngPublication(allocator);
+    defer allocator.free(icon.payload_base64);
+
+    const source_images = [_]abi.FfiVtGraphicsImage{.{
+        .image_id = 4242,
+        .image_number = 0,
+        .format = 100,
+        .width = icon.width,
+        .height = icon.height,
+        .payload_len = icon.payload_base64.len,
+    }};
+    var source_placement = std.mem.zeroes(abi.FfiVtGraphicsPlacement);
+    source_placement.image_id = 4242;
+    source_placement.placement_id = 1;
+    source_placement.z_index = 0;
+    source_placement.anchor = .{ .kind = 1, .value = 0 };
+    source_placement.source_width = icon.width;
+    source_placement.source_height = icon.height;
+    source_placement.dest_right_cell_px = 64;
+    source_placement.dest_bottom_cell_px = 64;
+    const source_placements = [_]abi.FfiVtGraphicsPlacement{source_placement};
+
+    var graphics = try graphics_viewport.prepareGraphics(
+        allocator,
+        .{
+            .render_px = .{ .width = 64, .height = 64 },
+            .grid_px = .{ .width = 64, .height = 64 },
+            .cell_px = .{ .width = 64, .height = 64 },
+        },
+        .{ .rows = 1, .history_count = 0, .scroll_row = 0, .is_alternate_screen = false },
+        1,
+        source_images[0..],
+        source_placements[0..],
+    );
+    errdefer graphics.deinit(allocator);
+
+    try session.graphics_preparer.prepare(&graphics, source_images[0..], icon.payload_base64);
+
+    try std.testing.expectEqual(@as(usize, 1), graphics.images.len);
+    try std.testing.expectEqual(@as(usize, 1), graphics.placements.len);
+    try std.testing.expect(graphics.images[0].raster_index != graphics_prepare.invalid_graphics_raster_index);
+
+    const raster = session.graphicsRaster(graphics.images[0].raster_index) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(icon.width, raster.width);
+    try std.testing.expectEqual(icon.height, raster.height);
+    try std.testing.expect(raster.stride >= raster.width * 4);
+    try std.testing.expect(raster.pixels_rgba.len != 0);
+
+    var prepared: surface.PreparedSurface = .{
+        .allocator = allocator,
+        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+        .geometry_epoch = 1,
+        .render_px = .{ .width = 64, .height = 64 },
+        .cell_px = .{ .width = 64, .height = 64 },
+        .grid = .{ .cols = 1, .rows = 1 },
+        .graphics = graphics,
+        .text_frame = .{
+            .scene = .{
+                .allocator = allocator,
+                .owned = false,
+                .scene = .{
+                    .clear_draws = &.{},
+                    .background_draws = &.{},
+                    .sprite_draws = &.{},
+                    .decoration_draws = &.{},
+                    .cursor_draws = &.{},
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = true,
+                },
+            },
+            .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+        },
+    };
+    defer prepared.deinit();
+
+    const seed = try allocator.alloc(u8, 64 * 64 * 4);
+    defer allocator.free(seed);
+    @memset(seed, 0x5A);
+
+    const pixels = try compose(allocator, seed, &session, &prepared);
+    defer allocator.free(pixels);
+
+    try std.testing.expect(!std.mem.eql(u8, pixels, seed));
 }
 
 const ComposeTrace = struct {
