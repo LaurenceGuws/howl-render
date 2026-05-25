@@ -21,81 +21,6 @@ const ft_hb_glyph_cell_cache_entry_cap: u32 = 4096;
 const ft_hb_shape_run_cache_entry_cap: u32 = 64;
 const ft_hb_shape_input_codepoints_per_cluster_cap: u32 = 16;
 const ft_hb_cached_glyphs_per_run_cap: u32 = 512;
-const kitty_placeholder_codepoint: u21 = 0x10EEEE;
-
-const PlaceholderCell = struct {
-    image_id_low: u32,
-    image_id_high: ?u8,
-    placement_id: u32,
-    row: ?u32,
-    col: ?u32,
-    cell_row: u16,
-    cell_col: u16,
-
-    fn imageId(self: PlaceholderCell) u32 {
-        return self.image_id_low | (@as(u32, self.image_id_high orelse 0) << 24);
-    }
-};
-
-const PlaceholderRun = struct {
-    cell: PlaceholderCell,
-    width: u32 = 1,
-
-    fn canAppend(self: PlaceholderRun, other: PlaceholderCell) bool {
-        if (self.cell.image_id_low != other.image_id_low) return false;
-        if (self.cell.placement_id != other.placement_id) return false;
-        if (other.row) |row| {
-            if (self.cell.row == null) return false;
-            if (row != self.cell.row.?) return false;
-        }
-        if (other.col) |col| {
-            if (self.cell.col == null) return false;
-            if (col != self.cell.col.? + self.width) return false;
-        }
-        if (other.image_id_high) |high| {
-            if (self.cell.image_id_high == null) return false;
-            if (high != self.cell.image_id_high.?) return false;
-        }
-        return true;
-    }
-
-    fn append(self: *PlaceholderRun) void {
-        self.width += 1;
-    }
-};
-
-const kitty_placeholder_diacritics = [_]u21{
-    0x0305,  0x030D,  0x030E,  0x0310,  0x0312,  0x033D,  0x033E,  0x033F,  0x0346,  0x034A,
-    0x034B,  0x034C,  0x0350,  0x0351,  0x0352,  0x0357,  0x035B,  0x0363,  0x0364,  0x0365,
-    0x0366,  0x0367,  0x0368,  0x0369,  0x036A,  0x036B,  0x036C,  0x036D,  0x036E,  0x036F,
-    0x0483,  0x0484,  0x0485,  0x0486,  0x0487,  0x0592,  0x0593,  0x0594,  0x0595,  0x0597,
-    0x0598,  0x0599,  0x059C,  0x059D,  0x059E,  0x059F,  0x05A0,  0x05A1,  0x05A8,  0x05A9,
-    0x05AB,  0x05AC,  0x05AF,  0x05C4,  0x0610,  0x0611,  0x0612,  0x0613,  0x0614,  0x0615,
-    0x0616,  0x0617,  0x0657,  0x0658,  0x0659,  0x065A,  0x065B,  0x065D,  0x065E,  0x06D6,
-    0x06D7,  0x06D8,  0x06D9,  0x06DA,  0x06DB,  0x06DC,  0x06DF,  0x06E0,  0x06E1,  0x06E2,
-    0x06E4,  0x06E7,  0x06E8,  0x06EB,  0x06EC,  0x0730,  0x0732,  0x0733,  0x0735,  0x0736,
-    0x073A,  0x073D,  0x073F,  0x0740,  0x0741,  0x0743,  0x0745,  0x0747,  0x0749,  0x074A,
-    0x07EB,  0x07EC,  0x07ED,  0x07EE,  0x07EF,  0x07F0,  0x07F1,  0x07F3,  0x0816,  0x0817,
-    0x0818,  0x0819,  0x081B,  0x081C,  0x081D,  0x081E,  0x081F,  0x0820,  0x0821,  0x0822,
-    0x0823,  0x0825,  0x0826,  0x0827,  0x0829,  0x082A,  0x082B,  0x082C,  0x082D,  0x0951,
-    0x0953,  0x0954,  0x0F82,  0x0F83,  0x0F86,  0x0F87,  0x135D,  0x135E,  0x135F,  0x17DD,
-    0x193A,  0x1A17,  0x1A75,  0x1A76,  0x1A77,  0x1A78,  0x1A79,  0x1A7A,  0x1A7B,  0x1A7C,
-    0x1B6B,  0x1B6D,  0x1B6E,  0x1B6F,  0x1B70,  0x1B71,  0x1B72,  0x1B73,  0x1CD0,  0x1CD1,
-    0x1CD2,  0x1CDA,  0x1CDB,  0x1CE0,  0x1DC0,  0x1DC1,  0x1DC3,  0x1DC4,  0x1DC5,  0x1DC6,
-    0x1DC7,  0x1DC8,  0x1DC9,  0x1DCB,  0x1DCC,  0x1DD1,  0x1DD2,  0x1DD3,  0x1DD4,  0x1DD5,
-    0x1DD6,  0x1DD7,  0x1DD8,  0x1DD9,  0x1DDA,  0x1DDB,  0x1DDC,  0x1DDD,  0x1DDE,  0x1DDF,
-    0x1DE0,  0x1DE1,  0x1DE2,  0x1DE3,  0x1DE4,  0x1DE5,  0x1DE6,  0x1DFE,  0x20D0,  0x20D1,
-    0x20D4,  0x20D5,  0x20D6,  0x20D7,  0x20DB,  0x20DC,  0x20E1,  0x20E7,  0x20E9,  0x20F0,
-    0x2CEF,  0x2CF0,  0x2CF1,  0x2DE0,  0x2DE1,  0x2DE2,  0x2DE3,  0x2DE4,  0x2DE5,  0x2DE6,
-    0x2DE7,  0x2DE8,  0x2DE9,  0x2DEA,  0x2DEB,  0x2DEC,  0x2DED,  0x2DEE,  0x2DEF,  0x2DF0,
-    0x2DF1,  0x2DF2,  0x2DF3,  0x2DF4,  0x2DF5,  0x2DF6,  0x2DF7,  0x2DF8,  0x2DF9,  0x2DFA,
-    0x2DFB,  0x2DFC,  0x2DFD,  0x2DFE,  0x2DFF,  0xA66F,  0xA67C,  0xA67D,  0xA6F0,  0xA6F1,
-    0xA8E0,  0xA8E1,  0xA8E2,  0xA8E3,  0xA8E4,  0xA8E5,  0xA8E6,  0xA8E7,  0xA8E8,  0xA8E9,
-    0xA8EA,  0xA8EB,  0xA8EC,  0xA8ED,  0xA8EE,  0xA8EF,  0xA8F0,  0xA8F1,  0xAAB0,  0xAAB2,
-    0xAAB3,  0xAAB7,  0xAAB8,  0xAABE,  0xAABF,  0xAAC1,  0xFE20,  0xFE21,  0xFE22,  0xFE23,
-    0xFE24,  0xFE25,  0xFE26,  0x10A0F, 0x10A38, 0x1D185, 0x1D186, 0x1D187, 0x1D188, 0x1D189,
-    0x1D1AA, 0x1D1AB, 0x1D1AC, 0x1D1AD, 0x1D242, 0x1D243, 0x1D244,
-};
 
 fn count32(items: anytype) u32 {
     std.debug.assert(items.len <= std.math.maxInt(u32));
@@ -211,7 +136,7 @@ pub const SurfaceText = struct {
         const text_input = input.publicationSourceToTextSceneInputBorrowed(self.cell_input_scratch, prepare.state, prepare.request.token.damage_kind == .full);
         var graphics = try prepareSurfaceGraphics(self.allocator, prepare);
         errdefer graphics.deinit(self.allocator);
-        try preparePlaceholderGraphics(self.allocator, &graphics, prepare.state);
+        try self.graphics_preparer.preparePlaceholderGraphics(&graphics, prepare.state);
         try self.graphics_preparer.prepare(&graphics, prepare.state.graphics_images, prepare.state.graphics_payload_bytes);
         var resolve: text_pipeline.ResolveObservability = .{};
         const preparer = try self.ensureTextPreparer(&context);
@@ -298,65 +223,6 @@ pub const SurfaceText = struct {
         );
     }
 
-    fn preparePlaceholderGraphics(
-        allocator: std.mem.Allocator,
-        prepared: *surface.PreparedGraphics,
-        source: queue.PublicationSource,
-    ) !void {
-        if (source.graphics_virtual_placements.len > 0) {
-            prepared.virtual_placements = try allocator.alloc(surface.PreparedGraphicsVirtualPlacement, source.graphics_virtual_placements.len);
-            for (source.graphics_virtual_placements, 0..) |placement, i| {
-                prepared.virtual_placements[i] = .{
-                    .image_id = placement.image_id,
-                    .placement_id = placement.placement_id,
-                    .source_x = placement.source_x,
-                    .source_y = placement.source_y,
-                    .source_width = placement.source_width,
-                    .source_height = placement.source_height,
-                    .columns = placement.columns,
-                    .rows = placement.rows,
-                };
-            }
-        }
-
-        var runs = std.ArrayList(surface.PreparedGraphicsPlaceholderRun).empty;
-        defer runs.deinit(allocator);
-
-        var row: u16 = 0;
-        while (row < source.rows) : (row += 1) {
-            var pending: ?PlaceholderRun = null;
-            var col: u16 = 0;
-            while (col < source.cols) : (col += 1) {
-                const cell_index = @as(usize, row) * @as(usize, source.cols) + @as(usize, col);
-                const current = placeholderCellFromVtCell(source.cells[cell_index], row, col);
-                if (current == null) {
-                    if (pending) |run| {
-                        try appendPreparedPlaceholderRun(allocator, prepared.virtual_placements, &runs, run);
-                        pending = null;
-                    }
-                    continue;
-                }
-
-                var next = current.?;
-                if (pending) |*run| {
-                    if (run.canAppend(next)) {
-                        run.append();
-                        continue;
-                    }
-                    try appendPreparedPlaceholderRun(allocator, prepared.virtual_placements, &runs, run.*);
-                }
-
-                if (next.row == null) continue;
-                if (next.col == null) next.col = 0;
-                if (next.image_id_high == null) next.image_id_high = 0;
-                pending = .{ .cell = next };
-            }
-            if (pending) |run| try appendPreparedPlaceholderRun(allocator, prepared.virtual_placements, &runs, run);
-        }
-
-        prepared.placeholder_runs = try runs.toOwnedSlice(allocator);
-    }
-
     fn ensureTextPreparer(self: *SurfaceText, context: *TextContext) !*text.TextFramePreparer {
         const capacity = ftHbCapacity(context);
         if (self.text_preparer == null) {
@@ -394,91 +260,6 @@ pub const SurfaceText = struct {
         const scratch = try self.allocator.alloc(contract.CellInput, cell_count);
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
         self.cell_input_scratch = scratch;
-    }
-
-    fn appendPreparedPlaceholderRun(
-        allocator: std.mem.Allocator,
-        virtual_placements: []const surface.PreparedGraphicsVirtualPlacement,
-        runs: *std.ArrayList(surface.PreparedGraphicsPlaceholderRun),
-        run: PlaceholderRun,
-    ) !void {
-        const image_row = run.cell.row orelse return;
-        const image_col = run.cell.col orelse return;
-        const virtual_placement_index = findPreparedVirtualPlacementIndex(virtual_placements, run.cell.imageId(), run.cell.placement_id) orelse return;
-        const virtual_placement = virtual_placements[virtual_placement_index];
-        if (image_row >= virtual_placement.rows) return;
-        if (image_col >= virtual_placement.columns) return;
-        const remaining_columns = virtual_placement.columns - image_col;
-        const columns = @min(run.width, remaining_columns);
-        if (columns == 0) return;
-        try runs.append(allocator, .{
-            .virtual_placement_index = virtual_placement_index,
-            .cell_row = run.cell.cell_row,
-            .cell_col = run.cell.cell_col,
-            .image_row = image_row,
-            .image_col = image_col,
-            .columns = columns,
-        });
-    }
-
-    fn findPreparedVirtualPlacementIndex(
-        virtual_placements: []const surface.PreparedGraphicsVirtualPlacement,
-        image_id: u32,
-        placement_id: u32,
-    ) ?u32 {
-        if (placement_id != 0) {
-            for (virtual_placements, 0..) |placement, idx| {
-                if (placement.image_id != image_id) continue;
-                if (placement.placement_id != placement_id) continue;
-                return std.math.cast(u32, idx) orelse unreachable;
-            }
-            return null;
-        }
-        for (virtual_placements, 0..) |placement, idx| {
-            if (placement.image_id != image_id) continue;
-            return std.math.cast(u32, idx) orelse unreachable;
-        }
-        return null;
-    }
-
-    fn placeholderCellFromVtCell(cell: abi.FfiVtCell, row: u16, col: u16) ?PlaceholderCell {
-        if (cell.flags.continuation != 0) return null;
-        if (cell.codepoint != kitty_placeholder_codepoint) return null;
-        return .{
-            .image_id_low = placeholderColorId(cell.fg_color),
-            .image_id_high = placeholderHighByte(cell),
-            .placement_id = placeholderColorId(cell.underline_color),
-            .row = placeholderIndex(cell, 0),
-            .col = placeholderIndex(cell, 1),
-            .cell_row = row,
-            .cell_col = col,
-        };
-    }
-
-    fn placeholderHighByte(cell: abi.FfiVtCell) ?u8 {
-        const value = placeholderIndex(cell, 2) orelse return null;
-        return std.math.cast(u8, value);
-    }
-
-    fn placeholderIndex(cell: abi.FfiVtCell, idx: usize) ?u32 {
-        if (idx >= cell.combining_len) return null;
-        return placeholderDiacriticIndex(@intCast(cell.combining[idx]));
-    }
-
-    fn placeholderDiacriticIndex(cp: u21) ?u32 {
-        for (kitty_placeholder_diacritics, 0..) |candidate, idx| {
-            if (candidate == cp) return std.math.cast(u32, idx) orelse unreachable;
-        }
-        return null;
-    }
-
-    fn placeholderColorId(color: abi.FfiVtColor) u32 {
-        return switch (color.kind) {
-            0 => 0,
-            1 => color.value & 0xFF,
-            2 => color.value & 0xFFFFFF,
-            else => 0,
-        };
     }
 
     fn ftHbSource(context: *TextContext) text.FtHbProvider.FtHbSource {
@@ -888,7 +669,7 @@ test "prepareSurfaceGraphics wires prepared graphics into surface prepare contra
 }
 
 test "prepareSurface pairs placeholder cells with exported virtual prototypes" {
-    var source = try testPublicationSource(std.testing.allocator, 2, kitty_placeholder_codepoint);
+    var source = try testPublicationSource(std.testing.allocator, 2, graphics_prepare.kitty_placeholder_codepoint);
     defer source.deinit(std.testing.allocator);
     source.cells[0].combining_len = 2;
     source.cells[0].combining = .{ 0x0305, 0x0305, 0 };
@@ -917,7 +698,9 @@ test "prepareSurface pairs placeholder cells with exported virtual prototypes" {
         .state = source,
     });
     defer graphics.deinit(std.testing.allocator);
-    try SurfaceText.preparePlaceholderGraphics(std.testing.allocator, &graphics, source);
+    var graphics_preparer = graphics_prepare.GraphicsPreparer.init(std.testing.allocator);
+    defer graphics_preparer.deinit();
+    try graphics_preparer.preparePlaceholderGraphics(&graphics, source);
 
     try std.testing.expectEqual(@as(usize, 1), graphics.virtual_placements.len);
     try std.testing.expectEqual(@as(usize, 1), graphics.placeholder_runs.len);
@@ -937,7 +720,7 @@ test "prepareSurface applies kitty row-only first-column inheritance for placeho
     defer allocator.free(cells);
     @memset(cells, std.mem.zeroes(abi.FfiVtCell));
     for (cells) |*cell| {
-        cell.codepoint = kitty_placeholder_codepoint;
+        cell.codepoint = graphics_prepare.kitty_placeholder_codepoint;
         cell.fg_color = .{ .kind = 2, .value = 7 };
         cell.underline_color = .{ .kind = 2, .value = 9 };
     }
@@ -994,7 +777,9 @@ test "prepareSurface applies kitty row-only first-column inheritance for placeho
         .state = source,
     });
     defer graphics.deinit(allocator);
-    try SurfaceText.preparePlaceholderGraphics(allocator, &graphics, source);
+    var graphics_preparer = graphics_prepare.GraphicsPreparer.init(allocator);
+    defer graphics_preparer.deinit();
+    try graphics_preparer.preparePlaceholderGraphics(&graphics, source);
 
     try std.testing.expectEqual(@as(usize, 1), graphics.placeholder_runs.len);
     try std.testing.expectEqual(@as(u32, 3), graphics.placeholder_runs[0].columns);
@@ -1003,7 +788,7 @@ test "prepareSurface applies kitty row-only first-column inheritance for placeho
 }
 
 test "prepareSurface skips unresolved placeholder start cells without row truth" {
-    var source = try testPublicationSource(std.testing.allocator, 2, kitty_placeholder_codepoint);
+    var source = try testPublicationSource(std.testing.allocator, 2, graphics_prepare.kitty_placeholder_codepoint);
     defer source.deinit(std.testing.allocator);
     source.cells[0].fg_color = .{ .kind = 2, .value = 7 };
     source.graphics.virtual_placement_count = 1;
@@ -1029,7 +814,9 @@ test "prepareSurface skips unresolved placeholder start cells without row truth"
         .state = source,
     });
     defer graphics.deinit(std.testing.allocator);
-    try SurfaceText.preparePlaceholderGraphics(std.testing.allocator, &graphics, source);
+    var graphics_preparer = graphics_prepare.GraphicsPreparer.init(std.testing.allocator);
+    defer graphics_preparer.deinit();
+    try graphics_preparer.preparePlaceholderGraphics(&graphics, source);
 
     try std.testing.expectEqual(@as(usize, 0), graphics.placeholder_runs.len);
 }
