@@ -145,6 +145,7 @@ pub const TextFramePreparer = struct {
         var clusters = try cluster.extractClustersWithDamageScratch(self.allocator, &self.cluster_scratch, owned_renderable.cells, owned_text_cache.view(), grid_metrics, options.scene.damage);
         timings.clusters_us = elapsedUs(clusters_start_ns);
         errdefer clusters.deinit();
+        try self.ensureResolverScratchCapacity(count32(clusters.clusters));
         var final_lane_report = lane.LaneReport.init(owned_text_cache.view(), owned_renderable.cells, clusters.clusters);
         const direct = (try self.prepareDirectNormal(
             .{ .prepared = .{ .cells = owned_renderable.cells, .text_cache = owned_text_cache.view() } },
@@ -549,7 +550,7 @@ test "text frame preparer records sprite routes through resolver" {
     try std.testing.expect(analysis.scene.scene.sprite_draws[1].placement.advance_px > 0);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
-    try std.testing.expectEqual(@as(u64, 2), engine.counters.sprite_cache_misses);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.sprite_cache_misses);
 }
 
 test "text frame preparer scene is grid positioned" {

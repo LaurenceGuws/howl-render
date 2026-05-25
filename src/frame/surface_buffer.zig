@@ -69,7 +69,7 @@ const Composer = struct {
     }
 
     fn graphics_below_text(self: *Composer, start: u32, end: u32) !void {
-        drawGraphicsRange(self.pixels, self.width, self.height, self.session, &self.prepared.graphics, start, end);
+        try drawGraphicsBelowText(self.pixels, self.width, self.height, self.session, self.prepared, start, end);
     }
 
     fn graphics_above_text(self: *Composer, start: u32, end: u32) !void {
@@ -162,6 +162,335 @@ fn drawGraphicsRange(
         const image = graphics.images[@intCast(placement.image_index)];
         drawGraphicsPlacement(pixels, width, height, session, image, placement);
     }
+}
+
+fn drawGraphicsBelowText(
+    pixels: []u8,
+    width: u16,
+    height: u16,
+    session: *surface_text.SurfaceText,
+    prepared: *const surface.PreparedSurface,
+    start: u32,
+    end: u32,
+) !void {
+    const graphics = &prepared.graphics;
+    if (graphics.placeholder_runs.len == 0) {
+        drawGraphicsRange(pixels, width, height, session, graphics, start, end);
+        return;
+    }
+
+    var z_minus_one_start = start;
+    while (z_minus_one_start < end) : (z_minus_one_start += 1) {
+        if (graphics.placements[@intCast(z_minus_one_start)].z_index >= -1) break;
+    }
+    drawGraphicsRange(pixels, width, height, session, graphics, start, z_minus_one_start);
+    try drawPlaceholderGraphicsRange(
+        prepared.allocator,
+        pixels,
+        width,
+        height,
+        session,
+        prepared,
+        z_minus_one_start,
+        end,
+    );
+}
+
+fn drawPlaceholderGraphicsRange(
+    allocator: std.mem.Allocator,
+    pixels: []u8,
+    width: u16,
+    height: u16,
+    session: *surface_text.SurfaceText,
+    prepared: *const surface.PreparedSurface,
+    z_minus_one_start: u32,
+    z_minus_one_end: u32,
+) !void {
+    const graphics = &prepared.graphics;
+    const placeholder_order = try allocator.alloc(u32, graphics.placeholder_runs.len);
+    defer allocator.free(placeholder_order);
+    for (placeholder_order, 0..) |*slot, idx| slot.* = @intCast(idx);
+    sortPlaceholderRuns(graphics, placeholder_order);
+
+    var placement_idx = z_minus_one_start;
+    var placeholder_idx: usize = 0;
+    while (placement_idx < z_minus_one_end or placeholder_idx < placeholder_order.len) {
+        if (placement_idx >= z_minus_one_end) {
+            drawPlaceholderRunByIndex(pixels, width, height, session, prepared, placeholder_order[placeholder_idx]);
+            placeholder_idx += 1;
+            continue;
+        }
+        if (placeholder_idx >= placeholder_order.len) {
+            const placement = graphics.placements[@intCast(placement_idx)];
+            drawGraphicsPlacement(pixels, width, height, session, graphics.images[@intCast(placement.image_index)], placement);
+            placement_idx += 1;
+            continue;
+        }
+
+        const placement = graphics.placements[@intCast(placement_idx)];
+        const image_id = graphics.images[@intCast(placement.image_index)].image_id;
+        if (placeholderSortLess(graphics, placeholder_order[placeholder_idx], image_id, placement.placement_ordinal)) {
+            drawPlaceholderRunByIndex(pixels, width, height, session, prepared, placeholder_order[placeholder_idx]);
+            placeholder_idx += 1;
+        } else {
+            drawGraphicsPlacement(pixels, width, height, session, graphics.images[@intCast(placement.image_index)], placement);
+            placement_idx += 1;
+        }
+    }
+}
+
+const PlaceholderDrawPlacement = struct {
+    src_x_px: u32,
+    src_y_px: u32,
+    src_width_px: u32,
+    src_height_px: u32,
+    dest_x_px: i32,
+    dest_y_px: i32,
+    dest_width_px: u32,
+    dest_height_px: u32,
+};
+
+const PlaceholderSourceRect = struct {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+};
+
+const PlaceholderGrid = struct {
+    columns: u32,
+    rows: u32,
+};
+
+fn drawPlaceholderRunByIndex(
+    pixels: []u8,
+    width: u16,
+    height: u16,
+    session: *surface_text.SurfaceText,
+    prepared: *const surface.PreparedSurface,
+    placeholder_index: u32,
+) void {
+    const graphics = &prepared.graphics;
+    const run = graphics.placeholder_runs[@intCast(placeholder_index)];
+    if (run.virtual_placement_index >= graphics.virtual_placements.len) return;
+    const virtual_placement = graphics.virtual_placements[@intCast(run.virtual_placement_index)];
+    const image = preparedPlaceholderImage(graphics, virtual_placement.image_id) orelse return;
+    const raster = session.graphicsRaster(image.raster_index) orelse return;
+    const resolved = resolvePlaceholderDrawPlacement(prepared.cell_px, raster, virtual_placement, run) orelse return;
+    drawScaledRgbaPlacement(pixels, width, height, raster, .{
+        .image_index = 0,
+        .placement_ordinal = placeholder_index,
+        .z_index = -1,
+        .layer = .below_text,
+        .dest_x_px = resolved.dest_x_px,
+        .dest_y_px = resolved.dest_y_px,
+        .dest_width_px = resolved.dest_width_px,
+        .dest_height_px = resolved.dest_height_px,
+        .src_x_px = resolved.src_x_px,
+        .src_y_px = resolved.src_y_px,
+        .src_width_px = resolved.src_width_px,
+        .src_height_px = resolved.src_height_px,
+    });
+}
+
+fn preparedPlaceholderImage(graphics: *const surface.PreparedGraphics, image_id: u32) ?surface.PreparedGraphicsImageRef {
+    for (graphics.images) |image| {
+        if (image.image_id == image_id) return image;
+    }
+    return null;
+}
+
+fn sortPlaceholderRuns(graphics: *const surface.PreparedGraphics, indices: []u32) void {
+    var i: usize = 1;
+    while (i < indices.len) : (i += 1) {
+        const item = indices[i];
+        var j = i;
+        while (j > 0) {
+            if (!placeholderRunLess(graphics, item, indices[j - 1])) break;
+            indices[j] = indices[j - 1];
+            j -= 1;
+        }
+        indices[j] = item;
+    }
+}
+
+fn placeholderRunLess(graphics: *const surface.PreparedGraphics, a_index: u32, b_index: u32) bool {
+    const a = graphics.placeholder_runs[@intCast(a_index)];
+    const b = graphics.placeholder_runs[@intCast(b_index)];
+    const a_image = graphics.virtual_placements[@intCast(a.virtual_placement_index)].image_id;
+    const b_image = graphics.virtual_placements[@intCast(b.virtual_placement_index)].image_id;
+    if (a_image != b_image) return a_image < b_image;
+    return a_index < b_index;
+}
+
+fn placeholderSortLess(
+    graphics: *const surface.PreparedGraphics,
+    placeholder_index: u32,
+    image_id: u32,
+    placement_ordinal: u32,
+) bool {
+    const run = graphics.placeholder_runs[@intCast(placeholder_index)];
+    const run_image_id = graphics.virtual_placements[@intCast(run.virtual_placement_index)].image_id;
+    if (run_image_id != image_id) return run_image_id < image_id;
+    return placeholder_index < placement_ordinal;
+}
+
+fn resolvePlaceholderDrawPlacement(
+    cell_px: surface.CellSize,
+    raster: surface_text.SurfaceText.GraphicsRasterView,
+    virtual_placement: surface.PreparedGraphicsVirtualPlacement,
+    run: surface.PreparedGraphicsPlaceholderRun,
+) ?PlaceholderDrawPlacement {
+    if (cell_px.width == 0) return null;
+    if (cell_px.height == 0) return null;
+
+    const source = placeholderSourceRect(raster, virtual_placement) orelse return null;
+    const grid = placeholderGrid(cell_px, source, virtual_placement) orelse return null;
+    if (run.image_row >= grid.rows) return null;
+    if (run.image_col >= grid.columns) return null;
+
+    const slice_columns = @min(run.columns, grid.columns - run.image_col);
+    if (slice_columns == 0) return null;
+
+    const source_width_f64: f64 = @floatFromInt(source.width);
+    const source_height_f64: f64 = @floatFromInt(source.height);
+    const box_width_f64: f64 = @floatFromInt(grid.columns * cell_px.width);
+    const box_height_f64: f64 = @floatFromInt(grid.rows * cell_px.height);
+
+    const scale: struct {
+        x_scale: f64,
+        y_scale: f64,
+        x_offset: f64,
+        y_offset: f64,
+    } = if (source_width_f64 * box_height_f64 > source_height_f64 * box_width_f64) blk: {
+        const x_scale = box_width_f64 / source_width_f64;
+        break :blk .{
+            .x_scale = x_scale,
+            .y_scale = x_scale,
+            .x_offset = 0.0,
+            .y_offset = (box_height_f64 - source_height_f64 * x_scale) / 2.0,
+        };
+    } else blk: {
+        const y_scale = box_height_f64 / source_height_f64;
+        break :blk .{
+            .x_scale = y_scale,
+            .y_scale = y_scale,
+            .x_offset = (box_width_f64 - source_width_f64 * y_scale) / 2.0,
+            .y_offset = 0.0,
+        };
+    };
+
+    var src_x = (@as(f64, @floatFromInt(run.image_col * cell_px.width)) - scale.x_offset) / scale.x_scale;
+    var src_y = (@as(f64, @floatFromInt(run.image_row * cell_px.height)) - scale.y_offset) / scale.y_scale;
+    var src_width = @as(f64, @floatFromInt(slice_columns * cell_px.width)) / scale.x_scale;
+    var src_height = @as(f64, @floatFromInt(cell_px.height)) / scale.y_scale;
+    var dst_offset_x: f64 = 0;
+    var dst_offset_y: f64 = 0;
+    var dst_width = @as(f64, @floatFromInt(slice_columns * cell_px.width));
+    var dst_height = @as(f64, @floatFromInt(cell_px.height));
+
+    if (src_y < 0) {
+        const offset = -src_y;
+        src_height -= offset;
+        dst_offset_y = offset * scale.y_scale;
+        dst_height -= dst_offset_y;
+        src_y = 0;
+    } else if (src_y + src_height > source_height_f64) {
+        src_height = source_height_f64 - src_y;
+        dst_height = src_height * scale.y_scale;
+    }
+
+    if (src_x < 0) {
+        const offset = -src_x;
+        src_width -= offset;
+        dst_offset_x = offset * scale.x_scale;
+        dst_width -= dst_offset_x;
+        src_x = 0;
+    } else if (src_x + src_width > source_width_f64) {
+        src_width = source_width_f64 - src_x;
+        dst_width = src_width * scale.x_scale;
+    }
+
+    if (src_width <= 0) return null;
+    if (src_height <= 0) return null;
+    if (dst_width <= 0) return null;
+    if (dst_height <= 0) return null;
+
+    const final_src_x = source.x + roundNonNegativeToU32(src_x);
+    const final_src_y = source.y + roundNonNegativeToU32(src_y);
+    const final_src_width = roundNonNegativeToU32(src_width);
+    const final_src_height = roundNonNegativeToU32(src_height);
+    if (final_src_x >= raster.width) return null;
+    if (final_src_y >= raster.height) return null;
+    if (final_src_width == 0) return null;
+    if (final_src_height == 0) return null;
+    if (final_src_x + final_src_width > raster.width) return null;
+    if (final_src_y + final_src_height > raster.height) return null;
+
+    return .{
+        .src_x_px = final_src_x,
+        .src_y_px = final_src_y,
+        .src_width_px = final_src_width,
+        .src_height_px = final_src_height,
+        .dest_x_px = @as(i32, run.cell_col) * @as(i32, cell_px.width) + roundToI32(dst_offset_x),
+        .dest_y_px = @as(i32, run.cell_row) * @as(i32, cell_px.height) + roundToI32(dst_offset_y),
+        .dest_width_px = roundNonNegativeToU32(dst_width),
+        .dest_height_px = roundNonNegativeToU32(dst_height),
+    };
+}
+
+fn placeholderSourceRect(
+    raster: surface_text.SurfaceText.GraphicsRasterView,
+    virtual_placement: surface.PreparedGraphicsVirtualPlacement,
+) ?PlaceholderSourceRect {
+    if (virtual_placement.source_x >= raster.width) return null;
+    if (virtual_placement.source_y >= raster.height) return null;
+
+    const width = if (virtual_placement.source_width == 0)
+        raster.width - virtual_placement.source_x
+    else
+        @min(virtual_placement.source_width, raster.width - virtual_placement.source_x);
+    const height = if (virtual_placement.source_height == 0)
+        raster.height - virtual_placement.source_y
+    else
+        @min(virtual_placement.source_height, raster.height - virtual_placement.source_y);
+    if (width == 0) return null;
+    if (height == 0) return null;
+
+    return .{
+        .x = virtual_placement.source_x,
+        .y = virtual_placement.source_y,
+        .width = width,
+        .height = height,
+    };
+}
+
+fn placeholderGrid(
+    cell_px: surface.CellSize,
+    source: PlaceholderSourceRect,
+    virtual_placement: surface.PreparedGraphicsVirtualPlacement,
+) ?PlaceholderGrid {
+    var columns = virtual_placement.columns;
+    var rows = virtual_placement.rows;
+    if (columns == 0) columns = ceilDivU32(source.width, cell_px.width);
+    if (rows == 0) rows = ceilDivU32(source.height, cell_px.height);
+    if (columns == 0) return null;
+    if (rows == 0) return null;
+    return .{ .columns = columns, .rows = rows };
+}
+
+fn ceilDivU32(numerator: u32, denominator: u16) u32 {
+    std.debug.assert(denominator != 0);
+    return (numerator + denominator - 1) / denominator;
+}
+
+fn roundNonNegativeToU32(value: f64) u32 {
+    std.debug.assert(value >= 0);
+    return @intFromFloat(@round(value));
+}
+
+fn roundToI32(value: f64) i32 {
+    return @intFromFloat(@round(value));
 }
 
 fn drawGraphicsPlacement(
@@ -707,4 +1036,74 @@ test "compose inserts graphics bands at existing composition boundaries" {
         },
         trace.passes.items,
     );
+}
+
+test "compose draws prepared placeholder runs below text with cursor last" {
+    const allocator = std.testing.allocator;
+
+    var session = surface_text.SurfaceText.init(allocator);
+    defer session.deinit();
+
+    const raster_pixels = try allocator.dupe(u8, &.{
+        200, 10,  10, 255,
+        10,  200, 10, 255,
+    });
+    session.decoded_graphics_rasters = try allocator.alloc(@TypeOf(session.decoded_graphics_rasters[0]), 1);
+    session.decoded_graphics_rasters[0] = std.mem.zeroes(@TypeOf(session.decoded_graphics_rasters[0]));
+    session.decoded_graphics_rasters[0].width = 2;
+    session.decoded_graphics_rasters[0].height = 1;
+    session.decoded_graphics_rasters[0].stride = 8;
+    session.decoded_graphics_rasters[0].pixels_rgba = raster_pixels;
+
+    const cursor_draws = try allocator.dupe(contract.TextCursorDraw, &.{.{
+        .x_px = 0,
+        .y_px = 0,
+        .width_px = 1,
+        .height_px = 1,
+        .color = .{ .r = 1, .g = 2, .b = 250, .a = 255 },
+    }});
+    defer allocator.free(cursor_draws);
+
+    var prepared: surface.PreparedSurface = .{
+        .allocator = allocator,
+        .request = .{ .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+        .geometry_epoch = 1,
+        .render_px = .{ .width = 2, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 2, .rows = 1 },
+        .graphics = .{
+            .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 2, .height = 1, .format = 32, .raster_index = 0 }}),
+            .placements = &.{},
+            .virtual_placements = try allocator.dupe(surface.PreparedGraphicsVirtualPlacement, &.{.{ .image_id = 7, .placement_id = 9, .source_x = 0, .source_y = 0, .source_width = 2, .source_height = 1, .columns = 2, .rows = 1 }}),
+            .placeholder_runs = try allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{.{ .virtual_placement_index = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 2 }}),
+        },
+        .text_frame = .{
+            .scene = .{
+                .allocator = allocator,
+                .owned = false,
+                .scene = .{
+                    .clear_draws = &.{},
+                    .background_draws = &.{},
+                    .sprite_draws = &.{},
+                    .decoration_draws = &.{},
+                    .cursor_draws = cursor_draws,
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = false,
+                },
+            },
+            .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+        },
+    };
+    defer prepared.deinit();
+
+    const pixels = try compose(allocator, null, &session, &prepared);
+    defer allocator.free(pixels);
+
+    try std.testing.expectEqual(@as(u8, 1), pixels[0]);
+    try std.testing.expectEqual(@as(u8, 2), pixels[1]);
+    try std.testing.expectEqual(@as(u8, 250), pixels[2]);
+    try std.testing.expectEqual(@as(u8, 10), pixels[4]);
+    try std.testing.expectEqual(@as(u8, 200), pixels[5]);
+    try std.testing.expectEqual(@as(u8, 10), pixels[6]);
 }

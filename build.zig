@@ -123,6 +123,7 @@ pub fn build(b: *std.Build) void {
         run_runtime_proof_tests.has_side_effects = true;
     }
 
+    const check_step = b.step("check", "Compile owner surfaces without installing or running");
     const test_step = b.step("test", "Run all tests");
     const test_render_step = b.step("test:render", "Run repo-local render tests");
     const test_render_build_step = b.step("test:render:build", "Build repo-local render tests");
@@ -130,11 +131,11 @@ pub fn build(b: *std.Build) void {
     const test_runtime_proof_build_step = b.step("test:runtime-proof:build", "Build runtime proof tests");
     const test_unit_step = b.step("test:unit", "Run unit tests");
     const test_unit_build_step = b.step("test:unit:build", "Build unit tests");
-    test_render_build_step.dependOn(&b.addInstallArtifact(render_tests, .{}).step);
+    test_render_build_step.dependOn(&render_tests.step);
     test_render_step.dependOn(&run_render_tests.step);
-    test_runtime_proof_build_step.dependOn(&b.addInstallArtifact(runtime_proof_tests, .{}).step);
+    test_runtime_proof_build_step.dependOn(&runtime_proof_tests.step);
     test_runtime_proof_step.dependOn(&run_runtime_proof_tests.step);
-    test_unit_build_step.dependOn(&b.addInstallArtifact(mod_tests, .{}).step);
+    test_unit_build_step.dependOn(&mod_tests.step);
     test_unit_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(test_render_step);
     test_step.dependOn(test_runtime_proof_step);
@@ -156,10 +157,12 @@ pub fn build(b: *std.Build) void {
         .linkage = .dynamic,
         .root_module = ffi_mod,
     });
-    const ffi_build_step = b.step("ffi:build", "Build the howl-render C FFI library");
-    ffi_build_step.dependOn(&b.addInstallArtifact(ffi_lib, .{}).step);
     b.installArtifact(ffi_lib);
     b.installFile("include/howl_render.h", "include/howl_render.h");
+    check_step.dependOn(&ffi_lib.step);
+    check_step.dependOn(test_render_build_step);
+    check_step.dependOn(test_runtime_proof_build_step);
+    check_step.dependOn(test_unit_build_step);
 
     const benchmark_mod = b.createModule(.{
         .root_source_file = b.path("src/non_prod.zig"),
@@ -183,7 +186,8 @@ pub fn build(b: *std.Build) void {
     const run_benchmark = b.addRunArtifact(benchmark_exe);
     if (b.args) |args| run_benchmark.addArgs(args);
     const benchmark_build_step = b.step("render-benchmark:build", "Build render benchmark suite");
-    benchmark_build_step.dependOn(&b.addInstallArtifact(benchmark_exe, .{}).step);
+    benchmark_build_step.dependOn(&benchmark_exe.step);
     const benchmark_step = b.step("render-benchmark", "Run render benchmark suite");
     benchmark_step.dependOn(&run_benchmark.step);
+    check_step.dependOn(benchmark_build_step);
 }

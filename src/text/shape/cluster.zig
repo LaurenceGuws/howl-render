@@ -1,4 +1,3 @@
-
 const std = @import("std");
 const contract = @import("../contract.zig");
 const scene = @import("../scene.zig");
@@ -185,12 +184,13 @@ const CellLineTextCacheAssembly = struct {
     allocator: std.mem.Allocator,
     texts: []contract.CellText,
     codepoints: []u32,
-    count: u32 = 0,
+    text_count: u32 = 0,
+    codepoint_count: u32 = 0,
 
-    fn init(allocator: std.mem.Allocator, cell_count: u32) !CellLineTextCacheAssembly {
+    fn init(allocator: std.mem.Allocator, cell_count: u32, codepoint_count: u32) !CellLineTextCacheAssembly {
         const texts = try allocator.alloc(contract.CellText, @intCast(cell_count));
         errdefer allocator.free(texts);
-        const codepoints = try allocator.alloc(u32, @intCast(cell_count));
+        const codepoints = try allocator.alloc(u32, @intCast(codepoint_count));
         errdefer allocator.free(codepoints);
         return .{ .allocator = allocator, .texts = texts, .codepoints = codepoints };
     }
@@ -202,19 +202,24 @@ const CellLineTextCacheAssembly = struct {
     }
 
     fn appendCell(self: *CellLineTextCacheAssembly, cell: contract.CellInput) void {
-        const idx = self.count;
-        self.codepoints[@intCast(idx)] = cell.codepoint;
-        self.texts[@intCast(idx)] = .{
-            .id = .{ .value = idx },
-            .first_cp = cell.codepoint,
-            .codepoints = self.codepoints[@intCast(idx)..@intCast(idx + 1)],
+        var scratch: [4]u32 = undefined;
+        const cps = cellCodepoints(cell, &scratch);
+        const text_idx = self.text_count;
+        const cp_start = self.codepoint_count;
+        const cp_len: u32 = @intCast(cps.len);
+        @memcpy(self.codepoints[@intCast(cp_start)..@intCast(cp_start + cp_len)], cps);
+        self.texts[@intCast(text_idx)] = .{
+            .id = .{ .value = text_idx },
+            .first_cp = cps[0],
+            .codepoints = self.codepoints[@intCast(cp_start)..@intCast(cp_start + cp_len)],
         };
-        self.count += 1;
+        self.text_count += 1;
+        self.codepoint_count += cp_len;
     }
 
     fn toOwnedLineTextCache(self: *CellLineTextCacheAssembly) OwnedLineTextCache {
-        std.debug.assert(self.count == self.texts.len);
-        std.debug.assert(self.count == self.codepoints.len);
+        std.debug.assert(self.text_count == self.texts.len);
+        std.debug.assert(self.codepoint_count == self.codepoints.len);
         const texts = self.texts;
         const codepoints = self.codepoints;
         self.texts = &.{};
@@ -243,7 +248,7 @@ pub fn clusterForCell(text: contract.CellText, first_cell: u32, span: u8, style:
 }
 
 pub fn buildLineTextCacheFromCells(allocator: std.mem.Allocator, cells: []const contract.CellInput) !OwnedLineTextCache {
-    var assembly = try CellLineTextCacheAssembly.init(allocator, @intCast(cells.len));
+    var assembly = try CellLineTextCacheAssembly.init(allocator, @intCast(cells.len), countCellInputCodepoints(cells));
     errdefer assembly.deinit();
 
     for (cells) |cell| assembly.appendCell(cell);
@@ -260,7 +265,7 @@ pub fn buildSparseCellsWithDamage(
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     const total_cells = count32(cells);
-    try scratch.configure(allocator, total_cells, total_cells);
+    try scratch.configure(allocator, total_cells, countCellInputCodepoints(cells));
     return buildSparseCellsWithDamageScratch(allocator, &scratch, cells, grid_metrics, damage);
 }
 
@@ -273,9 +278,10 @@ pub fn buildSparseCellsWithDamageScratch(
 ) !SparseCells {
     const damage_filter = DamageFilter.init(damage, grid_metrics);
     const total_cells = count32(cells);
-    try scratch.require(total_cells, total_cells);
+    try scratch.require(total_cells, countCellInputCodepoints(cells));
 
-    var unique_count: u32 = 0;
+    var text_count: u32 = 0;
+    var codepoint_count: u32 = 0;
     var renderable_count: u32 = 0;
     var cell_idx: u32 = 0;
     while (cell_idx < total_cells) {
@@ -291,19 +297,20 @@ pub fn buildSparseCellsWithDamageScratch(
         const first_cell = idx;
         const span = inferredCellSpan(cells, first_cell);
         if (!damage_filter.includeSpan(first_cell, span)) continue;
-        const text_id = findSingleCodepointTextId(scratch.codepoints[0..@intCast(unique_count)], cell.codepoint) orelse blk: {
-            const next_id = unique_count;
-            scratch.codepoints[@intCast(unique_count)] = cell.codepoint;
-            unique_count += 1;
-            break :blk next_id;
+        var scratch_codepoints: [4]u32 = undefined;
+        const cps = cellCodepoints(cell, &scratch_codepoints);
+        const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
+            const next_id = text_count;
+            appendScratchText(scratch, &text_count, &codepoint_count, cps);
+            break :blk contract.CellTextId{ .value = next_id };
         };
-        scratch.renderable[@intCast(renderable_count)] = renderableFromCellInput(.{ .value = text_id }, first_cell, span, cell, false);
+        scratch.renderable[@intCast(renderable_count)] = renderableFromCellInput(text_id, first_cell, span, cell, false);
         renderable_count += 1;
     }
 
     const renderable = try allocator.dupe(contract.RenderableCell, scratch.renderable[0..@intCast(renderable_count)]);
     errdefer allocator.free(renderable);
-    const text_cache = try cloneSingleCodepointTextCache(allocator, scratch.codepoints[0..@intCast(unique_count)]);
+    const text_cache = try cloneTextCache(allocator, scratch.texts[0..@intCast(text_count)], scratch.codepoints[0..@intCast(codepoint_count)]);
     errdefer text_cache.deinit();
     return .{
         .text_cache = text_cache,
@@ -342,6 +349,13 @@ pub fn buildLineTextCacheFromInputsScratch(
 
 fn normalizedCodepoints(cps: []const u32) []const u32 {
     return if (cps.len == 0) &.{0} else cps;
+}
+
+fn cellCodepoints(cell: contract.CellInput, scratch: *[4]u32) []const u32 {
+    std.debug.assert(cell.combining_len <= cell.combining.len);
+    scratch[0] = cell.codepoint;
+    for (cell.combining[0..cell.combining_len], 1..) |cp, idx| scratch[idx] = cp;
+    return scratch[0 .. @as(usize, cell.combining_len) + 1];
 }
 
 fn findText(texts: []const contract.CellText, cps: []const u32) ?contract.CellTextId {
@@ -545,15 +559,6 @@ const DamageFilter = struct {
     }
 };
 
-fn writeSingleCodepointText(texts: []contract.CellText, codepoints: []u32, idx: u32, text_id: u32, cp: u32) void {
-    codepoints[@intCast(idx)] = cp;
-    texts[@intCast(idx)] = .{
-        .id = .{ .value = text_id },
-        .first_cp = cp,
-        .codepoints = codepoints[@intCast(idx) .. @intCast(idx + 1)],
-    };
-}
-
 fn renderableFromCellInput(text_id: contract.CellTextId, first_cell: u32, cell_span: u8, cell: contract.CellInput, continuation: bool) contract.RenderableCell {
     return .{
         .text_id = text_id,
@@ -708,17 +713,6 @@ fn appendScratchText(scratch: *RetainedScratch, text_count: *u32, codepoint_coun
     codepoint_count.* += cp_len;
 }
 
-fn cloneSingleCodepointTextCache(allocator: std.mem.Allocator, codepoints: []const u32) !OwnedLineTextCache {
-    const final_codepoints = try allocator.dupe(u32, codepoints);
-    errdefer allocator.free(final_codepoints);
-    const final_texts = try allocator.alloc(contract.CellText, codepoints.len);
-    errdefer allocator.free(final_texts);
-    for (0..codepoints.len) |idx| {
-        writeSingleCodepointText(final_texts, final_codepoints, @intCast(idx), @intCast(idx), final_codepoints[idx]);
-    }
-    return .{ .allocator = allocator, .texts = final_texts, .codepoints = final_codepoints };
-}
-
 fn cloneTextCache(allocator: std.mem.Allocator, texts: []const contract.CellText, codepoints: []const u32) !OwnedLineTextCache {
     const final_codepoints = try allocator.dupe(u32, codepoints);
     errdefer allocator.free(final_codepoints);
@@ -745,11 +739,10 @@ fn countNormalizedInputCodepoints(inputs: []const CellTextInput) u32 {
     return total_codepoints;
 }
 
-fn findSingleCodepointTextId(codepoints: []const u32, cp: u32) ?u32 {
-    for (codepoints, 0..) |existing, idx| {
-        if (existing == cp) return @intCast(idx);
-    }
-    return null;
+fn countCellInputCodepoints(cells: []const contract.CellInput) u32 {
+    var total_codepoints: u32 = 0;
+    for (cells) |cell| total_codepoints += @as(u32, cell.combining_len) + 1;
+    return total_codepoints;
 }
 
 test "single codepoint text preserves first codepoint" {
@@ -780,6 +773,25 @@ test "cell inputs build text cache renderable cells clusters and runs" {
     try std.testing.expectEqual(@as(u32, 2), count32(clusters.clusters));
     try std.testing.expectEqual(@as(u32, 1), count32(runs.runs));
     try std.testing.expectEqual(@as(u32, 2), runs.runs[0].run.cluster_count);
+}
+
+test "cell inputs retain combining sequences in text cache" {
+    const allocator = std.testing.allocator;
+    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]contract.CellInput{.{
+        .codepoint = 'i',
+        .combining_len = 1,
+        .combining = .{ 0x0332, 0, 0 },
+        .fg = white,
+        .bg = black,
+    }};
+
+    var cache = try buildLineTextCacheFromCells(allocator, &cells);
+    defer cache.deinit();
+
+    try std.testing.expectEqual(@as(u32, 'i'), cache.texts[0].first_cp);
+    try std.testing.expectEqualSlices(u32, &.{ 'i', 0x0332 }, cache.texts[0].codepoints);
 }
 
 test "blank cells do not produce text clusters" {
@@ -941,7 +953,7 @@ test "rich cell text interning deduplicates codepoint sequences" {
     defer clusters.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(cache.texts));
-    try std.testing.expectEqual(@as(u32, 6), count32(cache.codepoints));
+    try std.testing.expectEqual(@as(u32, 3), count32(cache.codepoints));
     try std.testing.expectEqual(cache.texts[0].id.value, renderable.cells[1].text_id.value);
     try std.testing.expectEqual(@as(u32, 'i'), clusters.clusters[0].first_cp);
 }

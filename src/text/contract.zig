@@ -1,4 +1,3 @@
-
 const std = @import("std");
 pub const Rgba8 = @import("../frame/rgba.zig").Rgba8;
 
@@ -75,6 +74,8 @@ pub const GridMetrics = struct {
 
 pub const CellInput = struct {
     codepoint: u21,
+    combining_len: u8 = 0,
+    combining: [3]u32 = [_]u32{0} ** 3,
     fg: Rgba8,
     bg: Rgba8,
     underline_color: Rgba8 = .{ .r = 0, .g = 0, .b = 0, .a = 0 },

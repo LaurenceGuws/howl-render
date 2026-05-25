@@ -157,14 +157,19 @@ pub const FfiVtCellAttrs = extern struct {
 
 pub const FfiVtCell = extern struct {
     codepoint: u32,
+    combining_len: u8 = 0,
+    reserved0: u8 = 0,
+    reserved1: u8 = 0,
+    reserved2: u8 = 0,
+    combining: [3]u32 = [_]u32{0} ** 3,
     flags: FfiVtCellFlags,
     fg_color: FfiVtColor,
     bg_color: FfiVtColor,
     underline_color: FfiVtColor,
     underline_style: u8,
-    reserved0: u8 = 0,
-    reserved1: u8 = 0,
-    reserved2: u8 = 0,
+    reserved3: u8 = 0,
+    reserved4: u8 = 0,
+    reserved5: u8 = 0,
     attrs: FfiVtCellAttrs,
     link_id: u32,
 };
@@ -245,9 +250,9 @@ pub const FfiVtSelection = extern struct {
 pub const FfiVtGraphicsMeta = extern struct {
     image_count: u32,
     placement_count: u32,
+    virtual_placement_count: u32,
     is_alternate_screen: u8,
     reserved0: u8 = 0,
-    reserved1: u16 = 0,
     publication_seq: u64,
     dirty_generation: u64,
 };
@@ -292,6 +297,17 @@ pub const FfiVtGraphicsPlacement = extern struct {
     dest_grid_rows: u32,
     effective_columns: u32,
     effective_rows: u32,
+};
+
+pub const FfiVtGraphicsVirtualPlacement = extern struct {
+    image_id: u32,
+    placement_id: u32,
+    source_x: u32,
+    source_y: u32,
+    source_width: u32,
+    source_height: u32,
+    columns: u32,
+    rows: u32,
 };
 
 pub const FfiGeometry = extern struct {
@@ -372,6 +388,7 @@ pub const FfiPublishSlotCommit = extern struct {
     graphics: FfiVtGraphicsMeta,
     graphics_images: FfiVtGraphicsImageSpan,
     graphics_placements: FfiVtGraphicsPlacementSpan,
+    graphics_virtual_placements: FfiVtGraphicsVirtualPlacementSpan,
     graphics_payload_bytes: FfiByteSpan,
 };
 
@@ -475,6 +492,7 @@ pub const FfiVtSurface = extern struct {
     graphics: FfiVtGraphicsMeta,
     graphics_images: FfiVtGraphicsImageSpan,
     graphics_placements: FfiVtGraphicsPlacementSpan,
+    graphics_virtual_placements: FfiVtGraphicsVirtualPlacementSpan,
     graphics_payload_bytes: FfiByteSpan,
 };
 
@@ -485,6 +503,11 @@ pub const FfiVtGraphicsImageSpan = extern struct {
 
 pub const FfiVtGraphicsPlacementSpan = extern struct {
     ptr: [*c]const FfiVtGraphicsPlacement,
+    len: c_size_t,
+};
+
+pub const FfiVtGraphicsVirtualPlacementSpan = extern struct {
+    ptr: [*c]const FfiVtGraphicsVirtualPlacement,
     len: c_size_t,
 };
 

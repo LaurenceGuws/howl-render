@@ -6,6 +6,8 @@ const contract = @import("../text/contract.zig");
 const frame_preparer = @import("../text/frame_preparer.zig");
 const scene = @import("../text/scene.zig");
 
+const kitty_placeholder_codepoint: u21 = 0x10EEEE;
+
 pub const FrameTheme = struct {
     default_fg: contract.Rgba8,
     default_bg: contract.Rgba8,
@@ -186,6 +188,8 @@ fn emptyCellInput() contract.CellInput {
 fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
     var out: contract.CellInput = .{
         .codepoint = src.codepoint,
+        .combining_len = src.combining_len,
+        .combining = src.combining,
         .fg = colorToTextSceneRgba8(src.fg_color, true, t),
         .bg = colorToTextSceneRgba8(src.bg_color, false, t),
         .underline_color = if (src.attrs.underline_color_set) colorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
@@ -203,6 +207,8 @@ fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput
     const bg = publicationColorToTextSceneRgba8(src.bg_color, false, t);
     var out: contract.CellInput = .{
         .codepoint = @intCast(src.codepoint),
+        .combining_len = src.combining_len,
+        .combining = src.combining,
         .fg = publicationColorToTextSceneRgba8(src.fg_color, true, t),
         .bg = bg,
         .underline_color = if (src.attrs.underline_color_set != 0) publicationColorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
@@ -212,6 +218,17 @@ fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput
         .continuation = src.flags.continuation != 0,
         .empty = isAlacrittyEmptyPublicationCell(src, bg),
     };
+    if (src.flags.continuation == 0 and src.codepoint == kitty_placeholder_codepoint) {
+        // Placeholder protocol cells carry image identity in text attributes,
+        // but the glyph itself must not be shaped on top of the image.
+        out.codepoint = ' ';
+        out.combining_len = 0;
+        out.combining = [_]u32{0} ** 3;
+        out.underline_color = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+        out.underline = false;
+        out.strikethrough = false;
+        out.empty = out.bg.a == 0;
+    }
     if (src.attrs.selected != 0) applySelectionStyle(&out, t);
     return out;
 }
@@ -481,6 +498,93 @@ test "frame_input converts frame state to text scene input" {
     try std.testing.expect(input.options.scene.cursor != null);
     try std.testing.expect(input.options.scene.cursor.?.blink);
     try std.testing.expect(input.options.scene.damage.full);
+}
+
+test "frame_input maps publication combining truth" {
+    var cells = [_]abi.FfiVtCell{.{
+        .codepoint = 'o',
+        .combining_len = 1,
+        .combining = .{ 0x0300, 0, 0 },
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    }};
+    var storage: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(@as(u21, 'o'), mapped.cells[0].codepoint);
+    try std.testing.expectEqual(@as(u8, 1), mapped.cells[0].combining_len);
+    try std.testing.expectEqual(@as(u32, 0x0300), mapped.cells[0].combining[0]);
+}
+
+test "frame_input suppresses kitty placeholder glyph shaping" {
+    var cells = [_]abi.FfiVtCell{.{
+        .codepoint = kitty_placeholder_codepoint,
+        .combining_len = 3,
+        .combining = .{ 0x0305, 0x030D, 0x030E },
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 2, .value = 0x010203 },
+        .bg_color = .{ .kind = 2, .value = 0x112233 },
+        .underline_color = .{ .kind = 2, .value = 0x445566 },
+        .underline_style = 4,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 1, .underline_color_set = 1, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 1, .selected = 0 },
+        .link_id = 0,
+    }};
+    var storage: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(@as(u21, ' '), mapped.cells[0].codepoint);
+    try std.testing.expectEqual(@as(u8, 0), mapped.cells[0].combining_len);
+    try std.testing.expectEqual(false, mapped.cells[0].underline);
+    try std.testing.expectEqual(false, mapped.cells[0].strikethrough);
+    try std.testing.expectEqual(false, mapped.cells[0].empty);
+    try std.testing.expectEqual(@as(u8, 0x11), mapped.cells[0].bg.r);
+    try std.testing.expectEqual(@as(u8, 0x22), mapped.cells[0].bg.g);
+    try std.testing.expectEqual(@as(u8, 0x33), mapped.cells[0].bg.b);
 }
 
 test "frame_input marks Alacritty-empty cells before color mapping" {
