@@ -679,3 +679,150 @@ fn graphicsBytesLen(left: u32, right: u32) !usize {
     const total = std.math.mul(u64, left, right) catch return error.InvalidGraphicsPayload;
     return std.math.cast(usize, total) orelse return error.InvalidGraphicsPayload;
 }
+
+fn setPlaceholderCell(
+    cell: *abi.FfiVtCell,
+    image_id_low: u32,
+    placement_id: u32,
+    row: ?u32,
+    col: ?u32,
+    image_id_high: ?u8,
+) void {
+    cell.* = std.mem.zeroes(abi.FfiVtCell);
+    cell.codepoint = kitty_placeholder_codepoint;
+    cell.fg_color = .{ .kind = 2, .value = image_id_low };
+    cell.underline_color = .{ .kind = 2, .value = placement_id };
+    var combining_len: u8 = 0;
+    if (row) |value| {
+        cell.combining[combining_len] = kitty_placeholder_diacritics[value];
+        combining_len += 1;
+    }
+    if (col) |value| {
+        cell.combining[combining_len] = kitty_placeholder_diacritics[value];
+        combining_len += 1;
+    }
+    if (image_id_high) |value| {
+        cell.combining[combining_len] = kitty_placeholder_diacritics[value];
+        combining_len += 1;
+    }
+    cell.combining_len = combining_len;
+}
+
+test "sourceGraphicsPayloads binds exact payload slices across multiple images" {
+    var preparer = GraphicsPreparer.init(std.testing.allocator);
+    defer preparer.deinit();
+
+    const images = [_]abi.FfiVtGraphicsImage{
+        .{ .image_id = 1, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
+        .{ .image_id = 2, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 },
+        .{ .image_id = 3, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 1 },
+    };
+
+    const payloads = try preparer.sourceGraphicsPayloads(images[0..], "ABCDEF");
+    defer std.testing.allocator.free(payloads);
+
+    try std.testing.expectEqual(@as(usize, 3), payloads.len);
+    try std.testing.expectEqual(@as(u32, 1), payloads[0].image.image_id);
+    try std.testing.expectEqual(@as(u32, 2), payloads[1].image.image_id);
+    try std.testing.expectEqual(@as(u32, 3), payloads[2].image.image_id);
+    try std.testing.expectEqualStrings("AB", payloads[0].payload);
+    try std.testing.expectEqualStrings("CDE", payloads[1].payload);
+    try std.testing.expectEqualStrings("F", payloads[2].payload);
+}
+
+test "sourceGraphicsPayloads rejects trailing or truncated multi-image payload bytes" {
+    var preparer = GraphicsPreparer.init(std.testing.allocator);
+    defer preparer.deinit();
+
+    const images = [_]abi.FfiVtGraphicsImage{
+        .{ .image_id = 1, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
+        .{ .image_id = 2, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
+    };
+
+    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], "ABCDE"));
+    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], "ABC"));
+}
+
+test "preparePlaceholderGraphics reconstructs yazi-like multi-row pane-offset runs" {
+    const allocator = std.testing.allocator;
+    const rows: u16 = 3;
+    const cols: u16 = 8;
+    const pane_col: u16 = 4;
+    const pane_width: u16 = 3;
+    const cell_count = @as(usize, rows) * @as(usize, cols);
+    const cells = try allocator.alloc(abi.FfiVtCell, cell_count);
+    defer allocator.free(cells);
+    @memset(cells, std.mem.zeroes(abi.FfiVtCell));
+
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        var col: u16 = 0;
+        while (col < pane_width) : (col += 1) {
+            const cell_index = @as(usize, row) * @as(usize, cols) + pane_col + col;
+            setPlaceholderCell(
+                &cells[cell_index],
+                42,
+                9,
+                if (col == 0) 10 + row else null,
+                if (col == 0) 20 else null,
+                if (col == 0) 2 else null,
+            );
+        }
+    }
+
+    const dirty_rows = try allocator.dupe(u8, &.{ 1, 1, 1 });
+    defer allocator.free(dirty_rows);
+    const dirty_cols_start = try allocator.dupe(u16, &.{ 0, 0, 0 });
+    defer allocator.free(dirty_cols_start);
+    const dirty_cols_end = try allocator.dupe(u16, &.{ cols - 1, cols - 1, cols - 1 });
+    defer allocator.free(dirty_cols_end);
+    const virtual_placements = try allocator.dupe(abi.FfiVtGraphicsVirtualPlacement, &.{.{
+        .image_id = 42 + (@as(u32, 2) << 24),
+        .placement_id = 9,
+        .source_x = 0,
+        .source_y = 0,
+        .source_width = 0,
+        .source_height = 0,
+        .columns = 0,
+        .rows = 0,
+    }});
+    defer allocator.free(virtual_placements);
+
+    const source: queue.PublicationSource = .{
+        .cols = cols,
+        .rows = rows,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells,
+        .cursor = std.mem.zeroes(surface.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = std.mem.zeroes(abi.FfiVtSelection),
+        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 1, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
+        .graphics_virtual_placements = virtual_placements,
+        .graphics_payload_bytes = &.{},
+        .cursor_phase_visible = true,
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = dirty_cols_start,
+        .dirty_cols_end = dirty_cols_end,
+    };
+
+    var prepared = surface.PreparedGraphics{};
+    defer prepared.deinit(allocator);
+    var preparer = GraphicsPreparer.init(allocator);
+    defer preparer.deinit();
+    try preparer.preparePlaceholderGraphics(&prepared, source);
+
+    try std.testing.expectEqual(@as(usize, 1), prepared.virtual_placements.len);
+    try std.testing.expectEqual(@as(usize, 3), prepared.placeholder_runs.len);
+    try std.testing.expectEqual(@as(u32, 20), prepared.placeholder_runs[0].image_col);
+    try std.testing.expectEqual(@as(u16, 4), prepared.placeholder_runs[0].cell_col);
+    try std.testing.expectEqual(@as(u32, 10), prepared.placeholder_runs[0].image_row);
+    try std.testing.expectEqual(@as(u32, 11), prepared.placeholder_runs[1].image_row);
+    try std.testing.expectEqual(@as(u32, 12), prepared.placeholder_runs[2].image_row);
+    try std.testing.expectEqual(@as(u32, 3), prepared.placeholder_runs[0].columns);
+    try std.testing.expectEqual(@as(u32, 23), prepared.virtual_placements[0].columns);
+    try std.testing.expectEqual(@as(u32, 13), prepared.virtual_placements[0].rows);
+}

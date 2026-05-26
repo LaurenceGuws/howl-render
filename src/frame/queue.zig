@@ -415,7 +415,13 @@ const PublicationState = struct {
         source.colors = meta.colors;
         source.selection = meta.selection;
         source.graphics = meta.graphics;
-        try validateGraphicsPayloadSource(meta.graphics_images, meta.graphics_payload_bytes);
+        try validateGraphicsSource(
+            meta.graphics,
+            meta.graphics_images,
+            meta.graphics_placements,
+            meta.graphics_virtual_placements,
+            meta.graphics_payload_bytes,
+        );
         source.graphics_images = try self.allocator.dupe(abi.FfiVtGraphicsImage, meta.graphics_images);
         errdefer self.allocator.free(source.graphics_images);
         source.graphics_placements = try self.allocator.dupe(abi.FfiVtGraphicsPlacement, meta.graphics_placements);
@@ -714,6 +720,19 @@ const PublicationState = struct {
         source.cursor_phase_visible = cursor_phase_visible;
     }
 };
+
+fn validateGraphicsSource(
+    meta: abi.FfiVtGraphicsMeta,
+    images: []const abi.FfiVtGraphicsImage,
+    placements: []const abi.FfiVtGraphicsPlacement,
+    virtual_placements: []const abi.FfiVtGraphicsVirtualPlacement,
+    payload_bytes: []const u8,
+) !void {
+    if (meta.image_count != images.len) return error.InvalidGraphicsMetadata;
+    if (meta.placement_count != placements.len) return error.InvalidGraphicsMetadata;
+    if (meta.virtual_placement_count != virtual_placements.len) return error.InvalidGraphicsMetadata;
+    try validateGraphicsPayloadSource(images, payload_bytes);
+}
 
 fn validateGraphicsPayloadSource(images: []const abi.FfiVtGraphicsImage, payload_bytes: []const u8) !void {
     const total = try totalGraphicsPayloadLen(images);
@@ -1792,6 +1811,49 @@ test "flow commit publish slot validates graphics payload byte size" {
         .graphics_images = images[0..],
         .graphics_virtual_placements = &.{},
         .graphics_payload_bytes = "ABC",
+    }));
+}
+
+test "flow commit publish slot validates graphics metadata counts" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 1, .height = 1 },
+        .grid_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const slot = try flow.reservePublishSlot(1, 1);
+    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[0].codepoint = 'A';
+    slot.dirty_rows[0] = 1;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 0;
+
+    const images = [_]abi.FfiVtGraphicsImage{.{
+        .image_id = 1,
+        .image_number = 0,
+        .format = 24,
+        .width = 1,
+        .height = 1,
+        .payload_len = 0,
+    }};
+    const placements = [_]abi.FfiVtGraphicsPlacement{std.mem.zeroes(abi.FfiVtGraphicsPlacement)};
+    const virtual_placements = [_]abi.FfiVtGraphicsVirtualPlacement{std.mem.zeroes(abi.FfiVtGraphicsVirtualPlacement)};
+
+    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitPublishSlot(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{ .image_count = 0, .placement_count = 1, .virtual_placement_count = 1, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics_images = images[0..],
+        .graphics_placements = placements[0..],
+        .graphics_virtual_placements = virtual_placements[0..],
+        .graphics_payload_bytes = &.{},
     }));
 }
 
