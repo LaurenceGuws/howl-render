@@ -15,6 +15,8 @@ comptime {
     std.debug.assert(@sizeOf(abi.FfiPreparedFrame) == @sizeOf(c.HowlRenderPreparedFrame));
     std.debug.assert(@sizeOf(abi.FfiPresentedRetire) == @sizeOf(c.HowlRenderPresentedRetire));
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceInfo) == @sizeOf(c.HowlRenderPreparedSurfaceInfo));
+    std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceBuffer) == @sizeOf(c.HowlRenderPreparedSurfaceBuffer));
+    std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceDiagnostics) == @sizeOf(c.HowlRenderPreparedSurfaceDiagnostics));
 
     std.debug.assert(@intFromEnum(abi.HowlRenderCallStatus.ok) == c.HOWL_RENDER_CALL_OK);
     std.debug.assert(@intFromEnum(abi.HowlRenderCallStatus.missing_handle) == c.HOWL_RENDER_CALL_MISSING_HANDLE);
@@ -51,6 +53,18 @@ test "render abi missing handles report shipped contract" {
     var info = std.mem.zeroes(abi.FfiPreparedSurfaceInfo);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface_ffi.describe(null, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, info.status);
+
+    var buffer = std.mem.zeroes(abi.FfiPreparedSurfaceBuffer);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface_ffi.buffer(null, &buffer));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, buffer.status);
+    try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
+    try std.testing.expect(buffer.rgba_pixels.ptr == null);
+    try std.testing.expectEqual(@as(u64, 0), buffer.uploads_committed);
+
+    var diagnostics = std.mem.zeroes(abi.FfiPreparedSurfaceDiagnostics);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface_ffi.diagnostics(null, &diagnostics));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, diagnostics.status);
+    try std.testing.expectEqual(@as(u64, 0), diagnostics.missing_glyphs);
 }
 
 test "render abi invalid arguments report shipped contract" {
