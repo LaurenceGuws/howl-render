@@ -53,6 +53,7 @@ pub fn prepareGraphics(
         }
         try prepared_placements.append(allocator, .{
             .image_index = image_index,
+            .placement_id = placement.placement_id,
             .placement_ordinal = std.math.cast(u32, placement_index) orelse return error.OutOfMemory,
             .z_index = placement.z_index,
             .layer = layer,
@@ -304,6 +305,8 @@ fn placementLess(
     const a_image = prepared_images[@intCast(a.image_index)].image_id;
     const b_image = prepared_images[@intCast(b.image_index)].image_id;
     if (a_image != b_image) return a_image < b_image;
+
+    if (a.placement_id != b.placement_id) return a.placement_id < b.placement_id;
 
     return a.placement_ordinal < b.placement_ordinal;
 }

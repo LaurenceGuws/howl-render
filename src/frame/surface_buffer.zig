@@ -232,8 +232,7 @@ fn drawPlaceholderGraphicsRange(
         }
 
         const placement = graphics.placements[@intCast(placement_idx)];
-        const image_id = graphics.images[@intCast(placement.image_index)].image_id;
-        if (placeholderSortLess(graphics, placeholder_order[placeholder_idx], image_id, placement.placement_ordinal)) {
+        if (placeholderRunSortLessPlacement(graphics, placeholder_order[placeholder_idx], placement)) {
             drawPlaceholderRunByIndex(pixels, width, height, session, prepared, placeholder_order[placeholder_idx]);
             placeholder_idx += 1;
         } else {
@@ -326,22 +325,26 @@ fn placeholderRunLess(graphics: *const surface.PreparedGraphics, a_index: u32, b
     const a_image = a_placement.image_id;
     const b_image = b_placement.image_id;
     if (a_image != b_image) return a_image < b_image;
-    if (a.virtual_placement_index != b.virtual_placement_index) {
-        return a.virtual_placement_index < b.virtual_placement_index;
-    }
+    if (a_placement.placement_id != b_placement.placement_id) return a_placement.placement_id < b_placement.placement_id;
+    if (a.run_order != b.run_order) return a.run_order < b.run_order;
+    if (a.virtual_placement_index != b.virtual_placement_index) return a.virtual_placement_index < b.virtual_placement_index;
     return a_index < b_index;
 }
 
-fn placeholderSortLess(
+fn placeholderRunSortLessPlacement(
     graphics: *const surface.PreparedGraphics,
     placeholder_index: u32,
-    image_id: u32,
-    placement_ordinal: u32,
+    placement: surface.PreparedGraphicsPlacement,
 ) bool {
     const run = graphics.placeholder_runs[@intCast(placeholder_index)];
-    const run_image_id = graphics.virtual_placements[@intCast(run.virtual_placement_index)].image_id;
-    if (run_image_id != image_id) return run_image_id < image_id;
-    return placeholder_index < placement_ordinal;
+    const virtual_placement = graphics.virtual_placements[@intCast(run.virtual_placement_index)];
+    const run_image_id = virtual_placement.image_id;
+    const placement_image_id = graphics.images[@intCast(placement.image_index)].image_id;
+    if (run_image_id != placement_image_id) return run_image_id < placement_image_id;
+    if (virtual_placement.placement_id != placement.placement_id) {
+        return virtual_placement.placement_id < placement.placement_id;
+    }
+    return run.run_order < placement.placement_ordinal;
 }
 
 fn resolvePlaceholderDrawPlacement(
@@ -1285,7 +1288,7 @@ test "resolvePlaceholderDrawPlacement resolves final rects for tall image letter
     );
 }
 
-test "compose merges placeholder-backed draws with ordinary z minus one graphics stably" {
+test "compose orders same-image z minus one placeholder runs by placement id before ordinary placements" {
     const allocator = std.testing.allocator;
     var session = surface_text.SurfaceText.init(allocator);
     defer session.deinit();
@@ -1312,6 +1315,7 @@ test "compose merges placeholder-backed draws with ordinary z minus one graphics
             .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 2, .height = 1, .format = 32, .raster_index = 0 }}),
             .placements = try allocator.dupe(surface.PreparedGraphicsPlacement, &.{.{
                 .image_index = 0,
+                .placement_id = 10,
                 .placement_ordinal = 1,
                 .z_index = -1,
                 .layer = .below_text,
@@ -1325,7 +1329,7 @@ test "compose merges placeholder-backed draws with ordinary z minus one graphics
                 .src_height_px = 1,
             }}),
             .virtual_placements = try allocator.dupe(surface.PreparedGraphicsVirtualPlacement, &.{.{ .image_id = 7, .placement_id = 9, .source_x = 0, .source_y = 0, .source_width = 2, .source_height = 1, .columns = 2, .rows = 1 }}),
-            .placeholder_runs = try allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{.{ .virtual_placement_index = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }}),
+            .placeholder_runs = try allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{.{ .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }}),
             .below_text_count = 1,
         },
         .text_frame = .{
@@ -1356,7 +1360,7 @@ test "compose merges placeholder-backed draws with ordinary z minus one graphics
     try std.testing.expectEqual(@as(u8, 10), pixels[2]);
 }
 
-test "compose sorts placeholder-backed runs by virtual placement before run index" {
+test "compose sorts placeholder-backed runs by placement id before run order" {
     const allocator = std.testing.allocator;
     var session = surface_text.SurfaceText.init(allocator);
     defer session.deinit();
@@ -1387,8 +1391,68 @@ test "compose sorts placeholder-backed runs by virtual placement before run inde
                 .{ .image_id = 7, .placement_id = 10, .source_x = 1, .source_y = 0, .source_width = 1, .source_height = 1, .columns = 1, .rows = 1 },
             }),
             .placeholder_runs = try allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{
-                .{ .virtual_placement_index = 1, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 },
-                .{ .virtual_placement_index = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 },
+                .{ .virtual_placement_index = 1, .run_order = 1, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 },
+                .{ .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 },
+            }),
+        },
+        .text_frame = .{
+            .scene = .{
+                .allocator = allocator,
+                .owned = false,
+                .scene = .{
+                    .clear_draws = &.{},
+                    .background_draws = &.{},
+                    .sprite_draws = &.{},
+                    .decoration_draws = &.{},
+                    .cursor_draws = &.{},
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = true,
+                },
+            },
+            .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+        },
+    };
+    defer prepared.deinit();
+
+    const pixels = try compose(allocator, null, &session, &prepared);
+    defer allocator.free(pixels);
+
+    try std.testing.expectEqual(@as(u8, 10), pixels[0]);
+    try std.testing.expectEqual(@as(u8, 200), pixels[1]);
+    try std.testing.expectEqual(@as(u8, 10), pixels[2]);
+}
+
+test "compose sorts same-placement placeholder runs by exported run order" {
+    const allocator = std.testing.allocator;
+    var session = surface_text.SurfaceText.init(allocator);
+    defer session.deinit();
+
+    const raster_pixels = try allocator.dupe(u8, &.{
+        200, 10,  10, 255,
+        10,  200, 10, 255,
+    });
+    session.graphics_preparer.decoded_graphics_rasters = try allocator.alloc(@TypeOf(session.graphics_preparer.decoded_graphics_rasters[0]), 1);
+    session.graphics_preparer.decoded_graphics_rasters[0] = std.mem.zeroes(@TypeOf(session.graphics_preparer.decoded_graphics_rasters[0]));
+    session.graphics_preparer.decoded_graphics_rasters[0].width = 2;
+    session.graphics_preparer.decoded_graphics_rasters[0].height = 1;
+    session.graphics_preparer.decoded_graphics_rasters[0].stride = 8;
+    session.graphics_preparer.decoded_graphics_rasters[0].pixels_rgba = raster_pixels;
+
+    var prepared: surface.PreparedSurface = .{
+        .allocator = allocator,
+        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+        .geometry_epoch = 1,
+        .render_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 1, .rows = 1 },
+        .graphics = .{
+            .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 2, .height = 1, .format = 32, .raster_index = 0 }}),
+            .placements = &.{},
+            .virtual_placements = try allocator.dupe(surface.PreparedGraphicsVirtualPlacement, &.{.{ .image_id = 7, .placement_id = 9, .source_x = 0, .source_y = 0, .source_width = 2, .source_height = 1, .columns = 2, .rows = 1 }}),
+            .placeholder_runs = try allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{
+                .{ .virtual_placement_index = 0, .run_order = 1, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 1, .columns = 1 },
+                .{ .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 },
             }),
         },
         .text_frame = .{
