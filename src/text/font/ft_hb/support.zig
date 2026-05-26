@@ -165,6 +165,9 @@ pub fn providerHasCodepoint(comptime ContextType: type, ctx: *anyopaque, face_id
 
 pub fn providerHasCellText(comptime ContextType: type, ctx: *anyopaque, face_id: contract.FontFaceId, text: contract.CellText) bool {
     const context: *ContextType = @ptrCast(@alignCast(ctx));
+    if (face_id.value == primary_face_id and isPlainAsciiText(text)) {
+        return ensurePrimaryFont(context);
+    }
     const state = textState(context);
     const key = text_cache.FaceTextKey{ .face_id = face_id.value, .text_hash = text_cache.hashCellText(text) };
     if (state.face_text_cache.map.get(key)) |cached| {
@@ -183,6 +186,15 @@ fn uncachedProviderHasCellText(comptime ContextType: type, ctx: *anyopaque, face
     for (text.codepoints) |cp| {
         if (cp == 0xfe0e or cp == 0xfe0f) continue;
         if (!providerHasCodepoint(ContextType, ctx, face_id, cp)) return false;
+    }
+    return true;
+}
+
+fn isPlainAsciiText(text: contract.CellText) bool {
+    const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
+    for (cps) |cp| {
+        if (cp == ' ' or cp == '\t') continue;
+        if (!isPlainAsciiCodepoint(cp)) return false;
     }
     return true;
 }
@@ -332,6 +344,10 @@ pub fn ensurePrimaryFont(self: anytype) bool {
     const lib = state.ft_lib.?;
     const font_path = config.font_path.?;
     if (c.FT_New_Face(lib, font_path, 0, &face) != 0) return false;
+    if (!selectUnicodeCharmap(face)) {
+        _ = c.FT_Done_Face(face);
+        return false;
+    }
     if (!setFacePixelHeight(self, face)) {
         _ = c.FT_Done_Face(face);
         return false;
@@ -404,6 +420,10 @@ pub fn ensureFallbackFace(self: anytype, fallback_index: FallbackFontCount) ?FtF
     const lib = state.ft_lib orelse return null;
     var face: FtFace = undefined;
     if (c.FT_New_Face(lib, font_path.ptr, 0, &face) != 0) return null;
+    if (!selectUnicodeCharmap(face)) {
+        _ = c.FT_Done_Face(face);
+        return null;
+    }
     if (!setFacePixelHeight(self, face)) {
         _ = c.FT_Done_Face(face);
         return null;
@@ -482,6 +502,10 @@ fn ensureFreeTypeLibraryLocked(self: anytype) bool {
     if (c.FT_Init_FreeType(&lib) != 0) return false;
     state.ft_lib = lib;
     return true;
+}
+
+fn selectUnicodeCharmap(face: FtFace) bool {
+    return c.FT_Select_Charmap(face, c.FT_ENCODING_UNICODE) == 0;
 }
 
 fn ensureFaceForId(self: anytype, face_id: contract.FontFaceId) bool {

@@ -283,7 +283,17 @@ fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.L
 }
 
 fn resolveFace(session: font_session.FontSession, cell: contract.RenderableCell, text: contract.CellText) ?font_session.FontFaceRecord {
+    if (isPlainAsciiText(text)) return session.primary();
     return session.findStyle(cell.style, cell.presentation, text) orelse session.findFallback(cell.style, cell.presentation, text);
+}
+
+fn isPlainAsciiText(text: contract.CellText) bool {
+    const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
+    for (cps) |cp| {
+        if (cp == ' ' or cp == '\t') continue;
+        if (cp < 0x20 or cp >= 0x7f) return false;
+    }
+    return true;
 }
 
 fn rawRenderableCell(cell: contract.CellInput, idx: u32, cells: []const contract.CellInput) contract.RenderableCell {
