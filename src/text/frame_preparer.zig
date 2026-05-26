@@ -104,7 +104,7 @@ pub const TextFramePreparer = struct {
         var timings = PrepareTimings{};
         const sparse_start_ns = monotonicNs();
         const cell_count = count32(cells);
-        try self.ensureClusterScratchCapacity(cell_count, cell_count);
+        try self.ensureClusterScratchCapacity(cell_count, countCellInputCodepoints(cells));
         var sparse = try cluster.buildSparseCellsWithDamageScratch(self.allocator, &self.cluster_scratch, cells, grid_metrics, options.scene.damage);
         timings.sparse_us = elapsedUs(sparse_start_ns);
         errdefer sparse.deinit();
@@ -316,6 +316,12 @@ pub const TextFramePreparer = struct {
             options.scene.cursor,
             lane_report,
         );
+    }
+
+    fn countCellInputCodepoints(cells: []const contract.CellInput) u32 {
+        var total: u32 = 0;
+        for (cells) |cell| total += @as(u32, 1) + cell.combining_len;
+        return total;
     }
 };
 
@@ -759,6 +765,21 @@ test "text frame preparer marks curly underline cells complex before shaping" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
+}
+
+test "text frame preparer sizes cluster scratch for multi codepoint cell inputs" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]contract.CellInput{
+        .{ .codepoint = 0x10EEEE, .combining_len = 3, .combining = .{ 0x0305, 0x030D, 0x030E }, .fg = white, .bg = black },
+        .{ .codepoint = 0x10EEEE, .combining_len = 3, .combining = .{ 0x0310, 0x0312, 0x033D }, .fg = white, .bg = black },
+    };
+    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    defer analysis.deinit();
+
+    try std.testing.expect(count32(analysis.scene.scene.sprite_draws) != 0);
 }
 
 test "text frame preparer keeps icon codepoints out of the normal lane" {
