@@ -164,7 +164,27 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         .graphics_placements = graphics_placements,
         .graphics_virtual_placements = graphics_virtual_placements,
         .graphics_payload_bytes = graphics_payload_bytes,
-    }) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    }) catch |err| {
+        std.debug.panic(
+            "render commitPublishSlot rejected: err={s} snapshot_seq={d} alt={} rows={d} cols={d} history_count={d} scroll_row={d} graphics=(images={d} placements={d} virtuals={d} alt={d} pub={d} dirty={d}) payload_len={d}",
+            .{
+                @errorName(err),
+                commit.snapshot_seq,
+                commit.is_alternate_screen != 0,
+                reserved.dirty_rows.len,
+                if (reserved.dirty_rows.len == 0) 0 else reserved.cells.len / reserved.dirty_rows.len,
+                commit.history_count,
+                commit.scroll_row,
+                commit.graphics.image_count,
+                commit.graphics.placement_count,
+                commit.graphics.virtual_placement_count,
+                commit.graphics.is_alternate_screen,
+                commit.graphics.publication_seq,
+                commit.graphics.dirty_generation,
+                graphics_payload_bytes.len,
+            },
+        );
+    };
     return vtPublishResultOut(result);
 }
 

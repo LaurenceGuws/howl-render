@@ -808,11 +808,10 @@ fn validateDirtySource(
         const start_col = dirty_cols_start[row];
         const end_col = dirty_cols_end[row];
         if (dirty == 0) {
-            if (start_col != 0) return error.InvalidSurfaceSource;
-            if (end_col != 0) return error.InvalidSurfaceSource;
             continue;
         }
         if (dirty != 1) return error.InvalidSurfaceSource;
+        if (start_col == cols and end_col == 0) continue;
         if (start_col >= cols) return error.InvalidSurfaceSource;
         if (end_col >= cols) return error.InvalidSurfaceSource;
         if (end_col < start_col) return error.InvalidSurfaceSource;
@@ -1984,6 +1983,45 @@ test "flow commit publish slot rejects dirty row byte outside boolean domain" {
         .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
         .graphics_payload_bytes = &.{},
     }));
+}
+
+test "flow commit publish slot accepts dirty row span sentinel without dirty columns" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 2, .height = 2 },
+        .grid_px = .{ .width = 2, .height = 2 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const slot = try flow.reservePublishSlot(2, 2);
+    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[0].codepoint = 'A';
+    slot.cells[1] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[1].codepoint = 'B';
+    slot.cells[2] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[2].codepoint = 'C';
+    slot.cells[3] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[3].codepoint = 'D';
+    slot.dirty_rows[0] = 1;
+    slot.dirty_rows[1] = 1;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 1;
+    slot.dirty_cols_start[1] = 2;
+    slot.dirty_cols_end[1] = 0;
+
+    const published = try flow.commitPublishSlot(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = true,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 0, .is_alternate_screen = 1, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics_payload_bytes = &.{},
+    });
+    try std.testing.expect(published.published);
 }
 
 test "flow commit publish slot rejects graphics placement without image" {
