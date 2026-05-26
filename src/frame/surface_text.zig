@@ -668,14 +668,11 @@ test "prepareSurfaceGraphics wires prepared graphics into surface prepare contra
     try std.testing.expectEqual(surface.PreparedGraphicsLayer.above_text, prepared.graphics.placements[1].layer);
 }
 
-test "prepareSurface pairs placeholder cells with exported virtual prototypes" {
+test "prepareSurface pairs exported placeholder runs with virtual prototypes" {
     var source = try testPublicationSource(std.testing.allocator, 2, graphics_prepare.kitty_placeholder_codepoint);
     defer source.deinit(std.testing.allocator);
-    source.cells[0].combining_len = 2;
-    source.cells[0].combining = .{ 0x0305, 0x0305, 0 };
-    source.cells[0].fg_color = .{ .kind = 2, .value = 7 };
-    source.cells[0].underline_color = .{ .kind = 2, .value = 9 };
     source.graphics.virtual_placement_count = 1;
+    source.graphics.placeholder_run_count = 1;
     source.graphics_virtual_placements = try std.testing.allocator.dupe(abi.FfiVtGraphicsVirtualPlacement, &.{.{
         .image_id = 7,
         .placement_id = 9,
@@ -685,6 +682,17 @@ test "prepareSurface pairs placeholder cells with exported virtual prototypes" {
         .source_height = 8,
         .columns = 3,
         .rows = 2,
+    }});
+    source.graphics_placeholder_runs = try std.testing.allocator.dupe(abi.FfiVtGraphicsPlaceholderRun, &.{.{
+        .image_id = 7,
+        .placement_id = 9,
+        .virtual_placement_index = 0,
+        .run_order = 0,
+        .cell_row = 0,
+        .cell_col = 0,
+        .image_row = 0,
+        .image_col = 0,
+        .columns = 1,
     }});
 
     var graphics = try SurfaceText.prepareSurfaceGraphics(std.testing.allocator, .{
@@ -707,6 +715,7 @@ test "prepareSurface pairs placeholder cells with exported virtual prototypes" {
     try std.testing.expectEqual(@as(u32, 7), graphics.virtual_placements[0].image_id);
     try std.testing.expectEqual(@as(u32, 9), graphics.virtual_placements[0].placement_id);
     try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].virtual_placement_index);
+    try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].run_order);
     try std.testing.expectEqual(@as(u16, 0), graphics.placeholder_runs[0].cell_row);
     try std.testing.expectEqual(@as(u16, 0), graphics.placeholder_runs[0].cell_col);
     try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].image_row);
@@ -714,18 +723,11 @@ test "prepareSurface pairs placeholder cells with exported virtual prototypes" {
     try std.testing.expectEqual(@as(u32, 1), graphics.placeholder_runs[0].columns);
 }
 
-test "prepareSurface applies kitty row-only first-column inheritance for placeholder runs" {
+test "prepareSurface preserves exported multi-column placeholder runs" {
     const allocator = std.testing.allocator;
     const cells = try allocator.alloc(abi.FfiVtCell, 3);
     defer allocator.free(cells);
     @memset(cells, std.mem.zeroes(abi.FfiVtCell));
-    for (cells) |*cell| {
-        cell.codepoint = graphics_prepare.kitty_placeholder_codepoint;
-        cell.fg_color = .{ .kind = 2, .value = 7 };
-        cell.underline_color = .{ .kind = 2, .value = 9 };
-    }
-    cells[0].combining_len = 1;
-    cells[0].combining = .{ 0x0305, 0, 0 };
 
     const dirty_rows = try allocator.dupe(u8, &.{1});
     defer allocator.free(dirty_rows);
@@ -744,6 +746,18 @@ test "prepareSurface applies kitty row-only first-column inheritance for placeho
         .rows = 2,
     }});
     defer allocator.free(virtual_placements);
+    const placeholder_runs = try allocator.dupe(abi.FfiVtGraphicsPlaceholderRun, &.{.{
+        .image_id = 7,
+        .placement_id = 9,
+        .virtual_placement_index = 0,
+        .run_order = 0,
+        .cell_row = 0,
+        .cell_col = 0,
+        .image_row = 0,
+        .image_col = 0,
+        .columns = 3,
+    }});
+    defer allocator.free(placeholder_runs);
 
     const source: queue.PublicationSource = .{
         .cols = 3,
@@ -757,8 +771,9 @@ test "prepareSurface applies kitty row-only first-column inheritance for placeho
         .cursor = std.mem.zeroes(surface.CursorInfo),
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 1, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
+        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 1, .placeholder_run_count = 1, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
         .graphics_virtual_placements = virtual_placements,
+        .graphics_placeholder_runs = placeholder_runs,
         .graphics_payload_bytes = &.{},
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
@@ -787,10 +802,9 @@ test "prepareSurface applies kitty row-only first-column inheritance for placeho
     try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].image_col);
 }
 
-test "prepareSurface skips unresolved placeholder start cells without row truth" {
+test "prepareSurface leaves placeholder runs empty when export is empty" {
     var source = try testPublicationSource(std.testing.allocator, 2, graphics_prepare.kitty_placeholder_codepoint);
     defer source.deinit(std.testing.allocator);
-    source.cells[0].fg_color = .{ .kind = 2, .value = 7 };
     source.graphics.virtual_placement_count = 1;
     source.graphics_virtual_placements = try std.testing.allocator.dupe(abi.FfiVtGraphicsVirtualPlacement, &.{.{
         .image_id = 7,

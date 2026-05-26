@@ -251,6 +251,7 @@ pub const FfiVtGraphicsMeta = extern struct {
     image_count: u32,
     placement_count: u32,
     virtual_placement_count: u32,
+    placeholder_run_count: u32 = 0,
     is_alternate_screen: u8,
     reserved0: u8 = 0,
     publication_seq: u64,
@@ -308,6 +309,19 @@ pub const FfiVtGraphicsVirtualPlacement = extern struct {
     source_height: u32,
     columns: u32,
     rows: u32,
+};
+
+pub const FfiVtGraphicsPlaceholderRun = extern struct {
+    image_id: u32,
+    placement_id: u32,
+    virtual_placement_index: u32,
+    run_order: u32,
+    cell_row: u16,
+    cell_col: u16,
+    reserved0: u32 = 0,
+    image_row: u32,
+    image_col: u32,
+    columns: u32,
 };
 
 pub const FfiGeometry = extern struct {
@@ -389,6 +403,7 @@ pub const FfiPublishSlotCommit = extern struct {
     graphics_images: FfiVtGraphicsImageSpan,
     graphics_placements: FfiVtGraphicsPlacementSpan,
     graphics_virtual_placements: FfiVtGraphicsVirtualPlacementSpan,
+    graphics_placeholder_runs: FfiVtGraphicsPlaceholderRunSpan = .{ .ptr = null, .len = 0 },
     graphics_payload_bytes: FfiByteSpan,
 };
 
@@ -476,6 +491,7 @@ pub const FfiVtSurface = extern struct {
     graphics_images: FfiVtGraphicsImageSpan,
     graphics_placements: FfiVtGraphicsPlacementSpan,
     graphics_virtual_placements: FfiVtGraphicsVirtualPlacementSpan,
+    graphics_placeholder_runs: FfiVtGraphicsPlaceholderRunSpan = .{ .ptr = null, .len = 0 },
     graphics_payload_bytes: FfiByteSpan,
 };
 
@@ -491,6 +507,11 @@ pub const FfiVtGraphicsPlacementSpan = extern struct {
 
 pub const FfiVtGraphicsVirtualPlacementSpan = extern struct {
     ptr: [*c]const FfiVtGraphicsVirtualPlacement,
+    len: c_size_t,
+};
+
+pub const FfiVtGraphicsPlaceholderRunSpan = extern struct {
+    ptr: [*c]const FfiVtGraphicsPlaceholderRun,
     len: c_size_t,
 };
 

@@ -106,6 +106,7 @@ fn testVtSurface(cells: []const FfiVtCell, cursor: FfiVtCursor) FfiVtSurface {
         .graphics_images = .{ .ptr = null, .len = 0 },
         .graphics_placements = .{ .ptr = null, .len = 0 },
         .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
+        .graphics_placeholder_runs = .{ .ptr = null, .len = 0 },
         .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
     };
 }

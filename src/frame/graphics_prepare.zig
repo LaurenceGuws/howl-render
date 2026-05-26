@@ -39,49 +39,6 @@ pub const kitty_placeholder_diacritics = [_]u21{
     0x1D1AA, 0x1D1AB, 0x1D1AC, 0x1D1AD, 0x1D242, 0x1D243, 0x1D244,
 };
 
-const PlaceholderCell = struct {
-    image_id_low: u32,
-    image_id_high: ?u8,
-    placement_id: u32,
-    row: ?u32,
-    col: ?u32,
-    cell_row: u16,
-    cell_col: u16,
-
-    fn imageId(self: PlaceholderCell) u32 {
-        return self.image_id_low | (@as(u32, self.image_id_high orelse 0) << 24);
-    }
-};
-
-const PlaceholderRun = struct {
-    cell: PlaceholderCell,
-    width: u32 = 1,
-
-    fn canAppend(self: PlaceholderRun, other: PlaceholderCell) bool {
-        return appendRejectReason(self, other) == null;
-    }
-
-    fn appendRejectReason(self: PlaceholderRun, other: PlaceholderCell) ?[]const u8 {
-        if (self.cell.cell_row != other.cell_row) return "cell_row";
-        if (other.cell_col != self.cell.cell_col + self.width) return "cell_col";
-        if (self.cell.imageId() != other.imageId()) return "image_id";
-        if (self.cell.placement_id != other.placement_id) return "placement_id";
-        if (other.row) |row| {
-            if (self.cell.row == null) return "row_missing_base";
-            if (row != self.cell.row.?) return "row_mismatch";
-        }
-        if (other.col) |col| {
-            if (self.cell.col == null) return "col_missing_base";
-            if (col != self.cell.col.? + self.width) return "col_mismatch";
-        }
-        return null;
-    }
-
-    fn append(self: *PlaceholderRun) void {
-        self.width += 1;
-    }
-};
-
 pub const DecodedGraphicsKey = struct {
     format: u16,
     width: u32,
@@ -223,51 +180,25 @@ pub const GraphicsPreparer = struct {
             }
         }
 
-        var runs = std.ArrayList(surface.PreparedGraphicsPlaceholderRun).empty;
-        defer runs.deinit(self.allocator);
-
-        var row: u16 = 0;
-        var previous_placeholder: ?PlaceholderCell = null;
-        while (row < source.rows) : (row += 1) {
-            var row_cells = std.ArrayList(PlaceholderCell).empty;
-            defer row_cells.deinit(self.allocator);
-
-            var col: u16 = 0;
-            while (col < source.cols) : (col += 1) {
-                const cell_index = @as(usize, row) * @as(usize, source.cols) + @as(usize, col);
-                const current = placeholderCellFromVtCell(source.cells[cell_index], row, col) orelse continue;
-                var next = current;
-                inheritWrappedPlaceholderCell(&next, previous_placeholder, source.cols);
-                try row_cells.append(self.allocator, next);
-            }
-
-            backfillPlaceholderRow(row_cells.items);
-
-            var pending: ?PlaceholderRun = null;
-            for (row_cells.items, 0..) |next, idx| {
-                _ = idx;
-                if (pending) |*run| {
-                    if (run.canAppend(next)) {
-                        run.append();
-                        previous_placeholder = next;
-                        continue;
-                    }
-                    try appendPreparedPlaceholderRun(self.allocator, prepared.virtual_placements, &runs, run.*);
-                }
-
-                if (next.row == null) {
-                    continue;
-                }
-                var start = next;
-                if (start.col == null) start.col = 0;
-                if (start.image_id_high == null) start.image_id_high = 0;
-                pending = .{ .cell = start };
-                previous_placeholder = start;
-            }
-            if (pending) |run| try appendPreparedPlaceholderRun(self.allocator, prepared.virtual_placements, &runs, run);
+        if (source.graphics_placeholder_runs.len == 0) return;
+        prepared.placeholder_runs = try self.allocator.alloc(surface.PreparedGraphicsPlaceholderRun, source.graphics_placeholder_runs.len);
+        for (source.graphics_placeholder_runs, 0..) |run, idx| {
+            const virtual_placement_count = std.math.cast(u32, prepared.virtual_placements.len) orelse unreachable;
+            std.debug.assert(run.virtual_placement_index < virtual_placement_count);
+            const virtual_placement = prepared.virtual_placements[run.virtual_placement_index];
+            std.debug.assert(run.image_id == virtual_placement.image_id);
+            std.debug.assert(run.placement_id == virtual_placement.placement_id);
+            std.debug.assert(run.run_order == std.math.cast(u32, idx) orelse unreachable);
+            prepared.placeholder_runs[idx] = .{
+                .virtual_placement_index = run.virtual_placement_index,
+                .run_order = run.run_order,
+                .cell_row = run.cell_row,
+                .cell_col = run.cell_col,
+                .image_row = run.image_row,
+                .image_col = run.image_col,
+                .columns = run.columns,
+            };
         }
-
-        prepared.placeholder_runs = try runs.toOwnedSlice(self.allocator);
     }
 
     pub fn raster(self: *const GraphicsPreparer, raster_index: u32) ?GraphicsRasterView {
@@ -410,151 +341,6 @@ pub const GraphicsPreparer = struct {
         return false;
     }
 
-    fn appendPreparedPlaceholderRun(
-        allocator: std.mem.Allocator,
-        virtual_placements: []const surface.PreparedGraphicsVirtualPlacement,
-        runs: *std.ArrayList(surface.PreparedGraphicsPlaceholderRun),
-        run: PlaceholderRun,
-    ) !void {
-        const image_row = run.cell.row orelse return;
-        const image_col = run.cell.col orelse return;
-        const virtual_placement_index = findPreparedVirtualPlacementIndex(virtual_placements, run.cell.imageId(), run.cell.placement_id) orelse return;
-        const columns = run.width;
-        if (columns == 0) return;
-        try runs.append(allocator, .{
-            .virtual_placement_index = virtual_placement_index,
-            .cell_row = run.cell.cell_row,
-            .cell_col = run.cell.cell_col,
-            .image_row = image_row,
-            .image_col = image_col,
-            .columns = columns,
-        });
-    }
-
-    fn inheritWrappedPlaceholderCell(next: *PlaceholderCell, previous: ?PlaceholderCell, cols: u16) void {
-        if (next.row != null) return;
-        if (next.col != null) return;
-        if (next.cell_col != 0) return;
-
-        const prev = previous orelse return;
-        if (prev.row == null) return;
-        if (prev.cell_col + 1 != cols) return;
-        if (prev.image_id_low != next.image_id_low) return;
-        if (prev.placement_id != next.placement_id) return;
-
-        next.row = prev.row.? + 1;
-        next.col = 0;
-        if (next.image_id_high == null) next.image_id_high = prev.image_id_high;
-    }
-
-    fn backfillPlaceholderRow(cells: []PlaceholderCell) void {
-        var start: usize = 0;
-        while (start < cells.len) {
-            const first = cells[start];
-            var end = start + 1;
-            while (end < cells.len) : (end += 1) {
-                const next = cells[end];
-                if (next.cell_col != cells[end - 1].cell_col + 1) break;
-                if (next.image_id_low != first.image_id_low) break;
-                if (next.placement_id != first.placement_id) break;
-                if (first.image_id_high != null) {
-                    if (next.image_id_high) |high| {
-                        if (high != first.image_id_high.?) break;
-                    }
-                } else if (next.image_id_high != null) break;
-            }
-
-            backfillPlaceholderGroup(cells[start..end]);
-            start = end;
-        }
-    }
-
-    fn backfillPlaceholderGroup(cells: []PlaceholderCell) void {
-        if (cells.len == 0) return;
-
-        var anchor_index: ?usize = null;
-        var inherited_high: ?u8 = null;
-        for (cells, 0..) |cell, idx| {
-            if (cell.image_id_high != null) inherited_high = cell.image_id_high;
-            if (cell.row != null) anchor_index = idx;
-        }
-
-        const anchor_idx = anchor_index orelse return;
-        const anchor = cells[anchor_idx];
-        const row = anchor.row orelse return;
-        const anchor_col = anchor.col orelse std.math.cast(u32, anchor_idx) orelse return;
-
-        var idx: usize = 0;
-        while (idx < cells.len) : (idx += 1) {
-            var cell = &cells[idx];
-            if (cell.row == null) cell.row = row;
-            if (cell.col == null) {
-                const col = @as(i64, @intCast(anchor_col)) + @as(i64, @intCast(idx)) - @as(i64, @intCast(anchor_idx));
-                if (col >= 0) cell.col = @intCast(col);
-            }
-            if (cell.image_id_high == null) cell.image_id_high = inherited_high;
-        }
-    }
-
-    fn findPreparedVirtualPlacementIndex(
-        virtual_placements: []const surface.PreparedGraphicsVirtualPlacement,
-        image_id: u32,
-        placement_id: u32,
-    ) ?u32 {
-        if (placement_id != 0) {
-            for (virtual_placements, 0..) |placement, idx| {
-                if (placement.image_id != image_id) continue;
-                if (placement.placement_id != placement_id) continue;
-                return std.math.cast(u32, idx) orelse unreachable;
-            }
-            return null;
-        }
-        for (virtual_placements, 0..) |placement, idx| {
-            if (placement.image_id != image_id) continue;
-            return std.math.cast(u32, idx) orelse unreachable;
-        }
-        return null;
-    }
-
-    fn placeholderCellFromVtCell(cell: abi.FfiVtCell, row: u16, col: u16) ?PlaceholderCell {
-        if (cell.flags.continuation != 0) return null;
-        if (cell.codepoint != kitty_placeholder_codepoint) return null;
-        return .{
-            .image_id_low = placeholderColorId(cell.fg_color),
-            .image_id_high = placeholderHighByte(cell),
-            .placement_id = placeholderColorId(cell.underline_color),
-            .row = placeholderIndex(cell, 0),
-            .col = placeholderIndex(cell, 1),
-            .cell_row = row,
-            .cell_col = col,
-        };
-    }
-
-    fn placeholderHighByte(cell: abi.FfiVtCell) ?u8 {
-        const value = placeholderIndex(cell, 2) orelse return null;
-        return std.math.cast(u8, value);
-    }
-
-    fn placeholderIndex(cell: abi.FfiVtCell, idx: usize) ?u32 {
-        if (idx >= cell.combining_len) return null;
-        return placeholderDiacriticIndex(@intCast(cell.combining[idx]));
-    }
-
-    fn placeholderDiacriticIndex(cp: u21) ?u32 {
-        for (kitty_placeholder_diacritics, 0..) |candidate, idx| {
-            if (candidate == cp) return std.math.cast(u32, idx) orelse unreachable;
-        }
-        return null;
-    }
-
-    fn placeholderColorId(color: abi.FfiVtColor) u32 {
-        return switch (color.kind) {
-            0 => 0,
-            1 => color.value & 0xFF,
-            2 => color.value & 0xFFFFFF,
-            else => 0,
-        };
-    }
 };
 
 pub fn graphicsKey(image: abi.FfiVtGraphicsImage, payload: []const u8) DecodedGraphicsKey {
@@ -669,34 +455,6 @@ fn graphicsBytesLen(left: u32, right: u32) !usize {
     return std.math.cast(usize, total) orelse return error.InvalidGraphicsPayload;
 }
 
-fn setPlaceholderCell(
-    cell: *abi.FfiVtCell,
-    image_id_low: u32,
-    placement_id: u32,
-    row: ?u32,
-    col: ?u32,
-    image_id_high: ?u8,
-) void {
-    cell.* = std.mem.zeroes(abi.FfiVtCell);
-    cell.codepoint = kitty_placeholder_codepoint;
-    cell.fg_color = .{ .kind = 2, .value = image_id_low };
-    cell.underline_color = .{ .kind = 2, .value = placement_id };
-    var combining_len: u8 = 0;
-    if (row) |value| {
-        cell.combining[combining_len] = kitty_placeholder_diacritics[value];
-        combining_len += 1;
-    }
-    if (col) |value| {
-        cell.combining[combining_len] = kitty_placeholder_diacritics[value];
-        combining_len += 1;
-    }
-    if (image_id_high) |value| {
-        cell.combining[combining_len] = kitty_placeholder_diacritics[value];
-        combining_len += 1;
-    }
-    cell.combining_len = combining_len;
-}
-
 test "sourceGraphicsPayloads binds exact payload slices across multiple images" {
     var preparer = GraphicsPreparer.init(std.testing.allocator);
     defer preparer.deinit();
@@ -732,32 +490,13 @@ test "sourceGraphicsPayloads rejects trailing or truncated multi-image payload b
     try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], "ABC"));
 }
 
-test "preparePlaceholderGraphics reconstructs yazi-like multi-row pane-offset runs" {
+test "preparePlaceholderGraphics preserves yazi-like multi-row pane-offset runs" {
     const allocator = std.testing.allocator;
     const rows: u16 = 3;
     const cols: u16 = 8;
-    const pane_col: u16 = 4;
-    const pane_width: u16 = 3;
-    const cell_count = @as(usize, rows) * @as(usize, cols);
-    const cells = try allocator.alloc(abi.FfiVtCell, cell_count);
+    const cells = try allocator.alloc(abi.FfiVtCell, @as(usize, rows) * @as(usize, cols));
     defer allocator.free(cells);
     @memset(cells, std.mem.zeroes(abi.FfiVtCell));
-
-    var row: u16 = 0;
-    while (row < rows) : (row += 1) {
-        var col: u16 = 0;
-        while (col < pane_width) : (col += 1) {
-            const cell_index = @as(usize, row) * @as(usize, cols) + pane_col + col;
-            setPlaceholderCell(
-                &cells[cell_index],
-                42,
-                9,
-                if (col == 0) 10 + row else null,
-                if (col == 0) 20 else null,
-                if (col == 0) 2 else null,
-            );
-        }
-    }
 
     const dirty_rows = try allocator.dupe(u8, &.{ 1, 1, 1 });
     defer allocator.free(dirty_rows);
@@ -776,6 +515,12 @@ test "preparePlaceholderGraphics reconstructs yazi-like multi-row pane-offset ru
         .rows = 0,
     }});
     defer allocator.free(virtual_placements);
+    const placeholder_runs = try allocator.dupe(abi.FfiVtGraphicsPlaceholderRun, &.{
+        .{ .image_id = 42 + (@as(u32, 2) << 24), .placement_id = 9, .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 4, .image_row = 10, .image_col = 20, .columns = 3 },
+        .{ .image_id = 42 + (@as(u32, 2) << 24), .placement_id = 9, .virtual_placement_index = 0, .run_order = 1, .cell_row = 1, .cell_col = 4, .image_row = 11, .image_col = 20, .columns = 3 },
+        .{ .image_id = 42 + (@as(u32, 2) << 24), .placement_id = 9, .virtual_placement_index = 0, .run_order = 2, .cell_row = 2, .cell_col = 4, .image_row = 12, .image_col = 20, .columns = 3 },
+    });
+    defer allocator.free(placeholder_runs);
 
     const source: queue.PublicationSource = .{
         .cols = cols,
@@ -789,8 +534,9 @@ test "preparePlaceholderGraphics reconstructs yazi-like multi-row pane-offset ru
         .cursor = std.mem.zeroes(surface.CursorInfo),
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 1, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
+        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 1, .placeholder_run_count = 3, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
         .graphics_virtual_placements = virtual_placements,
+        .graphics_placeholder_runs = placeholder_runs,
         .graphics_payload_bytes = &.{},
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
@@ -812,17 +558,16 @@ test "preparePlaceholderGraphics reconstructs yazi-like multi-row pane-offset ru
     try std.testing.expectEqual(@as(u32, 11), prepared.placeholder_runs[1].image_row);
     try std.testing.expectEqual(@as(u32, 12), prepared.placeholder_runs[2].image_row);
     try std.testing.expectEqual(@as(u32, 3), prepared.placeholder_runs[0].columns);
+    try std.testing.expectEqual(@as(u32, 2), prepared.placeholder_runs[2].run_order);
     try std.testing.expectEqual(@as(u32, 0), prepared.virtual_placements[0].columns);
     try std.testing.expectEqual(@as(u32, 0), prepared.virtual_placements[0].rows);
 }
 
-test "preparePlaceholderGraphics does not merge across non-placeholder gaps" {
+test "preparePlaceholderGraphics consumes exported runs without cell reconstruction" {
     const allocator = std.testing.allocator;
     const cells = try allocator.alloc(abi.FfiVtCell, 3);
     defer allocator.free(cells);
     @memset(cells, std.mem.zeroes(abi.FfiVtCell));
-    setPlaceholderCell(&cells[0], 42, 9, 3, 7, 1);
-    setPlaceholderCell(&cells[2], 42, 9, 3, 8, 1);
 
     const dirty_rows = try allocator.dupe(u8, &.{1});
     defer allocator.free(dirty_rows);
@@ -841,6 +586,11 @@ test "preparePlaceholderGraphics does not merge across non-placeholder gaps" {
         .rows = 0,
     }});
     defer allocator.free(virtual_placements);
+    const placeholder_runs = try allocator.dupe(abi.FfiVtGraphicsPlaceholderRun, &.{
+        .{ .image_id = 42 + (@as(u32, 1) << 24), .placement_id = 9, .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 3, .image_col = 7, .columns = 1 },
+        .{ .image_id = 42 + (@as(u32, 1) << 24), .placement_id = 9, .virtual_placement_index = 0, .run_order = 1, .cell_row = 0, .cell_col = 2, .image_row = 99, .image_col = 123, .columns = 1 },
+    });
+    defer allocator.free(placeholder_runs);
 
     const source: queue.PublicationSource = .{
         .cols = 3,
@@ -854,8 +604,9 @@ test "preparePlaceholderGraphics does not merge across non-placeholder gaps" {
         .cursor = std.mem.zeroes(surface.CursorInfo),
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 1, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
+        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 1, .placeholder_run_count = 2, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
         .graphics_virtual_placements = virtual_placements,
+        .graphics_placeholder_runs = placeholder_runs,
         .graphics_payload_bytes = &.{},
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
@@ -872,17 +623,17 @@ test "preparePlaceholderGraphics does not merge across non-placeholder gaps" {
     try std.testing.expectEqual(@as(usize, 2), prepared.placeholder_runs.len);
     try std.testing.expectEqual(@as(u16, 0), prepared.placeholder_runs[0].cell_col);
     try std.testing.expectEqual(@as(u16, 2), prepared.placeholder_runs[1].cell_col);
+    try std.testing.expectEqual(@as(u32, 99), prepared.placeholder_runs[1].image_row);
+    try std.testing.expectEqual(@as(u32, 123), prepared.placeholder_runs[1].image_col);
     try std.testing.expectEqual(@as(u32, 1), prepared.placeholder_runs[0].columns);
     try std.testing.expectEqual(@as(u32, 1), prepared.placeholder_runs[1].columns);
 }
 
-test "preparePlaceholderGraphics does not alias low-24 image ids across separated groups" {
+test "preparePlaceholderGraphics preserves virtual placement binding from exported runs" {
     const allocator = std.testing.allocator;
     const cells = try allocator.alloc(abi.FfiVtCell, 3);
     defer allocator.free(cells);
     @memset(cells, std.mem.zeroes(abi.FfiVtCell));
-    setPlaceholderCell(&cells[0], 42, 9, 0, 0, null);
-    setPlaceholderCell(&cells[2], 42, 9, 0, 0, 2);
 
     const dirty_rows = try allocator.dupe(u8, &.{1});
     defer allocator.free(dirty_rows);
@@ -895,6 +646,11 @@ test "preparePlaceholderGraphics does not alias low-24 image ids across separate
         .{ .image_id = 42 + (@as(u32, 2) << 24), .placement_id = 9, .source_x = 0, .source_y = 0, .source_width = 0, .source_height = 0, .columns = 0, .rows = 0 },
     });
     defer allocator.free(virtual_placements);
+    const placeholder_runs = try allocator.dupe(abi.FfiVtGraphicsPlaceholderRun, &.{
+        .{ .image_id = 42, .placement_id = 9, .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 },
+        .{ .image_id = 42 + (@as(u32, 2) << 24), .placement_id = 9, .virtual_placement_index = 1, .run_order = 1, .cell_row = 0, .cell_col = 2, .image_row = 0, .image_col = 0, .columns = 1 },
+    });
+    defer allocator.free(placeholder_runs);
 
     const source: queue.PublicationSource = .{
         .cols = 3,
@@ -908,8 +664,9 @@ test "preparePlaceholderGraphics does not alias low-24 image ids across separate
         .cursor = std.mem.zeroes(surface.CursorInfo),
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 2, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
+        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 2, .placeholder_run_count = 2, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
         .graphics_virtual_placements = virtual_placements,
+        .graphics_placeholder_runs = placeholder_runs,
         .graphics_payload_bytes = &.{},
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,

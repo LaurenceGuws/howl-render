@@ -109,6 +109,7 @@ pub const PreparedGraphicsVirtualPlacement = struct {
 
 pub const PreparedGraphicsPlaceholderRun = struct {
     virtual_placement_index: u32,
+    run_order: u32 = 0,
     cell_row: u16,
     cell_col: u16,
     image_row: u32,
