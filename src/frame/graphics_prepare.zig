@@ -58,21 +58,25 @@ const PlaceholderRun = struct {
     width: u32 = 1,
 
     fn canAppend(self: PlaceholderRun, other: PlaceholderCell) bool {
-        if (self.cell.image_id_low != other.image_id_low) return false;
-        if (self.cell.placement_id != other.placement_id) return false;
+        return appendRejectReason(self, other) == null;
+    }
+
+    fn appendRejectReason(self: PlaceholderRun, other: PlaceholderCell) ?[]const u8 {
+        if (self.cell.image_id_low != other.image_id_low) return "image_id_low";
+        if (self.cell.placement_id != other.placement_id) return "placement_id";
         if (other.row) |row| {
-            if (self.cell.row == null) return false;
-            if (row != self.cell.row.?) return false;
+            if (self.cell.row == null) return "row_missing_base";
+            if (row != self.cell.row.?) return "row_mismatch";
         }
         if (other.col) |col| {
-            if (self.cell.col == null) return false;
-            if (col != self.cell.col.? + self.width) return false;
+            if (self.cell.col == null) return "col_missing_base";
+            if (col != self.cell.col.? + self.width) return "col_mismatch";
         }
         if (other.image_id_high) |high| {
-            if (self.cell.image_id_high == null) return false;
-            if (high != self.cell.image_id_high.?) return false;
+            if (self.cell.image_id_high == null) return "image_id_high_missing_base";
+            if (high != self.cell.image_id_high.?) return "image_id_high_mismatch";
         }
-        return true;
+        return null;
     }
 
     fn append(self: *PlaceholderRun) void {
@@ -142,6 +146,7 @@ pub const GraphicsPreparer = struct {
         source_images: []const abi.FfiVtGraphicsImage,
         payload_bytes: []const u8,
     ) !void {
+        try self.ensureVirtualPlacementImageRefs(prepared, source_images);
         const source_payloads = try self.sourceGraphicsPayloads(source_images, payload_bytes);
         defer self.allocator.free(source_payloads);
 
@@ -155,6 +160,48 @@ pub const GraphicsPreparer = struct {
         self.replaceGraphicsPublicationImageKeys(publication_keys);
         self.sweepDecodedGraphicsRasters();
         try self.bindPreparedGraphicsRasters(prepared);
+    }
+
+    fn ensureVirtualPlacementImageRefs(
+        self: *GraphicsPreparer,
+        prepared: *surface.PreparedGraphics,
+        source_images: []const abi.FfiVtGraphicsImage,
+    ) !void {
+        if (prepared.virtual_placements.len == 0) return;
+
+        var images = std.ArrayList(surface.PreparedGraphicsImageRef).empty;
+        defer images.deinit(self.allocator);
+        try images.appendSlice(self.allocator, prepared.images);
+
+        for (prepared.virtual_placements) |placement| {
+            if (preparedImageIndex(images.items, placement.image_id) != null) continue;
+            const image = findSourceImage(source_images, placement.image_id) orelse continue;
+            try images.append(self.allocator, .{
+                .image_id = image.image_id,
+                .width = image.width,
+                .height = image.height,
+                .format = image.format,
+                .raster_index = invalid_graphics_raster_index,
+            });
+        }
+
+        if (images.items.len == prepared.images.len) return;
+        if (prepared.images.len > 0) self.allocator.free(prepared.images);
+        prepared.images = try images.toOwnedSlice(self.allocator);
+    }
+
+    fn preparedImageIndex(images: []const surface.PreparedGraphicsImageRef, image_id: u32) ?u32 {
+        for (images, 0..) |image, idx| {
+            if (image.image_id == image_id) return std.math.cast(u32, idx) orelse unreachable;
+        }
+        return null;
+    }
+
+    fn findSourceImage(images: []const abi.FfiVtGraphicsImage, image_id: u32) ?abi.FfiVtGraphicsImage {
+        for (images) |image| {
+            if (image.image_id == image_id) return image;
+        }
+        return null;
     }
 
     pub fn preparePlaceholderGraphics(
@@ -182,38 +229,48 @@ pub const GraphicsPreparer = struct {
         defer runs.deinit(self.allocator);
 
         var row: u16 = 0;
+        var previous_placeholder: ?PlaceholderCell = null;
         while (row < source.rows) : (row += 1) {
-            var pending: ?PlaceholderRun = null;
+            var row_cells = std.ArrayList(PlaceholderCell).empty;
+            defer row_cells.deinit(self.allocator);
+
             var col: u16 = 0;
             while (col < source.cols) : (col += 1) {
                 const cell_index = @as(usize, row) * @as(usize, source.cols) + @as(usize, col);
-                const current = placeholderCellFromVtCell(source.cells[cell_index], row, col);
-                if (current == null) {
-                    if (pending) |run| {
-                        try appendPreparedPlaceholderRun(self.allocator, prepared.virtual_placements, &runs, run);
-                        pending = null;
-                    }
-                    continue;
-                }
+                const current = placeholderCellFromVtCell(source.cells[cell_index], row, col) orelse continue;
+                var next = current;
+                inheritWrappedPlaceholderCell(&next, previous_placeholder, source.cols);
+                try row_cells.append(self.allocator, next);
+            }
 
-                var next = current.?;
+            backfillPlaceholderRow(row_cells.items);
+
+            var pending: ?PlaceholderRun = null;
+            for (row_cells.items, 0..) |next, idx| {
+                _ = idx;
                 if (pending) |*run| {
                     if (run.canAppend(next)) {
                         run.append();
+                        previous_placeholder = next;
                         continue;
                     }
                     try appendPreparedPlaceholderRun(self.allocator, prepared.virtual_placements, &runs, run.*);
                 }
 
-                if (next.row == null) continue;
-                if (next.col == null) next.col = 0;
-                if (next.image_id_high == null) next.image_id_high = 0;
-                pending = .{ .cell = next };
+                if (next.row == null) {
+                    continue;
+                }
+                var start = next;
+                if (start.col == null) start.col = 0;
+                if (start.image_id_high == null) start.image_id_high = 0;
+                pending = .{ .cell = start };
+                previous_placeholder = start;
             }
             if (pending) |run| try appendPreparedPlaceholderRun(self.allocator, prepared.virtual_placements, &runs, run);
         }
 
         prepared.placeholder_runs = try runs.toOwnedSlice(self.allocator);
+        expandVirtualPlacementGridFromRuns(prepared.virtual_placements, prepared.placeholder_runs);
     }
 
     pub fn raster(self: *const GraphicsPreparer, raster_index: u32) ?GraphicsRasterView {
@@ -365,11 +422,7 @@ pub const GraphicsPreparer = struct {
         const image_row = run.cell.row orelse return;
         const image_col = run.cell.col orelse return;
         const virtual_placement_index = findPreparedVirtualPlacementIndex(virtual_placements, run.cell.imageId(), run.cell.placement_id) orelse return;
-        const virtual_placement = virtual_placements[virtual_placement_index];
-        if (image_row >= virtual_placement.rows) return;
-        if (image_col >= virtual_placement.columns) return;
-        const remaining_columns = virtual_placement.columns - image_col;
-        const columns = @min(run.width, remaining_columns);
+        const columns = run.width;
         if (columns == 0) return;
         try runs.append(allocator, .{
             .virtual_placement_index = virtual_placement_index,
@@ -379,6 +432,79 @@ pub const GraphicsPreparer = struct {
             .image_col = image_col,
             .columns = columns,
         });
+    }
+
+    fn inheritWrappedPlaceholderCell(next: *PlaceholderCell, previous: ?PlaceholderCell, cols: u16) void {
+        if (next.row != null) return;
+        if (next.col != null) return;
+        if (next.cell_col != 0) return;
+
+        const prev = previous orelse return;
+        if (prev.row == null) return;
+        if (prev.cell_col + 1 != cols) return;
+        if (prev.image_id_low != next.image_id_low) return;
+        if (prev.placement_id != next.placement_id) return;
+
+        next.row = prev.row.? + 1;
+        next.col = 0;
+        if (next.image_id_high == null) next.image_id_high = prev.image_id_high;
+    }
+
+    fn backfillPlaceholderRow(cells: []PlaceholderCell) void {
+        var start: usize = 0;
+        while (start < cells.len) {
+            const first = cells[start];
+            var end = start + 1;
+            while (end < cells.len) : (end += 1) {
+                const next = cells[end];
+                if (next.image_id_low != first.image_id_low) break;
+                if (next.placement_id != first.placement_id) break;
+            }
+
+            backfillPlaceholderGroup(cells[start..end]);
+            start = end;
+        }
+    }
+
+    fn expandVirtualPlacementGridFromRuns(
+        virtual_placements: []surface.PreparedGraphicsVirtualPlacement,
+        runs: []const surface.PreparedGraphicsPlaceholderRun,
+    ) void {
+        for (runs) |run| {
+            if (run.virtual_placement_index >= virtual_placements.len) continue;
+            const placement = &virtual_placements[run.virtual_placement_index];
+            const run_right = run.image_col + run.columns;
+            const run_bottom = run.image_row + 1;
+            if (placement.columns < run_right) placement.columns = run_right;
+            if (placement.rows < run_bottom) placement.rows = run_bottom;
+        }
+    }
+
+    fn backfillPlaceholderGroup(cells: []PlaceholderCell) void {
+        if (cells.len == 0) return;
+
+        var anchor_index: ?usize = null;
+        var inherited_high: ?u8 = null;
+        for (cells, 0..) |cell, idx| {
+            if (cell.image_id_high != null) inherited_high = cell.image_id_high;
+            if (cell.row != null) anchor_index = idx;
+        }
+
+        const anchor_idx = anchor_index orelse return;
+        const anchor = cells[anchor_idx];
+        const row = anchor.row orelse return;
+        const anchor_col = anchor.col orelse std.math.cast(u32, anchor_idx) orelse return;
+
+        var idx: usize = 0;
+        while (idx < cells.len) : (idx += 1) {
+            var cell = &cells[idx];
+            if (cell.row == null) cell.row = row;
+            if (cell.col == null) {
+                const col = @as(i64, @intCast(anchor_col)) + @as(i64, @intCast(idx)) - @as(i64, @intCast(anchor_idx));
+                if (col >= 0) cell.col = @intCast(col);
+            }
+            if (cell.image_id_high == null) cell.image_id_high = inherited_high;
+        }
     }
 
     fn findPreparedVirtualPlacementIndex(

@@ -876,6 +876,27 @@ test "graphics cache reuses same payload across later publication changes" {
     try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
 }
 
+test "graphics cache retains image refs for virtual placements without ordinary placements" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+
+    var graphics = surface.PreparedGraphics{
+        .publication_seq = 1,
+        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }}),
+        .placements = &.{},
+        .virtual_placements = try std.testing.allocator.dupe(surface.PreparedGraphicsVirtualPlacement, &.{.{ .image_id = 7, .placement_id = 9, .source_x = 0, .source_y = 0, .source_width = 1, .source_height = 1, .columns = 1, .rows = 1 }}),
+        .placeholder_runs = try std.testing.allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{.{ .virtual_placement_index = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }}),
+    };
+    defer graphics.deinit(std.testing.allocator);
+
+    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 4 }};
+    try session.graphics_preparer.prepare(&graphics, source_images[0..], "QUJD");
+
+    try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
+    try std.testing.expectEqual(@as(usize, 1), graphics.images.len);
+    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
+}
+
 test "png graphics decode succeeds" {
     var session = SurfaceText.init(std.testing.allocator);
     defer session.deinit();
