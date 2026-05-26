@@ -132,6 +132,7 @@ pub const VtSnapshot = struct {
     graphics_dirty_generation: u64,
     graphics_image_count: u32,
     graphics_placement_count: u32,
+    graphics_virtual_placement_count: u32,
     graphics_is_alternate_screen: bool,
     dirty_rows: []const u8,
     dirty_cols_start: []const u16,
@@ -231,6 +232,7 @@ pub const PublicationSource = struct {
             .graphics_dirty_generation = self.graphics.dirty_generation,
             .graphics_image_count = self.graphics.image_count,
             .graphics_placement_count = self.graphics.placement_count,
+            .graphics_virtual_placement_count = self.graphics.virtual_placement_count,
             .graphics_is_alternate_screen = self.graphics.is_alternate_screen != 0,
             .dirty_rows = self.dirty_rows,
             .dirty_cols_start = self.dirty_cols_start,
@@ -415,7 +417,9 @@ const PublicationState = struct {
         source.colors = meta.colors;
         source.selection = meta.selection;
         source.graphics = meta.graphics;
+        try validateDirtySource(source.rows, source.cols, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
         try validateGraphicsSource(
+            meta.is_alternate_screen,
             meta.graphics,
             meta.graphics_images,
             meta.graphics_placements,
@@ -722,16 +726,40 @@ const PublicationState = struct {
 };
 
 fn validateGraphicsSource(
+    publication_is_alternate_screen: bool,
     meta: abi.FfiVtGraphicsMeta,
     images: []const abi.FfiVtGraphicsImage,
     placements: []const abi.FfiVtGraphicsPlacement,
     virtual_placements: []const abi.FfiVtGraphicsVirtualPlacement,
     payload_bytes: []const u8,
 ) !void {
+    if (meta.is_alternate_screen > 1) return error.InvalidGraphicsMetadata;
+    if ((meta.is_alternate_screen != 0) != publication_is_alternate_screen) return error.InvalidGraphicsMetadata;
     if (meta.image_count != images.len) return error.InvalidGraphicsMetadata;
     if (meta.placement_count != placements.len) return error.InvalidGraphicsMetadata;
     if (meta.virtual_placement_count != virtual_placements.len) return error.InvalidGraphicsMetadata;
+    try validateGraphicsReferences(images, placements, virtual_placements);
     try validateGraphicsPayloadSource(images, payload_bytes);
+}
+
+fn validateGraphicsReferences(
+    images: []const abi.FfiVtGraphicsImage,
+    placements: []const abi.FfiVtGraphicsPlacement,
+    virtual_placements: []const abi.FfiVtGraphicsVirtualPlacement,
+) !void {
+    for (placements) |placement| {
+        if (!graphicsImageExists(images, placement.image_id)) return error.InvalidGraphicsMetadata;
+    }
+    for (virtual_placements) |placement| {
+        if (!graphicsImageExists(images, placement.image_id)) return error.InvalidGraphicsMetadata;
+    }
+}
+
+fn graphicsImageExists(images: []const abi.FfiVtGraphicsImage, image_id: u32) bool {
+    for (images) |image| {
+        if (image.image_id == image_id) return true;
+    }
+    return false;
 }
 
 fn validateGraphicsPayloadSource(images: []const abi.FfiVtGraphicsImage, payload_bytes: []const u8) !void {
@@ -745,6 +773,50 @@ fn totalGraphicsPayloadLen(images: []const abi.FfiVtGraphicsImage) !usize {
         total = std.math.add(u64, total, image.payload_len) catch return error.InvalidGraphicsPayload;
     }
     return std.math.cast(usize, total) orelse return error.InvalidGraphicsPayload;
+}
+
+pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
+    if (source.cols == 0) return error.InvalidSurfaceSource;
+    if (source.rows == 0) return error.InvalidSurfaceSource;
+    const cell_count = slotCellCountChecked(source.cols, source.rows) catch return error.InvalidSurfaceSource;
+    if (source.cells.len != cell_count) return error.InvalidSurfaceSource;
+    try validateDirtySource(source.rows, source.cols, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
+    try validateGraphicsSource(
+        source.is_alternate_screen,
+        source.graphics,
+        source.graphics_images,
+        source.graphics_placements,
+        source.graphics_virtual_placements,
+        source.graphics_payload_bytes,
+    );
+}
+
+fn validateDirtySource(
+    rows: u16,
+    cols: u16,
+    dirty_rows: []const u8,
+    dirty_cols_start: []const u16,
+    dirty_cols_end: []const u16,
+) !void {
+    if (dirty_rows.len != rows) return error.InvalidSurfaceSource;
+    if (dirty_cols_start.len != rows) return error.InvalidSurfaceSource;
+    if (dirty_cols_end.len != rows) return error.InvalidSurfaceSource;
+
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        const dirty = dirty_rows[row];
+        const start_col = dirty_cols_start[row];
+        const end_col = dirty_cols_end[row];
+        if (dirty == 0) {
+            if (start_col != 0) return error.InvalidSurfaceSource;
+            if (end_col != 0) return error.InvalidSurfaceSource;
+            continue;
+        }
+        if (dirty != 1) return error.InvalidSurfaceSource;
+        if (start_col >= cols) return error.InvalidSurfaceSource;
+        if (end_col >= cols) return error.InvalidSurfaceSource;
+        if (end_col < start_col) return error.InvalidSurfaceSource;
+    }
 }
 
 fn cursorPresentationChanged(prior: PublicationSource, current: PublicationSource) bool {
@@ -774,6 +846,10 @@ fn slotCellCount(cols: u16, rows: u16) usize {
     return @as(usize, cols) * @as(usize, rows);
 }
 
+fn slotCellCountChecked(cols: u16, rows: u16) !usize {
+    return std.math.mul(usize, cols, rows);
+}
+
 fn sameSnapshotToken(a: pipeline.SnapshotToken, b: pipeline.SnapshotToken) bool {
     return a.snapshot_seq == b.snapshot_seq and
         a.dirty_epoch == b.dirty_epoch and
@@ -797,6 +873,7 @@ fn samePublicationSource(a: PublicationSource, b: PublicationSource) bool {
         a.cursor.shape == b.cursor.shape and
         a.cursor.blink == b.cursor.blink and
         std.mem.eql(u8, std.mem.asBytes(&a.colors), std.mem.asBytes(&b.colors)) and
+        std.mem.eql(u8, std.mem.asBytes(&a.graphics), std.mem.asBytes(&b.graphics)) and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_images), std.mem.sliceAsBytes(b.graphics_images)) and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_placements), std.mem.sliceAsBytes(b.graphics_placements)) and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_virtual_placements), std.mem.sliceAsBytes(b.graphics_virtual_placements)) and
@@ -853,6 +930,7 @@ fn testSnapshot(
         .graphics_dirty_generation = 0,
         .graphics_image_count = 0,
         .graphics_placement_count = 0,
+        .graphics_virtual_placement_count = 0,
         .graphics_is_alternate_screen = false,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -1078,7 +1156,7 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
         .graphics = .{
             .image_count = snapshot.graphics_image_count,
             .placement_count = snapshot.graphics_placement_count,
-            .virtual_placement_count = 0,
+            .virtual_placement_count = snapshot.graphics_virtual_placement_count,
             .is_alternate_screen = if (snapshot.graphics_is_alternate_screen) 1 else 0,
             .publication_seq = snapshot.graphics_publication_seq,
             .dirty_generation = snapshot.graphics_dirty_generation,
@@ -1375,6 +1453,28 @@ test "graphics publication change republishes clean later vt snapshot" {
     second.graphics.publication_seq = 2;
     second.graphics.dirty_generation = 2;
     second.graphics.image_count = 1;
+    const published = flow.acceptSource(second);
+    try std.testing.expect(published.published);
+    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
+}
+
+test "graphics screen identity change republishes same snapshot" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var first = try ownedTestSource(std.heap.c_allocator, 2, 'A');
+    first.graphics.is_alternate_screen = 0;
+    try std.testing.expect(flow.acceptSource(first).published);
+    _ = flow.prepare() orelse return error.TestUnexpectedResult;
+
+    var second = try ownedTestSource(std.heap.c_allocator, 2, 'A');
+    second.dirty_rows[0] = 0;
+    second.graphics.is_alternate_screen = 1;
     const published = flow.acceptSource(second);
     try std.testing.expect(published.published);
     try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
@@ -1853,6 +1953,118 @@ test "flow commit publish slot validates graphics metadata counts" {
         .graphics_images = images[0..],
         .graphics_placements = placements[0..],
         .graphics_virtual_placements = virtual_placements[0..],
+        .graphics_payload_bytes = &.{},
+    }));
+}
+
+test "flow commit publish slot rejects dirty row byte outside boolean domain" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 1, .height = 1 },
+        .grid_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const slot = try flow.reservePublishSlot(1, 1);
+    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[0].codepoint = 'A';
+    slot.dirty_rows[0] = 2;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 0;
+
+    try std.testing.expectError(error.InvalidSurfaceSource, flow.commitPublishSlot(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .graphics_payload_bytes = &.{},
+    }));
+}
+
+test "flow commit publish slot rejects graphics placement without image" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 1, .height = 1 },
+        .grid_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const slot = try flow.reservePublishSlot(1, 1);
+    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[0].codepoint = 'A';
+    slot.dirty_rows[0] = 1;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 0;
+
+    const placements = [_]abi.FfiVtGraphicsPlacement{.{
+        .image_id = 99,
+        .placement_id = 1,
+        .z_index = 0,
+        .anchor = .{ .kind = 1, .value = 0 },
+        .anchor_col = 0,
+        .source_x = 0,
+        .source_y = 0,
+        .source_width = 1,
+        .source_height = 1,
+        .cell_x_offset = 0,
+        .cell_y_offset = 0,
+        .columns = 1,
+        .rows = 1,
+        .dest_left_cell_px = 0,
+        .dest_top_cell_px = 0,
+        .dest_right_cell_px = 1,
+        .dest_bottom_cell_px = 1,
+        .dest_grid_columns = 1,
+        .dest_grid_rows = 1,
+        .effective_columns = 1,
+        .effective_rows = 1,
+    }};
+
+    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitPublishSlot(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{ .image_count = 0, .placement_count = 1, .virtual_placement_count = 0, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics_placements = placements[0..],
+        .graphics_payload_bytes = &.{},
+    }));
+}
+
+test "flow commit publish slot rejects graphics screen mismatch" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 1, .height = 1 },
+        .grid_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const slot = try flow.reservePublishSlot(1, 1);
+    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[0].codepoint = 'A';
+    slot.dirty_rows[0] = 1;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 0;
+
+    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitPublishSlot(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 0, .is_alternate_screen = 1, .publication_seq = 1, .dirty_generation = 1 },
         .graphics_payload_bytes = &.{},
     }));
 }

@@ -1,4 +1,3 @@
-
 const std = @import("std");
 const contract = @import("../contract.zig");
 const symbol_map = @import("symbol_map.zig");
@@ -273,12 +272,27 @@ fn assertTextInvariants(text: contract.CellText) void {
 }
 
 fn recordLegacyRunClusters(counts: *LegacyStageCounts, text_cache: contract.LineTextCache, cells: []const contract.RenderableCell, clusters: []const contract.CellCluster, run: contract.ResolvedRun) void {
-    const start = run.run.cluster_start;
-    const end = @min(start + run.run.cluster_count, clusterCount(clusters));
-    for (clusters[@intCast(start)..@intCast(end)]) |cluster| {
+    const window = runClusterWindow(run, clusters);
+    for (clusters[@intCast(window.start)..@intCast(window.end)]) |cluster| {
         const choice = classifyClusterInCells(cells, cluster, textForCluster(text_cache, cluster));
         recordLegacyChoice(counts, choice);
     }
+}
+
+const RunClusterWindow = struct {
+    start: u32,
+    end: u32,
+};
+
+fn runClusterWindow(run: contract.ResolvedRun, clusters: []const contract.CellCluster) RunClusterWindow {
+    const start = run.run.cluster_start;
+    const count = run.run.cluster_count;
+    const clusters_len = clusterCount(clusters);
+
+    std.debug.assert(start <= clusters_len);
+    std.debug.assert(count <= clusters_len - start);
+
+    return .{ .start = start, .end = start + count };
 }
 
 fn recordLegacyChoice(counts: *LegacyStageCounts, choice: LaneClass) void {
@@ -516,4 +530,27 @@ test "lane report flags legacy leakage for normal runs" {
     try std.testing.expectEqual(@as(u64, 1), report.legacy.grouped_groups.normal);
     try std.testing.expectEqual(@as(u64, 1), report.legacy.scene_sprite_draws.normal);
     try std.testing.expect(!report.frameStayedOutOfLegacyPath());
+}
+
+test "lane legacy run accounting accepts exact end-bound run" {
+    const text_a = contract.CellText{ .id = .{ .value = 0 }, .first_cp = 'A', .codepoints = &.{'A'} };
+    const text_b = contract.CellText{ .id = .{ .value = 1 }, .first_cp = 'B', .codepoints = &.{'B'} };
+    const cells = [_]contract.RenderableCell{
+        .{ .text_id = text_a.id, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = .{ .r = 255, .g = 255, .b = 255, .a = 255 }, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
+        .{ .text_id = text_b.id, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = .{ .r = 255, .g = 255, .b = 255, .a = 255 }, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
+    };
+    const clusters = [_]contract.CellCluster{
+        .{ .text_id = text_a.id, .first_cell = 0, .cell_span = 1, .first_cp = 'A', .style = .regular, .presentation = .any },
+        .{ .text_id = text_b.id, .first_cell = 1, .cell_span = 1, .first_cp = 'B', .style = .regular, .presentation = .any },
+    };
+
+    var report = LaneReport.init(.{ .texts = &.{ text_a, text_b } }, &cells, &clusters);
+    report.recordLegacyResolvedRun(.{ .texts = &.{ text_a, text_b } }, &clusters, .{ .run = .{
+        .cluster_start = 1,
+        .cluster_count = 1,
+        .font = .{ .face_id = .{ .value = 1 }, .style = .regular, .presentation = .any },
+    } });
+
+    try std.testing.expectEqual(@as(u64, 1), report.legacy.resolved_clusters.normal);
+    try std.testing.expectEqual(@as(u64, 0), report.legacy.resolved_clusters.complex);
 }

@@ -286,6 +286,12 @@ fn count32(items: anytype) u32 {
     return @intCast(items.len);
 }
 
+fn assertDirtyRowsBoolBytes(dirty_rows: []const u8) void {
+    for (dirty_rows) |dirty| {
+        std.debug.assert(dirty <= 1);
+    }
+}
+
 pub const OwnedFrameTextInput = struct {
     allocator: std.mem.Allocator,
     cells: []contract.CellInput,
@@ -365,6 +371,7 @@ pub fn publicationSourceToTextSceneInputBorrowedWithTheme(
     std.debug.assert(cell_inputs.len >= source.cells.len);
     const mapped_cells = cell_inputs[0..source.cells.len];
 
+    assertDirtyRowsBoolBytes(source.dirty_rows);
     const dirty_rows: []const bool = @ptrCast(source.dirty_rows);
 
     const damage = scene.DamageInput{

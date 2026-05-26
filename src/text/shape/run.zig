@@ -1,4 +1,3 @@
-
 const std = @import("std");
 const contract = @import("../contract.zig");
 
@@ -104,17 +103,16 @@ pub fn shapeRun(
     clusters: []const contract.CellCluster,
     cell_metrics: contract.CellMetrics,
 ) !OwnedShapedRun {
-    const start = run.run.cluster_start;
-    const end = @min(start + run.run.cluster_count, clusterCount(clusters));
-    const glyphs = try allocator.alloc(contract.GlyphInstance, @intCast(end - start));
+    const window = runClusterWindow(run, clusters);
+    const glyphs = try allocator.alloc(contract.GlyphInstance, @intCast(window.end - window.start));
     errdefer allocator.free(glyphs);
 
-    for (clusters[@intCast(start)..@intCast(end)], 0..) |cluster, idx| {
+    for (clusters[@intCast(window.start)..@intCast(window.end)], 0..) |cluster, idx| {
         const text = textForCluster(text_cache, cluster);
         glyphs[idx] = .{
             .face_id = run.run.font.face_id,
             .glyph_id = text.first_cp,
-            .cluster_index = start + @as(u32, @intCast(idx)),
+            .cluster_index = window.start + @as(u32, @intCast(idx)),
             .x_offset_px = 0,
             .y_offset_px = 0,
             .x_advance_px = @floatFromInt(@as(u32, @max(cluster.cell_span, 1)) * @as(u32, cell_metrics.cell_w_px)),
@@ -126,8 +124,24 @@ pub fn shapeRun(
 
 fn textForCluster(text_cache: contract.LineTextCache, cluster: contract.CellCluster) contract.CellText {
     const idx = cluster.text_id.value;
-    if (idx < count32(text_cache.texts)) return text_cache.texts[@intCast(idx)];
-    return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
+    std.debug.assert(idx < count32(text_cache.texts));
+    return text_cache.texts[@intCast(idx)];
+}
+
+const RunClusterWindow = struct {
+    start: u32,
+    end: u32,
+};
+
+fn runClusterWindow(run: contract.ResolvedRun, clusters: []const contract.CellCluster) RunClusterWindow {
+    const start = run.run.cluster_start;
+    const count = run.run.cluster_count;
+    const clusters_len = clusterCount(clusters);
+
+    std.debug.assert(start <= clusters_len);
+    std.debug.assert(count <= clusters_len - start);
+
+    return .{ .start = start, .end = start + count };
 }
 
 fn clusterCount(clusters: []const contract.CellCluster) u32 {
@@ -172,5 +186,28 @@ test "stub shaper advances wide clusters by their terminal span" {
     } };
     var shaped = try shapeRun(std.testing.allocator, run, text_cache, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     defer shaped.deinit();
+    try std.testing.expectEqual(@as(f32, 16), shaped.glyphs[0].x_advance_px);
+}
+
+test "stub shaper accepts run that ends exactly at cluster slice end" {
+    const clusters = [_]contract.CellCluster{
+        .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'a', .style = .regular, .presentation = .any },
+        .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 2, .first_cp = 0x4f60, .style = .regular, .presentation = .any },
+    };
+    const text_cache = contract.LineTextCache{ .texts = &.{
+        .{ .id = .{ .value = 0 }, .first_cp = 'a', .codepoints = &.{'a'} },
+        .{ .id = .{ .value = 1 }, .first_cp = 0x4f60, .codepoints = &.{0x4f60} },
+    } };
+    const run = contract.ResolvedRun{ .run = .{
+        .cluster_start = 1,
+        .cluster_count = 1,
+        .font = .{ .face_id = .{ .value = 3 }, .style = .regular, .presentation = .any },
+    } };
+
+    var shaped = try shapeRun(std.testing.allocator, run, text_cache, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
+    defer shaped.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), count32(shaped.glyphs));
+    try std.testing.expectEqual(@as(u32, 1), shaped.glyphs[0].cluster_index);
     try std.testing.expectEqual(@as(f32, 16), shaped.glyphs[0].x_advance_px);
 }

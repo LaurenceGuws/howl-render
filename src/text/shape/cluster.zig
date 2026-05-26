@@ -393,7 +393,7 @@ pub fn buildRenderableCellsFromInputs(
     for (inputs, 0..) |input, idx| {
         const cps = normalizedCodepoints(input.codepoints);
         const first_cell: u32 = @intCast(idx);
-        const text_id: contract.CellTextId = findText(cache.texts, cps) orelse .{ .value = 0 };
+        const text_id = findText(cache.texts, cps) orelse unreachable;
         assembly.append(renderableFromInput(text_id, first_cell, @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, first_cell)), detectPresentation(cps, input.presentation), input));
     }
 
@@ -501,14 +501,14 @@ pub fn selectComplexWithDamageScratch(
 
 fn textForCell(cell: contract.RenderableCell, cache: contract.LineTextCache) contract.CellText {
     const text_idx = cell.text_id.value;
-    if (text_idx < count32(cache.texts)) return cache.texts[@intCast(text_idx)];
-    return .{ .id = cell.text_id, .first_cp = 0, .codepoints = &.{} };
+    std.debug.assert(text_idx < count32(cache.texts));
+    return cache.texts[@intCast(text_idx)];
 }
 
 fn textForCluster(cluster: contract.CellCluster, cache: contract.LineTextCache) contract.CellText {
     const idx = cluster.text_id.value;
-    if (idx < count32(cache.texts)) return cache.texts[@intCast(idx)];
-    return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
+    std.debug.assert(idx < count32(cache.texts));
+    return cache.texts[@intCast(idx)];
 }
 
 fn isBlankText(text: contract.CellText) bool {
@@ -956,6 +956,28 @@ test "rich cell text interning deduplicates codepoint sequences" {
     try std.testing.expectEqual(@as(u32, 3), count32(cache.codepoints));
     try std.testing.expectEqual(cache.texts[0].id.value, renderable.cells[1].text_id.value);
     try std.testing.expectEqual(@as(u32, 'i'), clusters.clusters[0].first_cp);
+}
+
+test "rich cell text renderables resolve exact interned text ids" {
+    const allocator = std.testing.allocator;
+    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const alpha = [_]u32{'a'};
+    const beta = [_]u32{ 'b', 0x0332 };
+    const inputs = [_]CellTextInput{
+        .{ .codepoints = &alpha, .fg = white, .bg = black },
+        .{ .codepoints = &beta, .fg = white, .bg = black },
+        .{ .codepoints = &alpha, .fg = white, .bg = black },
+    };
+
+    var cache = try buildLineTextCacheFromInputs(allocator, &inputs);
+    defer cache.deinit();
+    var renderable = try buildRenderableCellsFromInputs(allocator, &inputs, cache.view());
+    defer renderable.deinit();
+
+    try std.testing.expectEqual(cache.texts[0].id.value, renderable.cells[0].text_id.value);
+    try std.testing.expectEqual(cache.texts[1].id.value, renderable.cells[1].text_id.value);
+    try std.testing.expectEqual(cache.texts[0].id.value, renderable.cells[2].text_id.value);
 }
 
 test "rich cell text detects emoji and text presentation selectors" {

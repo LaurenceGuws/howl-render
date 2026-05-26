@@ -501,7 +501,7 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
     }
 
     const cursor = cursorIn(value.cursor) orelse return error.InvalidSurfaceSource;
-    return .{
+    const source: queue.PublicationSource = .{
         .cols = value.cols,
         .rows = value.rows,
         .history_count = value.history_count,
@@ -523,13 +523,19 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
         .dirty_cols_start = dirty_cols_start,
         .dirty_cols_end = dirty_cols_end,
     };
+    try queue.validatePublicationSourceBoundary(source);
+    return source;
 }
 
 fn dirtyRowsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiByteSpan) ![]u8 {
     if (span.len == 0) return &.{};
     if (span.ptr == null or span.len != rows) return error.InvalidSurfaceSource;
     const out = try allocator.alloc(u8, rows);
+    errdefer allocator.free(out);
     @memcpy(out, span.ptr[0..rows]);
+    for (out) |dirty| {
+        if (dirty > 1) return error.InvalidSurfaceSource;
+    }
     return out;
 }
 
@@ -674,4 +680,40 @@ fn underlineStyleValueIn(value: u8) !surface.UnderlineStyle {
 
 fn pixelIn(value: abi.FfiPixelSize) surface.PixelSize {
     return .{ .width = value.width, .height = value.height };
+}
+
+test "dirtyRowsIn rejects bytes outside boolean domain" {
+    const dirty_rows = [_]u8{2};
+    try std.testing.expectError(error.InvalidSurfaceSource, dirtyRowsIn(std.testing.allocator, 1, .{
+        .ptr = @constCast(dirty_rows[0..].ptr),
+        .len = dirty_rows.len,
+    }));
+}
+
+test "vtSurfaceIn rejects graphics screen identity mismatch" {
+    const cells = [_]abi.FfiVtCell{std.mem.zeroes(abi.FfiVtCell)};
+    const dirty_rows = [_]u8{1};
+    const dirty_cols_start = [_]u16{0};
+    const dirty_cols_end = [_]u16{0};
+
+    try std.testing.expectError(error.InvalidGraphicsMetadata, vtSurfaceIn(std.testing.allocator, .{
+        .cells = .{ .ptr = @constCast(cells[0..].ptr), .len = cells.len },
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = 0,
+        .dirty_rows = .{ .ptr = @constCast(dirty_rows[0..].ptr), .len = dirty_rows.len },
+        .dirty_cols_start = .{ .ptr = @constCast(dirty_cols_start[0..].ptr), .len = dirty_cols_start.len },
+        .dirty_cols_end = .{ .ptr = @constCast(dirty_cols_end[0..].ptr), .len = dirty_cols_end.len },
+        .cursor = std.mem.zeroes(abi.FfiVtCursor),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = std.mem.zeroes(abi.FfiVtSelection),
+        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 0, .is_alternate_screen = 1, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics_images = .{ .ptr = null, .len = 0 },
+        .graphics_placements = .{ .ptr = null, .len = 0 },
+        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
+        .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
+    }));
 }
