@@ -19,7 +19,7 @@ pub const Owner = struct {
     prepare_metrics: abi.FfiSurfaceMetrics,
     damage_kind: u8,
     rgba_pixels: []u8 = &.{},
-    uploads_committed: u64,
+    uploads_required: u64,
     missing_glyphs: u64,
     resolve_metrics: abi.FfiSurfaceMetrics,
 
@@ -70,7 +70,10 @@ pub const Owner = struct {
         return .{
             .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
             .rgba_pixels = byteSpan(self.rgba_pixels),
-            .uploads_committed = self.uploads_committed,
+            // The ABI field name is shipped. At prepare time this is the upload
+            // count the host must realize before submit can truthfully report it
+            // as committed work.
+            .uploads_committed = self.uploads_required,
         };
     }
 
@@ -150,7 +153,7 @@ fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: surface.Prepa
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
         .prepare_metrics = preparedMetricsOut(value),
         .damage_kind = @intFromEnum(value.damageKind()),
-        .uploads_committed = value.text_frame.raster_plan.outputs.len,
+        .uploads_required = value.text_frame.raster_plan.outputs.len,
         .missing_glyphs = value.text_frame.scene.scene.missing.len,
         .resolve_metrics = resolveMetricsOut(value),
     };
@@ -261,4 +264,54 @@ test "create returns missing-sprite without double free" {
     };
 
     try std.testing.expectError(error.MissingSprite, Owner.create(session_owner, prepared));
+}
+
+test "owner exports prepared metrics and required upload count truth" {
+    var rgba_pixels = [_]u8{ 1, 2, 3, 4 };
+    var owner = Owner{
+        .session_owner = undefined,
+        .prepared = undefined,
+        .snapshot_seq = 7,
+        .dirty_epoch = 8,
+        .geometry_epoch = 9,
+        .required_base_seq = 6,
+        .render_px = .{ .width = 11, .height = 12 },
+        .cell_px = .{ .width = 2, .height = 3 },
+        .grid = .{ .cols = 4, .rows = 5 },
+        .prepare_metrics = .{
+            .sync_us = 13,
+            .copy_us = 14,
+            .render_us = 15,
+            .glyphs = 0,
+            .fills = 0,
+            .clear_fills = 0,
+            .background_fills = 0,
+            .decoration_fills = 0,
+            .cursor_fills = 0,
+            .uploads = 0,
+            .face_checks = 0,
+            .face_cache_hits = 0,
+            .shape_requests = 0,
+            .shape_cache_hits = 0,
+            .fallback_hits = 0,
+            .fallback_misses = 0,
+            .missing_glyphs = 0,
+        },
+        .damage_kind = 1,
+        .rgba_pixels = rgba_pixels[0..],
+        .uploads_required = 3,
+        .missing_glyphs = 2,
+        .resolve_metrics = std.mem.zeroes(abi.FfiSurfaceMetrics),
+    };
+
+    const info = owner.info();
+    try std.testing.expectEqual(@as(u64, 7), info.snapshot_seq);
+    try std.testing.expectEqual(@as(u64, 13), info.prepare_metrics.sync_us);
+    try std.testing.expectEqual(@as(u64, 14), info.prepare_metrics.copy_us);
+    try std.testing.expectEqual(@as(u64, 15), info.prepare_metrics.render_us);
+
+    const buffer = owner.buffer();
+    try std.testing.expectEqual(@as(usize, 4), buffer.rgba_pixels.len);
+    try std.testing.expect(buffer.rgba_pixels.ptr != null);
+    try std.testing.expectEqual(@as(u64, 3), buffer.uploads_committed);
 }
