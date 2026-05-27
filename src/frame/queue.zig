@@ -454,6 +454,7 @@ const PublicationState = struct {
     }
 
     fn acceptSource(self: *PublicationState, source: PublicationSource, submitted_token: ?pipeline.SnapshotToken, geometry_epoch: u64) VtPublishResult {
+        canonicalizeDirtyMetadata(source.rows, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
         const snapshot = source.snapshot();
         const damage_kind = self.classify(source, submitted_token);
         const published = damage_kind != .none;
@@ -858,6 +859,24 @@ fn validateDirtySource(
         if (start_col >= cols) return error.InvalidSurfaceSource;
         if (end_col >= cols) return error.InvalidSurfaceSource;
         if (end_col < start_col) return error.InvalidSurfaceSource;
+    }
+}
+
+fn canonicalizeDirtyMetadata(
+    rows: u16,
+    dirty_rows: []const u8,
+    dirty_cols_start: []u16,
+    dirty_cols_end: []u16,
+) void {
+    std.debug.assert(dirty_rows.len == rows);
+    std.debug.assert(dirty_cols_start.len == rows);
+    std.debug.assert(dirty_cols_end.len == rows);
+
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        if (dirty_rows[row] != 0) continue;
+        dirty_cols_start[row] = 0;
+        dirty_cols_end[row] = 0;
     }
 }
 
@@ -2237,6 +2256,95 @@ test "flow commit publish slot accepts dirty row span sentinel without dirty col
         .graphics_payload_bytes = &.{},
     });
     try std.testing.expect(published.published);
+}
+
+test "flow canonicalizes clean dirty metadata before equality dedupe" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+
+    const dirty_rows = [_]u8{ 1, 0 };
+    const first_dirty_cols_start = [_]u16{ 0, 2 };
+    const first_dirty_cols_end = [_]u16{ 1, 1 };
+    const second_dirty_cols_start = [_]u16{ 0, 1 };
+    const second_dirty_cols_end = [_]u16{ 1, 2 };
+
+    const first = flow.acceptSnapshot(testSnapshot(2, 3, 0, 7, &dirty_rows, &first_dirty_cols_start, &first_dirty_cols_end));
+    try std.testing.expect(first.published);
+    try std.testing.expectEqual(@as(u16, 0), flow.publication_state.pending.?.source.dirty_cols_start[1]);
+    try std.testing.expectEqual(@as(u16, 0), flow.publication_state.pending.?.source.dirty_cols_end[1]);
+
+    const second = flow.acceptSnapshot(testSnapshot(2, 3, 0, 7, &dirty_rows, &second_dirty_cols_start, &second_dirty_cols_end));
+    try std.testing.expect(!second.published);
+    try std.testing.expect(!second.queued);
+    try std.testing.expectEqual(pipeline.DamageKind.none, second.damage_kind);
+}
+
+test "flow preserves dirty row spans and sentinels while canonicalizing" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+
+    const dirty_rows = [_]u8{ 1, 1, 0 };
+    const dirty_cols_start = [_]u16{ 1, 3, 2 };
+    const dirty_cols_end = [_]u16{ 2, 0, 1 };
+
+    const published = flow.acceptSnapshot(testSnapshot(3, 3, 0, 11, &dirty_rows, &dirty_cols_start, &dirty_cols_end));
+    try std.testing.expect(published.published);
+
+    const source = flow.publication_state.pending.?.source;
+    try std.testing.expectEqual(@as(u16, 1), source.dirty_cols_start[0]);
+    try std.testing.expectEqual(@as(u16, 2), source.dirty_cols_end[0]);
+    try std.testing.expectEqual(@as(u16, 3), source.dirty_cols_start[1]);
+    try std.testing.expectEqual(@as(u16, 0), source.dirty_cols_end[1]);
+    try std.testing.expectEqual(@as(u16, 0), source.dirty_cols_start[2]);
+    try std.testing.expectEqual(@as(u16, 0), source.dirty_cols_end[2]);
+}
+
+test "flow commit publish slot canonicalizes clean dirty metadata" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 3, .height = 2 },
+        .grid_px = .{ .width = 3, .height = 2 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const slot = try flow.reservePublishSlot(3, 2);
+    for (slot.cells) |*cell| cell.* = std.mem.zeroes(abi.FfiVtCell);
+    slot.dirty_rows[0] = 1;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 1;
+    slot.dirty_rows[1] = 0;
+    slot.dirty_cols_start[1] = 2;
+    slot.dirty_cols_end[1] = 1;
+
+    const published = try flow.commitPublishSlot(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 13,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .graphics_payload_bytes = &.{},
+    });
+    try std.testing.expect(published.published);
+    try std.testing.expectEqual(@as(u16, 0), slot.dirty_cols_start[1]);
+    try std.testing.expectEqual(@as(u16, 0), slot.dirty_cols_end[1]);
+    try std.testing.expectEqual(@as(u16, 0), flow.publication_state.pending.?.source.dirty_cols_start[1]);
+    try std.testing.expectEqual(@as(u16, 0), flow.publication_state.pending.?.source.dirty_cols_end[1]);
+}
+
+test "flow boundary rejects invalid dirty metadata before canonicalization" {
+    const dirty_rows = [_]u8{1};
+    const dirty_cols_start = [_]u16{3};
+    const dirty_cols_end = [_]u16{1};
+    var source = try testSourceFromSnapshot(std.heap.c_allocator, testSnapshot(1, 3, 0, 17, &dirty_rows, &dirty_cols_start, &dirty_cols_end));
+    defer source.deinit(std.heap.c_allocator);
+
+    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSourceBoundary(source));
+    try std.testing.expectEqual(@as(u16, 3), source.dirty_cols_start[0]);
+    try std.testing.expectEqual(@as(u16, 1), source.dirty_cols_end[0]);
 }
 
 test "flow commit publish slot rejects graphics placement without image" {
