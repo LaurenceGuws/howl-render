@@ -818,7 +818,7 @@ test "vtSurfaceIn rejects placeholder run publication mismatch" {
     const dirty_cols_start = [_]u16{0};
     const dirty_cols_end = [_]u16{0};
     const images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 0 }};
-    const virtual_placements = [_]abi.FfiVtGraphicsVirtualPlacement{.{ .image_id = 7, .placement_id = 9, .source_x = 0, .source_y = 0, .source_width = 0, .source_height = 0, .columns = 1, .rows = 1 }};
+    const virtual_placements = [_]abi.FfiVtGraphicsVirtualPlacement{.{ .image_id = 7, .placement_id = 9, .source_x = 0, .source_y = 0, .source_width = 1, .source_height = 1, .columns = 1, .rows = 1 }};
     const placeholder_runs = [_]abi.FfiVtGraphicsPlaceholderRun{.{ .image_id = 7, .placement_id = 10, .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }};
 
     try std.testing.expectError(error.InvalidGraphicsMetadata, vtSurfaceIn(std.testing.allocator, .{

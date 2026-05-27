@@ -685,7 +685,7 @@ test "prepareSurfaceGraphics wires prepared graphics into surface prepare contra
 }
 
 test "prepareSurface pairs exported placeholder runs with virtual prototypes" {
-    var source = try testPublicationSource(std.testing.allocator, 2, graphics_prepare.kitty_placeholder_codepoint);
+    var source = try testPublicationSource(std.testing.allocator, 2, 0x10EEEE);
     defer source.deinit(std.testing.allocator);
     source.graphics.virtual_placement_count = 1;
     source.graphics.placeholder_run_count = 1;
@@ -819,7 +819,7 @@ test "prepareSurface preserves exported multi-column placeholder runs" {
 }
 
 test "prepareSurface leaves placeholder runs empty when export is empty" {
-    var source = try testPublicationSource(std.testing.allocator, 2, graphics_prepare.kitty_placeholder_codepoint);
+    var source = try testPublicationSource(std.testing.allocator, 2, 0x10EEEE);
     defer source.deinit(std.testing.allocator);
     source.graphics.virtual_placement_count = 1;
     source.graphics_virtual_placements = try std.testing.allocator.dupe(abi.FfiVtGraphicsVirtualPlacement, &.{.{

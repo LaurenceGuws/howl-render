@@ -755,6 +755,10 @@ fn validateGraphicsReferences(
     }
     for (virtual_placements) |placement| {
         if (!graphicsImageExists(images, placement.image_id)) return error.InvalidGraphicsMetadata;
+        if (placement.source_width == 0) return error.InvalidGraphicsMetadata;
+        if (placement.source_height == 0) return error.InvalidGraphicsMetadata;
+        if (placement.columns == 0) return error.InvalidGraphicsMetadata;
+        if (placement.rows == 0) return error.InvalidGraphicsMetadata;
     }
     for (placeholder_runs, 0..) |run, idx| {
         if (run.columns == 0) return error.InvalidGraphicsMetadata;
@@ -2144,6 +2148,72 @@ test "flow commit publish slot rejects placeholder run outside published grid" {
         .graphics_placeholder_runs = placeholder_runs[0..],
         .graphics_payload_bytes = &.{},
     }));
+}
+
+test "flow boundary rejects virtual placement with zero source width" {
+    try expectInvalidVirtualPlacement(.source_width);
+}
+
+test "flow boundary rejects virtual placement with zero source height" {
+    try expectInvalidVirtualPlacement(.source_height);
+}
+
+test "flow boundary rejects virtual placement with zero columns" {
+    try expectInvalidVirtualPlacement(.columns);
+}
+
+test "flow boundary rejects virtual placement with zero rows" {
+    try expectInvalidVirtualPlacement(.rows);
+}
+
+const InvalidVirtualPlacementField = enum { source_width, source_height, columns, rows };
+
+fn expectInvalidVirtualPlacement(field: InvalidVirtualPlacementField) !void {
+    var cells = [_]abi.FfiVtCell{std.mem.zeroes(abi.FfiVtCell)};
+    var dirty_rows = [_]u8{1};
+    var dirty_cols_start = [_]u16{0};
+    var dirty_cols_end = [_]u16{0};
+    var images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 0 }};
+    var virtual_placement = abi.FfiVtGraphicsVirtualPlacement{
+        .image_id = 7,
+        .placement_id = 9,
+        .source_x = 0,
+        .source_y = 0,
+        .source_width = 1,
+        .source_height = 1,
+        .columns = 1,
+        .rows = 1,
+    };
+    switch (field) {
+        .source_width => virtual_placement.source_width = 0,
+        .source_height => virtual_placement.source_height = 0,
+        .columns => virtual_placement.columns = 0,
+        .rows => virtual_placement.rows = 0,
+    }
+    var virtual_placements = [_]abi.FfiVtGraphicsVirtualPlacement{virtual_placement};
+
+    const source = PublicationSource{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{ .image_count = 1, .placement_count = 0, .virtual_placement_count = 1, .placeholder_run_count = 0, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics_images = images[0..],
+        .graphics_virtual_placements = virtual_placements[0..],
+        .graphics_payload_bytes = &.{},
+        .cursor_phase_visible = true,
+        .dirty_rows = dirty_rows[0..],
+        .dirty_cols_start = dirty_cols_start[0..],
+        .dirty_cols_end = dirty_cols_end[0..],
+    };
+    try std.testing.expectError(error.InvalidGraphicsMetadata, validatePublicationSourceBoundary(source));
 }
 
 test "flow commit publish slot rejects dirty row byte outside boolean domain" {

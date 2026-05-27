@@ -357,7 +357,7 @@ fn resolvePlaceholderDrawPlacement(
     if (cell_px.height == 0) return null;
 
     const source = placeholderSourceRect(raster, virtual_placement) orelse return null;
-    const grid = placeholderGrid(cell_px, source, virtual_placement) orelse return null;
+    const grid = placeholderGrid(virtual_placement) orelse return null;
     if (run.image_row >= grid.rows) return null;
     if (run.image_col >= grid.columns) return null;
 
@@ -458,14 +458,8 @@ fn placeholderSourceRect(
     if (virtual_placement.source_x >= raster.width) return null;
     if (virtual_placement.source_y >= raster.height) return null;
 
-    const width = if (virtual_placement.source_width == 0)
-        raster.width - virtual_placement.source_x
-    else
-        @min(virtual_placement.source_width, raster.width - virtual_placement.source_x);
-    const height = if (virtual_placement.source_height == 0)
-        raster.height - virtual_placement.source_y
-    else
-        @min(virtual_placement.source_height, raster.height - virtual_placement.source_y);
+    const width = @min(virtual_placement.source_width, raster.width - virtual_placement.source_x);
+    const height = @min(virtual_placement.source_height, raster.height - virtual_placement.source_y);
     if (width == 0) return null;
     if (height == 0) return null;
 
@@ -478,22 +472,13 @@ fn placeholderSourceRect(
 }
 
 fn placeholderGrid(
-    cell_px: surface.CellSize,
-    source: PlaceholderSourceRect,
     virtual_placement: surface.PreparedGraphicsVirtualPlacement,
 ) ?PlaceholderGrid {
-    var columns = virtual_placement.columns;
-    var rows = virtual_placement.rows;
-    if (columns == 0) columns = ceilDivU32(source.width, cell_px.width);
-    if (rows == 0) rows = ceilDivU32(source.height, cell_px.height);
+    const columns = virtual_placement.columns;
+    const rows = virtual_placement.rows;
     if (columns == 0) return null;
     if (rows == 0) return null;
     return .{ .columns = columns, .rows = rows };
-}
-
-fn ceilDivU32(numerator: u32, denominator: u16) u32 {
-    std.debug.assert(denominator != 0);
-    return (numerator + denominator - 1) / denominator;
 }
 
 fn roundNonNegativeToU32(value: f64) u32 {
