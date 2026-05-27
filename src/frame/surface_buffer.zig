@@ -1468,6 +1468,272 @@ test "compose sorts same-placement placeholder runs by exported run order" {
     try std.testing.expectEqual(@as(u8, 10), pixels[2]);
 }
 
+test "compose merges placeholder-backed z minus one graphics with ordinary below-text placements" {
+    const allocator = std.testing.allocator;
+    var session = surface_text.SurfaceText.init(allocator);
+    defer session.deinit();
+
+    const red_pixels = try allocator.dupe(u8, &.{ 200, 10, 10, 255 });
+    const green_pixels = try allocator.dupe(u8, &.{ 10, 200, 10, 255 });
+    const red_blue_pixels = try allocator.dupe(u8, &.{
+        200, 10, 10,  255,
+        10,  10, 200, 255,
+    });
+    session.graphics_preparer.decoded_graphics_rasters = try allocator.alloc(@TypeOf(session.graphics_preparer.decoded_graphics_rasters[0]), 3);
+    session.graphics_preparer.decoded_graphics_rasters[0] = std.mem.zeroes(@TypeOf(session.graphics_preparer.decoded_graphics_rasters[0]));
+    session.graphics_preparer.decoded_graphics_rasters[0].width = 1;
+    session.graphics_preparer.decoded_graphics_rasters[0].height = 1;
+    session.graphics_preparer.decoded_graphics_rasters[0].stride = 4;
+    session.graphics_preparer.decoded_graphics_rasters[0].pixels_rgba = red_pixels;
+    session.graphics_preparer.decoded_graphics_rasters[1] = std.mem.zeroes(@TypeOf(session.graphics_preparer.decoded_graphics_rasters[1]));
+    session.graphics_preparer.decoded_graphics_rasters[1].width = 1;
+    session.graphics_preparer.decoded_graphics_rasters[1].height = 1;
+    session.graphics_preparer.decoded_graphics_rasters[1].stride = 4;
+    session.graphics_preparer.decoded_graphics_rasters[1].pixels_rgba = green_pixels;
+    session.graphics_preparer.decoded_graphics_rasters[2] = std.mem.zeroes(@TypeOf(session.graphics_preparer.decoded_graphics_rasters[2]));
+    session.graphics_preparer.decoded_graphics_rasters[2].width = 2;
+    session.graphics_preparer.decoded_graphics_rasters[2].height = 1;
+    session.graphics_preparer.decoded_graphics_rasters[2].stride = 8;
+    session.graphics_preparer.decoded_graphics_rasters[2].pixels_rgba = red_blue_pixels;
+
+    {
+        var prepared: surface.PreparedSurface = .{
+            .allocator = allocator,
+            .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+            .geometry_epoch = 1,
+            .render_px = .{ .width = 1, .height = 1 },
+            .cell_px = .{ .width = 1, .height = 1 },
+            .grid = .{ .cols = 1, .rows = 1 },
+            .graphics = .{
+                .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{
+                    .{ .image_id = 7, .width = 1, .height = 1, .format = 32, .raster_index = 0 },
+                    .{ .image_id = 9, .width = 1, .height = 1, .format = 32, .raster_index = 1 },
+                }),
+                .placements = try allocator.dupe(surface.PreparedGraphicsPlacement, &.{.{
+                    .image_index = 0,
+                    .placement_id = 1,
+                    .placement_ordinal = 0,
+                    .z_index = -2,
+                    .layer = .below_text,
+                    .dest_x_px = 0,
+                    .dest_y_px = 0,
+                    .dest_width_px = 1,
+                    .dest_height_px = 1,
+                    .src_x_px = 0,
+                    .src_y_px = 0,
+                    .src_width_px = 1,
+                    .src_height_px = 1,
+                }}),
+                .virtual_placements = try allocator.dupe(surface.PreparedGraphicsVirtualPlacement, &.{.{ .image_id = 9, .placement_id = 1, .source_x = 0, .source_y = 0, .source_width = 1, .source_height = 1, .columns = 1, .rows = 1 }}),
+                .placeholder_runs = try allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{.{ .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }}),
+                .below_text_count = 1,
+            },
+            .text_frame = .{
+                .scene = .{
+                    .allocator = allocator,
+                    .owned = false,
+                    .scene = .{
+                        .clear_draws = &.{},
+                        .background_draws = &.{},
+                        .sprite_draws = &.{},
+                        .decoration_draws = &.{},
+                        .cursor_draws = &.{},
+                        .raster_requests = &.{},
+                        .missing = &.{},
+                        .full_redraw = true,
+                    },
+                },
+                .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+            },
+        };
+        defer prepared.deinit();
+
+        const pixels = try compose(allocator, null, &session, &prepared);
+        defer allocator.free(pixels);
+
+        try std.testing.expectEqual(@as(u8, 10), pixels[0]);
+        try std.testing.expectEqual(@as(u8, 200), pixels[1]);
+        try std.testing.expectEqual(@as(u8, 10), pixels[2]);
+    }
+
+    {
+        var prepared: surface.PreparedSurface = .{
+            .allocator = allocator,
+            .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+            .geometry_epoch = 1,
+            .render_px = .{ .width = 1, .height = 1 },
+            .cell_px = .{ .width = 1, .height = 1 },
+            .grid = .{ .cols = 1, .rows = 1 },
+            .graphics = .{
+                .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{
+                    .{ .image_id = 5, .width = 1, .height = 1, .format = 32, .raster_index = 0 },
+                    .{ .image_id = 9, .width = 1, .height = 1, .format = 32, .raster_index = 1 },
+                }),
+                .placements = try allocator.dupe(surface.PreparedGraphicsPlacement, &.{.{
+                    .image_index = 0,
+                    .placement_id = 1,
+                    .placement_ordinal = 0,
+                    .z_index = -1,
+                    .layer = .below_text,
+                    .dest_x_px = 0,
+                    .dest_y_px = 0,
+                    .dest_width_px = 1,
+                    .dest_height_px = 1,
+                    .src_x_px = 0,
+                    .src_y_px = 0,
+                    .src_width_px = 1,
+                    .src_height_px = 1,
+                }}),
+                .virtual_placements = try allocator.dupe(surface.PreparedGraphicsVirtualPlacement, &.{.{ .image_id = 9, .placement_id = 1, .source_x = 0, .source_y = 0, .source_width = 1, .source_height = 1, .columns = 1, .rows = 1 }}),
+                .placeholder_runs = try allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{.{ .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }}),
+                .below_text_count = 1,
+            },
+            .text_frame = .{
+                .scene = .{
+                    .allocator = allocator,
+                    .owned = false,
+                    .scene = .{
+                        .clear_draws = &.{},
+                        .background_draws = &.{},
+                        .sprite_draws = &.{},
+                        .decoration_draws = &.{},
+                        .cursor_draws = &.{},
+                        .raster_requests = &.{},
+                        .missing = &.{},
+                        .full_redraw = true,
+                    },
+                },
+                .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+            },
+        };
+        defer prepared.deinit();
+
+        const pixels = try compose(allocator, null, &session, &prepared);
+        defer allocator.free(pixels);
+
+        try std.testing.expectEqual(@as(u8, 10), pixels[0]);
+        try std.testing.expectEqual(@as(u8, 200), pixels[1]);
+        try std.testing.expectEqual(@as(u8, 10), pixels[2]);
+    }
+
+    {
+        var prepared: surface.PreparedSurface = .{
+            .allocator = allocator,
+            .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+            .geometry_epoch = 1,
+            .render_px = .{ .width = 1, .height = 1 },
+            .cell_px = .{ .width = 1, .height = 1 },
+            .grid = .{ .cols = 1, .rows = 1 },
+            .graphics = .{
+                .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{
+                    .{ .image_id = 5, .width = 1, .height = 1, .format = 32, .raster_index = 0 },
+                    .{ .image_id = 9, .width = 1, .height = 1, .format = 32, .raster_index = 1 },
+                }),
+                .placements = try allocator.dupe(surface.PreparedGraphicsPlacement, &.{.{
+                    .image_index = 1,
+                    .placement_id = 1,
+                    .placement_ordinal = 0,
+                    .z_index = -1,
+                    .layer = .below_text,
+                    .dest_x_px = 0,
+                    .dest_y_px = 0,
+                    .dest_width_px = 1,
+                    .dest_height_px = 1,
+                    .src_x_px = 0,
+                    .src_y_px = 0,
+                    .src_width_px = 1,
+                    .src_height_px = 1,
+                }}),
+                .virtual_placements = try allocator.dupe(surface.PreparedGraphicsVirtualPlacement, &.{.{ .image_id = 5, .placement_id = 1, .source_x = 0, .source_y = 0, .source_width = 1, .source_height = 1, .columns = 1, .rows = 1 }}),
+                .placeholder_runs = try allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{.{ .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }}),
+                .below_text_count = 1,
+            },
+            .text_frame = .{
+                .scene = .{
+                    .allocator = allocator,
+                    .owned = false,
+                    .scene = .{
+                        .clear_draws = &.{},
+                        .background_draws = &.{},
+                        .sprite_draws = &.{},
+                        .decoration_draws = &.{},
+                        .cursor_draws = &.{},
+                        .raster_requests = &.{},
+                        .missing = &.{},
+                        .full_redraw = true,
+                    },
+                },
+                .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+            },
+        };
+        defer prepared.deinit();
+
+        const pixels = try compose(allocator, null, &session, &prepared);
+        defer allocator.free(pixels);
+
+        try std.testing.expectEqual(@as(u8, 10), pixels[0]);
+        try std.testing.expectEqual(@as(u8, 200), pixels[1]);
+        try std.testing.expectEqual(@as(u8, 10), pixels[2]);
+    }
+
+    {
+        var prepared: surface.PreparedSurface = .{
+            .allocator = allocator,
+            .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+            .geometry_epoch = 1,
+            .render_px = .{ .width = 1, .height = 1 },
+            .cell_px = .{ .width = 1, .height = 1 },
+            .grid = .{ .cols = 1, .rows = 1 },
+            .graphics = .{
+                .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 2, .height = 1, .format = 32, .raster_index = 2 }}),
+                .placements = try allocator.dupe(surface.PreparedGraphicsPlacement, &.{.{
+                    .image_index = 0,
+                    .placement_id = 4,
+                    .placement_ordinal = 1,
+                    .z_index = -1,
+                    .layer = .below_text,
+                    .dest_x_px = 0,
+                    .dest_y_px = 0,
+                    .dest_width_px = 1,
+                    .dest_height_px = 1,
+                    .src_x_px = 1,
+                    .src_y_px = 0,
+                    .src_width_px = 1,
+                    .src_height_px = 1,
+                }}),
+                .virtual_placements = try allocator.dupe(surface.PreparedGraphicsVirtualPlacement, &.{.{ .image_id = 7, .placement_id = 4, .source_x = 0, .source_y = 0, .source_width = 2, .source_height = 1, .columns = 2, .rows = 1 }}),
+                .placeholder_runs = try allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{.{ .virtual_placement_index = 0, .run_order = 2, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }}),
+                .below_text_count = 1,
+            },
+            .text_frame = .{
+                .scene = .{
+                    .allocator = allocator,
+                    .owned = false,
+                    .scene = .{
+                        .clear_draws = &.{},
+                        .background_draws = &.{},
+                        .sprite_draws = &.{},
+                        .decoration_draws = &.{},
+                        .cursor_draws = &.{},
+                        .raster_requests = &.{},
+                        .missing = &.{},
+                        .full_redraw = true,
+                    },
+                },
+                .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+            },
+        };
+        defer prepared.deinit();
+
+        const pixels = try compose(allocator, null, &session, &prepared);
+        defer allocator.free(pixels);
+
+        try std.testing.expectEqual(@as(u8, 200), pixels[0]);
+        try std.testing.expectEqual(@as(u8, 10), pixels[1]);
+        try std.testing.expectEqual(@as(u8, 10), pixels[2]);
+    }
+}
+
 test "compose preserves retained placeholder-backed pixels across later partial updates" {
     const allocator = std.testing.allocator;
     var session = surface_text.SurfaceText.init(allocator);
