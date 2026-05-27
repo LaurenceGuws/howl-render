@@ -256,6 +256,7 @@ typedef struct {
   uint32_t image_count;
   uint32_t placement_count;
   uint32_t virtual_placement_count;
+  uint32_t placeholder_run_count;
   uint8_t is_alternate_screen;
   uint8_t reserved0;
   uint64_t publication_seq;
@@ -278,6 +279,11 @@ typedef struct {
 } HowlRenderVtGraphicsVirtualPlacementSpan;
 
 typedef struct {
+  const HowlVtGraphicsPlaceholderRun *ptr;
+  size_t len;
+} HowlRenderVtGraphicsPlaceholderRunSpan;
+
+typedef struct {
   uint64_t history_count;
   uint64_t scroll_row;
   uint64_t snapshot_seq;
@@ -291,6 +297,7 @@ typedef struct {
   HowlRenderVtGraphicsImageSpan graphics_images;
   HowlRenderVtGraphicsPlacementSpan graphics_placements;
   HowlRenderVtGraphicsVirtualPlacementSpan graphics_virtual_placements;
+  HowlRenderVtGraphicsPlaceholderRunSpan graphics_placeholder_runs;
   HowlRenderByteSpan graphics_payload_bytes;
 } HowlRenderPublishSlotCommit;
 
