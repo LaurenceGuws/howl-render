@@ -143,6 +143,7 @@ pub const Owner = struct {
         execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
     ) SubmitResult {
         if (!self.belongsToSession(session_owner)) return .failed;
+        if (!executionMatchesPrepared(self.render_px, self.uploads_required, execution)) return .failed;
         const feedback = session_owner.session.submitSurface(&self.prepared, execution) catch {
             return .failed;
         };
@@ -291,6 +292,17 @@ fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool 
         a.token.damage_base_seq == b.token.damage_base_seq and
         a.token.damage_kind == b.token.damage_kind and
         a.required_base_seq == b.required_base_seq;
+}
+
+fn executionMatchesPrepared(
+    render_px: abi.FfiPixelSize,
+    uploads_required: u64,
+    execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
+) bool {
+    if (execution.uploads_committed != uploads_required) return false;
+    if (execution.surface.width != render_px.width) return false;
+    if (execution.surface.height != render_px.height) return false;
+    return true;
 }
 
 test "create returns missing-sprite without double free" {
@@ -530,4 +542,30 @@ test "owner exports prepared metrics and required upload count truth" {
     try std.testing.expectEqual(@as(u64, 2), diagnostics.missing_glyphs);
     try std.testing.expectEqual(@as(u64, 5), diagnostics.resolve_metrics.face_checks);
     try std.testing.expectEqual(@as(u64, 2), diagnostics.resolve_metrics.missing_glyphs);
+}
+
+test "owner validates realized uploads and host surface dimensions before submit" {
+    const render_px = abi.FfiPixelSize{ .width = 11, .height = 12 };
+    const uploads_required: u64 = 3;
+
+    try std.testing.expect(executionMatchesPrepared(render_px, uploads_required, .{
+        .surface = .{ .host_surface_id = 1, .width = 11, .height = 12 },
+        .uploads_committed = 3,
+        .render_us = 1,
+    }));
+    try std.testing.expect(!executionMatchesPrepared(render_px, uploads_required, .{
+        .surface = .{ .host_surface_id = 1, .width = 11, .height = 12 },
+        .uploads_committed = 2,
+        .render_us = 1,
+    }));
+    try std.testing.expect(!executionMatchesPrepared(render_px, uploads_required, .{
+        .surface = .{ .host_surface_id = 1, .width = 10, .height = 12 },
+        .uploads_committed = 3,
+        .render_us = 1,
+    }));
+    try std.testing.expect(!executionMatchesPrepared(render_px, uploads_required, .{
+        .surface = .{ .host_surface_id = 1, .width = 11, .height = 13 },
+        .uploads_committed = 3,
+        .render_us = 1,
+    }));
 }

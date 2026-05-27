@@ -210,6 +210,7 @@ test "render abi live prepared handle describes buffer and diagnostics" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, buffer.status);
     try std.testing.expect(buffer.rgba_pixels.ptr != null);
     try std.testing.expect(buffer.rgba_pixels.len > 0);
+    try std.testing.expectEqual(@as(u64, 1), buffer.uploads_committed);
 
     var diagnostics = std.mem.zeroes(abi.FfiPreparedSurfaceDiagnostics);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface_ffi.diagnostics(prepared_handle, &diagnostics));
@@ -290,9 +291,56 @@ test "render abi successful direct submit consumes handle once" {
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
     const execution = validExecutionInput();
+    var feedback = std.mem.zeroes(abi.FfiSurfaceFeedback);
 
-    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.rendered, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.rendered, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, &feedback));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, feedback.status);
+    try std.testing.expectEqual(execution.surface.width, feedback.surface.width);
+    try std.testing.expectEqual(execution.surface.height, feedback.surface.height);
+    try std.testing.expectEqual(execution.uploads_committed, feedback.metrics.uploads);
     try std.testing.expectEqual(abi.HowlRenderSubmitStatus.failed, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, null));
+}
+
+test "render abi direct submit rejects wrong upload count without consuming handle" {
+    const handle = try createTestSurfaceTextHandle();
+    defer surface_text_ffi.deinit(handle);
+    const prepared_handle = try createPreparedHandle(handle);
+    const frame = try preparedFrameFromHandle(prepared_handle);
+    var execution = validExecutionInput();
+    execution.uploads_committed = 0;
+
+    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.failed, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, null));
+
+    execution.uploads_committed = 1;
+    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.rendered, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, null));
+}
+
+test "render abi direct submit rejects wrong surface width without consuming handle" {
+    const handle = try createTestSurfaceTextHandle();
+    defer surface_text_ffi.deinit(handle);
+    const prepared_handle = try createPreparedHandle(handle);
+    const frame = try preparedFrameFromHandle(prepared_handle);
+    var execution = validExecutionInput();
+    execution.surface.width += 1;
+
+    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.failed, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, null));
+
+    execution.surface.width -= 1;
+    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.rendered, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, null));
+}
+
+test "render abi direct submit rejects wrong surface height without consuming handle" {
+    const handle = try createTestSurfaceTextHandle();
+    defer surface_text_ffi.deinit(handle);
+    const prepared_handle = try createPreparedHandle(handle);
+    const frame = try preparedFrameFromHandle(prepared_handle);
+    var execution = validExecutionInput();
+    execution.surface.height += 1;
+
+    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.failed, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, null));
+
+    execution.surface.height -= 1;
+    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.rendered, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, null));
 }
 
 test "render abi consumed prepared handle rejects describe buffer and diagnostics" {
@@ -332,6 +380,24 @@ test "render abi successful handle submit consumes handle once" {
 
     try std.testing.expectEqual(abi.HowlRenderSubmitStatus.rendered, surface_text_ffi.submitHandle(handle, prepared_handle, &execution, null));
     try std.testing.expectEqual(abi.HowlRenderSubmitStatus.failed, surface_text_ffi.submitHandle(handle, prepared_handle, &execution, null));
+}
+
+test "render abi handle submit rejects wrong upload count without consuming handle" {
+    const handle = try createTestSurfaceTextHandle();
+    defer surface_text_ffi.deinit(handle);
+    const prepared_handle = try createPreparedHandle(handle);
+
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, surface_text_ffi.publishPreparedHandle(handle, prepared_handle));
+    var submit_handle: abi.PreparedSurfaceHandle = null;
+    try std.testing.expectEqual(abi.HowlRenderSubmitDecisionStatus.submit, surface_text_ffi.takeSubmitHandle(handle, &submit_handle));
+    try std.testing.expect(submit_handle == prepared_handle);
+
+    var execution = validExecutionInput();
+    execution.uploads_committed = 0;
+    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.failed, surface_text_ffi.submitHandle(handle, prepared_handle, &execution, null));
+
+    execution.uploads_committed = 1;
+    try std.testing.expectEqual(abi.HowlRenderSubmitStatus.rendered, surface_text_ffi.submitHandle(handle, prepared_handle, &execution, null));
 }
 
 test "render abi cross session prepared handle publish and submit reject" {
@@ -430,7 +496,7 @@ fn preparedFrameFromHandle(prepared_handle: abi.PreparedSurfaceHandle) !abi.FfiP
 fn validExecutionInput() abi.FfiSurfaceExecutionInput {
     return .{
         .surface = .{ .host_surface_id = 1, .width = 16, .height = 16 },
-        .uploads_committed = 0,
+        .uploads_committed = 1,
         .render_us = 1,
     };
 }
