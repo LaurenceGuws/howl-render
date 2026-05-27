@@ -225,6 +225,7 @@ pub fn publishPreparedHandle(handle: abi.SurfaceTextHandle, prepared_surface_han
     const owner = ownerFromHandle(handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     if (!prepared_owner.belongsToSession(owner)) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    if (!prepared_owner.markPublished()) return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     owner.prepared_submit_handle = null;
     owner.prepared_publish_handle = prepared_surface_handle;
     owner.flow.publishPrepared(prepared_owner.pipelineFrame());
@@ -265,7 +266,13 @@ pub fn takeSubmitHandle(handle: abi.SurfaceTextHandle, out: ?*abi.PreparedSurfac
         .submit => |prepared| blk: {
             const prepared_handle = owner.prepared_publish_handle orelse break :blk .failed;
             const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_handle) orelse break :blk .failed;
+            if (!prepared_owner.isLive()) {
+                owner.prepared_publish_handle = null;
+                owner.prepared_submit_handle = null;
+                break :blk .failed;
+            }
             if (!samePreparedFrame(prepared_owner.pipelineFrame(), prepared)) break :blk .failed;
+            if (!prepared_owner.markSubmitReady()) break :blk .failed;
             owner.prepared_publish_handle = null;
             owner.prepared_submit_handle = prepared_handle;
             prepared_out.* = prepared_handle;
@@ -289,6 +296,10 @@ pub fn submitHandle(surface_text_handle: abi.SurfaceTextHandle, prepared_surface
     const execution = execution_in orelse return .failed;
     if (owner.prepared_submit_handle != prepared_surface_handle) return .failed;
     const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return .failed;
+    if (!prepared_owner.isLive()) {
+        owner.prepared_submit_handle = null;
+        return .failed;
+    }
     const submitted = prepared_owner.pipelineFrame().token;
     return switch (prepared_owner.submitOwned(owner, executionInputIn(execution.*))) {
         .rendered => |feedback| blk: {

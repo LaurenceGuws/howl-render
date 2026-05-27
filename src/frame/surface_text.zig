@@ -361,6 +361,7 @@ pub const SurfaceTextOwner = struct {
     config: SurfaceTextConfig,
     prepared_publish_handle: abi.PreparedSurfaceHandle = null,
     prepared_submit_handle: abi.PreparedSurfaceHandle = null,
+    prepared_handles: std.ArrayList(*prepared_surface_owner.Owner) = .empty,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
     retained_surface_pixels: []u8 = &.{},
@@ -378,6 +379,11 @@ pub const SurfaceTextOwner = struct {
     }
 
     pub fn destroy(self: *SurfaceTextOwner) void {
+        self.prepared_publish_handle = null;
+        self.prepared_submit_handle = null;
+        for (self.prepared_handles.items) |prepared_owner| prepared_owner.destroy();
+        self.prepared_handles.deinit(self.allocator);
+        self.prepared_handles = .empty;
         if (self.font_path) |path| self.allocator.free(path);
         self.font_path = null;
         freeOwnedFallbackFontPaths(self.allocator, &self.fallback_font_paths);
@@ -440,6 +446,16 @@ pub const SurfaceTextOwner = struct {
         });
         errdefer prepared.deinit();
         return prepared_surface_owner.Owner.create(self, prepared);
+    }
+
+    pub fn registerPreparedHandle(self: *SurfaceTextOwner, prepared_owner: *prepared_surface_owner.Owner) !void {
+        try self.prepared_handles.append(self.allocator, prepared_owner);
+    }
+
+    pub fn clearCachedPreparedHandle(self: *SurfaceTextOwner, prepared_owner: *prepared_surface_owner.Owner) void {
+        const handle: abi.PreparedSurfaceHandle = @ptrCast(prepared_owner);
+        if (self.prepared_publish_handle == handle) self.prepared_publish_handle = null;
+        if (self.prepared_submit_handle == handle) self.prepared_submit_handle = null;
     }
 
     pub fn invalidateTextState(self: *SurfaceTextOwner) void {

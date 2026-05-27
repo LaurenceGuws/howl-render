@@ -4,7 +4,7 @@ const prepared_surface_owner = @import("prepared_surface_owner.zig");
 
 pub fn release(prepared_surface_handle: abi.PreparedSurfaceHandle) callconv(.c) void {
     const owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return;
-    owner.destroy();
+    owner.release();
 }
 
 pub fn describe(prepared_surface_handle: abi.PreparedSurfaceHandle, info_out: ?*abi.FfiPreparedSurfaceInfo) callconv(.c) c_int {
@@ -14,6 +14,10 @@ pub fn describe(prepared_surface_handle: abi.PreparedSurfaceHandle, info_out: ?*
         return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     };
     const value = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    if (!owner.isLive()) {
+        value.* = infoFailure(@intFromEnum(abi.HowlRenderCallStatus.invalid_argument));
+        return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    }
     value.* = owner.info();
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
@@ -25,6 +29,10 @@ pub fn buffer(prepared_surface_handle: abi.PreparedSurfaceHandle, buffer_out: ?*
         return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     };
     const value = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    if (!owner.isLive()) {
+        value.* = bufferFailure(@intFromEnum(abi.HowlRenderCallStatus.invalid_argument));
+        return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    }
     value.* = owner.buffer();
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
@@ -36,6 +44,10 @@ pub fn diagnostics(prepared_surface_handle: abi.PreparedSurfaceHandle, diagnosti
         return @intFromEnum(abi.HowlRenderCallStatus.missing_handle);
     };
     const value = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    if (!owner.isLive()) {
+        value.* = diagnosticsFailure(@intFromEnum(abi.HowlRenderCallStatus.invalid_argument));
+        return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
+    }
     value.* = owner.diagnostics();
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }

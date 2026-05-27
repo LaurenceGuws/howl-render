@@ -8,8 +8,11 @@ const text = @import("../text/text.zig");
 const contract = @import("../text/contract.zig");
 
 pub const Owner = struct {
+    pub const State = enum { prepared, published, submit_ready, released, consumed };
+
     session_owner: *surface_text.SurfaceTextOwner,
     prepared: surface.PreparedSurface,
+    state: State = .prepared,
     snapshot_seq: u64,
     dirty_epoch: u64,
     geometry_epoch: u64,
@@ -38,6 +41,7 @@ pub const Owner = struct {
         owner.* = ownerBase(session_owner, value);
         errdefer owner.destroy();
         try owner.copySurfaceBuffer();
+        try session_owner.registerPreparedHandle(owner);
         return owner;
     }
 
@@ -47,9 +51,38 @@ pub const Owner = struct {
     }
 
     pub fn destroy(self: *Owner) void {
-        self.prepared.deinit();
-        freeOwnedBytes(self.session_owner.allocator, &self.rgba_pixels);
+        self.deinitPayload();
         self.session_owner.allocator.destroy(self);
+    }
+
+    pub fn release(self: *Owner) void {
+        switch (self.state) {
+            .released, .consumed => return,
+            .prepared, .published, .submit_ready => {
+                self.session_owner.clearCachedPreparedHandle(self);
+                self.deinitPayload();
+                self.state = .released;
+            },
+        }
+    }
+
+    pub fn isLive(self: *const Owner) bool {
+        return switch (self.state) {
+            .prepared, .published, .submit_ready => true,
+            .released, .consumed => false,
+        };
+    }
+
+    pub fn markPublished(self: *Owner) bool {
+        if (self.state != .prepared) return false;
+        self.state = .published;
+        return true;
+    }
+
+    pub fn markSubmitReady(self: *Owner) bool {
+        if (self.state != .published) return false;
+        self.state = .submit_ready;
+        return true;
     }
 
     pub fn info(self: *Owner) abi.FfiPreparedSurfaceInfo {
@@ -87,6 +120,7 @@ pub const Owner = struct {
     }
 
     pub fn pipelineFrame(self: *const Owner) pipeline.PreparedFrame {
+        std.debug.assert(self.isLive());
         return self.prepared.pipelineFrame();
     }
 
@@ -95,6 +129,15 @@ pub const Owner = struct {
     }
 
     pub fn submitOwned(
+        self: *Owner,
+        session_owner: *surface_text.SurfaceTextOwner,
+        execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
+    ) SubmitResult {
+        if (self.state != .submit_ready) return .failed;
+        return self.performSubmit(session_owner, execution);
+    }
+
+    fn performSubmit(
         self: *Owner,
         session_owner: *surface_text.SurfaceTextOwner,
         execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
@@ -109,7 +152,7 @@ pub const Owner = struct {
             self.prepared.render_px.height,
             self.snapshot_seq,
         );
-        self.destroy();
+        self.consume();
         return .{ .rendered = feedback };
     }
 
@@ -119,11 +162,28 @@ pub const Owner = struct {
         prepared_frame: pipeline.PreparedFrame,
         execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
     ) SubmitResult {
+        if (self.state != .prepared) return .failed;
         if (!self.belongsToSession(session_owner)) return .failed;
         if (!samePreparedFrame(self.prepared.pipelineFrame(), prepared_frame)) {
             return .needs_prepare;
         }
-        return self.submitOwned(session_owner, execution);
+        return self.performSubmit(session_owner, execution);
+    }
+
+    fn consume(self: *Owner) void {
+        std.debug.assert(self.state == .prepared or self.state == .submit_ready);
+        self.session_owner.clearCachedPreparedHandle(self);
+        self.deinitPayload();
+        self.state = .consumed;
+    }
+
+    fn deinitPayload(self: *Owner) void {
+        switch (self.state) {
+            .released, .consumed => return,
+            .prepared, .published, .submit_ready => {},
+        }
+        self.prepared.deinit();
+        freeOwnedBytes(self.session_owner.allocator, &self.rgba_pixels);
     }
 
     fn copySurfaceBuffer(self: *Owner) !void {
