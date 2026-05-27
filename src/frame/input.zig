@@ -179,10 +179,31 @@ fn isAlacrittyEmptyPublicationCell(cell: abi.FfiVtCell, bg: contract.Rgba8) bool
 fn emptyCellInput() contract.CellInput {
     return .{
         .codepoint = 0,
+        .style = .regular,
+        .presentation = .any,
         .fg = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
         .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
         .empty = true,
     };
+}
+
+fn mapFontStyle(bold: bool, italic: bool) contract.FontStyle {
+    if (bold) {
+        if (italic) return .bold_italic;
+        return .bold;
+    }
+    if (italic) return .italic;
+    return .regular;
+}
+
+fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) contract.TextPresentation {
+    _ = codepoint;
+    std.debug.assert(combining_len <= combining.len);
+    for (combining[0..combining_len]) |cp| {
+        if (cp == 0xFE0F) return .emoji;
+        if (cp == 0xFE0E) return .text;
+    }
+    return .any;
 }
 
 fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
@@ -190,6 +211,8 @@ fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
         .codepoint = src.codepoint,
         .combining_len = src.combining_len,
         .combining = src.combining,
+        .style = mapFontStyle(src.attrs.bold, src.attrs.italic),
+        .presentation = detectCellPresentation(src.codepoint, src.combining_len, src.combining),
         .fg = colorToTextSceneRgba8(src.fg_color, true, t),
         .bg = colorToTextSceneRgba8(src.bg_color, false, t),
         .underline_color = if (src.attrs.underline_color_set) colorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
@@ -209,6 +232,8 @@ fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput
         .codepoint = @intCast(src.codepoint),
         .combining_len = src.combining_len,
         .combining = src.combining,
+        .style = mapFontStyle(src.attrs.bold != 0, src.attrs.italic != 0),
+        .presentation = detectCellPresentation(@intCast(src.codepoint), src.combining_len, src.combining),
         .fg = publicationColorToTextSceneRgba8(src.fg_color, true, t),
         .bg = bg,
         .underline_color = if (src.attrs.underline_color_set != 0) publicationColorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
@@ -546,6 +571,46 @@ test "frame_input maps publication combining truth" {
     try std.testing.expectEqual(@as(u21, 'o'), mapped.cells[0].codepoint);
     try std.testing.expectEqual(@as(u8, 1), mapped.cells[0].combining_len);
     try std.testing.expectEqual(@as(u32, 0x0300), mapped.cells[0].combining[0]);
+}
+
+test "frame_input maps publication style and presentation truth" {
+    var cells = [_]abi.FfiVtCell{.{
+        .codepoint = 0x2716,
+        .combining_len = 1,
+        .combining = .{ 0xFE0F, 0, 0 },
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 1, .dim = 0, .italic = 1, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    }};
+    var storage: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(contract.FontStyle.bold_italic, mapped.cells[0].style);
+    try std.testing.expectEqual(contract.TextPresentation.emoji, mapped.cells[0].presentation);
 }
 
 test "frame_input suppresses kitty placeholder glyph shaping" {

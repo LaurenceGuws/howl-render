@@ -243,7 +243,7 @@ pub fn clusterForCell(text: contract.CellText, first_cell: u32, span: u8, style:
         .cell_span = span,
         .first_cp = text.first_cp,
         .style = style,
-        .presentation = .any,
+        .presentation = detectPresentation(text.codepoints, .any),
     };
 }
 
@@ -564,8 +564,8 @@ fn renderableFromCellInput(text_id: contract.CellTextId, first_cell: u32, cell_s
         .text_id = text_id,
         .first_cell = first_cell,
         .cell_span = cell_span,
-        .style = .regular,
-        .presentation = .any,
+        .style = cell.style,
+        .presentation = cell.presentation,
         .fg = cell.fg,
         .bg = cell.bg,
         .underline_color = cell.underline_color,
@@ -792,6 +792,41 @@ test "cell inputs retain combining sequences in text cache" {
 
     try std.testing.expectEqual(@as(u32, 'i'), cache.texts[0].first_cp);
     try std.testing.expectEqualSlices(u32, &.{ 'i', 0x0332 }, cache.texts[0].codepoints);
+}
+
+test "cell inputs preserve style and presentation into renderables clusters and runs" {
+    const allocator = std.testing.allocator;
+    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]contract.CellInput{
+        .{ .codepoint = 'A', .style = .bold, .presentation = .text, .fg = white, .bg = black },
+        .{ .codepoint = 'B', .style = .italic, .presentation = .emoji, .fg = white, .bg = black },
+    };
+
+    var cache = try buildLineTextCacheFromCells(allocator, &cells);
+    defer cache.deinit();
+    var renderable = try buildRenderableCellsFromCells(allocator, &cells, cache.view());
+    defer renderable.deinit();
+    var clusters = try extractClusters(allocator, renderable.cells, cache.view());
+    defer clusters.deinit();
+    var runs = try buildProvisionalRuns(allocator, clusters.clusters, .{ .value = 9 });
+    defer runs.deinit();
+
+    try std.testing.expectEqual(contract.FontStyle.bold, renderable.cells[0].style);
+    try std.testing.expectEqual(contract.TextPresentation.text, renderable.cells[0].presentation);
+    try std.testing.expectEqual(contract.FontStyle.italic, renderable.cells[1].style);
+    try std.testing.expectEqual(contract.TextPresentation.emoji, renderable.cells[1].presentation);
+
+    try std.testing.expectEqual(contract.FontStyle.bold, clusters.clusters[0].style);
+    try std.testing.expectEqual(contract.TextPresentation.text, clusters.clusters[0].presentation);
+    try std.testing.expectEqual(contract.FontStyle.italic, clusters.clusters[1].style);
+    try std.testing.expectEqual(contract.TextPresentation.emoji, clusters.clusters[1].presentation);
+
+    try std.testing.expectEqual(@as(usize, 2), runs.runs.len);
+    try std.testing.expectEqual(contract.FontStyle.bold, runs.runs[0].run.font.style);
+    try std.testing.expectEqual(contract.TextPresentation.text, runs.runs[0].run.font.presentation);
+    try std.testing.expectEqual(contract.FontStyle.italic, runs.runs[1].run.font.style);
+    try std.testing.expectEqual(contract.TextPresentation.emoji, runs.runs[1].run.font.presentation);
 }
 
 test "blank cells do not produce text clusters" {
