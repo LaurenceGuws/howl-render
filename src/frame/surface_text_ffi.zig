@@ -476,6 +476,19 @@ fn preparedFrameOut(value: pipeline.PreparedFrame) abi.FfiPreparedFrame {
 
 fn prepareTokenIn(value: abi.FfiPrepareRequest) ?pipeline.SnapshotToken {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
+    if (value.snapshot_seq == 0) return null;
+    if (value.dirty_epoch == 0) return null;
+    if (value.geometry_epoch == 0) return null;
+    if (damage_kind == .none) return null;
+    switch (damage_kind) {
+        .none => unreachable,
+        .full => {
+            if (value.damage_base_seq != 0) return null;
+        },
+        .partial => {
+            if (value.damage_base_seq == 0) return null;
+        },
+    }
     return .{
         .snapshot_seq = value.snapshot_seq,
         .dirty_epoch = value.dirty_epoch,
@@ -487,6 +500,22 @@ fn prepareTokenIn(value: abi.FfiPrepareRequest) ?pipeline.SnapshotToken {
 
 fn preparedFrameIn(value: abi.FfiPreparedFrame) ?pipeline.PreparedFrame {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
+    if (value.snapshot_seq == 0) return null;
+    if (value.dirty_epoch == 0) return null;
+    if (value.geometry_epoch == 0) return null;
+    if (damage_kind == .none) return null;
+    switch (damage_kind) {
+        .none => unreachable,
+        .full => {
+            if (value.damage_base_seq != 0) return null;
+            if (value.required_base_seq != 0) return null;
+        },
+        .partial => {
+            if (value.damage_base_seq == 0) return null;
+            if (value.required_base_seq == 0) return null;
+            if (value.required_base_seq != value.damage_base_seq) return null;
+        },
+    }
     return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq };
 }
 
