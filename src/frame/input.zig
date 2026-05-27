@@ -210,6 +210,14 @@ fn applyDimStyle(cell: *contract.CellInput) void {
     if (cell.underline_color.a != 0) cell.underline_color = dimColor(cell.underline_color);
 }
 
+fn applyInverseStyle(cell: *contract.CellInput, t: FrameTheme) void {
+    const fg = cell.fg;
+    const bg = if (cell.bg.a == 0) t.default_bg else cell.bg;
+    cell.fg = bg;
+    cell.bg = fg;
+    cell.empty = false;
+}
+
 fn applyInvisibleStyle(cell: *contract.CellInput) void {
     cell.codepoint = ' ';
     cell.combining_len = 0;
@@ -245,6 +253,7 @@ fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
         .continuation = src.flags.continuation,
         .empty = isAlacrittyEmptyCell(src),
     };
+    if (src.attrs.inverse) applyInverseStyle(&out, t);
     if (src.attrs.dim) applyDimStyle(&out);
     if (src.attrs.selected) applySelectionStyle(&out, t);
     if (src.attrs.invisible) applyInvisibleStyle(&out);
@@ -268,6 +277,7 @@ fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput
         .continuation = src.flags.continuation != 0,
         .empty = isAlacrittyEmptyPublicationCell(src, bg),
     };
+    if (src.attrs.inverse != 0) applyInverseStyle(&out, t);
     if (src.attrs.dim != 0) applyDimStyle(&out);
     if (src.flags.continuation == 0 and src.codepoint == kitty_placeholder_codepoint) {
         // Placeholder protocol cells carry image identity in text attributes,
@@ -559,6 +569,30 @@ test "frame_input converts frame state to text scene input" {
     try std.testing.expect(input.options.scene.damage.full);
 }
 
+test "frame_input maps inverse frame state colors" {
+    const cells = [_]surface.Cell{.{
+        .codepoint = 'R',
+        .fg_color = .{ .kind = .rgb, .value = 0x102030 },
+        .bg_color = .{ .kind = .rgb, .value = 0xA0B0C0 },
+        .attrs = .{ .inverse = true },
+    }};
+    const state = .{
+        .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
+        .cursor = .{ .visible = false, .col = 0, .row = 0, .shape = .beam, .blink = false },
+        .damage = .{ .full = true, .dirty_rows = &[_]bool{}, .dirty_cols_start = &[_]u16{}, .dirty_cols_end = &[_]u16{} },
+    };
+    var input = try vtStateToTextSceneInput(std.testing.allocator, state);
+    defer input.deinit();
+
+    try std.testing.expectEqual(@as(u8, 0xA0), input.cells[0].fg.r);
+    try std.testing.expectEqual(@as(u8, 0xB0), input.cells[0].fg.g);
+    try std.testing.expectEqual(@as(u8, 0xC0), input.cells[0].fg.b);
+    try std.testing.expectEqual(@as(u8, 0x10), input.cells[0].bg.r);
+    try std.testing.expectEqual(@as(u8, 0x20), input.cells[0].bg.g);
+    try std.testing.expectEqual(@as(u8, 0x30), input.cells[0].bg.b);
+    try std.testing.expect(!input.cells[0].empty);
+}
+
 test "frame_input maps publication combining truth" {
     var cells = [_]abi.FfiVtCell{.{
         .codepoint = 'o',
@@ -704,6 +738,71 @@ test "frame_input maps publication style attrs dim and invisible" {
     try std.testing.expectEqual(@as(u8, 0x11), mapped.cells[1].bg.r);
     try std.testing.expectEqual(@as(u8, 0x22), mapped.cells[1].bg.g);
     try std.testing.expectEqual(@as(u8, 0x33), mapped.cells[1].bg.b);
+}
+
+test "frame_input maps inverse publication colors" {
+    var cells = [_]abi.FfiVtCell{
+        .{
+            .codepoint = 'R',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 2, .value = 0x102030 },
+            .bg_color = .{ .kind = 2, .value = 0xA0B0C0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 1, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
+        .{
+            .codepoint = 'D',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 0, .value = 0 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 1, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
+    };
+    var colors = std.mem.zeroes(abi.FfiVtRenderColorState);
+    colors.foreground = .{ .r = 0xCC, .g = 0xDD, .b = 0xEE };
+    colors.background = .{ .r = 0x11, .g = 0x22, .b = 0x33 };
+
+    var storage: [2]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{1};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 2,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = colors,
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(@as(u8, 0xA0), mapped.cells[0].fg.r);
+    try std.testing.expectEqual(@as(u8, 0xB0), mapped.cells[0].fg.g);
+    try std.testing.expectEqual(@as(u8, 0xC0), mapped.cells[0].fg.b);
+    try std.testing.expectEqual(@as(u8, 0x10), mapped.cells[0].bg.r);
+    try std.testing.expectEqual(@as(u8, 0x20), mapped.cells[0].bg.g);
+    try std.testing.expectEqual(@as(u8, 0x30), mapped.cells[0].bg.b);
+
+    try std.testing.expectEqual(@as(u8, 0x11), mapped.cells[1].fg.r);
+    try std.testing.expectEqual(@as(u8, 0x22), mapped.cells[1].fg.g);
+    try std.testing.expectEqual(@as(u8, 0x33), mapped.cells[1].fg.b);
+    try std.testing.expectEqual(@as(u8, 0xCC), mapped.cells[1].bg.r);
+    try std.testing.expectEqual(@as(u8, 0xDD), mapped.cells[1].bg.g);
+    try std.testing.expectEqual(@as(u8, 0xEE), mapped.cells[1].bg.b);
 }
 
 test "frame_input suppresses kitty placeholder glyph shaping" {
