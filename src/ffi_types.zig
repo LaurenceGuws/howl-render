@@ -19,6 +19,8 @@ pub const HowlRenderCallStatus = enum(c_int) {
     failed = -3,
 };
 
+pub const HOWL_VT_GRAPHICS_PLACEMENT_GENERATED_PLACEHOLDER: u32 = 1;
+
 pub const HowlRenderPrepareStatus = enum(c_int) {
     idle = 0,
     ready = 1,
@@ -298,6 +300,7 @@ pub const FfiVtGraphicsPlacement = extern struct {
     dest_grid_rows: u32,
     effective_columns: u32,
     effective_rows: u32,
+    flags: u32 = 0,
 };
 
 pub const FfiVtGraphicsVirtualPlacement = extern struct {
@@ -533,4 +536,6 @@ comptime {
     std.debug.assert(@sizeOf(FfiVtRgb8) == 3);
     std.debug.assert(@sizeOf(FfiVtRenderColorState) == 777);
     std.debug.assert(@sizeOf(FfiVtCursor) == 8);
+    std.debug.assert(@sizeOf(FfiVtGraphicsPlacement) == 92);
+    std.debug.assert(@offsetOf(FfiVtGraphicsPlacement, "flags") == 88);
 }
