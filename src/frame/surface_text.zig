@@ -137,12 +137,11 @@ pub const SurfaceText = struct {
         const text_input = input.publicationSourceToTextSceneInputBorrowed(self.cell_input_scratch, prepare.state, prepare.request.token.damage_kind == .full);
         var graphics = try prepareSurfaceGraphics(self.allocator, prepare);
         errdefer graphics.deinit(self.allocator);
-        try self.graphics_preparer.preparePlaceholderGraphics(&graphics, prepare.state);
         try self.graphics_preparer.prepare(&graphics, prepare.state.graphics_images, prepare.state.graphics_payload_bytes);
         if (preparedHasGraphics(graphics)) {
             graphics_log.event(
                 "render-prepare",
-                "snapshot_seq={d} dirty_epoch={d} damage={s} publication_seq={d} images={d} placements={d} virtuals={d} placeholders={d} layers_below_bg={d} layers_below_text={d} layers_above_text={d}",
+                "snapshot_seq={d} dirty_epoch={d} damage={s} publication_seq={d} images={d} placements={d} layers_below_bg={d} layers_below_text={d} layers_above_text={d}",
                 .{
                     prepare.request.token.snapshot_seq,
                     prepare.request.token.dirty_epoch,
@@ -150,8 +149,6 @@ pub const SurfaceText = struct {
                     graphics.publication_seq,
                     graphics.images.len,
                     graphics.placements.len,
-                    graphics.virtual_placements.len,
-                    graphics.placeholder_runs.len,
                     graphics.below_bg_count,
                     graphics.below_text_count,
                     graphics.above_text_count,
@@ -173,15 +170,13 @@ pub const SurfaceText = struct {
         if (preparedHasGraphics(prepared.graphics)) {
             graphics_log.event(
                 "render-submit",
-                "snapshot_seq={d} dirty_epoch={d} publication_seq={d} images={d} placements={d} virtuals={d} placeholders={d} surface_id={d} surface_w={d} surface_h={d} uploads_committed={d}",
+                "snapshot_seq={d} dirty_epoch={d} publication_seq={d} images={d} placements={d} surface_id={d} surface_w={d} surface_h={d} uploads_committed={d}",
                 .{
                     prepared.request.token.snapshot_seq,
                     prepared.request.token.dirty_epoch,
                     prepared.graphics.publication_seq,
                     prepared.graphics.images.len,
                     prepared.graphics.placements.len,
-                    prepared.graphics.virtual_placements.len,
-                    prepared.graphics.placeholder_runs.len,
                     execution.surface.host_surface_id,
                     execution.surface.width,
                     execution.surface.height,
@@ -264,9 +259,7 @@ pub const SurfaceText = struct {
 
     fn preparedHasGraphics(graphics: surface.PreparedGraphics) bool {
         return graphics.images.len != 0 or
-            graphics.placements.len != 0 or
-            graphics.virtual_placements.len != 0 or
-            graphics.placeholder_runs.len != 0;
+            graphics.placements.len != 0;
     }
 
     fn ensureTextPreparer(self: *SurfaceText, context: *TextContext) !*text.TextFramePreparer {
@@ -731,173 +724,6 @@ test "prepareSurfaceGraphics wires prepared graphics into surface prepare contra
     try std.testing.expectEqual(surface.PreparedGraphicsLayer.above_text, prepared.graphics.placements[1].layer);
 }
 
-test "prepareSurface pairs exported placeholder runs with virtual prototypes" {
-    var source = try testPublicationSource(std.testing.allocator, 2, 0x10EEEE);
-    defer source.deinit(std.testing.allocator);
-    source.graphics.virtual_placement_count = 1;
-    source.graphics.placeholder_run_count = 1;
-    source.graphics_virtual_placements = try std.testing.allocator.dupe(abi.FfiVtGraphicsVirtualPlacement, &.{.{
-        .image_id = 7,
-        .placement_id = 9,
-        .source_x = 2,
-        .source_y = 4,
-        .source_width = 6,
-        .source_height = 8,
-        .columns = 3,
-        .rows = 2,
-    }});
-    source.graphics_placeholder_runs = try std.testing.allocator.dupe(abi.FfiVtGraphicsPlaceholderRun, &.{.{
-        .image_id = 7,
-        .placement_id = 9,
-        .virtual_placement_index = 0,
-        .run_order = 0,
-        .cell_row = 0,
-        .cell_col = 0,
-        .image_row = 0,
-        .image_col = 0,
-        .columns = 1,
-    }});
-
-    var graphics = try SurfaceText.prepareSurfaceGraphics(std.testing.allocator, .{
-        .config = .{ .surface_px = .{ .width = 20, .height = 20 } },
-        .request = .{ .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
-        .layout = .{
-            .render_px = .{ .width = 20, .height = 20 },
-            .grid_px = .{ .width = 20, .height = 20 },
-            .cell_px = .{ .width = 20, .height = 20 },
-        },
-        .state = source,
-    });
-    defer graphics.deinit(std.testing.allocator);
-    var graphics_preparer = graphics_prepare.GraphicsPreparer.init(std.testing.allocator);
-    defer graphics_preparer.deinit();
-    try graphics_preparer.preparePlaceholderGraphics(&graphics, source);
-
-    try std.testing.expectEqual(@as(usize, 1), graphics.virtual_placements.len);
-    try std.testing.expectEqual(@as(usize, 1), graphics.placeholder_runs.len);
-    try std.testing.expectEqual(@as(u32, 7), graphics.virtual_placements[0].image_id);
-    try std.testing.expectEqual(@as(u32, 9), graphics.virtual_placements[0].placement_id);
-    try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].virtual_placement_index);
-    try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].run_order);
-    try std.testing.expectEqual(@as(u16, 0), graphics.placeholder_runs[0].cell_row);
-    try std.testing.expectEqual(@as(u16, 0), graphics.placeholder_runs[0].cell_col);
-    try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].image_row);
-    try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].image_col);
-    try std.testing.expectEqual(@as(u32, 1), graphics.placeholder_runs[0].columns);
-}
-
-test "prepareSurface preserves exported multi-column placeholder runs" {
-    const allocator = std.testing.allocator;
-    const cells = try allocator.alloc(abi.FfiVtCell, 3);
-    defer allocator.free(cells);
-    @memset(cells, std.mem.zeroes(abi.FfiVtCell));
-
-    const dirty_rows = try allocator.dupe(u8, &.{1});
-    defer allocator.free(dirty_rows);
-    const dirty_cols_start = try allocator.dupe(u16, &.{0});
-    defer allocator.free(dirty_cols_start);
-    const dirty_cols_end = try allocator.dupe(u16, &.{2});
-    defer allocator.free(dirty_cols_end);
-    const virtual_placements = try allocator.dupe(abi.FfiVtGraphicsVirtualPlacement, &.{.{
-        .image_id = 7,
-        .placement_id = 9,
-        .source_x = 2,
-        .source_y = 4,
-        .source_width = 6,
-        .source_height = 8,
-        .columns = 3,
-        .rows = 2,
-    }});
-    defer allocator.free(virtual_placements);
-    const placeholder_runs = try allocator.dupe(abi.FfiVtGraphicsPlaceholderRun, &.{.{
-        .image_id = 7,
-        .placement_id = 9,
-        .virtual_placement_index = 0,
-        .run_order = 0,
-        .cell_row = 0,
-        .cell_col = 0,
-        .image_row = 0,
-        .image_col = 0,
-        .columns = 3,
-    }});
-    defer allocator.free(placeholder_runs);
-
-    const source: queue.PublicationSource = .{
-        .cols = 3,
-        .rows = 1,
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 2,
-        .dirty_epoch = 2,
-        .is_alternate_screen = false,
-        .cells = cells,
-        .cursor = std.mem.zeroes(surface.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 1, .placeholder_run_count = 1, .is_alternate_screen = 0, .publication_seq = 0, .dirty_generation = 0 },
-        .graphics_virtual_placements = virtual_placements,
-        .graphics_placeholder_runs = placeholder_runs,
-        .graphics_payload_bytes = &.{},
-        .cursor_phase_visible = true,
-        .dirty_rows = dirty_rows,
-        .dirty_cols_start = dirty_cols_start,
-        .dirty_cols_end = dirty_cols_end,
-    };
-
-    var graphics = try SurfaceText.prepareSurfaceGraphics(allocator, .{
-        .config = .{ .surface_px = .{ .width = 60, .height = 20 } },
-        .request = .{ .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
-        .layout = .{
-            .render_px = .{ .width = 60, .height = 20 },
-            .grid_px = .{ .width = 60, .height = 20 },
-            .cell_px = .{ .width = 20, .height = 20 },
-        },
-        .state = source,
-    });
-    defer graphics.deinit(allocator);
-    var graphics_preparer = graphics_prepare.GraphicsPreparer.init(allocator);
-    defer graphics_preparer.deinit();
-    try graphics_preparer.preparePlaceholderGraphics(&graphics, source);
-
-    try std.testing.expectEqual(@as(usize, 1), graphics.placeholder_runs.len);
-    try std.testing.expectEqual(@as(u32, 3), graphics.placeholder_runs[0].columns);
-    try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].image_row);
-    try std.testing.expectEqual(@as(u32, 0), graphics.placeholder_runs[0].image_col);
-}
-
-test "prepareSurface leaves placeholder runs empty when export is empty" {
-    var source = try testPublicationSource(std.testing.allocator, 2, 0x10EEEE);
-    defer source.deinit(std.testing.allocator);
-    source.graphics.virtual_placement_count = 1;
-    source.graphics_virtual_placements = try std.testing.allocator.dupe(abi.FfiVtGraphicsVirtualPlacement, &.{.{
-        .image_id = 7,
-        .placement_id = 0,
-        .source_x = 0,
-        .source_y = 0,
-        .source_width = 6,
-        .source_height = 8,
-        .columns = 3,
-        .rows = 2,
-    }});
-
-    var graphics = try SurfaceText.prepareSurfaceGraphics(std.testing.allocator, .{
-        .config = .{ .surface_px = .{ .width = 20, .height = 20 } },
-        .request = .{ .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
-        .layout = .{
-            .render_px = .{ .width = 20, .height = 20 },
-            .grid_px = .{ .width = 20, .height = 20 },
-            .cell_px = .{ .width = 20, .height = 20 },
-        },
-        .state = source,
-    });
-    defer graphics.deinit(std.testing.allocator);
-    var graphics_preparer = graphics_prepare.GraphicsPreparer.init(std.testing.allocator);
-    defer graphics_preparer.deinit();
-    try graphics_preparer.preparePlaceholderGraphics(&graphics, source);
-
-    try std.testing.expectEqual(@as(usize, 0), graphics.placeholder_runs.len);
-}
-
 fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !queue.PublicationSource {
     const cells = try allocator.alloc(abi.FfiVtCell, 1);
     errdefer allocator.free(cells);
@@ -950,27 +776,6 @@ test "graphics cache reuses same payload across later publication changes" {
     graphics.images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }});
     try session.graphics_preparer.prepare(&graphics, source_images[0..], "QUJD");
     try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
-    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
-}
-
-test "graphics cache retains image refs for virtual placements without ordinary placements" {
-    var session = SurfaceText.init(std.testing.allocator);
-    defer session.deinit();
-
-    var graphics = surface.PreparedGraphics{
-        .publication_seq = 1,
-        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }}),
-        .placements = &.{},
-        .virtual_placements = try std.testing.allocator.dupe(surface.PreparedGraphicsVirtualPlacement, &.{.{ .image_id = 7, .placement_id = 9, .source_x = 0, .source_y = 0, .source_width = 1, .source_height = 1, .columns = 1, .rows = 1 }}),
-        .placeholder_runs = try std.testing.allocator.dupe(surface.PreparedGraphicsPlaceholderRun, &.{.{ .virtual_placement_index = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }}),
-    };
-    defer graphics.deinit(std.testing.allocator);
-
-    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 4 }};
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], "QUJD");
-
-    try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
-    try std.testing.expectEqual(@as(usize, 1), graphics.images.len);
     try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
 }
 

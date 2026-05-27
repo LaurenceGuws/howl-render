@@ -97,33 +97,10 @@ pub const PreparedGraphicsPlacement = struct {
     src_height_px: u32,
 };
 
-pub const PreparedGraphicsVirtualPlacement = struct {
-    image_id: u32,
-    placement_id: u32,
-    source_x: u32,
-    source_y: u32,
-    source_width: u32,
-    source_height: u32,
-    columns: u32,
-    rows: u32,
-};
-
-pub const PreparedGraphicsPlaceholderRun = struct {
-    virtual_placement_index: u32,
-    run_order: u32 = 0,
-    cell_row: u16,
-    cell_col: u16,
-    image_row: u32,
-    image_col: u32,
-    columns: u32,
-};
-
 pub const PreparedGraphics = struct {
     publication_seq: u64 = 0,
     images: []PreparedGraphicsImageRef = &.{},
     placements: []PreparedGraphicsPlacement = &.{},
-    virtual_placements: []PreparedGraphicsVirtualPlacement = &.{},
-    placeholder_runs: []PreparedGraphicsPlaceholderRun = &.{},
     below_bg_count: u32 = 0,
     below_text_count: u32 = 0,
     above_text_count: u32 = 0,
@@ -131,8 +108,6 @@ pub const PreparedGraphics = struct {
     pub fn deinit(self: *PreparedGraphics, allocator: std.mem.Allocator) void {
         if (self.images.len > 0) allocator.free(self.images);
         if (self.placements.len > 0) allocator.free(self.placements);
-        if (self.virtual_placements.len > 0) allocator.free(self.virtual_placements);
-        if (self.placeholder_runs.len > 0) allocator.free(self.placeholder_runs);
         self.* = .{};
     }
 };
