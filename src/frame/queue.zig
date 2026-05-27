@@ -606,7 +606,10 @@ const PublicationState = struct {
             .snapshot_seq = publication.source.snapshot_seq,
             .dirty_epoch = publication.source.dirty_epoch,
             .geometry_epoch = geometry_epoch,
-            .damage_base_seq = if (submitted_token) |token_value| token_value.snapshot_seq else 0,
+            .damage_base_seq = if (publication.damage_kind == .partial)
+                if (submitted_token) |token_value| token_value.snapshot_seq else 0
+            else
+                0,
             .damage_kind = publication.damage_kind,
         };
         self.dropActive();
@@ -1413,6 +1416,33 @@ test "failed taken prepare is retryable without blink refresh" {
 
     const retry = flow.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expect(sameSnapshotToken(request.token, retry.token));
+}
+
+test "full prepare after submitted frame carries no retained base" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var first = try ownedTestSource(std.heap.c_allocator, 1, 'A');
+    first.cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .block, .blink = false };
+    _ = flow.acceptSource(first);
+    const first_request = flow.prepare() orelse return error.TestUnexpectedResult;
+    flow.acceptSubmitted(.{ .token = first_request.token });
+
+    var second = try ownedTestSource(std.heap.c_allocator, 2, 'A');
+    second.dirty_rows[0] = 0;
+    second.dirty_cols_start[0] = 0;
+    second.dirty_cols_end[0] = 0;
+    second.cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = false };
+    _ = flow.acceptSource(second);
+
+    const request = flow.prepare() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
+    try std.testing.expectEqual(@as(u64, 0), request.token.damage_base_seq);
 }
 
 test "cursor movement republishes clean later vt snapshot" {
