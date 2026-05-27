@@ -196,6 +196,29 @@ fn mapFontStyle(bold: bool, italic: bool) contract.FontStyle {
     return .regular;
 }
 
+fn dimColor(color: contract.Rgba8) contract.Rgba8 {
+    return .{
+        .r = @intCast(@as(u16, color.r) * 66 / 100),
+        .g = @intCast(@as(u16, color.g) * 66 / 100),
+        .b = @intCast(@as(u16, color.b) * 66 / 100),
+        .a = color.a,
+    };
+}
+
+fn applyDimStyle(cell: *contract.CellInput) void {
+    cell.fg = dimColor(cell.fg);
+    if (cell.underline_color.a != 0) cell.underline_color = dimColor(cell.underline_color);
+}
+
+fn applyInvisibleStyle(cell: *contract.CellInput) void {
+    cell.codepoint = ' ';
+    cell.combining_len = 0;
+    cell.combining = [_]u32{0} ** 3;
+    cell.underline = false;
+    cell.underline_color = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+    cell.strikethrough = false;
+}
+
 fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) contract.TextPresentation {
     _ = codepoint;
     std.debug.assert(combining_len <= combining.len);
@@ -222,7 +245,9 @@ fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
         .continuation = src.flags.continuation,
         .empty = isAlacrittyEmptyCell(src),
     };
+    if (src.attrs.dim) applyDimStyle(&out);
     if (src.attrs.selected) applySelectionStyle(&out, t);
+    if (src.attrs.invisible) applyInvisibleStyle(&out);
     return out;
 }
 
@@ -243,6 +268,7 @@ fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput
         .continuation = src.flags.continuation != 0,
         .empty = isAlacrittyEmptyPublicationCell(src, bg),
     };
+    if (src.attrs.dim != 0) applyDimStyle(&out);
     if (src.flags.continuation == 0 and src.codepoint == kitty_placeholder_codepoint) {
         // Placeholder protocol cells carry image identity in text attributes,
         // but the glyph itself must not be shaped on top of the image.
@@ -255,6 +281,7 @@ fn mapPublicationCellInput(src: abi.FfiVtCell, t: FrameTheme) contract.CellInput
         out.empty = out.bg.a == 0;
     }
     if (src.attrs.selected != 0) applySelectionStyle(&out, t);
+    if (src.attrs.invisible != 0) applyInvisibleStyle(&out);
     return out;
 }
 
@@ -611,6 +638,72 @@ test "frame_input maps publication style and presentation truth" {
 
     try std.testing.expectEqual(contract.FontStyle.bold_italic, mapped.cells[0].style);
     try std.testing.expectEqual(contract.TextPresentation.emoji, mapped.cells[0].presentation);
+}
+
+test "frame_input maps publication style attrs dim and invisible" {
+    var cells = [_]abi.FfiVtCell{
+        .{
+            .codepoint = 'I',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 2, .value = 0x6496C8 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 2, .value = 0x325078 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 1, .italic = 1, .underline = 1, .underline_color_set = 1, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 1, .selected = 0 },
+            .link_id = 0,
+        },
+        .{
+            .codepoint = 'H',
+            .combining_len = 2,
+            .combining = .{ 0x0300, 0x0301, 0 },
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 2, .value = 0xFFFFFF },
+            .bg_color = .{ .kind = 2, .value = 0x112233 },
+            .underline_color = .{ .kind = 2, .value = 0x445566 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 1, .underline_color_set = 1, .blink = 0, .inverse = 0, .invisible = 1, .strikethrough = 1, .selected = 0 },
+            .link_id = 0,
+        },
+    };
+    var storage: [2]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{1};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 2,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(contract.FontStyle.italic, mapped.cells[0].style);
+    try std.testing.expect(mapped.cells[0].strikethrough);
+    try std.testing.expectEqual(@as(u8, 66), mapped.cells[0].fg.r);
+    try std.testing.expectEqual(@as(u8, 99), mapped.cells[0].fg.g);
+    try std.testing.expectEqual(@as(u8, 132), mapped.cells[0].fg.b);
+    try std.testing.expectEqual(@as(u8, 255), mapped.cells[0].fg.a);
+    try std.testing.expectEqual(@as(u8, 33), mapped.cells[0].underline_color.r);
+
+    try std.testing.expectEqual(@as(u21, ' '), mapped.cells[1].codepoint);
+    try std.testing.expectEqual(@as(u8, 0), mapped.cells[1].combining_len);
+    try std.testing.expectEqual(@as(u32, 0), mapped.cells[1].combining[0]);
+    try std.testing.expectEqual(false, mapped.cells[1].underline);
+    try std.testing.expectEqual(false, mapped.cells[1].strikethrough);
+    try std.testing.expectEqual(@as(u8, 0x11), mapped.cells[1].bg.r);
+    try std.testing.expectEqual(@as(u8, 0x22), mapped.cells[1].bg.g);
+    try std.testing.expectEqual(@as(u8, 0x33), mapped.cells[1].bg.b);
 }
 
 test "frame_input suppresses kitty placeholder glyph shaping" {
