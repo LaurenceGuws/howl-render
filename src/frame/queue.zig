@@ -529,6 +529,15 @@ const PublicationState = struct {
         return true;
     }
 
+    fn retryTakenPrepare(self: *PublicationState, token: pipeline.SnapshotToken) bool {
+        if (self.pending != null) return false;
+        const active = if (self.active) |*active| active else return false;
+        if (!active.taken) return false;
+        if (!sameSnapshotToken(active.request.token, token)) return false;
+        active.taken = false;
+        return true;
+    }
+
     fn setCursorBlinkVisible(self: *PublicationState, visible: bool) bool {
         var changed = false;
         if (self.reserved) |*source| changed = setSourceCursorBlinkVisible(source, visible) or changed;
@@ -1098,6 +1107,10 @@ pub const Flow = struct {
         return self.publication_state.consumePrepare(layout, token);
     }
 
+    pub fn retryTakenPrepare(self: *Flow, token: pipeline.SnapshotToken) bool {
+        return self.publication_state.retryTakenPrepare(token);
+    }
+
     fn prepareLayout(self: *const Flow, geometry_epoch: u64) surface_types.PrepareLayout {
         std.debug.assert(self.geometry_epoch != 0);
         std.debug.assert(self.geometry_epoch == geometry_epoch);
@@ -1378,6 +1391,28 @@ test "new vt source supersedes pending blink refresh" {
     const prepare = try flow.consumePrepare(request.token);
     try std.testing.expectEqual(@as(u32, 'B'), prepare.state.cells[0].codepoint);
     try std.testing.expect(!prepare.state.cursor_phase_visible);
+}
+
+test "failed taken prepare is retryable without blink refresh" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    const source = try ownedTestSource(std.heap.c_allocator, 11, 'A');
+    _ = flow.acceptSource(source);
+
+    const request = flow.prepare() orelse return error.TestUnexpectedResult;
+    try std.testing.expect(!flow.pendingState().prepare_pending);
+
+    try std.testing.expect(flow.retryTakenPrepare(request.token));
+    try std.testing.expect(flow.pendingState().prepare_pending);
+
+    const retry = flow.prepare() orelse return error.TestUnexpectedResult;
+    try std.testing.expect(sameSnapshotToken(request.token, retry.token));
 }
 
 test "cursor movement republishes clean later vt snapshot" {

@@ -438,6 +438,7 @@ pub const SurfaceTextOwner = struct {
 
     pub fn prepareHandle(self: *SurfaceTextOwner, token: pipeline.SnapshotToken) !*prepared_surface_owner.Owner {
         const prepare = try self.flow.consumePrepare(token);
+        errdefer _ = self.flow.retryTakenPrepare(token);
         var prepared = try self.session.prepareSurface(.{
             .config = self.config,
             .request = prepare.request,
