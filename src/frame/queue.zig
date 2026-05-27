@@ -790,8 +790,16 @@ fn validateGraphicsSource(
     if (meta.placement_count != placements.len) return error.InvalidGraphicsMetadata;
     if (meta.virtual_placement_count != virtual_placements.len) return error.InvalidGraphicsMetadata;
     if (meta.placeholder_run_count != placeholder_runs.len) return error.InvalidGraphicsMetadata;
+    if (placeholder_runs.len != 0 and hasGeneratedPlaceholderPlacement(placements)) return error.InvalidGraphicsMetadata;
     try validateGraphicsReferences(images, placements, virtual_placements, placeholder_runs);
     try validateGraphicsPayloadSource(images, payload_bytes);
+}
+
+pub fn hasGeneratedPlaceholderPlacement(placements: []const abi.FfiVtGraphicsPlacement) bool {
+    for (placements) |placement| {
+        if (placement.flags & abi.HOWL_VT_GRAPHICS_PLACEMENT_GENERATED_PLACEHOLDER != 0) return true;
+    }
+    return false;
 }
 
 fn validateGraphicsReferences(
@@ -2190,6 +2198,95 @@ test "flow commit publish slot rejects placeholder run publication mismatch" {
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .graphics = .{ .image_count = 1, .placement_count = 0, .virtual_placement_count = 1, .placeholder_run_count = 1, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
         .graphics_images = images[0..],
+        .graphics_virtual_placements = virtual_placements[0..],
+        .graphics_placeholder_runs = placeholder_runs[0..],
+        .graphics_payload_bytes = &.{},
+    }));
+}
+
+test "flow commit publish slot rejects generated placement mixed with placeholder run" {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 2, .height = 2 },
+        .grid_px = .{ .width = 2, .height = 2 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const slot = try flow.reservePublishSlot(2, 2);
+    for (slot.cells) |*cell| cell.* = std.mem.zeroes(abi.FfiVtCell);
+    slot.dirty_rows[0] = 1;
+    slot.dirty_rows[1] = 1;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 1;
+    slot.dirty_cols_start[1] = 0;
+    slot.dirty_cols_end[1] = 1;
+
+    const images = [_]abi.FfiVtGraphicsImage{.{
+        .image_id = 7,
+        .image_number = 0,
+        .format = 24,
+        .width = 1,
+        .height = 1,
+        .payload_len = 0,
+    }};
+    const placements = [_]abi.FfiVtGraphicsPlacement{.{
+        .image_id = 7,
+        .placement_id = 4,
+        .z_index = -1,
+        .anchor = .{ .kind = 1, .value = 0 },
+        .anchor_col = 0,
+        .source_x = 0,
+        .source_y = 0,
+        .source_width = 1,
+        .source_height = 1,
+        .cell_x_offset = 0,
+        .cell_y_offset = 0,
+        .columns = 1,
+        .rows = 1,
+        .dest_left_cell_px = 0,
+        .dest_top_cell_px = 0,
+        .dest_right_cell_px = 1,
+        .dest_bottom_cell_px = 1,
+        .dest_grid_columns = 1,
+        .dest_grid_rows = 1,
+        .effective_columns = 1,
+        .effective_rows = 1,
+        .flags = abi.HOWL_VT_GRAPHICS_PLACEMENT_GENERATED_PLACEHOLDER,
+    }};
+    const virtual_placements = [_]abi.FfiVtGraphicsVirtualPlacement{.{
+        .image_id = 7,
+        .placement_id = 9,
+        .source_x = 0,
+        .source_y = 0,
+        .source_width = 1,
+        .source_height = 1,
+        .columns = 1,
+        .rows = 1,
+    }};
+    const placeholder_runs = [_]abi.FfiVtGraphicsPlaceholderRun{.{
+        .image_id = 7,
+        .placement_id = 9,
+        .virtual_placement_index = 0,
+        .run_order = 0,
+        .cell_row = 0,
+        .cell_col = 0,
+        .image_row = 0,
+        .image_col = 0,
+        .columns = 1,
+    }};
+
+    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitPublishSlot(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{ .image_count = 1, .placement_count = 1, .virtual_placement_count = 1, .placeholder_run_count = 1, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics_images = images[0..],
+        .graphics_placements = placements[0..],
         .graphics_virtual_placements = virtual_placements[0..],
         .graphics_placeholder_runs = placeholder_runs[0..],
         .graphics_payload_bytes = &.{},

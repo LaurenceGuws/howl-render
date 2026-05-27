@@ -155,6 +155,10 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
+    if (graphics_placeholder_runs.len != 0 and queue.hasGeneratedPlaceholderPlacement(graphics_placements)) {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    }
     const result = owner.flow.commitPublishSlot(.{
         .history_count = commit.history_count,
         .scroll_row = commit.scroll_row,
@@ -551,6 +555,7 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
     if (graphics_images.len != value.graphics.image_count or graphics_placements.len != value.graphics.placement_count or graphics_virtual_placements.len != value.graphics.virtual_placement_count or graphics_placeholder_runs.len != value.graphics.placeholder_run_count) {
         return error.InvalidSurfaceSource;
     }
+    if (graphics_placeholder_runs.len != 0 and queue.hasGeneratedPlaceholderPlacement(graphics_placements)) return error.InvalidSurfaceSource;
 
     const cursor = cursorIn(value.cursor) orelse return error.InvalidSurfaceSource;
     const source: queue.PublicationSource = .{
