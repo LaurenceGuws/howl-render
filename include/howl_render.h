@@ -205,8 +205,7 @@ typedef struct {
   uint8_t source_pending;
   uint8_t prepare_pending;
   uint8_t submit_pending;
-  uint8_t present_pending;
-  uint32_t reserved0;
+  uint8_t reserved0;
 } HowlRenderPendingState;
 
 typedef struct {
@@ -322,11 +321,6 @@ typedef struct {
 } HowlRenderSurfaceMetrics;
 
 typedef struct {
-  int32_t status;
-  uint64_t snapshot_seq;
-} HowlRenderPresentedRetire;
-
-typedef struct {
   uint64_t host_surface_id;
   uint16_t width;
   uint16_t height;
@@ -423,7 +417,6 @@ int howl_render_surface_text_publish_prepared_handle(HowlRenderSurfaceTextHandle
 HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_decision(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame *prepared_frame_out);
 HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_handle(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedSurfaceHandle *prepared_surface_handle_out);
 int howl_render_surface_text_accept_submitted(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
-int howl_render_surface_text_retire_presented(HowlRenderSurfaceTextHandle handle, HowlRenderPresentedRetire *retire_out);
 int howl_render_surface_text_pending_state(HowlRenderSurfaceTextHandle handle, HowlRenderPendingState *pending_out);
 
 /* Owned prepared-surface ABI target. */

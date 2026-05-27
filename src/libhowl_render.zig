@@ -22,7 +22,6 @@ comptime {
     @export(&surface_text_ffi.takeSubmitDecision, .{ .name = "howl_render_surface_text_take_submit_decision" });
     @export(&surface_text_ffi.takeSubmitHandle, .{ .name = "howl_render_surface_text_take_submit_handle" });
     @export(&surface_text_ffi.acceptSubmitted, .{ .name = "howl_render_surface_text_accept_submitted" });
-    @export(&surface_text_ffi.retirePresented, .{ .name = "howl_render_surface_text_retire_presented" });
     @export(&surface_text_ffi.pendingState, .{ .name = "howl_render_surface_text_pending_state" });
     @export(&surface_text_ffi.prepareHandle, .{ .name = "howl_render_surface_text_prepare_handle" });
     @export(&prepared_surface_ffi.release, .{ .name = "howl_render_prepared_surface_release" });

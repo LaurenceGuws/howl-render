@@ -347,8 +347,7 @@ pub const FfiPendingState = extern struct {
     source_pending: u8,
     prepare_pending: u8,
     submit_pending: u8,
-    present_pending: u8,
-    reserved0: u32 = 0,
+    reserved0: u8 = 0,
 };
 
 pub const FfiPrepareRequest = extern struct {
@@ -425,11 +424,6 @@ pub const FfiSurfaceMetrics = extern struct {
     fallback_hits: u64,
     fallback_misses: u64,
     missing_glyphs: u64,
-};
-
-pub const FfiPresentedRetire = extern struct {
-    status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
-    snapshot_seq: u64,
 };
 
 pub const FfiSurfaceHandle = extern struct {

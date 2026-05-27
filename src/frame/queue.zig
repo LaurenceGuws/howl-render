@@ -28,7 +28,6 @@ const TerminalSurface = struct {
     mutex: ThreadMutex = .{},
     submit_mailbox: SubmitMailbox = .{},
     submitted_frame: ?pipeline.SubmittedFrame = null,
-    presented_frame: ?pipeline.SubmittedFrame = null,
 
     fn publishPrepared(self: *TerminalSurface, prepared: pipeline.PreparedFrame) void {
         lockMutex(&self.mutex);
@@ -66,36 +65,17 @@ const TerminalSurface = struct {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         std.debug.assert(frame.token.snapshot_seq != 0);
-        std.debug.assert(self.presented_frame == null);
         self.submitted_frame = frame;
-        self.presented_frame = frame;
-    }
-
-    fn retirePresented(self: *TerminalSurface) u64 {
-        lockMutex(&self.mutex);
-        defer self.mutex.unlock();
-        const presented = self.presented_frame orelse return 0;
-        if (self.submitted_frame) |submitted| {
-            std.debug.assert(sameSnapshotToken(submitted.token, presented.token));
-        } else {
-            unreachable;
-        }
-        const snapshot_seq = presented.token.snapshot_seq;
-        std.debug.assert(snapshot_seq != 0);
-        self.presented_frame = null;
-        return snapshot_seq;
     }
 
     fn pendingState(self: *const TerminalSurface) struct {
         submit_pending: bool,
-        present_pending: bool,
     } {
         const surface: *TerminalSurface = @constCast(self);
         lockMutex(&surface.mutex);
         defer surface.mutex.unlock();
         return .{
             .submit_pending = surface.submit_mailbox.hasPending(),
-            .present_pending = surface.presented_frame != null,
         };
     }
 
@@ -287,7 +267,6 @@ pub const PendingState = struct {
     source_pending: bool,
     prepare_pending: bool,
     submit_pending: bool,
-    present_pending: bool,
 };
 
 pub const PrepareConsume = struct {
@@ -1152,17 +1131,12 @@ pub const Flow = struct {
         self.surface.acceptSubmitted(frame);
     }
 
-    pub fn retirePresented(self: *Flow) u64 {
-        return self.surface.retirePresented();
-    }
-
     pub fn pendingState(self: *const Flow) PendingState {
         const pending = self.surface.pendingState();
         return .{
             .source_pending = self.publication_state.sourcePending(),
             .prepare_pending = self.publication_state.preparePending(),
             .submit_pending = pending.submit_pending,
-            .present_pending = pending.present_pending,
         };
     }
 
@@ -1289,17 +1263,7 @@ test "surface validates submit candidates before GPU mutation" {
     }
 }
 
-test "surface retires presented snapshot identity once" {
-    var surface = TerminalSurface{};
-    surface.acceptSubmitted(.{
-        .token = .{ .snapshot_seq = 7, .dirty_epoch = 7, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
-    });
-
-    try std.testing.expectEqual(@as(u64, 7), surface.retirePresented());
-    try std.testing.expectEqual(@as(u64, 0), surface.retirePresented());
-}
-
-test "surface keeps one exact presented identity in flight" {
+test "surface keeps submitted identity as retained base only" {
     var surface = TerminalSurface{};
     const frame = pipeline.SubmittedFrame{
         .token = .{ .snapshot_seq = 7, .dirty_epoch = 9, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
@@ -1309,20 +1273,12 @@ test "surface keeps one exact presented identity in flight" {
 
     surface.acceptSubmitted(frame);
 
-    try std.testing.expect(surface.presented_frame != null);
-    try std.testing.expect(surface.submitted_frame != null);
-    try std.testing.expectEqual(frame.token.snapshot_seq, surface.presented_frame.?.token.snapshot_seq);
-    try std.testing.expectEqual(frame.token.dirty_epoch, surface.presented_frame.?.token.dirty_epoch);
-    try std.testing.expectEqual(frame.token.geometry_epoch, surface.presented_frame.?.token.geometry_epoch);
-    try std.testing.expectEqual(frame.atlas_epoch, surface.presented_frame.?.atlas_epoch);
-    try std.testing.expectEqual(frame.surface_epoch, surface.presented_frame.?.surface_epoch);
-    try std.testing.expect(surface.pendingState().present_pending);
-
-    try std.testing.expectEqual(frame.token.snapshot_seq, surface.retirePresented());
-    try std.testing.expect(surface.presented_frame == null);
     try std.testing.expect(surface.submitted_frame != null);
     try std.testing.expectEqual(frame.token.snapshot_seq, surface.submitted_frame.?.token.snapshot_seq);
-    try std.testing.expect(!surface.pendingState().present_pending);
+    try std.testing.expectEqual(frame.token.dirty_epoch, surface.submitted_frame.?.token.dirty_epoch);
+    try std.testing.expectEqual(frame.token.geometry_epoch, surface.submitted_frame.?.token.geometry_epoch);
+    try std.testing.expectEqual(frame.atlas_epoch, surface.submitted_frame.?.atlas_epoch);
+    try std.testing.expectEqual(frame.surface_epoch, surface.submitted_frame.?.surface_epoch);
 }
 
 test "surface reports stale submit when newer snapshot already won" {

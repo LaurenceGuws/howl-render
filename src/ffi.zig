@@ -19,7 +19,6 @@ const FfiVtCell = abi.FfiVtCell;
 const FfiVtCursor = abi.FfiVtCursor;
 const FfiGeometry = abi.FfiGeometry;
 const FfiPendingState = abi.FfiPendingState;
-const FfiPresentedRetire = abi.FfiPresentedRetire;
 const FfiPublishSlot = abi.FfiPublishSlot;
 const FfiPrepareRequest = abi.FfiPrepareRequest;
 const FfiPreparedFrame = abi.FfiPreparedFrame;
@@ -49,7 +48,6 @@ const surfaceTextPublishPreparedHandle = surface_text_ffi.publishPreparedHandle;
 const surfaceTextTakeSubmitDecision = surface_text_ffi.takeSubmitDecision;
 const surfaceTextTakeSubmitHandle = surface_text_ffi.takeSubmitHandle;
 const surfaceTextAcceptSubmitted = surface_text_ffi.acceptSubmitted;
-const surfaceTextRetirePresented = surface_text_ffi.retirePresented;
 const surfaceTextPendingState = surface_text_ffi.pendingState;
 const surfaceTextPrepareHandle = surface_text_ffi.prepareHandle;
 const preparedSurfaceRelease = prepared_surface.release;
@@ -180,7 +178,6 @@ test "ffi pending state writes missing-handle status" {
         .source_pending = 1,
         .prepare_pending = 1,
         .submit_pending = 1,
-        .present_pending = 1,
     };
     try std.testing.expectEqual(
         @intFromEnum(HowlRenderCallStatus.missing_handle),
@@ -213,16 +210,6 @@ test "ffi take submit decision clears output on failure" {
     };
     try std.testing.expectEqual(HowlRenderSubmitDecisionStatus.failed, surfaceTextTakeSubmitDecision(null, &prepared));
     try std.testing.expectEqual(@as(u64, 0), prepared.snapshot_seq);
-}
-
-test "ffi retire presented clears output on failure" {
-    var retire = FfiPresentedRetire{ .status = @intFromEnum(HowlRenderCallStatus.ok), .snapshot_seq = 9 };
-    try std.testing.expectEqual(
-        @intFromEnum(HowlRenderCallStatus.missing_handle),
-        surfaceTextRetirePresented(null, &retire),
-    );
-    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.missing_handle), retire.status);
-    try std.testing.expectEqual(@as(u64, 0), retire.snapshot_seq);
 }
 
 test "ffi surface session initializes" {

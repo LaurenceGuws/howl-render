@@ -13,7 +13,6 @@ comptime {
     std.debug.assert(@sizeOf(abi.FfiPendingState) == @sizeOf(c.HowlRenderPendingState));
     std.debug.assert(@sizeOf(abi.FfiPrepareRequest) == @sizeOf(c.HowlRenderPrepareRequest));
     std.debug.assert(@sizeOf(abi.FfiPreparedFrame) == @sizeOf(c.HowlRenderPreparedFrame));
-    std.debug.assert(@sizeOf(abi.FfiPresentedRetire) == @sizeOf(c.HowlRenderPresentedRetire));
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceInfo) == @sizeOf(c.HowlRenderPreparedSurfaceInfo));
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceBuffer) == @sizeOf(c.HowlRenderPreparedSurfaceBuffer));
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceDiagnostics) == @sizeOf(c.HowlRenderPreparedSurfaceDiagnostics));
@@ -43,10 +42,6 @@ test "render abi missing handles report shipped contract" {
     var pending = std.mem.zeroes(abi.FfiPendingState);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, surface_text_ffi.pendingState(null, &pending));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, pending.status);
-
-    var retire = std.mem.zeroes(abi.FfiPresentedRetire);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, surface_text_ffi.retirePresented(null, &retire));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, retire.status);
 
     prepared_surface_ffi.release(null);
 
