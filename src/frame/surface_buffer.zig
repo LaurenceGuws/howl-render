@@ -1,5 +1,6 @@
 const std = @import("std");
 const abi = @import("../ffi_types.zig");
+const graphics_log = @import("../graphics_log.zig");
 const stb_image = @import("../stb_image.zig");
 const graphics_prepare = @import("graphics_prepare.zig");
 const graphics_viewport = @import("graphics_viewport.zig");
@@ -275,11 +276,24 @@ fn drawPlaceholderRunByIndex(
 ) void {
     const graphics = &prepared.graphics;
     const run = graphics.placeholder_runs[@intCast(placeholder_index)];
-    if (run.virtual_placement_index >= graphics.virtual_placements.len) return;
+    if (run.virtual_placement_index >= graphics.virtual_placements.len) {
+        tracePlaceholderReject(prepared, placeholder_index, run, null, "bad_virtual_index");
+        return;
+    }
     const virtual_placement = graphics.virtual_placements[@intCast(run.virtual_placement_index)];
-    const image = preparedPlaceholderImage(graphics, virtual_placement.image_id) orelse return;
-    const raster = session.graphicsRaster(image.raster_index) orelse return;
-    const resolved = resolvePlaceholderDrawPlacement(prepared.cell_px, raster, virtual_placement, run) orelse return;
+    const image = preparedPlaceholderImage(graphics, virtual_placement.image_id) orelse {
+        tracePlaceholderReject(prepared, placeholder_index, run, virtual_placement, "missing_image");
+        return;
+    };
+    const raster = session.graphicsRaster(image.raster_index) orelse {
+        tracePlaceholderReject(prepared, placeholder_index, run, virtual_placement, "missing_raster");
+        return;
+    };
+    const resolved = resolvePlaceholderDrawPlacement(prepared.cell_px, raster, virtual_placement, run) orelse {
+        tracePlaceholderReject(prepared, placeholder_index, run, virtual_placement, "resolve_failed");
+        return;
+    };
+    tracePlaceholderDraw(prepared, placeholder_index, run, virtual_placement, resolved);
     drawScaledRgbaPlacement(pixels, width, height, raster, .{
         .image_index = 0,
         .placement_ordinal = placeholder_index,
@@ -294,6 +308,74 @@ fn drawPlaceholderRunByIndex(
         .src_width_px = resolved.src_width_px,
         .src_height_px = resolved.src_height_px,
     });
+}
+
+fn tracePlaceholderReject(
+    prepared: *const surface.PreparedSurface,
+    placeholder_index: u32,
+    run: surface.PreparedGraphicsPlaceholderRun,
+    virtual_placement: ?surface.PreparedGraphicsVirtualPlacement,
+    comptime reason: []const u8,
+) void {
+    const virtual_columns = if (virtual_placement) |placement| placement.columns else 0;
+    const virtual_rows = if (virtual_placement) |placement| placement.rows else 0;
+    graphics_log.event(
+        "render-placeholder-reject",
+        "reason={s} snapshot_seq={d} publication_seq={d} run_index={d} virtual_index={d} cell=({d},{d}) image=({d},{d}) columns={d} virtual_grid=({d},{d}) cell_px=({d},{d})",
+        .{
+            reason,
+            prepared.request.token.snapshot_seq,
+            prepared.graphics.publication_seq,
+            placeholder_index,
+            run.virtual_placement_index,
+            run.cell_row,
+            run.cell_col,
+            run.image_row,
+            run.image_col,
+            run.columns,
+            virtual_columns,
+            virtual_rows,
+            prepared.cell_px.width,
+            prepared.cell_px.height,
+        },
+    );
+}
+
+fn tracePlaceholderDraw(
+    prepared: *const surface.PreparedSurface,
+    placeholder_index: u32,
+    run: surface.PreparedGraphicsPlaceholderRun,
+    virtual_placement: surface.PreparedGraphicsVirtualPlacement,
+    resolved: PlaceholderDrawPlacement,
+) void {
+    graphics_log.event(
+        "render-placeholder-draw",
+        "snapshot_seq={d} publication_seq={d} run_index={d} image_id={d} placement_id={d} cell=({d},{d}) image=({d},{d}) columns={d} virtual_grid=({d},{d}) src=({d},{d},{d},{d}) dest=({d},{d},{d},{d}) cell_px=({d},{d})",
+        .{
+            prepared.request.token.snapshot_seq,
+            prepared.graphics.publication_seq,
+            placeholder_index,
+            virtual_placement.image_id,
+            virtual_placement.placement_id,
+            run.cell_row,
+            run.cell_col,
+            run.image_row,
+            run.image_col,
+            run.columns,
+            virtual_placement.columns,
+            virtual_placement.rows,
+            resolved.src_x_px,
+            resolved.src_y_px,
+            resolved.src_width_px,
+            resolved.src_height_px,
+            resolved.dest_x_px,
+            resolved.dest_y_px,
+            resolved.dest_width_px,
+            resolved.dest_height_px,
+            prepared.cell_px.width,
+            prepared.cell_px.height,
+        },
+    );
 }
 
 fn preparedPlaceholderImage(graphics: *const surface.PreparedGraphics, image_id: u32) ?surface.PreparedGraphicsImageRef {

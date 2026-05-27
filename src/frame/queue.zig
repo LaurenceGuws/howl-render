@@ -1,5 +1,6 @@
 const std = @import("std");
 const abi = @import("../ffi_types.zig");
+const graphics_log = @import("../graphics_log.zig");
 const pipeline = @import("pipeline.zig");
 const surface_types = @import("surface.zig");
 
@@ -408,6 +409,24 @@ const PublicationState = struct {
         source.colors = meta.colors;
         source.selection = meta.selection;
         source.graphics = meta.graphics;
+        if (hasGraphics(meta.graphics) or meta.graphics_payload_bytes.len != 0) {
+            graphics_log.event(
+                "render-publish-copy",
+                "snapshot_seq={d} dirty_epoch={d} publication_seq={d} graphics_dirty={d} images={d} placements={d} virtuals={d} placeholders={d} payload_len={d} alt={d}",
+                .{
+                    meta.snapshot_seq,
+                    dirty_epoch,
+                    meta.graphics.publication_seq,
+                    meta.graphics.dirty_generation,
+                    meta.graphics.image_count,
+                    meta.graphics.placement_count,
+                    meta.graphics.virtual_placement_count,
+                    meta.graphics.placeholder_run_count,
+                    meta.graphics_payload_bytes.len,
+                    meta.graphics.is_alternate_screen,
+                },
+            );
+        }
         try validateDirtySource(source.rows, source.cols, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
         try validateGraphicsSource(
             meta.is_alternate_screen,
@@ -617,6 +636,25 @@ const PublicationState = struct {
             .publication = publication,
             .request = .{ .token = token, .allow_retained_reuse = true },
         };
+        if (hasGraphics(publication.source.graphics) or publication.source.graphics_payload_bytes.len != 0) {
+            graphics_log.event(
+                "render-prepare-activate",
+                "snapshot_seq={d} dirty_epoch={d} damage={s} base_seq={d} publication_seq={d} graphics_dirty={d} images={d} placements={d} virtuals={d} placeholders={d} payload_len={d}",
+                .{
+                    token.snapshot_seq,
+                    token.dirty_epoch,
+                    @tagName(token.damage_kind),
+                    token.damage_base_seq,
+                    publication.source.graphics.publication_seq,
+                    publication.source.graphics.dirty_generation,
+                    publication.source.graphics.image_count,
+                    publication.source.graphics.placement_count,
+                    publication.source.graphics.virtual_placement_count,
+                    publication.source.graphics.placeholder_run_count,
+                    publication.source.graphics_payload_bytes.len,
+                },
+            );
+        }
     }
 
     fn classify(self: *const PublicationState, source: PublicationSource, submitted_token: ?pipeline.SnapshotToken) pipeline.DamageKind {
@@ -890,6 +928,13 @@ fn colorPresentationChanged(prior: PublicationSource, current: PublicationSource
 
 fn graphicsPublicationChanged(prior: PublicationSource, current: PublicationSource) bool {
     return !std.mem.eql(u8, std.mem.asBytes(&prior.graphics), std.mem.asBytes(&current.graphics));
+}
+
+fn hasGraphics(meta: abi.FfiVtGraphicsMeta) bool {
+    return meta.image_count != 0 or
+        meta.placement_count != 0 or
+        meta.virtual_placement_count != 0 or
+        meta.placeholder_run_count != 0;
 }
 
 fn setSourceCursorBlinkVisible(source: *PublicationSource, visible: bool) bool {
