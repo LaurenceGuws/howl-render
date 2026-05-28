@@ -565,7 +565,7 @@ test "real app icon kitty publication survives render prepare and composition" {
     );
     errdefer graphics.deinit(allocator);
 
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], icon.payload_base64);
+    try session.graphics_preparer.prepare(&graphics, source_images[0..], icon.payload_base64, .legacy_protocol);
 
     try std.testing.expectEqual(@as(usize, 1), graphics.images.len);
     try std.testing.expectEqual(@as(usize, 1), graphics.placements.len);

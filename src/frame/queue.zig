@@ -140,6 +140,7 @@ pub const PublicationSource = struct {
     graphics_placements: []abi.FfiVtGraphicsPlacement = &.{},
     graphics_virtual_placements: []abi.FfiVtGraphicsVirtualPlacement = &.{},
     graphics_payload_bytes: []u8 = &.{},
+    graphics_payload_kind: GraphicsPayloadKind = .legacy_protocol,
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
@@ -195,6 +196,7 @@ pub const PublicationSource = struct {
             .graphics_placements = graphics_placements,
             .graphics_virtual_placements = graphics_virtual_placements,
             .graphics_payload_bytes = graphics_payload_bytes,
+            .graphics_payload_kind = self.graphics_payload_kind,
             .cursor_phase_visible = self.cursor_phase_visible,
             .dirty_rows = dirty_rows,
             .dirty_cols_start = dirty_cols_start,
@@ -253,6 +255,12 @@ pub const ReservedSourceMeta = struct {
     graphics_placements: []const abi.FfiVtGraphicsPlacement = &.{},
     graphics_virtual_placements: []const abi.FfiVtGraphicsVirtualPlacement = &.{},
     graphics_payload_bytes: []const u8 = &.{},
+    graphics_payload_kind: GraphicsPayloadKind = .legacy_protocol,
+};
+
+pub const GraphicsPayloadKind = enum(u8) {
+    legacy_protocol,
+    decoded_pixels,
 };
 
 pub const PendingState = struct {
@@ -408,6 +416,7 @@ const PublicationState = struct {
             meta.graphics_placements,
             meta.graphics_virtual_placements,
             meta.graphics_payload_bytes,
+            meta.graphics_payload_kind,
         );
         source.graphics_images = try self.allocator.dupe(abi.FfiVtGraphicsImage, meta.graphics_images);
         errdefer self.allocator.free(source.graphics_images);
@@ -417,6 +426,7 @@ const PublicationState = struct {
         errdefer self.allocator.free(source.graphics_virtual_placements);
         source.graphics_payload_bytes = try self.allocator.dupe(u8, meta.graphics_payload_bytes);
         errdefer self.allocator.free(source.graphics_payload_bytes);
+        source.graphics_payload_kind = meta.graphics_payload_kind;
         return self.acceptSource(source, submitted_token, geometry_epoch);
     }
 
@@ -662,6 +672,7 @@ const PublicationState = struct {
             .graphics_placements = &.{},
             .graphics_virtual_placements = &.{},
             .graphics_payload_bytes = &.{},
+            .graphics_payload_kind = .legacy_protocol,
             .cursor_phase_visible = true,
             .dirty_rows = slot.dirty_rows,
             .dirty_cols_start = slot.dirty_cols_start,
@@ -703,6 +714,7 @@ const PublicationState = struct {
         const graphics_placements = source.graphics_placements;
         const graphics_virtual_placements = source.graphics_virtual_placements;
         const graphics_payload_bytes = source.graphics_payload_bytes;
+        const graphics_payload_kind = source.graphics_payload_kind;
         const cursor_phase_visible = source.cursor_phase_visible;
         source.* = self.retainedSource(source.cols, source.rows);
         source.history_count = history_count;
@@ -718,6 +730,7 @@ const PublicationState = struct {
         source.graphics_placements = graphics_placements;
         source.graphics_virtual_placements = graphics_virtual_placements;
         source.graphics_payload_bytes = graphics_payload_bytes;
+        source.graphics_payload_kind = graphics_payload_kind;
         source.cursor_phase_visible = cursor_phase_visible;
     }
 };
@@ -729,6 +742,7 @@ fn validateGraphicsSource(
     placements: []const abi.FfiVtGraphicsPlacement,
     virtual_placements: []const abi.FfiVtGraphicsVirtualPlacement,
     payload_bytes: []const u8,
+    payload_kind: GraphicsPayloadKind,
 ) !void {
     if (meta.is_alternate_screen > 1) return error.InvalidGraphicsMetadata;
     if ((meta.is_alternate_screen != 0) != publication_is_alternate_screen) return error.InvalidGraphicsMetadata;
@@ -736,7 +750,7 @@ fn validateGraphicsSource(
     if (meta.placement_count != placements.len) return error.InvalidGraphicsMetadata;
     if (meta.virtual_placement_count != virtual_placements.len) return error.InvalidGraphicsMetadata;
     try validateGraphicsReferences(images, placements, virtual_placements);
-    try validateGraphicsPayloadSource(images, payload_bytes);
+    try validateGraphicsPayloadSource(images, payload_bytes, payload_kind);
 }
 
 fn validateGraphicsReferences(
@@ -766,17 +780,39 @@ fn graphicsImageExists(images: []const abi.FfiVtGraphicsImage, image_id: u32) bo
     return false;
 }
 
-fn validateGraphicsPayloadSource(images: []const abi.FfiVtGraphicsImage, payload_bytes: []const u8) !void {
-    const total = try totalGraphicsPayloadLen(images);
+fn validateGraphicsPayloadSource(
+    images: []const abi.FfiVtGraphicsImage,
+    payload_bytes: []const u8,
+    payload_kind: GraphicsPayloadKind,
+) !void {
+    const total = try totalGraphicsPayloadLen(images, payload_kind);
     if (total != payload_bytes.len) return error.InvalidGraphicsPayload;
 }
 
-fn totalGraphicsPayloadLen(images: []const abi.FfiVtGraphicsImage) !usize {
+fn totalGraphicsPayloadLen(images: []const abi.FfiVtGraphicsImage, payload_kind: GraphicsPayloadKind) !usize {
     var total: u64 = 0;
     for (images) |image| {
-        total = std.math.add(u64, total, image.payload_len) catch return error.InvalidGraphicsPayload;
+        const payload_len = switch (payload_kind) {
+            .legacy_protocol => image.payload_len,
+            .decoded_pixels => try decodedGraphicsPayloadLen(image),
+        };
+        total = std.math.add(u64, total, payload_len) catch return error.InvalidGraphicsPayload;
     }
     return std.math.cast(usize, total) orelse return error.InvalidGraphicsPayload;
+}
+
+fn decodedGraphicsPayloadLen(image: abi.FfiVtGraphicsImage) !u64 {
+    if (image.width == 0) return error.InvalidGraphicsPayload;
+    if (image.height == 0) return error.InvalidGraphicsPayload;
+    const channels: u64 = switch (image.format) {
+        24 => 3,
+        32 => 4,
+        else => return error.InvalidGraphicsPayload,
+    };
+    const pixels = std.math.mul(u64, image.width, image.height) catch return error.InvalidGraphicsPayload;
+    const expected = std.math.mul(u64, pixels, channels) catch return error.InvalidGraphicsPayload;
+    if (image.payload_len != expected) return error.InvalidGraphicsPayload;
+    return expected;
 }
 
 pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
@@ -792,6 +828,7 @@ pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
         source.graphics_placements,
         source.graphics_virtual_placements,
         source.graphics_payload_bytes,
+        source.graphics_payload_kind,
     );
 }
 
@@ -899,6 +936,7 @@ fn samePublicationSource(a: PublicationSource, b: PublicationSource) bool {
         std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_placements), std.mem.sliceAsBytes(b.graphics_placements)) and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_virtual_placements), std.mem.sliceAsBytes(b.graphics_virtual_placements)) and
         std.mem.eql(u8, a.graphics_payload_bytes, b.graphics_payload_bytes) and
+        a.graphics_payload_kind == b.graphics_payload_kind and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.cells), std.mem.sliceAsBytes(b.cells)) and
         std.mem.eql(u8, a.dirty_rows, b.dirty_rows) and
         std.mem.eql(u16, a.dirty_cols_start, b.dirty_cols_start) and
@@ -1991,6 +2029,82 @@ test "flow commit publish slot validates graphics payload byte size" {
         .graphics_images = images[0..],
         .graphics_virtual_placements = &.{},
         .graphics_payload_bytes = "ABC",
+    }));
+}
+
+test "flow decoded graphics commit validates exact raw payload bytes" {
+    try expectDecodedGraphicsPayloadError(24, 3, &.{ 1, 2 });
+    try expectDecodedGraphicsPayloadError(24, 3, &.{ 1, 2, 3, 4 });
+    try expectDecodedGraphicsPayloadError(100, 4, &.{ 1, 2, 3, 4 });
+    try expectDecodedGraphicsGeometryError(0, 1);
+    try expectDecodedGraphicsGeometryError(1, 0);
+}
+
+fn expectDecodedGraphicsGeometryError(width: u32, height: u32) !void {
+    try expectDecodedGraphicsCommitError(.{
+        .format = 24,
+        .width = width,
+        .height = height,
+        .payload_len = 0,
+        .payload = &.{},
+    });
+}
+
+fn expectDecodedGraphicsPayloadError(format: u16, payload_len: u64, payload: []const u8) !void {
+    try expectDecodedGraphicsCommitError(.{
+        .format = format,
+        .width = 1,
+        .height = 1,
+        .payload_len = payload_len,
+        .payload = payload,
+    });
+}
+
+fn expectDecodedGraphicsCommitError(options: struct {
+    format: u16,
+    width: u32,
+    height: u32,
+    payload_len: u64,
+    payload: []const u8,
+}) !void {
+    var flow = Flow.init(std.heap.c_allocator);
+    defer flow.deinit();
+    _ = try flow.syncGeometry(.{
+        .render_px = .{ .width = 1, .height = 1 },
+        .grid_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+    });
+
+    const slot = try flow.reservePublishSlot(1, 1);
+    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[0].codepoint = 'A';
+    slot.dirty_rows[0] = 1;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 0;
+
+    const images = [_]abi.FfiVtGraphicsImage{.{
+        .image_id = 1,
+        .image_ref_id = 10,
+        .image_number = 0,
+        .format = options.format,
+        .width = options.width,
+        .height = options.height,
+        .payload_len = options.payload_len,
+    }};
+    try std.testing.expectError(error.InvalidGraphicsPayload, flow.commitPublishSlot(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{ .image_count = 1, .placement_count = 0, .virtual_placement_count = 0, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics_images = images[0..],
+        .graphics_placements = &.{},
+        .graphics_virtual_placements = &.{},
+        .graphics_payload_bytes = options.payload,
+        .graphics_payload_kind = .decoded_pixels,
     }));
 }
 

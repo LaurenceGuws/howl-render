@@ -16,6 +16,9 @@ comptime {
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceInfo) == @sizeOf(c.HowlRenderPreparedSurfaceInfo));
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceBuffer) == @sizeOf(c.HowlRenderPreparedSurfaceBuffer));
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceDiagnostics) == @sizeOf(c.HowlRenderPreparedSurfaceDiagnostics));
+    std.debug.assert(@sizeOf(abi.FfiVtGraphicsDecodedImage) == @sizeOf(c.HowlVtGraphicsDecodedImage));
+    std.debug.assert(@sizeOf(abi.FfiVtGraphicsDecodedImageSpan) == @sizeOf(c.HowlRenderVtGraphicsDecodedImageSpan));
+    std.debug.assert(@sizeOf(abi.FfiPublishDecodedGraphicsSlotCommit) == @sizeOf(c.HowlRenderPublishDecodedGraphicsSlotCommit));
 
     std.debug.assert(@intFromEnum(abi.HowlRenderCallStatus.ok) == c.HOWL_RENDER_CALL_OK);
     std.debug.assert(@intFromEnum(abi.HowlRenderCallStatus.missing_handle) == c.HOWL_RENDER_CALL_MISSING_HANDLE);
@@ -85,6 +88,11 @@ test "render abi lifecycle exports geometry and layout contract" {
     const geometry = surface_text_ffi.syncGeometry(handle, .{ .render_px = .{ .width = 32, .height = 32 }, .grid_px = .{ .width = 32, .height = 32 } });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, geometry.status);
     try std.testing.expect(geometry.geometry_epoch != 0);
+}
+
+test "render decoded graphics commit abi accepts raw rgb and rgba" {
+    try expectDecodedGraphicsPreparedImageRef(24, &.{ 1, 2, 3 });
+    try expectDecodedGraphicsPreparedImageRef(32, &.{ 1, 2, 3, 4 });
 }
 
 test "render abi prepare and submit seams report initial idle contract" {
@@ -468,6 +476,63 @@ fn createPreparedHandleWithSnapshot(handle: abi.SurfaceTextHandle, snapshot_seq:
     try std.testing.expectEqual(abi.HowlRenderPrepareStatus.ready, surface_text_ffi.prepareHandle(handle, request, &prepared_handle));
     try std.testing.expect(prepared_handle != null);
     return prepared_handle;
+}
+
+fn expectDecodedGraphicsPreparedImageRef(format: u16, payload: []const u8) !void {
+    const handle = surface_text_ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer surface_text_ffi.deinit(handle);
+    try std.testing.expect(handle != null);
+
+    const sync = surface_text_ffi.syncGeometry(handle, .{
+        .render_px = .{ .width = 16, .height = 16 },
+        .grid_px = .{ .width = 16, .height = 16 },
+    });
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, sync.status);
+
+    var slot = std.mem.zeroes(abi.FfiPublishSlot);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, surface_text_ffi.reservePublishSlot(handle, 1, 1, &slot));
+    slot.cells.ptr[0] = testCell();
+    slot.dirty_rows.ptr[0] = 1;
+    slot.dirty_cols_start.ptr[0] = 0;
+    slot.dirty_cols_end.ptr[0] = 0;
+
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
+        .image_id = 7,
+        .image_ref_id = 70,
+        .image_number = 0,
+        .format = format,
+        .width = 1,
+        .height = 1,
+        .payload_len = payload.len,
+    }};
+    var placement = std.mem.zeroes(abi.FfiVtGraphicsPlacement);
+    placement.image_id = 7;
+    placement.placement_id = 1;
+    placement.anchor = .{ .kind = 1, .value = 0 };
+    placement.source_width = 1;
+    placement.source_height = 1;
+    placement.dest_right_cell_px = 16;
+    placement.dest_bottom_cell_px = 16;
+    const placements = [_]abi.FfiVtGraphicsPlacement{placement};
+    const published = surface_text_ffi.commitPublishDecodedGraphicsSlot(handle, .{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = 0,
+        .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = .{ .image_count = 1, .placement_count = 1, .virtual_placement_count = 0, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics_images = .{ .ptr = images[0..].ptr, .len = images.len },
+        .graphics_placements = .{ .ptr = placements[0..].ptr, .len = placements.len },
+        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
+        .graphics_payload_bytes = .{ .ptr = payload.ptr, .len = payload.len },
+    });
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, published.status);
+
+    var request = std.mem.zeroes(abi.FfiPrepareRequest);
+    try std.testing.expectEqual(abi.HowlRenderPrepareStatus.ready, surface_text_ffi.takePrepareRequest(handle, &request));
+    try std.testing.expectEqual(@as(u64, 1), request.snapshot_seq);
 }
 
 fn createTestSurfaceTextHandle() !abi.SurfaceTextHandle {

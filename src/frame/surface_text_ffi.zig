@@ -164,6 +164,7 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         .graphics_placements = graphics_placements,
         .graphics_virtual_placements = graphics_virtual_placements,
         .graphics_payload_bytes = graphics_payload_bytes,
+        .graphics_payload_kind = .legacy_protocol,
     }) catch |err| {
         std.debug.panic(
             "render commitPublishSlot rejected: err={s} snapshot_seq={d} alt={} rows={d} cols={d} history_count={d} scroll_row={d} graphics=(images={d} placements={d} virtuals={d} alt={d} pub={d} dirty={d}) payload_len={d}",
@@ -184,6 +185,72 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
                 graphics_payload_bytes.len,
             },
         );
+    };
+    return vtPublishResultOut(result);
+}
+
+pub fn commitPublishDecodedGraphicsSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishDecodedGraphicsSlotCommit) callconv(.c) abi.FfiVtPublishResult {
+    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const reserved = owner.flow.publication_state.reserved orelse {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    const cursor = cursorIn(commit.cursor) orelse {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    if (commit.snapshot_seq == 0) {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    }
+    for (reserved.cells) |cell| {
+        validateCellValue(cell) catch {
+            owner.flow.cancelPublishSlot();
+            return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+        };
+    }
+    const decoded_graphics_images = graphicsDecodedImagesIn(commit.graphics_images) catch {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    const graphics_images = graphicsDecodedImagesCopy(owner.allocator, decoded_graphics_images) catch {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.failed), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    defer if (graphics_images.len > 0) owner.allocator.free(graphics_images);
+    const graphics_placements = graphicsPlacementsIn(commit.graphics_placements) catch {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    const graphics_virtual_placements = graphicsVirtualPlacementsIn(commit.graphics_virtual_placements) catch {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    const graphics_payload_bytes = byteSpanIn(commit.graphics_payload_bytes) catch {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    };
+    if (graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count or graphics_virtual_placements.len != commit.graphics.virtual_placement_count) {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    }
+    const result = owner.flow.commitPublishSlot(.{
+        .history_count = commit.history_count,
+        .scroll_row = commit.scroll_row,
+        .snapshot_seq = commit.snapshot_seq,
+        .is_alternate_screen = commit.is_alternate_screen != 0,
+        .cursor = cursor,
+        .colors = commit.colors,
+        .selection = commit.selection,
+        .graphics = commit.graphics,
+        .graphics_images = graphics_images,
+        .graphics_placements = graphics_placements,
+        .graphics_virtual_placements = graphics_virtual_placements,
+        .graphics_payload_bytes = graphics_payload_bytes,
+        .graphics_payload_kind = .decoded_pixels,
+    }) catch {
+        owner.flow.cancelPublishSlot();
+        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
     return vtPublishResultOut(result);
 }
@@ -562,6 +629,7 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
         .graphics_placements = graphics_placements,
         .graphics_virtual_placements = graphics_virtual_placements,
         .graphics_payload_bytes = graphics_payload_bytes,
+        .graphics_payload_kind = .legacy_protocol,
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -684,6 +752,12 @@ fn graphicsImagesIn(span: abi.FfiVtGraphicsImageSpan) ![]const abi.FfiVtGraphics
     return span.ptr[0..span.len];
 }
 
+fn graphicsDecodedImagesIn(span: abi.FfiVtGraphicsDecodedImageSpan) ![]const abi.FfiVtGraphicsDecodedImage {
+    if (span.len == 0) return &.{};
+    if (span.ptr == null) return error.InvalidSurfaceSource;
+    return span.ptr[0..span.len];
+}
+
 fn graphicsPlacementsIn(span: abi.FfiVtGraphicsPlacementSpan) ![]const abi.FfiVtGraphicsPlacement {
     if (span.len == 0) return &.{};
     if (span.ptr == null) return error.InvalidSurfaceSource;
@@ -699,6 +773,27 @@ fn graphicsVirtualPlacementsIn(span: abi.FfiVtGraphicsVirtualPlacementSpan) ![]c
 fn graphicsImagesDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsImageSpan) ![]abi.FfiVtGraphicsImage {
     const items = try graphicsImagesIn(span);
     return try allocator.dupe(abi.FfiVtGraphicsImage, items);
+}
+
+fn graphicsDecodedImagesCopy(
+    allocator: std.mem.Allocator,
+    items: []const abi.FfiVtGraphicsDecodedImage,
+) ![]abi.FfiVtGraphicsImage {
+    const out = try allocator.alloc(abi.FfiVtGraphicsImage, items.len);
+    errdefer allocator.free(out);
+    for (items, 0..) |item, i| {
+        out[i] = .{
+            .image_id = item.image_id,
+            .image_ref_id = item.image_ref_id,
+            .image_number = item.image_number,
+            .format = item.format,
+            .reserved0 = item.reserved0,
+            .width = item.width,
+            .height = item.height,
+            .payload_len = item.payload_len,
+        };
+    }
+    return out;
 }
 
 fn graphicsPlacementsDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsPlacementSpan) ![]abi.FfiVtGraphicsPlacement {

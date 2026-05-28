@@ -14,6 +14,7 @@ comptime {
     @export(&surface_text_ffi.publishVtSource, .{ .name = "howl_render_surface_text_publish_vt_source" });
     @export(&surface_text_ffi.reservePublishSlot, .{ .name = "howl_render_surface_text_reserve_publish_slot" });
     @export(&surface_text_ffi.commitPublishSlot, .{ .name = "howl_render_surface_text_commit_publish_slot" });
+    @export(&surface_text_ffi.commitPublishDecodedGraphicsSlot, .{ .name = "howl_render_surface_text_commit_publish_decoded_graphics_slot" });
     @export(&surface_text_ffi.rejectPublishSlot, .{ .name = "howl_render_surface_text_reject_publish_slot" });
     @export(&surface_text_ffi.cancelPublishSlot, .{ .name = "howl_render_surface_text_cancel_publish_slot" });
     @export(&surface_text_ffi.takePrepareRequest, .{ .name = "howl_render_surface_text_take_prepare_request" });

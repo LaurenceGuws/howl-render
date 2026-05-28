@@ -267,6 +267,11 @@ typedef struct {
 } HowlRenderVtGraphicsImageSpan;
 
 typedef struct {
+  const HowlVtGraphicsDecodedImage *ptr;
+  size_t len;
+} HowlRenderVtGraphicsDecodedImageSpan;
+
+typedef struct {
   const HowlVtGraphicsPlacement *ptr;
   size_t len;
 } HowlRenderVtGraphicsPlacementSpan;
@@ -292,6 +297,23 @@ typedef struct {
   HowlRenderVtGraphicsVirtualPlacementSpan graphics_virtual_placements;
   HowlRenderByteSpan graphics_payload_bytes;
 } HowlRenderPublishSlotCommit;
+
+typedef struct {
+  uint64_t history_count;
+  uint64_t scroll_row;
+  uint64_t snapshot_seq;
+  uint8_t is_alternate_screen;
+  uint8_t reserved0;
+  uint16_t reserved1;
+  HowlVtCursor cursor;
+  HowlVtRenderColorState colors;
+  HowlVtSelection selection;
+  HowlRenderVtGraphicsMeta graphics;
+  HowlRenderVtGraphicsDecodedImageSpan graphics_images;
+  HowlRenderVtGraphicsPlacementSpan graphics_placements;
+  HowlRenderVtGraphicsVirtualPlacementSpan graphics_virtual_placements;
+  HowlRenderByteSpan graphics_payload_bytes;
+} HowlRenderPublishDecodedGraphicsSlotCommit;
 
 typedef struct {
   uint64_t sync_us;
@@ -409,6 +431,7 @@ HowlRenderGeometryResponse howl_render_surface_text_sync_geometry(HowlRenderSurf
 HowlRenderVtPublishResult howl_render_surface_text_publish_vt_source(HowlRenderSurfaceTextHandle handle, HowlRenderVtSurface source);
 int howl_render_surface_text_reserve_publish_slot(HowlRenderSurfaceTextHandle handle, uint16_t cols, uint16_t rows, HowlRenderPublishSlot *slot_out);
 HowlRenderVtPublishResult howl_render_surface_text_commit_publish_slot(HowlRenderSurfaceTextHandle handle, HowlRenderPublishSlotCommit commit);
+HowlRenderVtPublishResult howl_render_surface_text_commit_publish_decoded_graphics_slot(HowlRenderSurfaceTextHandle handle, HowlRenderPublishDecodedGraphicsSlotCommit commit);
 HowlRenderVtPublishResult howl_render_surface_text_reject_publish_slot(HowlRenderSurfaceTextHandle handle, uint64_t snapshot_seq);
 void howl_render_surface_text_cancel_publish_slot(HowlRenderSurfaceTextHandle handle);
 HowlRenderPrepareStatus howl_render_surface_text_take_prepare_request(HowlRenderSurfaceTextHandle handle, HowlRenderPrepareRequest *prepare_request_out);
