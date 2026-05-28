@@ -1,6 +1,5 @@
 const std = @import("std");
 const abi = @import("../ffi_types.zig");
-const graphics_log = @import("../graphics_log.zig");
 const geometry_mod = @import("geometry.zig");
 const graphics_prepare = @import("graphics_prepare.zig");
 const input = @import("input.zig");
@@ -138,23 +137,6 @@ pub const SurfaceText = struct {
         var graphics = try prepareSurfaceGraphics(self.allocator, prepare);
         errdefer graphics.deinit(self.allocator);
         try self.graphics_preparer.prepare(&graphics, prepare.state.graphics_images, prepare.state.graphics_payload_bytes);
-        if (preparedHasGraphics(graphics)) {
-            graphics_log.event(
-                "render-prepare",
-                "snapshot_seq={d} dirty_epoch={d} damage={s} publication_seq={d} images={d} placements={d} layers_below_bg={d} layers_below_text={d} layers_above_text={d}",
-                .{
-                    prepare.request.token.snapshot_seq,
-                    prepare.request.token.dirty_epoch,
-                    @tagName(prepare.request.token.damage_kind),
-                    graphics.publication_seq,
-                    graphics.images.len,
-                    graphics.placements.len,
-                    graphics.below_bg_count,
-                    graphics.below_text_count,
-                    graphics.above_text_count,
-                },
-            );
-        }
         var resolve: text_pipeline.ResolveObservability = .{};
         const preparer = try self.ensureTextPreparer(&context);
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
@@ -167,23 +149,6 @@ pub const SurfaceText = struct {
     pub fn submitSurface(self: *SurfaceText, prepared: *surface.PreparedSurface, execution: RenderSurfaceExecutionInput) !surface.RenderSurfaceFeedback {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
-        if (preparedHasGraphics(prepared.graphics)) {
-            graphics_log.event(
-                "render-submit",
-                "snapshot_seq={d} dirty_epoch={d} publication_seq={d} images={d} placements={d} surface_id={d} surface_w={d} surface_h={d} uploads_committed={d}",
-                .{
-                    prepared.request.token.snapshot_seq,
-                    prepared.request.token.dirty_epoch,
-                    prepared.graphics.publication_seq,
-                    prepared.graphics.images.len,
-                    prepared.graphics.placements.len,
-                    execution.surface.host_surface_id,
-                    execution.surface.width,
-                    execution.surface.height,
-                    execution.uploads_committed,
-                },
-            );
-        }
         submit_feedback.markRendered(&self.text_preparer.?.atlas, prepared.text_frame.raster_plan.outputs);
         const submitted = surface.RenderSurfaceFeedback{
             .damage_kind = submit_feedback.damageKind(prepared),
@@ -255,11 +220,6 @@ pub const SurfaceText = struct {
             prepare.state.graphics_images,
             prepare.state.graphics_placements,
         );
-    }
-
-    fn preparedHasGraphics(graphics: surface.PreparedGraphics) bool {
-        return graphics.images.len != 0 or
-            graphics.placements.len != 0;
     }
 
     fn ensureTextPreparer(self: *SurfaceText, context: *TextContext) !*text.TextFramePreparer {
