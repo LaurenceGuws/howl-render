@@ -530,7 +530,6 @@ fn nextPrepareRequest(handle: abi.SurfaceTextHandle, snapshot_seq: u64) !abi.Ffi
         .graphics_images = .{ .ptr = null, .len = 0 },
         .graphics_placements = .{ .ptr = null, .len = 0 },
         .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
-        .graphics_placeholder_runs = .{ .ptr = null, .len = 0 },
         .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
     });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);

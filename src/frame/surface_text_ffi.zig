@@ -143,19 +143,11 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    const graphics_placeholder_runs = graphicsPlaceholderRunsIn(commit.graphics_placeholder_runs) catch {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
     const graphics_payload_bytes = byteSpanIn(commit.graphics_payload_bytes) catch {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    if (graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count or graphics_virtual_placements.len != commit.graphics.virtual_placement_count or graphics_placeholder_runs.len != commit.graphics.placeholder_run_count) {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    }
-    if (graphics_placeholder_runs.len != 0 and queue.hasGeneratedPlaceholderPlacement(graphics_placements)) {
+    if (graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count or graphics_virtual_placements.len != commit.graphics.virtual_placement_count) {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
@@ -171,11 +163,10 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
         .graphics_images = graphics_images,
         .graphics_placements = graphics_placements,
         .graphics_virtual_placements = graphics_virtual_placements,
-        .graphics_placeholder_runs = graphics_placeholder_runs,
         .graphics_payload_bytes = graphics_payload_bytes,
     }) catch |err| {
         std.debug.panic(
-            "render commitPublishSlot rejected: err={s} snapshot_seq={d} alt={} rows={d} cols={d} history_count={d} scroll_row={d} graphics=(images={d} placements={d} virtuals={d} placeholders={d} alt={d} pub={d} dirty={d}) payload_len={d}",
+            "render commitPublishSlot rejected: err={s} snapshot_seq={d} alt={} rows={d} cols={d} history_count={d} scroll_row={d} graphics=(images={d} placements={d} virtuals={d} alt={d} pub={d} dirty={d}) payload_len={d}",
             .{
                 @errorName(err),
                 commit.snapshot_seq,
@@ -187,7 +178,6 @@ pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSl
                 commit.graphics.image_count,
                 commit.graphics.placement_count,
                 commit.graphics.virtual_placement_count,
-                commit.graphics.placeholder_run_count,
                 commit.graphics.is_alternate_screen,
                 commit.graphics.publication_seq,
                 commit.graphics.dirty_generation,
@@ -548,14 +538,11 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
     errdefer if (graphics_placements.len > 0) allocator.free(graphics_placements);
     const graphics_virtual_placements = try graphicsVirtualPlacementsDup(allocator, value.graphics_virtual_placements);
     errdefer if (graphics_virtual_placements.len > 0) allocator.free(graphics_virtual_placements);
-    const graphics_placeholder_runs = try graphicsPlaceholderRunsDup(allocator, value.graphics_placeholder_runs);
-    errdefer if (graphics_placeholder_runs.len > 0) allocator.free(graphics_placeholder_runs);
     const graphics_payload_bytes = try byteSpanDup(allocator, value.graphics_payload_bytes);
     errdefer if (graphics_payload_bytes.len > 0) allocator.free(graphics_payload_bytes);
-    if (graphics_images.len != value.graphics.image_count or graphics_placements.len != value.graphics.placement_count or graphics_virtual_placements.len != value.graphics.virtual_placement_count or graphics_placeholder_runs.len != value.graphics.placeholder_run_count) {
+    if (graphics_images.len != value.graphics.image_count or graphics_placements.len != value.graphics.placement_count or graphics_virtual_placements.len != value.graphics.virtual_placement_count) {
         return error.InvalidSurfaceSource;
     }
-    if (graphics_placeholder_runs.len != 0 and queue.hasGeneratedPlaceholderPlacement(graphics_placements)) return error.InvalidSurfaceSource;
 
     const cursor = cursorIn(value.cursor) orelse return error.InvalidSurfaceSource;
     const source: queue.PublicationSource = .{
@@ -574,7 +561,6 @@ fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.Pub
         .graphics_images = graphics_images,
         .graphics_placements = graphics_placements,
         .graphics_virtual_placements = graphics_virtual_placements,
-        .graphics_placeholder_runs = graphics_placeholder_runs,
         .graphics_payload_bytes = graphics_payload_bytes,
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
@@ -710,12 +696,6 @@ fn graphicsVirtualPlacementsIn(span: abi.FfiVtGraphicsVirtualPlacementSpan) ![]c
     return span.ptr[0..span.len];
 }
 
-fn graphicsPlaceholderRunsIn(span: abi.FfiVtGraphicsPlaceholderRunSpan) ![]const abi.FfiVtGraphicsPlaceholderRun {
-    if (span.len == 0) return &.{};
-    if (span.ptr == null) return error.InvalidSurfaceSource;
-    return span.ptr[0..span.len];
-}
-
 fn graphicsImagesDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsImageSpan) ![]abi.FfiVtGraphicsImage {
     const items = try graphicsImagesIn(span);
     return try allocator.dupe(abi.FfiVtGraphicsImage, items);
@@ -729,11 +709,6 @@ fn graphicsPlacementsDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsPl
 fn graphicsVirtualPlacementsDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsVirtualPlacementSpan) ![]abi.FfiVtGraphicsVirtualPlacement {
     const items = try graphicsVirtualPlacementsIn(span);
     return try allocator.dupe(abi.FfiVtGraphicsVirtualPlacement, items);
-}
-
-fn graphicsPlaceholderRunsDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsPlaceholderRunSpan) ![]abi.FfiVtGraphicsPlaceholderRun {
-    const items = try graphicsPlaceholderRunsIn(span);
-    return try allocator.dupe(abi.FfiVtGraphicsPlaceholderRun, items);
 }
 
 fn underlineStyleValueIn(value: u8) !surface.UnderlineStyle {
@@ -779,72 +754,10 @@ test "vtSurfaceIn rejects graphics screen identity mismatch" {
         .cursor = std.mem.zeroes(abi.FfiVtCursor),
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 0, .placeholder_run_count = 0, .is_alternate_screen = 1, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 0, .is_alternate_screen = 1, .publication_seq = 1, .dirty_generation = 1 },
         .graphics_images = .{ .ptr = null, .len = 0 },
         .graphics_placements = .{ .ptr = null, .len = 0 },
         .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
-        .graphics_placeholder_runs = .{ .ptr = null, .len = 0 },
-        .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
-    }));
-}
-
-test "vtSurfaceIn rejects placeholder run count mismatch" {
-    const cells = [_]abi.FfiVtCell{std.mem.zeroes(abi.FfiVtCell)};
-    const dirty_rows = [_]u8{1};
-    const dirty_cols_start = [_]u16{0};
-    const dirty_cols_end = [_]u16{0};
-
-    try std.testing.expectError(error.InvalidSurfaceSource, vtSurfaceIn(std.testing.allocator, .{
-        .cells = .{ .ptr = @constCast(cells[0..].ptr), .len = cells.len },
-        .cols = 1,
-        .rows = 1,
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = 0,
-        .dirty_rows = .{ .ptr = @constCast(dirty_rows[0..].ptr), .len = dirty_rows.len },
-        .dirty_cols_start = .{ .ptr = @constCast(dirty_cols_start[0..].ptr), .len = dirty_cols_start.len },
-        .dirty_cols_end = .{ .ptr = @constCast(dirty_cols_end[0..].ptr), .len = dirty_cols_end.len },
-        .cursor = std.mem.zeroes(abi.FfiVtCursor),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 0, .placeholder_run_count = 1, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_images = .{ .ptr = null, .len = 0 },
-        .graphics_placements = .{ .ptr = null, .len = 0 },
-        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
-        .graphics_placeholder_runs = .{ .ptr = null, .len = 0 },
-        .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
-    }));
-}
-
-test "vtSurfaceIn rejects placeholder run publication mismatch" {
-    const cells = [_]abi.FfiVtCell{std.mem.zeroes(abi.FfiVtCell)};
-    const dirty_rows = [_]u8{1};
-    const dirty_cols_start = [_]u16{0};
-    const dirty_cols_end = [_]u16{0};
-    const images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 0 }};
-    const virtual_placements = [_]abi.FfiVtGraphicsVirtualPlacement{.{ .image_id = 7, .placement_id = 9, .source_x = 0, .source_y = 0, .source_width = 1, .source_height = 1, .columns = 1, .rows = 1 }};
-    const placeholder_runs = [_]abi.FfiVtGraphicsPlaceholderRun{.{ .image_id = 7, .placement_id = 10, .virtual_placement_index = 0, .run_order = 0, .cell_row = 0, .cell_col = 0, .image_row = 0, .image_col = 0, .columns = 1 }};
-
-    try std.testing.expectError(error.InvalidGraphicsMetadata, vtSurfaceIn(std.testing.allocator, .{
-        .cells = .{ .ptr = @constCast(cells[0..].ptr), .len = cells.len },
-        .cols = 1,
-        .rows = 1,
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = 0,
-        .dirty_rows = .{ .ptr = @constCast(dirty_rows[0..].ptr), .len = dirty_rows.len },
-        .dirty_cols_start = .{ .ptr = @constCast(dirty_cols_start[0..].ptr), .len = dirty_cols_start.len },
-        .dirty_cols_end = .{ .ptr = @constCast(dirty_cols_end[0..].ptr), .len = dirty_cols_end.len },
-        .cursor = std.mem.zeroes(abi.FfiVtCursor),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = .{ .image_count = 1, .placement_count = 0, .virtual_placement_count = 1, .placeholder_run_count = 1, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_images = .{ .ptr = @constCast(images[0..].ptr), .len = images.len },
-        .graphics_placements = .{ .ptr = null, .len = 0 },
-        .graphics_virtual_placements = .{ .ptr = @constCast(virtual_placements[0..].ptr), .len = virtual_placements.len },
-        .graphics_placeholder_runs = .{ .ptr = @constCast(placeholder_runs[0..].ptr), .len = placeholder_runs.len },
         .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
     }));
 }
