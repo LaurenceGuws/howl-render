@@ -268,6 +268,7 @@ pub const FfiVtGraphicsRowAnchor = extern struct {
 
 pub const FfiVtGraphicsImage = extern struct {
     image_id: u32,
+    image_ref_id: u32 = 0,
     image_number: u32,
     format: u16,
     reserved0: u16 = 0,
@@ -427,6 +428,7 @@ pub const FfiPreparedSurfaceInfo = extern struct {
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
+    graphics_publication_seq: u64,
     render_px: FfiPixelSize,
     cell_px: FfiCellSize,
     grid: FfiGridSize,
@@ -434,6 +436,12 @@ pub const FfiPreparedSurfaceInfo = extern struct {
     damage_kind: u8,
     reserved0: u8 = 0,
     reserved1: u16 = 0,
+    graphics_image_ref_count: u32 = 0,
+};
+
+pub const FfiPreparedGraphicsImageRefResult = extern struct {
+    status: i32 = @intFromEnum(HowlRenderCallStatus.failed),
+    image_ref_id: u32 = 0,
 };
 
 pub const FfiPreparedSurfaceBuffer = extern struct {

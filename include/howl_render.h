@@ -325,6 +325,7 @@ typedef struct {
   uint64_t dirty_epoch;
   uint64_t geometry_epoch;
   uint64_t required_base_seq;
+  uint64_t graphics_publication_seq;
   HowlRenderPixelSize render_px;
   HowlRenderCellSize cell_px;
   HowlRenderGridSize grid;
@@ -332,7 +333,13 @@ typedef struct {
   uint8_t damage_kind;
   uint8_t reserved0;
   uint16_t reserved1;
+  uint32_t graphics_image_ref_count;
 } HowlRenderPreparedSurfaceInfo;
+
+typedef struct {
+  int32_t status;
+  uint32_t image_ref_id;
+} HowlRenderPreparedGraphicsImageRefResult;
 
 typedef struct {
   int32_t status;
@@ -417,6 +424,7 @@ HowlRenderPrepareStatus howl_render_surface_text_prepare_handle(HowlRenderSurfac
 void howl_render_prepared_surface_release(HowlRenderPreparedSurfaceHandle prepared_surface_handle);
 int howl_render_prepared_surface_describe(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceInfo *info_out);
 int howl_render_prepared_surface_buffer(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceBuffer *buffer_out);
+HowlRenderPreparedGraphicsImageRefResult howl_render_prepared_surface_graphics_image_ref(HowlRenderPreparedSurfaceHandle prepared_surface_handle, uint32_t image_index);
 int howl_render_prepared_surface_diagnostics(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceDiagnostics *diagnostics_out);
 HowlRenderSubmitStatus howl_render_surface_text_submit(HowlRenderSurfaceTextHandle surface_text_handle, HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedFrame prepared_frame, const HowlRenderSurfaceExecutionInput *execution_in, HowlRenderSurfaceFeedback *feedback_out);
 HowlRenderSubmitStatus howl_render_surface_text_submit_handle(HowlRenderSurfaceTextHandle surface_text_handle, HowlRenderPreparedSurfaceHandle prepared_surface_handle, const HowlRenderSurfaceExecutionInput *execution_in, HowlRenderSurfaceFeedback *feedback_out);

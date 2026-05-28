@@ -744,6 +744,9 @@ fn validateGraphicsReferences(
     placements: []const abi.FfiVtGraphicsPlacement,
     virtual_placements: []const abi.FfiVtGraphicsVirtualPlacement,
 ) !void {
+    for (images) |image| {
+        if (image.image_ref_id == 0) return error.InvalidGraphicsMetadata;
+    }
     for (placements) |placement| {
         if (!graphicsImageExists(images, placement.image_id)) return error.InvalidGraphicsMetadata;
     }
@@ -1570,6 +1573,7 @@ test "graphics publication change replaces retained copied item metadata" {
     first.graphics.placement_count = 1;
     first.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsImage, &.{.{
         .image_id = 7,
+        .image_ref_id = 70,
         .image_number = 1,
         .format = 24,
         .width = 2,
@@ -1613,6 +1617,7 @@ test "graphics publication change replaces retained copied item metadata" {
     second.graphics.placement_count = 1;
     second.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsImage, &.{.{
         .image_id = 8,
+        .image_ref_id = 80,
         .image_number = 2,
         .format = 24,
         .width = 3,
@@ -1873,6 +1878,7 @@ test "flow commit publish slot copies graphics item metadata" {
 
     const images = [_]abi.FfiVtGraphicsImage{.{
         .image_id = 7,
+        .image_ref_id = 70,
         .image_number = 9,
         .format = 24,
         .width = 2,
@@ -1965,6 +1971,7 @@ test "flow commit publish slot validates graphics payload byte size" {
 
     const images = [_]abi.FfiVtGraphicsImage{.{
         .image_id = 1,
+        .image_ref_id = 10,
         .image_number = 0,
         .format = 24,
         .width = 1,
@@ -2005,6 +2012,7 @@ test "flow commit publish slot validates graphics metadata counts" {
 
     const images = [_]abi.FfiVtGraphicsImage{.{
         .image_id = 1,
+        .image_ref_id = 10,
         .image_number = 0,
         .format = 24,
         .width = 1,
@@ -2053,7 +2061,7 @@ fn expectInvalidVirtualPlacement(field: InvalidVirtualPlacementField) !void {
     var dirty_rows = [_]u8{1};
     var dirty_cols_start = [_]u16{0};
     var dirty_cols_end = [_]u16{0};
-    var images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 0 }};
+    var images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 0 }};
     var virtual_placement = abi.FfiVtGraphicsVirtualPlacement{
         .image_id = 7,
         .placement_id = 9,

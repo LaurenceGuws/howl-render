@@ -75,6 +75,7 @@ pub const PreparedGraphicsLayer = enum(u8) {
 
 pub const PreparedGraphicsImageRef = struct {
     image_id: u32,
+    image_ref_id: u32 = 0,
     width: u32,
     height: u32,
     format: u16,

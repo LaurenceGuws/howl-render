@@ -14,7 +14,7 @@ pub const DecodedGraphicsKey = struct {
 };
 
 pub const GraphicsPublicationImageKey = struct {
-    image_id: u32,
+    image_ref_id: u32,
     key: DecodedGraphicsKey,
 };
 
@@ -74,7 +74,7 @@ pub const GraphicsPreparer = struct {
         errdefer self.allocator.free(publication_keys);
         for (source_payloads, 0..) |source_payload, i| {
             const key = graphicsKey(source_payload.image, source_payload.payload);
-            publication_keys[i] = .{ .image_id = source_payload.image.image_id, .key = key };
+            publication_keys[i] = .{ .image_ref_id = source_payload.image.image_ref_id, .key = key };
             _ = try self.ensureDecodedGraphicsRaster(source_payload, key);
         }
         self.replaceGraphicsPublicationImageKeys(publication_keys);
@@ -142,10 +142,11 @@ pub const GraphicsPreparer = struct {
         var images = std.ArrayList(surface.PreparedGraphicsImageRef).empty;
         defer images.deinit(self.allocator);
         for (old_images, 0..) |image, old_index| {
-            const raster_index = self.publicationRasterIndex(image.image_id) orelse continue;
+            const raster_index = self.publicationRasterIndex(image.image_ref_id) orelse continue;
             image_remap[old_index] = std.math.cast(u32, images.items.len) orelse return error.OutOfMemory;
             try images.append(self.allocator, .{
                 .image_id = image.image_id,
+                .image_ref_id = image.image_ref_id,
                 .width = image.width,
                 .height = image.height,
                 .format = image.format,
@@ -180,14 +181,14 @@ pub const GraphicsPreparer = struct {
         prepared.above_text_count = above_text_count;
     }
 
-    fn publicationRasterIndex(self: *const GraphicsPreparer, image_id: u32) ?u32 {
-        const key = self.publicationKey(image_id) orelse return null;
+    fn publicationRasterIndex(self: *const GraphicsPreparer, image_ref_id: u32) ?u32 {
+        const key = self.publicationKey(image_ref_id) orelse return null;
         return self.findDecodedGraphicsRasterIndex(key);
     }
 
-    fn publicationKey(self: *const GraphicsPreparer, image_id: u32) ?DecodedGraphicsKey {
+    fn publicationKey(self: *const GraphicsPreparer, image_ref_id: u32) ?DecodedGraphicsKey {
         for (self.graphics_publication_image_keys) |entry| {
-            if (entry.image_id == image_id) return entry.key;
+            if (entry.image_ref_id == image_ref_id) return entry.key;
         }
         return null;
     }
@@ -340,9 +341,9 @@ test "sourceGraphicsPayloads binds exact payload slices across multiple images" 
     defer preparer.deinit();
 
     const images = [_]abi.FfiVtGraphicsImage{
-        .{ .image_id = 1, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
-        .{ .image_id = 2, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 },
-        .{ .image_id = 3, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 1 },
+        .{ .image_id = 1, .image_ref_id = 10, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
+        .{ .image_id = 2, .image_ref_id = 20, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 },
+        .{ .image_id = 3, .image_ref_id = 30, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 1 },
     };
 
     const payloads = try preparer.sourceGraphicsPayloads(images[0..], "ABCDEF");
@@ -362,8 +363,8 @@ test "sourceGraphicsPayloads rejects trailing or truncated multi-image payload b
     defer preparer.deinit();
 
     const images = [_]abi.FfiVtGraphicsImage{
-        .{ .image_id = 1, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
-        .{ .image_id = 2, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
+        .{ .image_id = 1, .image_ref_id = 10, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
+        .{ .image_id = 2, .image_ref_id = 20, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
     };
 
     try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], "ABCDE"));

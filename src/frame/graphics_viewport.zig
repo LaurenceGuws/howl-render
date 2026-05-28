@@ -188,13 +188,15 @@ fn appendImageRef(
     prepared_images: *std.ArrayList(surface.PreparedGraphicsImageRef),
     image: abi.FfiVtGraphicsImage,
 ) !u32 {
+    std.debug.assert(image.image_ref_id != 0);
     for (prepared_images.items, 0..) |prepared, image_index| {
-        if (prepared.image_id == image.image_id) {
+        if (prepared.image_ref_id == image.image_ref_id) {
             return std.math.cast(u32, image_index) orelse return error.OutOfMemory;
         }
     }
     try prepared_images.append(allocator, .{
         .image_id = image.image_id,
+        .image_ref_id = image.image_ref_id,
         .width = image.width,
         .height = image.height,
         .format = image.format,
@@ -379,6 +381,7 @@ test "graphics viewport reports fully off-screen below placement as invisible" {
 test "graphics viewport prepares visible placement" {
     const images = [_]abi.FfiVtGraphicsImage{.{
         .image_id = 7,
+        .image_ref_id = 77,
         .format = 24,
         .width = 64,
         .height = 32,
@@ -414,6 +417,7 @@ test "graphics viewport prepares visible placement" {
 
     try std.testing.expectEqual(@as(u64, 3), prepared.publication_seq);
     try std.testing.expectEqual(@as(usize, 1), prepared.images.len);
+    try std.testing.expectEqual(@as(u32, 77), prepared.images[0].image_ref_id);
     try std.testing.expectEqual(@as(usize, 1), prepared.placements.len);
     try std.testing.expectEqual(surface.PreparedGraphicsLayer.above_text, prepared.placements[0].layer);
     try std.testing.expectEqual(@as(i32, 35), prepared.placements[0].dest_x_px);
@@ -429,6 +433,7 @@ test "graphics viewport prepares visible placement" {
 test "graphics viewport adjusts source rect after clipping" {
     const images = [_]abi.FfiVtGraphicsImage{.{
         .image_id = 9,
+        .image_ref_id = 99,
         .format = 24,
         .width = 100,
         .height = 50,
@@ -476,6 +481,7 @@ test "graphics viewport adjusts source rect after clipping" {
 test "graphics viewport rejects fully off-screen placement" {
     const images = [_]abi.FfiVtGraphicsImage{.{
         .image_id = 3,
+        .image_ref_id = 33,
         .format = 24,
         .width = 16,
         .height = 16,
@@ -512,8 +518,8 @@ test "graphics viewport rejects fully off-screen placement" {
 
 test "graphics viewport classifies kitty z bands and stable ordering" {
     const images = [_]abi.FfiVtGraphicsImage{
-        .{ .image_id = 9, .format = 24, .width = 16, .height = 16, .payload_len = 0, .image_number = 0 },
-        .{ .image_id = 4, .format = 24, .width = 16, .height = 16, .payload_len = 0, .image_number = 0 },
+        .{ .image_id = 9, .image_ref_id = 90, .format = 24, .width = 16, .height = 16, .payload_len = 0, .image_number = 0 },
+        .{ .image_id = 4, .image_ref_id = 40, .format = 24, .width = 16, .height = 16, .payload_len = 0, .image_number = 0 },
     };
     var placement0 = testPlacement();
     placement0.image_id = 9;
@@ -563,6 +569,7 @@ test "graphics viewport classifies kitty z bands and stable ordering" {
 test "graphics viewport sorts same z and image by render order key" {
     const images = [_]abi.FfiVtGraphicsImage{.{
         .image_id = 7,
+        .image_ref_id = 70,
         .format = 24,
         .width = 16,
         .height = 16,
@@ -608,6 +615,7 @@ test "graphics viewport sorts same z and image by render order key" {
 test "graphics viewport falls back to ordinal for equal render order keys" {
     const images = [_]abi.FfiVtGraphicsImage{.{
         .image_id = 7,
+        .image_ref_id = 70,
         .format = 24,
         .width = 16,
         .height = 16,

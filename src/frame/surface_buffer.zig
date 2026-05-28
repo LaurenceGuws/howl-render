@@ -533,6 +533,7 @@ test "real app icon kitty publication survives render prepare and composition" {
 
     const source_images = [_]abi.FfiVtGraphicsImage{.{
         .image_id = 4242,
+        .image_ref_id = 42,
         .image_number = 0,
         .format = 100,
         .width = icon.width,
@@ -743,7 +744,7 @@ test "compose inserts graphics bands at existing composition boundaries" {
 
     const images = try allocator.alloc(surface.PreparedGraphicsImageRef, 1);
     defer allocator.free(images);
-    images[0] = .{ .image_id = 9, .width = 1, .height = 1, .format = 24, .raster_index = 0 };
+    images[0] = .{ .image_id = 9, .image_ref_id = 90, .width = 1, .height = 1, .format = 24, .raster_index = 0 };
 
     const placements = try allocator.alloc(surface.PreparedGraphicsPlacement, 3);
     defer allocator.free(placements);
@@ -861,7 +862,7 @@ test "compose draws generated placeholder placement through normal below-text pa
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 2, .rows = 1 },
         .graphics = .{
-            .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .width = 2, .height = 1, .format = 32, .raster_index = 0 }}),
+            .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 2, .height = 1, .format = 32, .raster_index = 0 }}),
             .placements = try allocator.dupe(surface.PreparedGraphicsPlacement, &.{.{
                 .image_index = 0,
                 .placement_id = 9,
