@@ -4,21 +4,7 @@ const surface = @import("surface.zig");
 
 pub const invalid_graphics_raster_index = std.math.maxInt(u32);
 
-pub const DecodedGraphicsKey = struct {
-    format: u16,
-    width: u32,
-    height: u32,
-    payload_len: u64,
-    payload_hash64: u64,
-};
-
-pub const GraphicsPublicationImageKey = struct {
-    image_ref_id: u32,
-    key: DecodedGraphicsKey,
-};
-
 pub const DecodedGraphicsRaster = struct {
-    key: DecodedGraphicsKey,
     width: u32,
     height: u32,
     stride: u32,
@@ -39,7 +25,6 @@ pub const SourceGraphicsPayload = struct {
 
 pub const GraphicsPreparer = struct {
     allocator: std.mem.Allocator,
-    graphics_publication_image_keys: []GraphicsPublicationImageKey = &.{},
     decoded_graphics_rasters: []DecodedGraphicsRaster = &.{},
 
     pub fn init(allocator: std.mem.Allocator) GraphicsPreparer {
@@ -47,12 +32,10 @@ pub const GraphicsPreparer = struct {
     }
 
     pub fn deinit(self: *GraphicsPreparer) void {
-        self.clearGraphicsCache();
+        self.clearDecodedGraphicsRasters();
     }
 
-    pub fn clearGraphicsCache(self: *GraphicsPreparer) void {
-        if (self.graphics_publication_image_keys.len > 0) self.allocator.free(self.graphics_publication_image_keys);
-        self.graphics_publication_image_keys = &.{};
+    pub fn clearDecodedGraphicsRasters(self: *GraphicsPreparer) void {
         for (self.decoded_graphics_rasters) |decoded_raster| {
             self.allocator.free(decoded_raster.pixels_rgba);
         }
@@ -68,16 +51,12 @@ pub const GraphicsPreparer = struct {
     ) !void {
         const source_payloads = try self.sourceGraphicsPayloads(source_images, payload_bytes);
         defer self.allocator.free(source_payloads);
-        var publication_keys = try self.allocator.alloc(GraphicsPublicationImageKey, source_payloads.len);
-        errdefer self.allocator.free(publication_keys);
-        for (source_payloads, 0..) |source_payload, i| {
-            const key = graphicsKey(source_payload.image, source_payload.payload);
-            publication_keys[i] = .{ .image_ref_id = source_payload.image.image_ref_id, .key = key };
-            _ = try self.ensureDecodedGraphicsRaster(source_payload, key);
-        }
-        self.replaceGraphicsPublicationImageKeys(publication_keys);
-        self.sweepDecodedGraphicsRasters();
-        try self.bindPreparedGraphicsRasters(prepared);
+
+        self.clearDecodedGraphicsRasters();
+        errdefer self.clearDecodedGraphicsRasters();
+
+        self.decoded_graphics_rasters = try self.decodeGraphicsRasters(source_payloads);
+        try self.bindPreparedGraphicsRasters(prepared, source_payloads);
     }
 
     pub fn raster(self: *const GraphicsPreparer, raster_index: u32) ?GraphicsRasterView {
@@ -113,27 +92,33 @@ pub const GraphicsPreparer = struct {
         return payloads;
     }
 
-    fn replaceGraphicsPublicationImageKeys(self: *GraphicsPreparer, next: []GraphicsPublicationImageKey) void {
-        if (self.graphics_publication_image_keys.len > 0) self.allocator.free(self.graphics_publication_image_keys);
-        self.graphics_publication_image_keys = next;
+    fn decodeGraphicsRasters(
+        self: *GraphicsPreparer,
+        source_payloads: []const SourceGraphicsPayload,
+    ) ![]DecodedGraphicsRaster {
+        var decoded = try self.allocator.alloc(DecodedGraphicsRaster, source_payloads.len);
+        errdefer self.allocator.free(decoded);
+
+        var decoded_count: usize = 0;
+        errdefer {
+            for (decoded[0..decoded_count]) |decoded_raster| {
+                self.allocator.free(decoded_raster.pixels_rgba);
+            }
+        }
+
+        for (source_payloads) |source_payload| {
+            decoded[decoded_count] = try decodeGraphicsRaster(self.allocator, source_payload);
+            decoded_count += 1;
+        }
+
+        return decoded;
     }
 
-    fn ensureDecodedGraphicsRaster(self: *GraphicsPreparer, source_payload: SourceGraphicsPayload, key: DecodedGraphicsKey) !?u32 {
-        if (self.findDecodedGraphicsRasterIndex(key)) |index| return index;
-        const decoded = try decodeGraphicsRaster(self.allocator, source_payload, key);
-        if (decoded == null) return null;
-        const raster_ = decoded.?;
-        const next_len = std.math.add(usize, self.decoded_graphics_rasters.len, 1) catch return error.OutOfMemory;
-        var next = try self.allocator.alloc(DecodedGraphicsRaster, next_len);
-        errdefer self.allocator.free(next);
-        @memcpy(next[0..self.decoded_graphics_rasters.len], self.decoded_graphics_rasters);
-        next[self.decoded_graphics_rasters.len] = raster_;
-        if (self.decoded_graphics_rasters.len > 0) self.allocator.free(self.decoded_graphics_rasters);
-        self.decoded_graphics_rasters = next;
-        return std.math.cast(u32, next_len - 1) orelse return error.OutOfMemory;
-    }
-
-    fn bindPreparedGraphicsRasters(self: *GraphicsPreparer, prepared: *surface.PreparedGraphics) !void {
+    fn bindPreparedGraphicsRasters(
+        self: *GraphicsPreparer,
+        prepared: *surface.PreparedGraphics,
+        source_payloads: []const SourceGraphicsPayload,
+    ) !void {
         const old_images = prepared.images;
         const old_placements = prepared.placements;
         const image_remap = try self.allocator.alloc(u32, old_images.len);
@@ -143,7 +128,7 @@ pub const GraphicsPreparer = struct {
         var images = std.ArrayList(surface.PreparedGraphicsImageRef).empty;
         defer images.deinit(self.allocator);
         for (old_images, 0..) |image, old_index| {
-            const raster_index = self.publicationRasterIndex(image.image_ref_id) orelse continue;
+            const raster_index = publicationRasterIndex(source_payloads, image.image_ref_id) orelse continue;
             image_remap[old_index] = std.math.cast(u32, images.items.len) orelse return error.OutOfMemory;
             try images.append(self.allocator, .{
                 .image_id = image.image_id,
@@ -181,78 +166,24 @@ pub const GraphicsPreparer = struct {
         prepared.below_text_count = below_text_count;
         prepared.above_text_count = above_text_count;
     }
-
-    fn publicationRasterIndex(self: *const GraphicsPreparer, image_ref_id: u32) ?u32 {
-        const key = self.publicationKey(image_ref_id) orelse return null;
-        return self.findDecodedGraphicsRasterIndex(key);
-    }
-
-    fn publicationKey(self: *const GraphicsPreparer, image_ref_id: u32) ?DecodedGraphicsKey {
-        for (self.graphics_publication_image_keys) |entry| {
-            if (entry.image_ref_id == image_ref_id) return entry.key;
-        }
-        return null;
-    }
-
-    fn findDecodedGraphicsRasterIndex(self: *const GraphicsPreparer, key: DecodedGraphicsKey) ?u32 {
-        for (self.decoded_graphics_rasters, 0..) |raster_, i| {
-            if (decodedGraphicsKeyEqual(raster_.key, key)) {
-                return std.math.cast(u32, i) orelse unreachable;
-            }
-        }
-        return null;
-    }
-
-    fn sweepDecodedGraphicsRasters(self: *GraphicsPreparer) void {
-        var kept = std.ArrayList(DecodedGraphicsRaster).empty;
-        defer kept.deinit(self.allocator);
-        for (self.decoded_graphics_rasters) |raster_| {
-            if (self.publicationReferencesKey(raster_.key)) {
-                kept.append(self.allocator, raster_) catch unreachable;
-            } else {
-                self.allocator.free(raster_.pixels_rgba);
-            }
-        }
-        if (self.decoded_graphics_rasters.len > 0) self.allocator.free(self.decoded_graphics_rasters);
-        self.decoded_graphics_rasters = kept.toOwnedSlice(self.allocator) catch unreachable;
-    }
-
-    fn publicationReferencesKey(self: *const GraphicsPreparer, key: DecodedGraphicsKey) bool {
-        for (self.graphics_publication_image_keys) |entry| {
-            if (decodedGraphicsKeyEqual(entry.key, key)) return true;
-        }
-        return false;
-    }
 };
 
-pub fn graphicsKey(image: abi.FfiVtGraphicsDecodedImage, payload: []const u8) DecodedGraphicsKey {
-    var hasher = std.hash.Wyhash.init(0x4752415048494353);
-    hasher.update(payload);
-    return .{
-        .format = image.format,
-        .width = image.width,
-        .height = image.height,
-        .payload_len = image.payload_len,
-        .payload_hash64 = hasher.final(),
-    };
-}
-
-pub fn decodedGraphicsKeyEqual(a: DecodedGraphicsKey, b: DecodedGraphicsKey) bool {
-    return a.format == b.format and
-        a.width == b.width and
-        a.height == b.height and
-        a.payload_len == b.payload_len and
-        a.payload_hash64 == b.payload_hash64;
+fn publicationRasterIndex(source_payloads: []const SourceGraphicsPayload, image_ref_id: u32) ?u32 {
+    for (source_payloads, 0..) |source_payload, i| {
+        if (source_payload.image.image_ref_id == image_ref_id) {
+            return std.math.cast(u32, i) orelse unreachable;
+        }
+    }
+    return null;
 }
 
 fn decodeGraphicsRaster(
     allocator: std.mem.Allocator,
     source_payload: SourceGraphicsPayload,
-    key: DecodedGraphicsKey,
-) !?DecodedGraphicsRaster {
+) !DecodedGraphicsRaster {
     return switch (source_payload.image.format) {
-        24 => try decodeDecodedRawGraphicsRaster(allocator, source_payload, key, 3),
-        32 => try decodeDecodedRawGraphicsRaster(allocator, source_payload, key, 4),
+        24 => try decodeDecodedRawGraphicsRaster(allocator, source_payload, 3),
+        32 => try decodeDecodedRawGraphicsRaster(allocator, source_payload, 4),
         else => error.InvalidGraphicsPayload,
     };
 }
@@ -260,7 +191,6 @@ fn decodeGraphicsRaster(
 fn decodeDecodedRawGraphicsRaster(
     allocator: std.mem.Allocator,
     source_payload: SourceGraphicsPayload,
-    key: DecodedGraphicsKey,
     channels: u32,
 ) !DecodedGraphicsRaster {
     const pixel_count = try graphicsPixelCount(source_payload.image.width, source_payload.image.height);
@@ -285,7 +215,6 @@ fn decodeDecodedRawGraphicsRaster(
     }
 
     return .{
-        .key = key,
         .width = source_payload.image.width,
         .height = source_payload.image.height,
         .stride = std.math.cast(u32, stride) orelse return error.InvalidGraphicsPayload,

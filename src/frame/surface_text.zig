@@ -721,51 +721,6 @@ fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepo
     };
 }
 
-test "decoded graphics cache reuses same payload across later publication changes" {
-    var session = SurfaceText.init(std.testing.allocator);
-    defer session.deinit();
-
-    var graphics = surface.PreparedGraphics{
-        .publication_seq = 1,
-        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }}),
-        .placements = &.{},
-    };
-    defer graphics.deinit(std.testing.allocator);
-
-    const source_images = [_]abi.FfiVtGraphicsDecodedImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 }};
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], &.{ 1, 2, 3 });
-    try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
-    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
-
-    std.testing.allocator.free(graphics.images);
-    graphics.images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }});
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], &.{ 1, 2, 3 });
-    try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
-    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
-}
-
-test "decoded graphics cache replaces same image id when payload changes" {
-    var session = SurfaceText.init(std.testing.allocator);
-    defer session.deinit();
-
-    var graphics = surface.PreparedGraphics{
-        .publication_seq = 1,
-        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }}),
-        .placements = &.{},
-    };
-    defer graphics.deinit(std.testing.allocator);
-
-    const source_images = [_]abi.FfiVtGraphicsDecodedImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 }};
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], &.{ 1, 2, 3 });
-    const first_key = session.graphics_preparer.graphics_publication_image_keys[0].key;
-
-    std.testing.allocator.free(graphics.images);
-    graphics.images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }});
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], &.{ 4, 5, 6 });
-    try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
-    try std.testing.expect(!graphics_prepare.decodedGraphicsKeyEqual(first_key, session.graphics_preparer.graphics_publication_image_keys[0].key));
-}
-
 test "ft hb retained capacities separate cache slots from run scratch" {
     var session = SurfaceText.init(std.testing.allocator);
     defer session.deinit();
