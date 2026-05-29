@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @import("ffi.zig").c;
-const frame = @import("frame.zig");
 const handle_owner = @import("handle.zig");
+const tokens = @import("surface/tokens.zig");
 
 pub fn takePrepareRequest(
     value: c.HowlRenderSurfaceTextHandle,
@@ -11,6 +11,49 @@ pub fn takePrepareRequest(
     prepare_out.* = std.mem.zeroes(c.HowlRenderPrepareRequest);
     const owner = handle_owner.surfaceTextOwner(value) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const request = owner.prepare() orelse return c.HOWL_RENDER_PREPARE_IDLE;
-    prepare_out.* = frame.prepareRequestOut(request);
+    prepare_out.* = prepareRequestOut(request);
     return c.HOWL_RENDER_PREPARE_READY;
+}
+
+pub fn prepareRequestOut(value: tokens.RenderRequest) c.HowlRenderPrepareRequest {
+    return .{
+        .snapshot_seq = value.token.snapshot_seq,
+        .dirty_epoch = value.token.dirty_epoch,
+        .geometry_epoch = value.token.geometry_epoch,
+        .damage_base_seq = value.token.damage_base_seq,
+        .damage_kind = @intFromEnum(value.token.damage_kind),
+    };
+}
+
+pub fn prepareTokenIn(value: c.HowlRenderPrepareRequest) ?tokens.SnapshotToken {
+    const damage_kind = damageKindIn(value.damage_kind) orelse return null;
+    if (value.snapshot_seq == 0) return null;
+    if (value.dirty_epoch == 0) return null;
+    if (value.geometry_epoch == 0) return null;
+    if (damage_kind == .none) return null;
+    switch (damage_kind) {
+        .none => unreachable,
+        .full => {
+            if (value.damage_base_seq != 0) return null;
+        },
+        .partial => {
+            if (value.damage_base_seq == 0) return null;
+        },
+    }
+    return .{
+        .snapshot_seq = value.snapshot_seq,
+        .dirty_epoch = value.dirty_epoch,
+        .geometry_epoch = value.geometry_epoch,
+        .damage_base_seq = value.damage_base_seq,
+        .damage_kind = damage_kind,
+    };
+}
+
+fn damageKindIn(value: u8) ?tokens.DamageKind {
+    return switch (value) {
+        @intFromEnum(tokens.DamageKind.none) => .none,
+        @intFromEnum(tokens.DamageKind.partial) => .partial,
+        @intFromEnum(tokens.DamageKind.full) => .full,
+        else => null,
+    };
 }

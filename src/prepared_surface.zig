@@ -1,8 +1,8 @@
 const std = @import("std");
 const c = @import("ffi.zig").c;
-const frame = @import("frame.zig");
 const handle_owner = @import("handle.zig");
 const prepared_owner = @import("surface/prepared_owner.zig");
+const prepare_request_boundary = @import("prepare_request.zig");
 const surface_feedback = @import("surface_feedback.zig");
 
 pub fn prepareHandle(
@@ -14,7 +14,7 @@ pub fn prepareHandle(
     if (prepared_out) |value| value.* = null;
     const owner = handle_owner.surfaceTextOwner(surface_text_handle) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const value = prepared_out orelse return c.HOWL_RENDER_PREPARE_FAILED;
-    const token = frame.prepareTokenIn(prepare_request) orelse return c.HOWL_RENDER_PREPARE_FAILED;
+    const token = prepare_request_boundary.prepareTokenIn(prepare_request) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const prepared = owner.prepareHandle(token) catch return c.HOWL_RENDER_PREPARE_FAILED;
     value.* = @ptrCast(prepared);
     return c.HOWL_RENDER_PREPARE_READY;
