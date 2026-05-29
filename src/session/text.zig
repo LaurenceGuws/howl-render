@@ -555,22 +555,22 @@ pub const TextSessionOwner = struct {
         return true;
     }
 
-    pub fn reservePublishSlot(self: *TextSessionOwner, cols: u16, rows: u16) !source_slot.PublicationSlot {
-        if (self.prepare_requests.retainedSlotInUse()) return error.PublishSlotBusy;
+    pub fn reserveVtSurfaceSlot(self: *TextSessionOwner, cols: u16, rows: u16) !source_slot.VtSurfaceSlot {
+        if (self.prepare_requests.retainedSlotInUse()) return error.VtSurfaceSlotBusy;
         return try self.source_slot.reserveSourceSlot(cols, rows);
     }
 
-    pub fn commitPublishSlot(self: *TextSessionOwner, meta: source_vt.ReservedSourceMeta) !source_vt.VtPublishResult {
+    pub fn commitVtSurface(self: *TextSessionOwner, meta: source_vt.ReservedSourceMeta) !source_vt.VtSurfacePublishResult {
         var source = try self.source_slot.commitReservedSource(meta, self.nextSourceDirtyEpoch());
         source.cursor_phase_visible = self.cursor_blink_visible;
         return self.prepare_requests.acceptSource(source, self.submittedToken(), self.geometry.geometry_epoch);
     }
 
-    pub fn cancelPublishSlot(self: *TextSessionOwner) void {
+    pub fn cancelVtSurface(self: *TextSessionOwner) void {
         self.source_slot.cancelReservedSource();
     }
 
-    pub fn rejectPublishSlot(self: *TextSessionOwner, snapshot_seq: u64) source_vt.VtPublishResult {
+    pub fn rejectVtSurface(self: *TextSessionOwner, snapshot_seq: u64) source_vt.VtSurfacePublishResult {
         std.debug.assert(snapshot_seq != 0);
         self.source_slot.cancelReservedSource();
         return .{

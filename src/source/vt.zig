@@ -174,7 +174,7 @@ pub const ReservedSourceMeta = struct {
     selection: SourceSelection,
 };
 
-pub const VtPublishResult = struct {
+pub const VtSurfacePublishResult = struct {
     published: bool,
     queued: bool,
     damage_kind: tokens.DamageKind,

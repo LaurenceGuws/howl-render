@@ -61,7 +61,7 @@ pub const PrepareRequests = struct {
         source: source_vt.PublicationSource,
         submitted_token: ?tokens.SnapshotToken,
         geometry_epoch: u64,
-    ) source_vt.VtPublishResult {
+    ) source_vt.VtSurfacePublishResult {
         var owned = source;
         source_damage.canonicalizeDirtyMetadata(
             owned.rows,

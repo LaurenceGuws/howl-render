@@ -10,31 +10,31 @@ comptime {
     assertVtCellLayout();
 }
 
-pub fn reservePublishSlot(
+pub fn reserveVtSurfaceSlot(
     value: c.HowlRenderTextSessionHandle,
     cols: u16,
     rows: u16,
-    out: ?*c.HowlRenderPublishSlot,
+    out: ?*c.HowlRenderVtSurfaceSlot,
 ) callconv(.c) c_int {
     const slot_out = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    slot_out.* = std.mem.zeroes(c.HowlRenderPublishSlot);
+    slot_out.* = std.mem.zeroes(c.HowlRenderVtSurfaceSlot);
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     if (cols == 0 or rows == 0) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    const slot = owner.reservePublishSlot(cols, rows) catch return c.HOWL_RENDER_CALL_FAILED;
-    slot_out.* = publishSlotOut(slot);
+    const slot = owner.reserveVtSurfaceSlot(cols, rows) catch return c.HOWL_RENDER_CALL_FAILED;
+    slot_out.* = vtSurfaceSlotOut(slot);
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn commitPublishSlot(
+pub fn commitVtSurface(
     value: c.HowlRenderTextSessionHandle,
-    commit: c.HowlRenderPublishSlotCommit,
-) callconv(.c) c.HowlRenderVtPublishResult {
+    commit: c.HowlRenderVtSurfaceCommit,
+) callconv(.c) c.HowlRenderVtSurfacePublishResult {
     const owner = handle_owner.textSessionOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     const cursor = cursorIn(commit.cursor) orelse {
-        owner.cancelPublishSlot();
+        owner.cancelVtSurface();
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    const result = owner.commitPublishSlot(.{
+    const result = owner.commitVtSurface(.{
         .history_count = commit.history_count,
         .scroll_row = commit.scroll_row,
         .snapshot_seq = commit.snapshot_seq,
@@ -43,27 +43,27 @@ pub fn commitPublishSlot(
         .colors = colorStateIn(commit.colors),
         .selection = selectionIn(commit.selection),
     }) catch {
-        owner.cancelPublishSlot();
+        owner.cancelVtSurface();
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    return vtPublishResultOut(result);
+    return vtSurfacePublishResultOut(result);
 }
 
-pub fn rejectPublishSlot(
+pub fn rejectVtSurface(
     value: c.HowlRenderTextSessionHandle,
     snapshot_seq: u64,
-) callconv(.c) c.HowlRenderVtPublishResult {
+) callconv(.c) c.HowlRenderVtSurfacePublishResult {
     const owner = handle_owner.textSessionOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     if (snapshot_seq == 0) return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    return vtPublishResultWithStatus(owner.rejectPublishSlot(snapshot_seq), c.HOWL_RENDER_CALL_FAILED);
+    return vtSurfacePublishResultWithStatus(owner.rejectVtSurface(snapshot_seq), c.HOWL_RENDER_CALL_FAILED);
 }
 
-pub fn cancelPublishSlot(value: c.HowlRenderTextSessionHandle) callconv(.c) void {
+pub fn cancelVtSurface(value: c.HowlRenderTextSessionHandle) callconv(.c) void {
     const owner = handle_owner.textSessionOwner(value) orelse return;
-    owner.cancelPublishSlot();
+    owner.cancelVtSurface();
 }
 
-pub fn publishSlotOut(value: source_slot.PublicationSlot) c.HowlRenderPublishSlot {
+pub fn vtSurfaceSlotOut(value: source_slot.VtSurfaceSlot) c.HowlRenderVtSurfaceSlot {
     return .{
         .cells = sourceCellsOut(value.cells),
         .dirty_rows = .{ .ptr = if (value.dirty_rows.len == 0) null else value.dirty_rows.ptr, .len = value.dirty_rows.len },
@@ -76,14 +76,14 @@ pub fn sourceCellsOut(cells: []source_vt.SourceCell) c.HowlRenderVtCellWriteSpan
     return .{ .ptr = if (cells.len == 0) null else @ptrCast(cells.ptr), .len = cells.len };
 }
 
-pub fn vtPublishResultOut(value: source_vt.VtPublishResult) c.HowlRenderVtPublishResult {
-    return vtPublishResultWithStatus(value, c.HOWL_RENDER_CALL_OK);
+pub fn vtSurfacePublishResultOut(value: source_vt.VtSurfacePublishResult) c.HowlRenderVtSurfacePublishResult {
+    return vtSurfacePublishResultWithStatus(value, c.HOWL_RENDER_CALL_OK);
 }
 
-pub fn vtPublishResultWithStatus(
-    value: source_vt.VtPublishResult,
+pub fn vtSurfacePublishResultWithStatus(
+    value: source_vt.VtSurfacePublishResult,
     status: c_int,
-) c.HowlRenderVtPublishResult {
+) c.HowlRenderVtSurfacePublishResult {
     return .{
         .status = status,
         .published = @intFromBool(value.published),

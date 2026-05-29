@@ -1,10 +1,10 @@
 const pending_state = @import("pending_state.zig");
 const prepare_request = @import("prepare_request.zig");
 const prepared_surface = @import("prepared_surface.zig");
-const publish_slot = @import("publish_slot.zig");
 const submission = @import("submission.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const text_session = @import("text_session.zig");
+const vt_surface = @import("vt_surface.zig");
 
 comptime {
     @export(&surface_geometry.deriveLayout, .{ .name = "howl_render_text_session_derive_layout" });
@@ -16,10 +16,10 @@ comptime {
     @export(&text_session.setFallbackFontPaths, .{ .name = "howl_render_text_session_set_fallback_font_paths" });
     @export(&text_session.setCursorBlinkVisible, .{ .name = "howl_render_text_session_set_cursor_blink_visible" });
     @export(&surface_geometry.syncGeometry, .{ .name = "howl_render_text_session_sync_geometry" });
-    @export(&publish_slot.reservePublishSlot, .{ .name = "howl_render_text_session_reserve_publish_slot" });
-    @export(&publish_slot.commitPublishSlot, .{ .name = "howl_render_text_session_commit_publish_slot" });
-    @export(&publish_slot.rejectPublishSlot, .{ .name = "howl_render_text_session_reject_publish_slot" });
-    @export(&publish_slot.cancelPublishSlot, .{ .name = "howl_render_text_session_cancel_publish_slot" });
+    @export(&vt_surface.reserveVtSurfaceSlot, .{ .name = "howl_render_text_session_reserve_vt_surface_slot" });
+    @export(&vt_surface.commitVtSurface, .{ .name = "howl_render_text_session_commit_vt_surface" });
+    @export(&vt_surface.rejectVtSurface, .{ .name = "howl_render_text_session_reject_vt_surface" });
+    @export(&vt_surface.cancelVtSurface, .{ .name = "howl_render_text_session_cancel_vt_surface" });
     @export(&prepare_request.takePrepareRequest, .{ .name = "howl_render_text_session_take_prepare_request" });
     @export(&submission.publishPrepared, .{ .name = "howl_render_text_session_publish_prepared" });
     @export(&submission.publishPreparedHandle, .{ .name = "howl_render_text_session_publish_prepared_handle" });

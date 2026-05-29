@@ -3,7 +3,7 @@ const source_cell = @import("cell.zig");
 const source_vt = @import("vt.zig");
 const source_damage = @import("damage.zig");
 
-pub const PublicationSlot = struct {
+pub const VtSurfaceSlot = struct {
     cells: []source_vt.SourceCell,
     dirty_rows: []u8,
     dirty_cols_start: []u16,
@@ -59,7 +59,7 @@ pub const RetainedSlot = struct {
         return self.cols_capacity >= cols and self.rows_capacity >= rows;
     }
 
-    pub fn publicationSlot(self: *const RetainedSlot, cols: u16, rows: u16) PublicationSlot {
+    pub fn vtSurfaceSlot(self: *const RetainedSlot, cols: u16, rows: u16) VtSurfaceSlot {
         std.debug.assert(self.canHold(cols, rows));
         return .{
             .cells = self.cells[0..slotCellCount(cols, rows)],
@@ -92,14 +92,14 @@ pub const SourceSlot = struct {
         self.refreshRetainedSlotViews();
     }
 
-    pub fn reserveSourceSlot(self: *SourceSlot, cols: u16, rows: u16) !PublicationSlot {
+    pub fn reserveSourceSlot(self: *SourceSlot, cols: u16, rows: u16) !VtSurfaceSlot {
         std.debug.assert(cols > 0);
         std.debug.assert(rows > 0);
-        if (self.reserved != null) return error.PublishSlotBusy;
-        if (!self.retained_slot.canHold(cols, rows)) return error.PublishSlotOutOfRange;
+        if (self.reserved != null) return error.VtSurfaceSlotBusy;
+        if (!self.retained_slot.canHold(cols, rows)) return error.VtSurfaceSlotOutOfRange;
 
         self.reserved = self.retainedSource(cols, rows);
-        return self.retained_slot.publicationSlot(cols, rows);
+        return self.retained_slot.vtSurfaceSlot(cols, rows);
     }
 
     pub fn cancelReservedSource(self: *SourceSlot) void {
@@ -112,7 +112,7 @@ pub const SourceSlot = struct {
         dirty_epoch: u64,
     ) !source_vt.PublicationSource {
         try source_vt.validateReservedSourceMeta(meta);
-        const source = if (self.reserved) |*value| value else return error.MissingPublishSlot;
+        const source = if (self.reserved) |*value| value else return error.MissingVtSurfaceSlot;
         source.scroll_row = meta.scroll_row;
         source.history_count = meta.history_count;
         source.snapshot_seq = meta.snapshot_seq;
@@ -150,7 +150,7 @@ pub const SourceSlot = struct {
     }
 
     fn retainedSource(self: *const SourceSlot, cols: u16, rows: u16) source_vt.PublicationSource {
-        const slot = self.retained_slot.publicationSlot(cols, rows);
+        const slot = self.retained_slot.vtSurfaceSlot(cols, rows);
         return .{
             .cols = cols,
             .rows = rows,
@@ -208,7 +208,7 @@ pub fn slotCellCountChecked(cols: u16, rows: u16) !usize {
     return std.math.mul(usize, cols, rows);
 }
 
-test "source slot reuses retained publish slot storage across reservations" {
+test "source slot reuses retained vt surface slot storage across reservations" {
     var slot_owner = SourceSlot.init(std.testing.allocator);
     defer slot_owner.deinit();
     try slot_owner.syncReservedSlotCapacity(1, 1);

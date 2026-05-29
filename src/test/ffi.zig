@@ -8,14 +8,14 @@ const ffi_root = @import("../ffi.zig");
 const pending_state = @import("../pending_state.zig");
 const prepare_request = @import("../prepare_request.zig");
 const prepared_surface = @import("../prepared_surface.zig");
-const publish_slot = @import("../publish_slot.zig");
 const submission = @import("../submission.zig");
 const surface_geometry = @import("../surface_geometry.zig");
 const text_session = @import("../text_session.zig");
+const vt_surface = @import("../vt_surface.zig");
 
 const c = ffi_root.c;
-const RenderPublishSlot = @field(c, "Howl" ++ "RenderPublishSlot");
-const RenderPublishSlotCommit = @field(c, "Howl" ++ "RenderPublishSlotCommit");
+const RenderVtSurfaceSlot = @field(c, "Howl" ++ "RenderVtSurfaceSlot");
+const RenderVtSurfaceCommit = @field(c, "Howl" ++ "RenderVtSurfaceCommit");
 const VtSurfaceCell = @field(c, "Howl" ++ "VtSurfaceCell");
 const VtSurfaceCellAttrs = @field(c, "Howl" ++ "VtSurfaceCellAttrs");
 
@@ -60,7 +60,7 @@ test "render ffi invalid arguments report shipped contract" {
 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, text_session.setFontSize(handle, 0));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, text_session.setFontPath(handle, null, 1));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, publish_slot.reservePublishSlot(handle, 0, 1, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, vt_surface.reserveVtSurfaceSlot(handle, 0, 1, null));
 }
 
 test "render ffi lifecycle exports geometry and layout contract" {
@@ -78,7 +78,7 @@ test "render ffi lifecycle exports geometry and layout contract" {
     try std.testing.expect(geometry.geometry_epoch != 0);
 }
 
-test "render ffi publish slot translates vt cell ffi storage" {
+test "render ffi vt surface slot translates vt cell ffi storage" {
     const handle = text_session.init(.{ .surface_px = .{ .width = 256, .height = 128 }, .font_size_px = 8 });
     defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
@@ -86,8 +86,8 @@ test "render ffi publish slot translates vt cell ffi storage" {
     const geometry = surface_geometry.syncGeometry(handle, .{ .render_px = .{ .width = 256, .height = 128 }, .grid_px = .{ .width = 256, .height = 128 } });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, geometry.status);
 
-    var slot = std.mem.zeroes(RenderPublishSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish_slot.reservePublishSlot(handle, 2, 2, &slot));
+    var slot = std.mem.zeroes(RenderVtSurfaceSlot);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, vt_surface.reserveVtSurfaceSlot(handle, 2, 2, &slot));
     try std.testing.expectEqual(@as(usize, 4), slot.cells.len);
     for (slot.cells.ptr[0..slot.cells.len], 0..) |*cell, index| {
         cell.* = testCell();
@@ -99,7 +99,7 @@ test "render ffi publish slot translates vt cell ffi storage" {
     @memcpy(slot.dirty_cols_start.ptr[0..slot.dirty_cols_start.len], &[_]u16{ 0, 0 });
     @memcpy(slot.dirty_cols_end.ptr[0..slot.dirty_cols_end.len], &[_]u16{ 1, 1 });
 
-    const publish = publish_slot.commitPublishSlot(handle, .{
+    const publish = vt_surface.commitVtSurface(handle, .{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 9,
@@ -139,14 +139,14 @@ test "render ffi reserve write commit and take prepare succeeds" {
         .render_px = .{ .width = 16, .height = 16 },
         .grid_px = .{ .width = 16, .height = 16 },
     });
-    var slot = std.mem.zeroes(RenderPublishSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish_slot.reservePublishSlot(handle, 1, 1, &slot));
+    var slot = std.mem.zeroes(RenderVtSurfaceSlot);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, vt_surface.reserveVtSurfaceSlot(handle, 1, 1, &slot));
     slot.cells.ptr[0] = testCell();
     slot.dirty_rows.ptr[0] = 1;
     slot.dirty_cols_start.ptr[0] = 0;
     slot.dirty_cols_end.ptr[0] = 0;
 
-    const publish = publish_slot.commitPublishSlot(handle, validPublishCommit(11));
+    const publish = vt_surface.commitVtSurface(handle, validVtSurfaceCommit(11));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
     try std.testing.expectEqual(@as(u64, 11), publish.snapshot_seq);
 
@@ -527,7 +527,7 @@ fn validPartialPreparedSurfaceToken() c.HowlRenderPreparedSurfaceToken {
     };
 }
 
-fn validPublishCommit(snapshot_seq: u64) RenderPublishSlotCommit {
+fn validVtSurfaceCommit(snapshot_seq: u64) RenderVtSurfaceCommit {
     return .{
         .history_count = 0,
         .scroll_row = 0,
@@ -592,17 +592,17 @@ fn nextPrepareRequest(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u64) 
     const dirty_rows = [_]u8{1};
     const dirty_cols_start = [_]u16{0};
     const dirty_cols_end = [_]u16{0};
-    var slot = std.mem.zeroes(RenderPublishSlot);
+    var slot = std.mem.zeroes(RenderVtSurfaceSlot);
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_OK,
-        publish_slot.reservePublishSlot(handle, 1, 1, &slot),
+        vt_surface.reserveVtSurfaceSlot(handle, 1, 1, &slot),
     );
     slot.cells.ptr[0] = testCell();
     slot.dirty_rows.ptr[0] = dirty_rows[0];
     slot.dirty_cols_start.ptr[0] = dirty_cols_start[0];
     slot.dirty_cols_end.ptr[0] = dirty_cols_end[0];
 
-    const publish = publish_slot.commitPublishSlot(handle, .{
+    const publish = vt_surface.commitVtSurface(handle, .{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = snapshot_seq,
@@ -670,16 +670,16 @@ fn expectInvalidPublishedCell(cell: VtSurfaceCell) !void {
         .render_px = .{ .width = 16, .height = 16 },
         .grid_px = .{ .width = 16, .height = 16 },
     });
-    var slot = std.mem.zeroes(RenderPublishSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish_slot.reservePublishSlot(handle, 1, 1, &slot));
+    var slot = std.mem.zeroes(RenderVtSurfaceSlot);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, vt_surface.reserveVtSurfaceSlot(handle, 1, 1, &slot));
     slot.cells.ptr[0] = cell;
     slot.dirty_rows.ptr[0] = 1;
     slot.dirty_cols_start.ptr[0] = 0;
     slot.dirty_cols_end.ptr[0] = 0;
 
-    const publish = publish_slot.commitPublishSlot(handle, validPublishCommit(7));
+    const publish = vt_surface.commitVtSurface(handle, validVtSurfaceCommit(7));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, publish.status);
 
-    var next_slot = std.mem.zeroes(RenderPublishSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish_slot.reservePublishSlot(handle, 1, 1, &next_slot));
+    var next_slot = std.mem.zeroes(RenderVtSurfaceSlot);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, vt_surface.reserveVtSurfaceSlot(handle, 1, 1, &next_slot));
 }

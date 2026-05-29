@@ -237,7 +237,7 @@ typedef struct {
   uint8_t reserved0;
   uint64_t snapshot_seq;
   uint64_t geometry_epoch;
-} HowlRenderVtPublishResult;
+} HowlRenderVtSurfacePublishResult;
 
 typedef struct {
   HowlVtSurfaceCell *ptr;
@@ -249,7 +249,7 @@ typedef struct {
   HowlRenderByteWriteSpan dirty_rows;
   HowlRenderU16WriteSpan dirty_cols_start;
   HowlRenderU16WriteSpan dirty_cols_end;
-} HowlRenderPublishSlot;
+} HowlRenderVtSurfaceSlot;
 
 typedef struct {
   uint64_t history_count;
@@ -261,7 +261,7 @@ typedef struct {
   HowlVtCursor cursor;
   HowlVtRenderColorState colors;
   HowlVtSelection selection;
-} HowlRenderPublishSlotCommit;
+} HowlRenderVtSurfaceCommit;
 
 typedef struct {
   uint64_t sync_us;
@@ -347,10 +347,10 @@ int howl_render_text_session_set_font_path(HowlRenderTextSessionHandle handle, c
 int howl_render_text_session_set_fallback_font_paths(HowlRenderTextSessionHandle handle, const uint8_t *const *ptrs, size_t count);
 int howl_render_text_session_set_cursor_blink_visible(HowlRenderTextSessionHandle handle, uint8_t visible);
 HowlRenderGeometryResponse howl_render_text_session_sync_geometry(HowlRenderTextSessionHandle handle, HowlRenderGeometry geometry);
-int howl_render_text_session_reserve_publish_slot(HowlRenderTextSessionHandle handle, uint16_t cols, uint16_t rows, HowlRenderPublishSlot *slot_out);
-HowlRenderVtPublishResult howl_render_text_session_commit_publish_slot(HowlRenderTextSessionHandle handle, HowlRenderPublishSlotCommit commit);
-HowlRenderVtPublishResult howl_render_text_session_reject_publish_slot(HowlRenderTextSessionHandle handle, uint64_t snapshot_seq);
-void howl_render_text_session_cancel_publish_slot(HowlRenderTextSessionHandle handle);
+int howl_render_text_session_reserve_vt_surface_slot(HowlRenderTextSessionHandle handle, uint16_t cols, uint16_t rows, HowlRenderVtSurfaceSlot *slot_out);
+HowlRenderVtSurfacePublishResult howl_render_text_session_commit_vt_surface(HowlRenderTextSessionHandle handle, HowlRenderVtSurfaceCommit commit);
+HowlRenderVtSurfacePublishResult howl_render_text_session_reject_vt_surface(HowlRenderTextSessionHandle handle, uint64_t snapshot_seq);
+void howl_render_text_session_cancel_vt_surface(HowlRenderTextSessionHandle handle);
 HowlRenderPrepareStatus howl_render_text_session_take_prepare_request(HowlRenderTextSessionHandle handle, HowlRenderPrepareRequest *prepare_request_out);
 int howl_render_text_session_publish_prepared(HowlRenderTextSessionHandle handle, HowlRenderPreparedSurfaceToken prepared_token);
 int howl_render_text_session_publish_prepared_handle(HowlRenderTextSessionHandle handle, HowlRenderPreparedSurfaceHandle prepared_surface_handle);
