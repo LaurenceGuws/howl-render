@@ -222,18 +222,16 @@ pub fn commitPublishDecodedGraphicsSlot(handle: abi.SurfaceTextHandle, commit: a
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    const graphics_virtual_placements = graphicsVirtualPlacementsIn(commit.graphics_virtual_placements) catch {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
     const graphics_payload_bytes = byteSpanIn(commit.graphics_payload_bytes) catch {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    if (graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count or graphics_virtual_placements.len != commit.graphics.virtual_placement_count) {
+    if (graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count) {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
+    var graphics = commit.graphics;
+    graphics.virtual_placement_count = 0;
     const result = owner.flow.commitPublishSlot(.{
         .history_count = commit.history_count,
         .scroll_row = commit.scroll_row,
@@ -242,10 +240,10 @@ pub fn commitPublishDecodedGraphicsSlot(handle: abi.SurfaceTextHandle, commit: a
         .cursor = cursor,
         .colors = commit.colors,
         .selection = commit.selection,
-        .graphics = commit.graphics,
+        .graphics = graphics,
         .graphics_images = graphics_images,
         .graphics_placements = graphics_placements,
-        .graphics_virtual_placements = graphics_virtual_placements,
+        .graphics_virtual_placements = &.{},
         .graphics_payload_bytes = graphics_payload_bytes,
         .graphics_payload_kind = .decoded_pixels,
     }) catch {
