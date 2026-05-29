@@ -127,44 +127,6 @@ typedef struct {
 } HowlRenderLayoutResult;
 
 typedef struct {
-  uint8_t continuation;
-  uint8_t reserved0;
-  uint8_t reserved1;
-  uint8_t reserved2;
-} HowlRenderCellFlags;
-
-typedef struct {
-  uint8_t kind;
-  uint32_t value;
-} HowlRenderColor;
-
-typedef struct {
-  uint8_t bold;
-  uint8_t dim;
-  uint8_t italic;
-  uint8_t underline;
-  uint8_t underline_color_set;
-  uint8_t blink;
-  uint8_t inverse;
-  uint8_t invisible;
-  uint8_t strikethrough;
-} HowlRenderCellAttrs;
-
-typedef struct {
-  uint32_t codepoint;
-  HowlRenderCellFlags flags;
-  HowlRenderColor fg_color;
-  HowlRenderColor bg_color;
-  HowlRenderColor underline_color;
-  uint8_t underline_style;
-  uint8_t reserved0;
-  uint8_t reserved1;
-  uint8_t reserved2;
-  HowlRenderCellAttrs attrs;
-  uint32_t link_id;
-} HowlRenderCell;
-
-typedef struct {
   uint8_t *ptr;
   size_t len;
 } HowlRenderByteWriteSpan;
@@ -173,14 +135,6 @@ typedef struct {
   uint16_t *ptr;
   size_t len;
 } HowlRenderU16WriteSpan;
-
-typedef struct {
-  uint16_t row;
-  uint16_t col;
-  uint8_t visible;
-  uint8_t shape;
-  uint8_t blink;
-} HowlRenderCursor;
 
 typedef struct {
   HowlRenderPixelSize render_px;
