@@ -1,4 +1,9 @@
 const std = @import("std");
+
+test {
+    std.testing.refAllDecls(@import("libhowl_render.zig"));
+    _ = @import("test/unit.zig");
+}
 const abi = @import("ffi.zig");
 const prepared_surface_api = abi;
 const surface_text_ffi = abi;
@@ -612,3 +617,4 @@ fn expectPrepareHandleFailedWithNullOutput(handle: abi.SurfaceTextHandle, reques
     try std.testing.expectEqual(abi.HowlRenderPrepareStatus.failed, surface_text_ffi.prepareHandle(handle, request, &prepared_handle));
     try std.testing.expect(prepared_handle == null);
 }
+pub const main = @import("test/benchmark.zig").main;
