@@ -562,9 +562,9 @@ test "retainSurfacePixels adopts full pixels for later partial prepares" {
 }
 
 fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !queue.PublicationSource {
-    const cells = try allocator.alloc(@import("publication.zig").Cell, 1);
+    const cells = try allocator.alloc(@import("../surface/publication_source.zig").SourceCell, 1);
     errdefer allocator.free(cells);
-    cells[0] = std.mem.zeroes(@import("publication.zig").Cell);
+    cells[0] = std.mem.zeroes(@import("../surface/publication_source.zig").SourceCell);
     cells[0].codepoint = codepoint;
     const dirty_rows = try allocator.dupe(u8, &.{1});
     errdefer allocator.free(dirty_rows);
@@ -582,8 +582,8 @@ fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepo
         .is_alternate_screen = false,
         .cells = cells,
         .cursor = std.mem.zeroes(surface.CursorInfo),
-        .colors = std.mem.zeroes(@import("publication.zig").RenderColorState),
-        .selection = std.mem.zeroes(@import("publication.zig").Selection),
+        .colors = std.mem.zeroes(@import("../surface/publication_source.zig").SourceColors),
+        .selection = std.mem.zeroes(@import("../surface/publication_source.zig").SourceSelection),
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,

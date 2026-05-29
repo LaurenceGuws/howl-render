@@ -1,5 +1,5 @@
 const std = @import("std");
-const publication = @import("publication.zig");
+const publication = @import("../surface/publication_source.zig");
 const queue = @import("queue.zig");
 const surface = @import("surface.zig");
 const contract = @import("../text/contract.zig");
@@ -66,11 +66,11 @@ fn indexedDefaultColor(idx: u8) contract.Rgba8 {
     return .{ .r = gray, .g = gray, .b = gray, .a = 255 };
 }
 
-fn rgbaFromVtRgb(color: publication.Rgb8) contract.Rgba8 {
+fn rgbaFromVtRgb(color: publication.SourceRgb) contract.Rgba8 {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = 255 };
 }
 
-fn themeFromPublicationColors(colors: publication.RenderColorState) FrameTheme {
+fn themeFromPublicationColors(colors: publication.SourceColors) FrameTheme {
     var palette: [256]contract.Rgba8 = undefined;
     for (colors.palette, 0..) |color, idx| palette[idx] = rgbaFromVtRgb(color);
     return .{
@@ -136,7 +136,7 @@ fn isAlacrittyEmptyCell(cell: surface.Cell) bool {
     return blank and default_bg and !visible_flags;
 }
 
-fn publicationColorToRgba8(color: publication.Color, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+fn publicationColorToRgba8(color: publication.SourceColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
     return switch (color.kind) {
         0 => if (is_fg) t.default_fg else t.default_bg,
         1 => indexed256(@intCast(color.value & 0xFF), t),
@@ -150,7 +150,7 @@ fn publicationColorToRgba8(color: publication.Color, is_fg: bool, t: FrameTheme)
     };
 }
 
-fn publicationColorToTextSceneRgba8(color: publication.Color, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+fn publicationColorToTextSceneRgba8(color: publication.SourceColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
     return publicationColorToRgba8(color, is_fg, t);
 }
 
@@ -165,7 +165,7 @@ fn publicationUnderlineStyle(style: u8) contract.UnderlineStyle {
     };
 }
 
-fn isAlacrittyEmptyPublicationCell(cell: publication.Cell, bg: contract.Rgba8) bool {
+fn isAlacrittyEmptyPublicationCell(cell: publication.SourceCell, bg: contract.Rgba8) bool {
     const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
     const visible_flags = cell.flags.continuation != 0 or
         cell.attrs.inverse != 0 or
@@ -258,7 +258,7 @@ fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
     return out;
 }
 
-fn mapPublicationCellInput(src: publication.Cell, t: FrameTheme) contract.CellInput {
+fn mapPublicationCellInput(src: publication.SourceCell, t: FrameTheme) contract.CellInput {
     const bg = publicationColorToTextSceneRgba8(src.bg_color, false, t);
     var out: contract.CellInput = .{
         .codepoint = @intCast(src.codepoint),
@@ -581,7 +581,7 @@ test "frame_input maps inverse frame state colors" {
 }
 
 test "frame_input maps publication combining truth" {
-    var cells = [_]publication.Cell{.{
+    var cells = [_]publication.SourceCell{.{
         .codepoint = 'o',
         .combining_len = 1,
         .combining = .{ 0x0300, 0, 0 },
@@ -607,7 +607,7 @@ test "frame_input maps publication combining truth" {
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
-        .colors = std.mem.zeroes(publication.RenderColorState),
+        .colors = std.mem.zeroes(publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
@@ -621,7 +621,7 @@ test "frame_input maps publication combining truth" {
 }
 
 test "frame_input maps publication style and presentation truth" {
-    var cells = [_]publication.Cell{.{
+    var cells = [_]publication.SourceCell{.{
         .codepoint = 0x2716,
         .combining_len = 1,
         .combining = .{ 0xFE0F, 0, 0 },
@@ -647,7 +647,7 @@ test "frame_input maps publication style and presentation truth" {
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
-        .colors = std.mem.zeroes(publication.RenderColorState),
+        .colors = std.mem.zeroes(publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
@@ -660,7 +660,7 @@ test "frame_input maps publication style and presentation truth" {
 }
 
 test "frame_input maps publication style attrs dim and invisible" {
-    var cells = [_]publication.Cell{
+    var cells = [_]publication.SourceCell{
         .{
             .codepoint = 'I',
             .flags = .{ .continuation = 0 },
@@ -698,7 +698,7 @@ test "frame_input maps publication style attrs dim and invisible" {
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
-        .colors = std.mem.zeroes(publication.RenderColorState),
+        .colors = std.mem.zeroes(publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
@@ -725,7 +725,7 @@ test "frame_input maps publication style attrs dim and invisible" {
 }
 
 test "frame_input maps inverse publication colors" {
-    var cells = [_]publication.Cell{
+    var cells = [_]publication.SourceCell{
         .{
             .codepoint = 'R',
             .flags = .{ .continuation = 0 },
@@ -747,7 +747,7 @@ test "frame_input maps inverse publication colors" {
             .link_id = 0,
         },
     };
-    var colors = std.mem.zeroes(publication.RenderColorState);
+    var colors = std.mem.zeroes(publication.SourceColors);
     colors.foreground = .{ .r = 0xCC, .g = 0xDD, .b = 0xEE };
     colors.background = .{ .r = 0x11, .g = 0x22, .b = 0x33 };
 
@@ -883,7 +883,7 @@ test "frame_input maps only dirty ranges for partial damage" {
 }
 
 test "frame_input borrowed publication mapping reuses caller storage" {
-    var cells = [_]publication.Cell{
+    var cells = [_]publication.SourceCell{
         .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
         .{ .codepoint = ' ', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
     };
@@ -891,7 +891,7 @@ test "frame_input borrowed publication mapping reuses caller storage" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
-    var colors = std.mem.zeroes(publication.RenderColorState);
+    var colors = std.mem.zeroes(publication.SourceColors);
     colors.foreground = .{ .r = default_theme.default_fg.r, .g = default_theme.default_fg.g, .b = default_theme.default_fg.b };
     colors.background = .{ .r = default_theme.default_bg.r, .g = default_theme.default_bg.g, .b = default_theme.default_bg.b };
     colors.cursor = .{ .r = default_theme.cursor_color.r, .g = default_theme.cursor_color.g, .b = default_theme.cursor_color.b };
@@ -919,7 +919,7 @@ test "frame_input borrowed publication mapping reuses caller storage" {
 }
 
 test "frame_input borrowed publication mapping preserves cursor blink truth" {
-    var cells = [_]publication.Cell{.{
+    var cells = [_]publication.SourceCell{.{
         .codepoint = 'A',
         .flags = .{ .continuation = 0 },
         .fg_color = .{ .kind = 0, .value = 0 },
@@ -933,7 +933,7 @@ test "frame_input borrowed publication mapping preserves cursor blink truth" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
-    var colors = std.mem.zeroes(publication.RenderColorState);
+    var colors = std.mem.zeroes(publication.SourceColors);
     colors.foreground = .{ .r = default_theme.default_fg.r, .g = default_theme.default_fg.g, .b = default_theme.default_fg.b };
     colors.background = .{ .r = default_theme.default_bg.r, .g = default_theme.default_bg.g, .b = default_theme.default_bg.b };
     colors.cursor = .{ .r = default_theme.cursor_color.r, .g = default_theme.cursor_color.g, .b = default_theme.cursor_color.b };
@@ -961,7 +961,7 @@ test "frame_input borrowed publication mapping preserves cursor blink truth" {
 }
 
 test "frame_input borrowed publication mapping hides blinking cursor when host phase is off" {
-    var cells = [_]publication.Cell{.{
+    var cells = [_]publication.SourceCell{.{
         .codepoint = 'A',
         .flags = .{ .continuation = 0 },
         .fg_color = .{ .kind = 0, .value = 0 },
@@ -985,7 +985,7 @@ test "frame_input borrowed publication mapping hides blinking cursor when host p
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true },
-        .colors = std.mem.zeroes(publication.RenderColorState),
+        .colors = std.mem.zeroes(publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = false,
         .dirty_rows = @constCast(&dirty_rows),
@@ -997,7 +997,7 @@ test "frame_input borrowed publication mapping hides blinking cursor when host p
 }
 
 test "frame_input borrowed publication mapping applies selection styling across scrollback rows" {
-    var cells = [_]publication.Cell{
+    var cells = [_]publication.SourceCell{
         .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 2, .value = 0x102030 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 1 }, .link_id = 0 },
         .{ .codepoint = 'B', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 2, .value = 0x405060 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
     };
@@ -1005,7 +1005,7 @@ test "frame_input borrowed publication mapping applies selection styling across 
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
-    var colors = std.mem.zeroes(publication.RenderColorState);
+    var colors = std.mem.zeroes(publication.SourceColors);
     colors.foreground = .{ .r = default_theme.default_fg.r, .g = default_theme.default_fg.g, .b = default_theme.default_fg.b };
     colors.background = .{ .r = default_theme.default_bg.r, .g = default_theme.default_bg.g, .b = default_theme.default_bg.b };
     colors.cursor = .{ .r = default_theme.cursor_color.r, .g = default_theme.cursor_color.g, .b = default_theme.cursor_color.b };
@@ -1033,7 +1033,7 @@ test "frame_input borrowed publication mapping applies selection styling across 
 }
 
 test "frame_input borrowed publication mapping uses vt-owned color state" {
-    var cells = [_]publication.Cell{.{
+    var cells = [_]publication.SourceCell{.{
         .codepoint = 'A',
         .flags = .{ .continuation = 0 },
         .fg_color = .{ .kind = 0, .value = 0 },
@@ -1047,7 +1047,7 @@ test "frame_input borrowed publication mapping uses vt-owned color state" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
-    var colors = std.mem.zeroes(publication.RenderColorState);
+    var colors = std.mem.zeroes(publication.SourceColors);
     colors.foreground = .{ .r = 1, .g = 2, .b = 3 };
     colors.background = .{ .r = 4, .g = 5, .b = 6 };
     colors.cursor = .{ .r = 7, .g = 8, .b = 9 };
@@ -1076,7 +1076,7 @@ test "frame_input borrowed publication mapping uses vt-owned color state" {
 }
 
 test "frame_input remaps semantic default and indexed cells when vt colors change" {
-    var cells = [_]publication.Cell{.{
+    var cells = [_]publication.SourceCell{.{
         .codepoint = 'A',
         .flags = .{ .continuation = 0 },
         .fg_color = .{ .kind = 0, .value = 0 },
@@ -1092,7 +1092,7 @@ test "frame_input remaps semantic default and indexed cells when vt colors chang
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
 
-    var colors_a = std.mem.zeroes(publication.RenderColorState);
+    var colors_a = std.mem.zeroes(publication.SourceColors);
     colors_a.foreground = .{ .r = 1, .g = 2, .b = 3 };
     colors_a.background = .{ .r = 4, .g = 5, .b = 6 };
     colors_a.palette[3] = .{ .r = 7, .g = 8, .b = 9 };

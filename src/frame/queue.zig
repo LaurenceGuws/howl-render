@@ -1,6 +1,6 @@
 const std = @import("std");
 const pipeline = @import("pipeline.zig");
-const vt_publication = @import("publication.zig");
+const vt_publication = @import("../surface/publication_source.zig");
 const surface_types = @import("surface.zig");
 
 const ThreadMutex = struct {
@@ -125,10 +125,10 @@ pub const PublicationSource = struct {
     snapshot_seq: u64,
     dirty_epoch: u64,
     is_alternate_screen: bool,
-    cells: []vt_publication.Cell,
+    cells: []vt_publication.SourceCell,
     cursor: surface_types.CursorInfo,
-    colors: vt_publication.RenderColorState,
-    selection: vt_publication.Selection,
+    colors: vt_publication.SourceColors,
+    selection: vt_publication.SourceSelection,
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
@@ -146,7 +146,7 @@ pub const PublicationSource = struct {
     }
 
     pub fn clone(self: *const PublicationSource, allocator: std.mem.Allocator) !PublicationSource {
-        const cells = try allocator.dupe(vt_publication.Cell, self.cells);
+        const cells = try allocator.dupe(vt_publication.SourceCell, self.cells);
         errdefer allocator.free(cells);
         const dirty_rows = try allocator.dupe(u8, self.dirty_rows);
         errdefer allocator.free(dirty_rows);
@@ -199,7 +199,7 @@ pub const VtPublishResult = struct {
 };
 
 pub const PublicationSlot = struct {
-    cells: []vt_publication.Cell,
+    cells: []vt_publication.SourceCell,
     dirty_rows: []u8,
     dirty_cols_start: []u16,
     dirty_cols_end: []u16,
@@ -211,8 +211,8 @@ pub const ReservedSourceMeta = struct {
     snapshot_seq: u64,
     is_alternate_screen: bool,
     cursor: surface_types.CursorInfo,
-    colors: vt_publication.RenderColorState,
-    selection: vt_publication.Selection,
+    colors: vt_publication.SourceColors,
+    selection: vt_publication.SourceSelection,
 };
 
 pub const PendingState = struct {
@@ -250,7 +250,7 @@ const ActivePrepare = struct {
 
 const PublicationState = struct {
     const RetainedSlot = struct {
-        cells: []vt_publication.Cell = &.{},
+        cells: []vt_publication.SourceCell = &.{},
         dirty_rows: []u8 = &.{},
         dirty_cols_start: []u16 = &.{},
         dirty_cols_end: []u16 = &.{},
@@ -271,7 +271,7 @@ const PublicationState = struct {
             if (self.cols_capacity >= cols and self.rows_capacity >= rows) return;
 
             const cell_count = slotCellCount(cols, rows);
-            const cells = try allocator.alloc(vt_publication.Cell, cell_count);
+            const cells = try allocator.alloc(vt_publication.SourceCell, cell_count);
             errdefer allocator.free(cells);
             const dirty_rows = try allocator.alloc(u8, rows);
             errdefer allocator.free(dirty_rows);
@@ -596,7 +596,7 @@ const PublicationState = struct {
             .is_alternate_screen = false,
             .cells = slot.cells,
             .cursor = std.mem.zeroes(surface_types.CursorInfo),
-            .colors = std.mem.zeroes(vt_publication.RenderColorState),
+            .colors = std.mem.zeroes(vt_publication.SourceColors),
             .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
             .cursor_phase_visible = true,
             .dirty_rows = slot.dirty_rows,
@@ -984,8 +984,8 @@ pub const Flow = struct {
 
 fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !PublicationSource {
     const cell_count: u32 = @as(u32, snapshot.cols) * @as(u32, snapshot.rows);
-    const cells = try allocator.alloc(vt_publication.Cell, @intCast(cell_count));
-    @memset(cells, std.mem.zeroes(vt_publication.Cell));
+    const cells = try allocator.alloc(vt_publication.SourceCell, @intCast(cell_count));
+    @memset(cells, std.mem.zeroes(vt_publication.SourceCell));
     const dirty_rows = try allocator.alloc(u8, snapshot.rows);
     errdefer allocator.free(dirty_rows);
     @memset(dirty_rows, 0);
@@ -1017,7 +1017,7 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
         .is_alternate_screen = snapshot.is_alternate_screen,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(vt_publication.RenderColorState),
+        .colors = std.mem.zeroes(vt_publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
@@ -1027,8 +1027,8 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
 }
 
 fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !PublicationSource {
-    const cells = try allocator.alloc(vt_publication.Cell, 1);
-    cells[0] = std.mem.zeroes(vt_publication.Cell);
+    const cells = try allocator.alloc(vt_publication.SourceCell, 1);
+    cells[0] = std.mem.zeroes(vt_publication.SourceCell);
     cells[0].codepoint = codepoint;
     const dirty_rows = try allocator.alloc(u8, 1);
     dirty_rows[0] = 1;
@@ -1046,7 +1046,7 @@ fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u
         .is_alternate_screen = false,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(vt_publication.RenderColorState),
+        .colors = std.mem.zeroes(vt_publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
@@ -1258,10 +1258,10 @@ test "cursor movement republishes clean later vt snapshot" {
     _ = flow.acceptSnapshot(testSnapshot(2, 1, 0, 2, &dirty, &dirty_start, &dirty_end));
     _ = flow.prepare() orelse return error.TestUnexpectedResult;
 
-    const clean_cells = try std.heap.c_allocator.alloc(vt_publication.Cell, 2);
-    clean_cells[0] = std.mem.zeroes(vt_publication.Cell);
+    const clean_cells = try std.heap.c_allocator.alloc(vt_publication.SourceCell, 2);
+    clean_cells[0] = std.mem.zeroes(vt_publication.SourceCell);
     clean_cells[0].codepoint = 'A';
-    clean_cells[1] = std.mem.zeroes(vt_publication.Cell);
+    clean_cells[1] = std.mem.zeroes(vt_publication.SourceCell);
     clean_cells[1].codepoint = 'B';
     const clean_dirty_rows = try std.heap.c_allocator.dupe(u8, &[_]u8{0});
     const clean_dirty_start = try std.heap.c_allocator.dupe(u16, &[_]u16{0});
@@ -1276,7 +1276,7 @@ test "cursor movement republishes clean later vt snapshot" {
         .is_alternate_screen = false,
         .cells = clean_cells,
         .cursor = .{ .visible = true, .row = 0, .col = 1, .shape = .beam, .blink = false },
-        .colors = std.mem.zeroes(vt_publication.RenderColorState),
+        .colors = std.mem.zeroes(vt_publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = clean_dirty_rows,
@@ -1508,7 +1508,7 @@ test "flow can reserve a new publish slot after submitting retained source" {
     });
 
     const first = try flow.reservePublishSlot(1, 1);
-    first.cells[0] = std.mem.zeroes(vt_publication.Cell);
+    first.cells[0] = std.mem.zeroes(vt_publication.SourceCell);
     first.cells[0].codepoint = 'A';
     first.dirty_rows[0] = 1;
     first.dirty_cols_start[0] = 0;
@@ -1520,7 +1520,7 @@ test "flow can reserve a new publish slot after submitting retained source" {
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(vt_publication.RenderColorState),
+        .colors = std.mem.zeroes(vt_publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     });
     try std.testing.expect(published.published);
@@ -1541,7 +1541,7 @@ test "flow commit publish slot rejects dirty row byte outside boolean domain" {
     });
 
     const slot = try flow.reservePublishSlot(1, 1);
-    slot.cells[0] = std.mem.zeroes(vt_publication.Cell);
+    slot.cells[0] = std.mem.zeroes(vt_publication.SourceCell);
     slot.cells[0].codepoint = 'A';
     slot.dirty_rows[0] = 2;
     slot.dirty_cols_start[0] = 0;
@@ -1553,7 +1553,7 @@ test "flow commit publish slot rejects dirty row byte outside boolean domain" {
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(vt_publication.RenderColorState),
+        .colors = std.mem.zeroes(vt_publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     }));
 }
@@ -1568,13 +1568,13 @@ test "flow commit publish slot accepts dirty row span sentinel without dirty col
     });
 
     const slot = try flow.reservePublishSlot(2, 2);
-    slot.cells[0] = std.mem.zeroes(vt_publication.Cell);
+    slot.cells[0] = std.mem.zeroes(vt_publication.SourceCell);
     slot.cells[0].codepoint = 'A';
-    slot.cells[1] = std.mem.zeroes(vt_publication.Cell);
+    slot.cells[1] = std.mem.zeroes(vt_publication.SourceCell);
     slot.cells[1].codepoint = 'B';
-    slot.cells[2] = std.mem.zeroes(vt_publication.Cell);
+    slot.cells[2] = std.mem.zeroes(vt_publication.SourceCell);
     slot.cells[2].codepoint = 'C';
-    slot.cells[3] = std.mem.zeroes(vt_publication.Cell);
+    slot.cells[3] = std.mem.zeroes(vt_publication.SourceCell);
     slot.cells[3].codepoint = 'D';
     slot.dirty_rows[0] = 1;
     slot.dirty_rows[1] = 1;
@@ -1589,7 +1589,7 @@ test "flow commit publish slot accepts dirty row span sentinel without dirty col
         .snapshot_seq = 1,
         .is_alternate_screen = true,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(vt_publication.RenderColorState),
+        .colors = std.mem.zeroes(vt_publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     });
     try std.testing.expect(published.published);
@@ -1646,7 +1646,7 @@ test "flow commit publish slot canonicalizes clean dirty metadata" {
     });
 
     const slot = try flow.reservePublishSlot(3, 2);
-    for (slot.cells) |*cell| cell.* = std.mem.zeroes(vt_publication.Cell);
+    for (slot.cells) |*cell| cell.* = std.mem.zeroes(vt_publication.SourceCell);
     slot.dirty_rows[0] = 1;
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 1;
@@ -1660,7 +1660,7 @@ test "flow commit publish slot canonicalizes clean dirty metadata" {
         .snapshot_seq = 13,
         .is_alternate_screen = false,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(vt_publication.RenderColorState),
+        .colors = std.mem.zeroes(vt_publication.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     });
     try std.testing.expect(published.published);

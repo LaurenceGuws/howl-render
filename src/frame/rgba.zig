@@ -1,5 +1,4 @@
-
-pub const Rgba8 = extern struct {
+pub const Rgba8 = struct {
     r: u8,
     g: u8,
     b: u8,

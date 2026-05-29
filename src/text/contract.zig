@@ -88,15 +88,15 @@ pub const CellInput = struct {
     empty: bool = false,
 };
 
-pub const FontFaceId = extern struct {
+pub const FontFaceId = struct {
     value: u32,
 };
 
-pub const CellTextId = extern struct {
+pub const CellTextId = struct {
     value: u32,
 };
 
-pub const SpriteKey = extern struct {
+pub const SpriteKey = struct {
     value: u64,
 };
 

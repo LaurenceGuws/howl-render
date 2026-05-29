@@ -70,6 +70,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    ffi_mod.addIncludePath(b.path("include"));
+    ffi_mod.addIncludePath(b.path("../howl-vt/include"));
     ffi_mod.linkLibrary(freetype_lib);
     ffi_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     ffi_mod.linkLibrary(harfbuzz_lib);
