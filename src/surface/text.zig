@@ -3,9 +3,13 @@ const geometry_mod = @import("geometry.zig");
 const input = @import("input.zig");
 const tokens = @import("tokens.zig");
 const prepared_owner = @import("prepared_owner.zig");
-const flow = @import("flow.zig");
 const submit_feedback = @import("submit_feedback.zig");
 const surface_types = @import("types.zig");
+const render_geometry = @import("../render/geometry.zig");
+const source_vt = @import("../source/vt.zig");
+const source_slot = @import("../source/slot.zig");
+const source_prepare = @import("../source/prepare_request.zig");
+const session_submitted = @import("../session/submitted.zig");
 const contract = @import("../text/contract.zig");
 const text_pipeline = @import("../text/pipeline.zig");
 const text = @import("../text/text.zig");
@@ -72,7 +76,7 @@ pub const SurfaceText = struct {
         config: SurfaceTextConfig,
         request: tokens.RenderRequest,
         layout: surface_types.PrepareLayout,
-        state: flow.PublicationSource,
+        state: source_vt.PublicationSource,
     };
 
     pub fn init(allocator: std.mem.Allocator) SurfaceText {
@@ -324,7 +328,12 @@ pub const SurfaceText = struct {
 pub const SurfaceTextOwner = struct {
     allocator: std.mem.Allocator,
     session: SurfaceText,
-    flow: flow.Flow,
+    geometry: render_geometry.GeometryOwner,
+    source_slot: source_slot.SourceSlot,
+    prepare_requests: source_prepare.PrepareRequests,
+    submitted: session_submitted.Submitted,
+    source_dirty_epoch: u64 = 0,
+    cursor_blink_visible: bool = true,
     config: SurfaceTextConfig,
     prepared_publish_handle: PreparedSurfaceHandle = null,
     prepared_submit_handle: PreparedSurfaceHandle = null,
@@ -341,7 +350,15 @@ pub const SurfaceTextOwner = struct {
     pub fn create(allocator: std.mem.Allocator, config: SurfaceTextConfig) ?*SurfaceTextOwner {
         std.debug.assert(config.font_size_px > 0);
         const owner = allocator.create(SurfaceTextOwner) catch return null;
-        owner.* = .{ .allocator = allocator, .session = SurfaceText.init(allocator), .flow = flow.Flow.init(allocator), .config = config };
+        owner.* = .{
+            .allocator = allocator,
+            .session = SurfaceText.init(allocator),
+            .geometry = .{},
+            .source_slot = source_slot.SourceSlot.init(allocator),
+            .prepare_requests = source_prepare.PrepareRequests.init(allocator),
+            .submitted = .{},
+            .config = config,
+        };
         return owner;
     }
 
@@ -354,7 +371,8 @@ pub const SurfaceTextOwner = struct {
         if (self.font_path) |path| self.allocator.free(path);
         self.font_path = null;
         freeOwnedFallbackFontPaths(self.allocator, &self.fallback_font_paths);
-        self.flow.deinit();
+        self.prepare_requests.deinit();
+        self.source_slot.deinit();
         self.clearRetainedSurface();
         self.session.deinit();
         self.allocator.destroy(self);
@@ -404,13 +422,16 @@ pub const SurfaceTextOwner = struct {
     }
 
     pub fn prepareHandle(self: *SurfaceTextOwner, token: tokens.SnapshotToken) !*prepared_owner.Owner {
-        const prepare = try self.flow.consumePrepare(token);
-        errdefer _ = self.flow.retryTakenPrepare(token);
+        const consume = try self.prepare_requests.consumePrepare(
+            self.geometry.prepareLayout(token.geometry_epoch),
+            token,
+        );
+        errdefer _ = self.prepare_requests.retryTakenPrepare(token);
         var prepared = try self.session.prepareSurface(.{
             .config = self.config,
-            .request = prepare.request,
-            .layout = prepare.layout,
-            .state = prepare.state,
+            .request = consume.request,
+            .layout = consume.layout,
+            .state = consume.state,
         });
         errdefer prepared.deinit();
         return prepared_owner.Owner.create(self, prepared);
@@ -489,6 +510,120 @@ pub const SurfaceTextOwner = struct {
         self.retained_surface_snapshot_seq = 0;
     }
 
+    pub fn nextSourceDirtyEpoch(self: *SurfaceTextOwner) u64 {
+        self.source_dirty_epoch +%= 1;
+        if (self.source_dirty_epoch == 0) self.source_dirty_epoch = 1;
+        return self.source_dirty_epoch;
+    }
+
+    pub fn submittedToken(self: *SurfaceTextOwner) ?tokens.SnapshotToken {
+        return self.submitted.submittedToken();
+    }
+
+    pub fn syncGeometry(self: *SurfaceTextOwner, layout: surface_types.Geometry) !surface_types.GeometryResponse {
+        const response = self.geometry.sync(layout);
+        if (response.changed) {
+            const cols = @max(1, @divTrunc(layout.grid_px.width, @max(layout.cell_px.width, 1)));
+            const rows = @max(1, @divTrunc(layout.grid_px.height, @max(layout.cell_px.height, 1)));
+            try self.source_slot.syncReservedSlotCapacity(cols, rows);
+            self.prepare_requests.refreshRetainedSlotViews(&self.source_slot);
+        }
+        return response;
+    }
+
+    pub fn setCursorBlinkVisible(self: *SurfaceTextOwner, visible: bool) bool {
+        if (self.cursor_blink_visible == visible) return false;
+        self.cursor_blink_visible = visible;
+        var changed = false;
+        if (self.source_slot.reservedSource()) |source| {
+            changed = @import("../source/damage.zig").setSourceCursorBlinkVisible(source, visible) or changed;
+        }
+        changed = self.prepare_requests.setCursorBlinkVisible(visible) or changed;
+        if (changed) self.prepare_requests.requestBlinkRefresh();
+        return true;
+    }
+
+    pub fn reservePublishSlot(self: *SurfaceTextOwner, cols: u16, rows: u16) !source_slot.PublicationSlot {
+        if (self.prepare_requests.retainedSlotInUse()) return error.PublishSlotBusy;
+        return try self.source_slot.reserveSourceSlot(cols, rows);
+    }
+
+    pub fn commitPublishSlot(self: *SurfaceTextOwner, meta: source_vt.ReservedSourceMeta) !source_vt.VtPublishResult {
+        std.debug.assert(meta.snapshot_seq != 0);
+        var source = try self.source_slot.commitReservedSource(meta, self.nextSourceDirtyEpoch());
+        source.cursor_phase_visible = self.cursor_blink_visible;
+        return self.prepare_requests.acceptSource(source, self.submittedToken(), self.geometry.geometry_epoch);
+    }
+
+    pub fn cancelPublishSlot(self: *SurfaceTextOwner) void {
+        self.source_slot.cancelReservedSource();
+    }
+
+    pub fn rejectPublishSlot(self: *SurfaceTextOwner, snapshot_seq: u64) source_vt.VtPublishResult {
+        std.debug.assert(snapshot_seq != 0);
+        self.source_slot.cancelReservedSource();
+        return .{
+            .published = false,
+            .queued = false,
+            .damage_kind = .none,
+            .snapshot_seq = snapshot_seq,
+            .geometry_epoch = self.geometry.geometry_epoch,
+        };
+    }
+
+    pub fn prepare(self: *SurfaceTextOwner) ?tokens.RenderRequest {
+        const submitted_token = self.submittedToken();
+        const request = self.prepare_requests.takePrepareRequest(
+            self.geometry.geometry_epoch,
+            submitted_token,
+        ) orelse return null;
+        const effective_token = session_submitted.Submitted.prepareTokenForRetainedState(
+            request.token,
+            submitted_token,
+        );
+        if (!@import("../source/damage.zig").sameSnapshotToken(effective_token, request.token)) {
+            self.prepare_requests.active.?.request = .{
+                .token = effective_token,
+                .allow_retained_reuse = request.allow_retained_reuse,
+            };
+        }
+        return self.prepare_requests.active.?.request;
+    }
+
+    pub fn publishPrepared(self: *SurfaceTextOwner, prepared: tokens.PreparedFrame) void {
+        self.submitted.publishPrepared(prepared);
+    }
+
+    pub fn submit(self: *SurfaceTextOwner) session_submitted.SubmitDecision {
+        const decision = self.submitted.takeValidatedSubmitWithLatest(self.prepare_requests.latestToken());
+        switch (decision) {
+            .stale => |token| self.prepare_requests.retireAtOrBefore(token),
+            .needs_full_prepare => _ = self.prepare_requests.requestFullPrepare(
+                session_submitted.Submitted.forceFull,
+            ),
+            else => {},
+        }
+        return decision;
+    }
+
+    pub fn acceptSubmitted(self: *SurfaceTextOwner, frame: tokens.SubmittedFrame) void {
+        if (frame.token.geometry_epoch != self.geometry.geometry_epoch) {
+            _ = self.prepare_requests.requestFullPrepare(session_submitted.Submitted.forceFull);
+            return;
+        }
+        self.prepare_requests.retirePendingAtOrBefore(frame.token);
+        self.submitted.acceptSubmitted(frame);
+    }
+
+    pub fn pendingState(self: *const SurfaceTextOwner) source_prepare.PendingState {
+        const pending = self.submitted.pendingState();
+        return .{
+            .source_pending = self.source_slot.sourcePending() or self.prepare_requests.sourcePending(),
+            .prepare_pending = self.prepare_requests.preparePending(),
+            .submit_pending = pending.submit_pending,
+        };
+    }
+
     fn syncFallbackFontPaths(self: *SurfaceTextOwner) void {
         const count = text_support.fallbackFontCount(count32(self.fallback_font_paths.items)) orelse unreachable;
         self.session.text_state.fallback_font_paths_len = count;
@@ -512,11 +647,15 @@ test "retainSurfacePixels adopts full pixels for later partial prepares" {
     var owner = SurfaceTextOwner{
         .allocator = std.heap.c_allocator,
         .session = SurfaceText.init(std.heap.c_allocator),
-        .flow = flow.Flow.init(std.heap.c_allocator),
+        .geometry = .{},
+        .source_slot = source_slot.SourceSlot.init(std.heap.c_allocator),
+        .prepare_requests = source_prepare.PrepareRequests.init(std.heap.c_allocator),
+        .submitted = .{},
         .config = .{ .surface_px = .{ .width = 2, .height = 3 } },
     };
     defer owner.clearRetainedSurface();
-    defer owner.flow.deinit();
+    defer owner.prepare_requests.deinit();
+    defer owner.source_slot.deinit();
     defer owner.session.deinit();
 
     const pixels = try std.heap.c_allocator.alloc(u8, 2 * 3 * 4);
@@ -561,10 +700,10 @@ test "retainSurfacePixels adopts full pixels for later partial prepares" {
     try std.testing.expectEqualSlices(u8, pixels, base);
 }
 
-fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !flow.PublicationSource {
-    const cells = try allocator.alloc(@import("publication_source.zig").SourceCell, 1);
+fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !source_vt.PublicationSource {
+    const cells = try allocator.alloc(source_vt.SourceCell, 1);
     errdefer allocator.free(cells);
-    cells[0] = std.mem.zeroes(@import("publication_source.zig").SourceCell);
+    cells[0] = std.mem.zeroes(source_vt.SourceCell);
     cells[0].codepoint = codepoint;
     const dirty_rows = try allocator.dupe(u8, &.{1});
     errdefer allocator.free(dirty_rows);
@@ -582,8 +721,8 @@ fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepo
         .is_alternate_screen = false,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(@import("publication_source.zig").SourceColors),
-        .selection = std.mem.zeroes(@import("publication_source.zig").SourceSelection),
+        .colors = std.mem.zeroes(source_vt.SourceColors),
+        .selection = std.mem.zeroes(source_vt.SourceSelection),
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -609,6 +748,18 @@ test "ft hb retained capacities separate cache slots from run scratch" {
     try std.testing.expectEqual(@as(u32, 20), capacity.shape_run_cache_entries);
     try std.testing.expectEqual(@as(u32, 160), capacity.max_shape_input_codepoints);
     try std.testing.expectEqual(@as(u32, 512), capacity.max_glyphs_per_run);
+}
+
+test "surface text owner keeps source and submitted owners separate" {
+    const owner = SurfaceTextOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    try std.testing.expect(owner.source_slot.reserved == null);
+    try std.testing.expect(owner.prepare_requests.pending == null);
+    try std.testing.expect(owner.submitted.submitted_frame == null);
 }
 
 test "ft hb retained capacities cap shape run cache slots" {
@@ -647,11 +798,15 @@ test "invalidateTextState clears retained pixel state" {
     var owner = SurfaceTextOwner{
         .allocator = std.heap.c_allocator,
         .session = SurfaceText.init(std.heap.c_allocator),
-        .flow = flow.Flow.init(std.heap.c_allocator),
+        .geometry = .{},
+        .source_slot = source_slot.SourceSlot.init(std.heap.c_allocator),
+        .prepare_requests = source_prepare.PrepareRequests.init(std.heap.c_allocator),
+        .submitted = .{},
         .config = .{ .surface_px = .{ .width = 1, .height = 1 } },
     };
     defer owner.clearRetainedSurface();
-    defer owner.flow.deinit();
+    defer owner.prepare_requests.deinit();
+    defer owner.source_slot.deinit();
     defer owner.session.deinit();
 
     const pixels = try std.heap.c_allocator.alloc(u8, 4);

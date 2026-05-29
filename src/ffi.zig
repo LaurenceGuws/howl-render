@@ -5,9 +5,10 @@ pub const c = @cImport({
 const tokens = @import("surface/tokens.zig");
 const prepared_owner = @import("surface/prepared_owner.zig");
 const surface_text = @import("surface/text.zig");
-const flow = @import("surface/flow.zig");
 const surface_types = @import("surface/types.zig");
-const vt_publication = @import("surface/publication_source.zig");
+const source_vt = @import("source/vt.zig");
+const source_slot = @import("source/slot.zig");
+const source_prepare = @import("source/prepare_request.zig");
 const text_support = @import("text/font/ft_hb/support.zig");
 
 const PublishScratch = struct {
@@ -101,7 +102,7 @@ pub fn setFallbackFontPaths(handle: c.HowlRenderSurfaceTextHandle, ptrs: ?[*]con
 
 pub fn setCursorBlinkVisible(handle: c.HowlRenderSurfaceTextHandle, visible: u8) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
-    _ = owner.flow.setCursorBlinkVisible(visible != 0);
+    _ = owner.setCursorBlinkVisible(visible != 0);
     return c.HOWL_RENDER_CALL_OK;
 }
 
@@ -110,7 +111,7 @@ pub fn syncGeometry(handle: c.HowlRenderSurfaceTextHandle, geometry: c.HowlRende
     const layout = owner.session.deriveFrameLayout(owner.config, pixelIn(geometry.render_px), pixelIn(geometry.grid_px)) catch {
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 };
     };
-    return geometryOut(owner.flow.syncGeometry(.{
+    return geometryOut(owner.syncGeometry(.{
         .render_px = pixelIn(geometry.render_px),
         .grid_px = pixelIn(geometry.grid_px),
         .cell_px = layout.cell_px,
@@ -122,9 +123,9 @@ pub fn reservePublishSlot(handle: c.HowlRenderSurfaceTextHandle, cols: u16, rows
     slot_out.* = std.mem.zeroes(c.HowlRenderPublishSlot);
     const owner = ownerFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     if (cols == 0 or rows == 0) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    const slot = owner.flow.reservePublishSlot(cols, rows) catch return c.HOWL_RENDER_CALL_FAILED;
+    const slot = owner.reservePublishSlot(cols, rows) catch return c.HOWL_RENDER_CALL_FAILED;
     const cells = reservePublishScratch(owner, slot.cells.len) catch {
-        owner.flow.cancelPublishSlot();
+        owner.cancelPublishSlot();
         return c.HOWL_RENDER_CALL_FAILED;
     };
     slot_out.* = publishSlotOut(slot, cells);
@@ -133,29 +134,29 @@ pub fn reservePublishSlot(handle: c.HowlRenderSurfaceTextHandle, cols: u16, rows
 
 pub fn commitPublishSlot(handle: c.HowlRenderSurfaceTextHandle, commit: c.HowlRenderPublishSlotCommit) callconv(.c) c.HowlRenderVtPublishResult {
     const owner = ownerFromHandle(handle) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    const reserved = if (owner.flow.publication_state.reserved) |*value| value else {
-        owner.flow.cancelPublishSlot();
+    const reserved = if (owner.source_slot.reservedSource()) |value| value else {
+        owner.cancelPublishSlot();
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
     const cursor = cursorIn(commit.cursor) orelse {
-        owner.flow.cancelPublishSlot();
+        owner.cancelPublishSlot();
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
     if (commit.snapshot_seq == 0) {
-        owner.flow.cancelPublishSlot();
+        owner.cancelPublishSlot();
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
     copyPublishScratch(owner, reserved.cells) catch {
-        owner.flow.cancelPublishSlot();
+        owner.cancelPublishSlot();
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
     for (reserved.cells) |cell| {
         validatePublicationCellValue(cell) catch {
-            owner.flow.cancelPublishSlot();
+            owner.cancelPublishSlot();
             return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
         };
     }
-    const result = owner.flow.commitPublishSlot(.{
+    const result = owner.commitPublishSlot(.{
         .history_count = commit.history_count,
         .scroll_row = commit.scroll_row,
         .snapshot_seq = commit.snapshot_seq,
@@ -164,7 +165,7 @@ pub fn commitPublishSlot(handle: c.HowlRenderSurfaceTextHandle, commit: c.HowlRe
         .colors = colorStateIn(commit.colors),
         .selection = selectionIn(commit.selection),
     }) catch {
-        owner.flow.cancelPublishSlot();
+        owner.cancelPublishSlot();
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
     return vtPublishResultOut(result);
@@ -173,19 +174,19 @@ pub fn commitPublishSlot(handle: c.HowlRenderSurfaceTextHandle, commit: c.HowlRe
 pub fn rejectPublishSlot(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) callconv(.c) c.HowlRenderVtPublishResult {
     const owner = ownerFromHandle(handle) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     if (snapshot_seq == 0) return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    return vtPublishResultWithStatus(owner.flow.rejectPublishSlot(snapshot_seq), c.HOWL_RENDER_CALL_FAILED);
+    return vtPublishResultWithStatus(owner.rejectPublishSlot(snapshot_seq), c.HOWL_RENDER_CALL_FAILED);
 }
 
 pub fn cancelPublishSlot(handle: c.HowlRenderSurfaceTextHandle) callconv(.c) void {
     const owner = ownerFromHandle(handle) orelse return;
-    owner.flow.cancelPublishSlot();
+    owner.cancelPublishSlot();
 }
 
 pub fn takePrepareRequest(handle: c.HowlRenderSurfaceTextHandle, out: ?*c.HowlRenderPrepareRequest) callconv(.c) c_int {
     const prepare_out = out orelse return c.HOWL_RENDER_PREPARE_FAILED;
     prepare_out.* = std.mem.zeroes(c.HowlRenderPrepareRequest);
     const owner = ownerFromHandle(handle) orelse return c.HOWL_RENDER_PREPARE_FAILED;
-    const request = owner.flow.prepare() orelse return c.HOWL_RENDER_PREPARE_IDLE;
+    const request = owner.prepare() orelse return c.HOWL_RENDER_PREPARE_IDLE;
     prepare_out.* = prepareRequestOut(request);
     return c.HOWL_RENDER_PREPARE_READY;
 }
@@ -193,7 +194,7 @@ pub fn takePrepareRequest(handle: c.HowlRenderSurfaceTextHandle, out: ?*c.HowlRe
 pub fn publishPrepared(handle: c.HowlRenderSurfaceTextHandle, prepared_in: c.HowlRenderPreparedFrame) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const prepared = preparedFrameIn(prepared_in) orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    owner.flow.publishPrepared(prepared);
+    owner.publishPrepared(prepared);
     return c.HOWL_RENDER_CALL_OK;
 }
 
@@ -204,7 +205,7 @@ pub fn publishPreparedHandle(handle: c.HowlRenderSurfaceTextHandle, prepared_sur
     if (!prepared.markPublished()) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     owner.prepared_submit_handle = null;
     owner.prepared_publish_handle = opaquePreparedHandle(prepared_surface_handle);
-    owner.flow.publishPrepared(prepared.pipelineFrame());
+    owner.publishPrepared(prepared.pipelineFrame());
     return c.HOWL_RENDER_CALL_OK;
 }
 
@@ -212,7 +213,7 @@ pub fn takeSubmitDecision(handle: c.HowlRenderSurfaceTextHandle, out: ?*c.HowlRe
     const prepared_out = out orelse return c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
     prepared_out.* = std.mem.zeroes(c.HowlRenderPreparedFrame);
     const owner = ownerFromHandle(handle) orelse return c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
-    return switch (owner.flow.submit()) {
+    return switch (owner.submit()) {
         .idle => c.HOWL_RENDER_SUBMIT_DECISION_IDLE,
         .stale => c.HOWL_RENDER_SUBMIT_DECISION_STALE,
         .submit => |prepared| blk: {
@@ -227,7 +228,7 @@ pub fn takeSubmitHandle(handle: c.HowlRenderSurfaceTextHandle, out: ?*c.HowlRend
     const prepared_out = out orelse return c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
     prepared_out.* = null;
     const owner = ownerFromHandle(handle) orelse return c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
-    return switch (owner.flow.submit()) {
+    return switch (owner.submit()) {
         .idle => c.HOWL_RENDER_SUBMIT_DECISION_IDLE,
         .stale => blk: {
             owner.prepared_publish_handle = null;
@@ -260,7 +261,7 @@ pub fn takeSubmitHandle(handle: c.HowlRenderSurfaceTextHandle, out: ?*c.HowlRend
 pub fn acceptSubmitted(handle: c.HowlRenderSurfaceTextHandle, prepared_in: c.HowlRenderPreparedFrame) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const prepared = preparedFrameIn(prepared_in) orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    owner.flow.acceptSubmitted(.{
+    owner.acceptSubmitted(.{
         .token = prepared.token,
     });
     return c.HOWL_RENDER_CALL_OK;
@@ -280,7 +281,7 @@ pub fn submitHandle(surface_text_handle: c.HowlRenderSurfaceTextHandle, prepared
     return switch (prepared.submitOwned(owner, executionInputIn(execution.*))) {
         .rendered => |feedback| blk: {
             owner.prepared_submit_handle = null;
-            owner.flow.acceptSubmitted(.{ .token = submitted });
+            owner.acceptSubmitted(.{ .token = submitted });
             if (feedback_out) |out| out.* = surfaceFeedbackOut(feedback);
             break :blk c.HOWL_RENDER_SUBMIT_RENDERED;
         },
@@ -296,7 +297,7 @@ pub fn pendingState(handle: c.HowlRenderSurfaceTextHandle, out: ?*c.HowlRenderPe
         return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     };
     const value = pending_out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    value.* = pendingStateOut(owner.flow.pendingState());
+    value.* = pendingStateOut(owner.pendingState());
     return c.HOWL_RENDER_CALL_OK;
 }
 
@@ -494,11 +495,11 @@ fn geometryOut(value: surface_types.GeometryResponse) c.HowlRenderGeometryRespon
     };
 }
 
-fn vtPublishResultOut(value: flow.VtPublishResult) c.HowlRenderVtPublishResult {
+fn vtPublishResultOut(value: source_vt.VtPublishResult) c.HowlRenderVtPublishResult {
     return vtPublishResultWithStatus(value, c.HOWL_RENDER_CALL_OK);
 }
 
-fn vtPublishResultWithStatus(value: flow.VtPublishResult, status: c_int) c.HowlRenderVtPublishResult {
+fn vtPublishResultWithStatus(value: source_vt.VtPublishResult, status: c_int) c.HowlRenderVtPublishResult {
     return .{
         .status = status,
         .published = @intFromBool(value.published),
@@ -509,7 +510,7 @@ fn vtPublishResultWithStatus(value: flow.VtPublishResult, status: c_int) c.HowlR
     };
 }
 
-fn publishSlotOut(value: flow.PublicationSlot, cells: []c.HowlVtSurfaceCell) c.HowlRenderPublishSlot {
+fn publishSlotOut(value: source_slot.PublicationSlot, cells: []c.HowlVtSurfaceCell) c.HowlRenderPublishSlot {
     std.debug.assert(cells.len == value.cells.len);
     return .{
         .cells = .{ .ptr = if (cells.len == 0) null else cells.ptr, .len = cells.len },
@@ -545,7 +546,7 @@ fn reservePublishScratch(owner: *surface_text.SurfaceTextOwner, cell_count: usiz
     return entry.cells;
 }
 
-fn copyPublishScratch(owner: *surface_text.SurfaceTextOwner, out: []vt_publication.SourceCell) !void {
+fn copyPublishScratch(owner: *surface_text.SurfaceTextOwner, out: []source_vt.SourceCell) !void {
     publish_scratch_mutex.lock();
     defer publish_scratch_mutex.unlock();
 
@@ -578,7 +579,7 @@ fn abiPreparedHandle(handle: prepared_owner.PreparedSurfaceHandle) c.HowlRenderP
     return if (handle) |value| @ptrCast(value) else null;
 }
 
-fn pendingStateOut(value: flow.PendingState) c.HowlRenderPendingState {
+fn pendingStateOut(value: source_prepare.PendingState) c.HowlRenderPendingState {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .source_pending = @intFromBool(value.source_pending),
@@ -712,7 +713,7 @@ fn cellValueIn(value: c.HowlVtSurfaceCell) !surface_types.Cell {
     };
 }
 
-fn publicationCellValueIn(value: c.HowlVtSurfaceCell) !vt_publication.SourceCell {
+fn publicationCellValueIn(value: c.HowlVtSurfaceCell) !source_vt.SourceCell {
     try validateCellValue(value);
     return .{
         .codepoint = value.codepoint,
@@ -753,7 +754,7 @@ fn validateCellValue(value: c.HowlVtSurfaceCell) !void {
     _ = try underlineStyleValueIn(value.underline_style);
 }
 
-fn validatePublicationCellValue(value: vt_publication.SourceCell) !void {
+fn validatePublicationCellValue(value: source_vt.SourceCell) !void {
     if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
     if (value.combining_len > value.combining.len) return error.InvalidSurfaceSource;
     for (value.combining[0..value.combining_len]) |cp| {
@@ -765,8 +766,8 @@ fn validatePublicationCellValue(value: vt_publication.SourceCell) !void {
     _ = try underlineStyleValueIn(value.underline_style);
 }
 
-fn colorStateIn(value: c.HowlVtRenderColorState) vt_publication.SourceColors {
-    var palette: [256]vt_publication.SourceRgb = undefined;
+fn colorStateIn(value: c.HowlVtRenderColorState) source_vt.SourceColors {
+    var palette: [256]source_vt.SourceRgb = undefined;
     for (value.palette, 0..) |color, index| palette[index] = .{ .r = color.r, .g = color.g, .b = color.b };
     return .{
         .foreground = .{ .r = value.foreground.r, .g = value.foreground.g, .b = value.foreground.b },
@@ -776,7 +777,7 @@ fn colorStateIn(value: c.HowlVtRenderColorState) vt_publication.SourceColors {
     };
 }
 
-fn selectionIn(value: c.HowlVtSelection) vt_publication.SourceSelection {
+fn selectionIn(value: c.HowlVtSelection) source_vt.SourceSelection {
     return .{
         .active = value.active,
         .selecting = value.selecting,
