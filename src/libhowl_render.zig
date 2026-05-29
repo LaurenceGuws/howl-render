@@ -1,10 +1,10 @@
-const pending_state = @import("pending_state.zig");
 const prepare_request = @import("prepare_request.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const submission = @import("submission.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const text_session = @import("text_session.zig");
 const vt_surface = @import("vt_surface.zig");
+const work_state = @import("work_state.zig");
 
 comptime {
     @export(&surface_geometry.deriveLayout, .{ .name = "howl_render_text_session_derive_layout" });
@@ -26,7 +26,7 @@ comptime {
     @export(&submission.takeSubmitDecision, .{ .name = "howl_render_text_session_take_submit_decision" });
     @export(&submission.takeSubmitHandle, .{ .name = "howl_render_text_session_take_submit_handle" });
     @export(&submission.acceptSubmitted, .{ .name = "howl_render_text_session_accept_submitted" });
-    @export(&pending_state.pendingState, .{ .name = "howl_render_text_session_pending_state" });
+    @export(&work_state.workState, .{ .name = "howl_render_text_session_work_state" });
     @export(&prepared_surface.prepareHandle, .{ .name = "howl_render_text_session_prepare_handle" });
     @export(&prepared_surface.release, .{ .name = "howl_render_prepared_surface_release" });
     @export(&prepared_surface.describe, .{ .name = "howl_render_prepared_surface_describe" });

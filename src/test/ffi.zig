@@ -5,13 +5,13 @@ test {
     _ = @import("unit.zig");
 }
 const ffi_root = @import("../ffi.zig");
-const pending_state = @import("../pending_state.zig");
 const prepare_request = @import("../prepare_request.zig");
 const prepared_surface = @import("../prepared_surface.zig");
 const submission = @import("../submission.zig");
 const surface_geometry = @import("../surface_geometry.zig");
 const text_session = @import("../text_session.zig");
 const vt_surface = @import("../vt_surface.zig");
+const work_state = @import("../work_state.zig");
 
 const c = ffi_root.c;
 const RenderVtSurfaceSlot = @field(c, "Howl" ++ "RenderVtSurfaceSlot");
@@ -30,9 +30,9 @@ test "render ffi missing handles report shipped contract" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, text_session.setFontSize(null, 12));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, text_session.isValidFont(null));
 
-    var pending = std.mem.zeroes(c.HowlRenderPendingState);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, pending_state.pendingState(null, &pending));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, pending.status);
+    var session_work = std.mem.zeroes(c.HowlRenderSessionWorkState);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, work_state.workState(null, &session_work));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, session_work.status);
 
     prepared_surface.release(null);
 

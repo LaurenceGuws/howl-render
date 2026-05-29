@@ -27,6 +27,12 @@ const ft_hb_shape_input_codepoints_per_cluster_cap: u32 = 16;
 const ft_hb_cached_glyphs_per_run_cap: u32 = 512;
 const PreparedSurfaceHandle = ?*anyopaque;
 
+pub const SessionWorkState = struct {
+    source_pending: bool,
+    prepare_pending: bool,
+    submit_pending: bool,
+};
+
 fn count32(items: anytype) u32 {
     std.debug.assert(items.len <= std.math.maxInt(u32));
     return @intCast(items.len);
@@ -626,12 +632,12 @@ pub const TextSessionOwner = struct {
         self.submitted.acceptSubmitted(submitted);
     }
 
-    pub fn pendingState(self: *const TextSessionOwner) source_prepare.PendingState {
-        const pending = self.submitted.pendingState();
+    pub fn workState(self: *const TextSessionOwner) SessionWorkState {
+        const submitted_work = self.submitted.workState();
         return .{
             .source_pending = self.source_slot.sourcePending() or self.prepare_requests.sourcePending(),
             .prepare_pending = self.prepare_requests.preparePending(),
-            .submit_pending = pending.submit_pending,
+            .submit_pending = submitted_work.submit_pending,
         };
     }
 

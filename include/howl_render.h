@@ -206,7 +206,7 @@ typedef struct {
   uint8_t prepare_pending;
   uint8_t submit_pending;
   uint8_t reserved0;
-} HowlRenderPendingState;
+} HowlRenderSessionWorkState;
 
 typedef struct {
   uint64_t snapshot_seq;
@@ -357,7 +357,7 @@ int howl_render_text_session_publish_prepared_handle(HowlRenderTextSessionHandle
 HowlRenderSubmitDecisionStatus howl_render_text_session_take_submit_decision(HowlRenderTextSessionHandle handle, HowlRenderPreparedSurfaceToken *prepared_token_out);
 HowlRenderSubmitDecisionStatus howl_render_text_session_take_submit_handle(HowlRenderTextSessionHandle handle, HowlRenderPreparedSurfaceHandle *prepared_surface_handle_out);
 int howl_render_text_session_accept_submitted(HowlRenderTextSessionHandle handle, HowlRenderPreparedSurfaceToken prepared_token);
-int howl_render_text_session_pending_state(HowlRenderTextSessionHandle handle, HowlRenderPendingState *pending_out);
+int howl_render_text_session_work_state(HowlRenderTextSessionHandle handle, HowlRenderSessionWorkState *work_state_out);
 
 /* Owned prepared-surface ABI target. */
 HowlRenderPrepareStatus howl_render_text_session_prepare_handle(HowlRenderTextSessionHandle text_session_handle, HowlRenderPrepareRequest prepare_request, HowlRenderPreparedSurfaceHandle *prepared_handle_out);

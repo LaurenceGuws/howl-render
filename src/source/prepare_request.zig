@@ -5,12 +5,6 @@ const source_vt = @import("vt.zig");
 const source_damage = @import("damage.zig");
 const source_slot = @import("slot.zig");
 
-pub const PendingState = struct {
-    source_pending: bool,
-    prepare_pending: bool,
-    submit_pending: bool,
-};
-
 pub const PrepareConsume = struct {
     request: tokens.RenderRequest,
     layout: geometry_contract.PrepareLayout,

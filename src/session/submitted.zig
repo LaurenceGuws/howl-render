@@ -20,6 +20,10 @@ pub const SubmitDecision = union(enum) {
     idle,
 };
 
+pub const SubmittedWorkState = struct {
+    submit_pending: bool,
+};
+
 pub const Submitted = struct {
     const SubmitMailbox = tokens.LatestMailbox(tokens.PreparedSurfaceToken);
 
@@ -72,7 +76,7 @@ pub const Submitted = struct {
         self.submitted_token = submitted;
     }
 
-    pub fn pendingState(self: *const Submitted) struct { submit_pending: bool } {
+    pub fn workState(self: *const Submitted) SubmittedWorkState {
         const submitted_owner: *Submitted = @constCast(self);
         lockMutex(&submitted_owner.mutex);
         defer submitted_owner.mutex.unlock();
@@ -183,5 +187,5 @@ test "submitted owner reports stale submit when newer snapshot already won" {
 test "submitted owner has no source publication state" {
     var submitted = Submitted{};
     try std.testing.expect(submitted.submittedToken() == null);
-    try std.testing.expect(!submitted.pendingState().submit_pending);
+    try std.testing.expect(!submitted.workState().submit_pending);
 }
