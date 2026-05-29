@@ -13,25 +13,9 @@ const source_slot = @import("source/slot.zig");
 const source_prepare = @import("source/prepare_request.zig");
 const text_support = @import("text/font/ft_hb/support.zig");
 
-const PublishScratch = struct {
-    owner: *surface_text.SurfaceTextOwner,
-    cells: []c.HowlVtSurfaceCell,
-};
-
-const ScratchMutex = struct {
-    state: std.Io.Mutex = .init,
-
-    fn lock(self: *ScratchMutex) void {
-        std.Io.Threaded.mutexLock(&self.state);
-    }
-
-    fn unlock(self: *ScratchMutex) void {
-        std.Io.Threaded.mutexUnlock(&self.state);
-    }
-};
-
-var publish_scratch_mutex = ScratchMutex{};
-var publish_scratch_entries: std.ArrayListUnmanaged(PublishScratch) = .empty;
+comptime {
+    assertVtCellLayout();
+}
 
 fn ownerFromHandle(handle: c.HowlRenderSurfaceTextHandle) ?*surface_text.SurfaceTextOwner {
     const owned = handle orelse return null;
@@ -63,7 +47,6 @@ pub fn init(config: c.HowlRenderSurfaceTextConfig) callconv(.c) c.HowlRenderSurf
 
 pub fn deinit(handle: c.HowlRenderSurfaceTextHandle) callconv(.c) void {
     const owner = ownerFromHandle(handle) orelse return;
-    removePublishScratch(owner);
     owner.destroy();
 }
 
@@ -126,38 +109,16 @@ pub fn reservePublishSlot(handle: c.HowlRenderSurfaceTextHandle, cols: u16, rows
     const owner = ownerFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     if (cols == 0 or rows == 0) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     const slot = owner.reservePublishSlot(cols, rows) catch return c.HOWL_RENDER_CALL_FAILED;
-    const cells = reservePublishScratch(owner, slot.cells.len) catch {
-        owner.cancelPublishSlot();
-        return c.HOWL_RENDER_CALL_FAILED;
-    };
-    slot_out.* = publishSlotOut(slot, cells);
+    slot_out.* = publishSlotOut(slot);
     return c.HOWL_RENDER_CALL_OK;
 }
 
 pub fn commitPublishSlot(handle: c.HowlRenderSurfaceTextHandle, commit: c.HowlRenderPublishSlotCommit) callconv(.c) c.HowlRenderVtPublishResult {
     const owner = ownerFromHandle(handle) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    const reserved = if (owner.source_slot.reservedSource()) |value| value else {
-        owner.cancelPublishSlot();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
     const cursor = cursorIn(commit.cursor) orelse {
         owner.cancelPublishSlot();
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    if (commit.snapshot_seq == 0) {
-        owner.cancelPublishSlot();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    }
-    copyPublishScratch(owner, reserved.cells) catch {
-        owner.cancelPublishSlot();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    for (reserved.cells) |cell| {
-        validatePublicationCellValue(cell) catch {
-            owner.cancelPublishSlot();
-            return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-        };
-    }
     const result = owner.commitPublishSlot(.{
         .history_count = commit.history_count,
         .scroll_row = commit.scroll_row,
@@ -512,65 +473,17 @@ fn vtPublishResultWithStatus(value: source_vt.VtPublishResult, status: c_int) c.
     };
 }
 
-fn publishSlotOut(value: source_slot.PublicationSlot, cells: []c.HowlVtSurfaceCell) c.HowlRenderPublishSlot {
-    std.debug.assert(cells.len == value.cells.len);
+fn publishSlotOut(value: source_slot.PublicationSlot) c.HowlRenderPublishSlot {
     return .{
-        .cells = .{ .ptr = if (cells.len == 0) null else cells.ptr, .len = cells.len },
+        .cells = sourceCellsOut(value.cells),
         .dirty_rows = .{ .ptr = if (value.dirty_rows.len == 0) null else value.dirty_rows.ptr, .len = value.dirty_rows.len },
         .dirty_cols_start = .{ .ptr = if (value.dirty_cols_start.len == 0) null else value.dirty_cols_start.ptr, .len = value.dirty_cols_start.len },
         .dirty_cols_end = .{ .ptr = if (value.dirty_cols_end.len == 0) null else value.dirty_cols_end.ptr, .len = value.dirty_cols_end.len },
     };
 }
 
-fn reservePublishScratch(owner: *surface_text.SurfaceTextOwner, cell_count: usize) ![]c.HowlVtSurfaceCell {
-    publish_scratch_mutex.lock();
-    defer publish_scratch_mutex.unlock();
-
-    var entry_index: ?usize = null;
-    for (publish_scratch_entries.items, 0..) |entry, index| {
-        if (entry.owner == owner) {
-            entry_index = index;
-            break;
-        }
-    }
-    if (entry_index == null) {
-        try publish_scratch_entries.append(std.heap.c_allocator, .{ .owner = owner, .cells = &.{} });
-        entry_index = publish_scratch_entries.items.len - 1;
-    }
-
-    const entry = &publish_scratch_entries.items[entry_index.?];
-    if (entry.cells.len != cell_count) {
-        const cells = try std.heap.c_allocator.alloc(c.HowlVtSurfaceCell, cell_count);
-        if (entry.cells.len != 0) std.heap.c_allocator.free(entry.cells);
-        entry.cells = cells;
-    }
-    @memset(entry.cells, std.mem.zeroes(c.HowlVtSurfaceCell));
-    return entry.cells;
-}
-
-fn copyPublishScratch(owner: *surface_text.SurfaceTextOwner, out: []source_vt.SourceCell) !void {
-    publish_scratch_mutex.lock();
-    defer publish_scratch_mutex.unlock();
-
-    for (publish_scratch_entries.items) |entry| {
-        if (entry.owner != owner) continue;
-        if (entry.cells.len != out.len) return error.InvalidSurfaceSource;
-        for (entry.cells, out) |src, *dst| dst.* = try publicationCellValueIn(src);
-        return;
-    }
-    return error.InvalidSurfaceSource;
-}
-
-fn removePublishScratch(owner: *surface_text.SurfaceTextOwner) void {
-    publish_scratch_mutex.lock();
-    defer publish_scratch_mutex.unlock();
-
-    for (publish_scratch_entries.items, 0..) |entry, index| {
-        if (entry.owner != owner) continue;
-        if (entry.cells.len != 0) std.heap.c_allocator.free(entry.cells);
-        _ = publish_scratch_entries.swapRemove(index);
-        return;
-    }
+fn sourceCellsOut(cells: []source_vt.SourceCell) c.HowlRenderVtCellWriteSpan {
+    return .{ .ptr = if (cells.len == 0) null else @ptrCast(cells.ptr), .len = cells.len };
 }
 
 fn opaquePreparedHandle(handle: c.HowlRenderPreparedSurfaceHandle) prepared_owner.PreparedSurfaceHandle {
@@ -674,98 +587,8 @@ fn samePreparedFrame(a: tokens.PreparedFrame, b: tokens.PreparedFrame) bool {
         a.required_base_seq == b.required_base_seq;
 }
 
-fn byteSpanIn(span: c.HowlRenderByteSpan) ![]const u8 {
-    if (span.len == 0) return &.{};
-    if (span.ptr == null) return error.InvalidSurfaceSource;
-    return span.ptr[0..span.len];
-}
-
 fn byteSpan(items: []u8) c.HowlRenderByteSpan {
     return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
-}
-
-fn cellValueIn(value: c.HowlVtSurfaceCell) !source_cell.Cell {
-    try validateCellValue(value);
-    return .{
-        .codepoint = @intCast(value.codepoint),
-        .combining_len = value.combining_len,
-        .combining = .{
-            @intCast(value.combining[0]),
-            @intCast(value.combining[1]),
-            @intCast(value.combining[2]),
-        },
-        .flags = .{ .continuation = value.flags.continuation != 0 },
-        .fg_color = try colorValueIn(value.fg_color),
-        .bg_color = try colorValueIn(value.bg_color),
-        .underline_color = try colorValueIn(value.underline_color),
-        .underline_style = try underlineStyleValueIn(value.underline_style),
-        .attrs = .{
-            .bold = value.attrs.bold != 0,
-            .dim = value.attrs.dim != 0,
-            .italic = value.attrs.italic != 0,
-            .underline = value.attrs.underline != 0,
-            .underline_color_set = value.attrs.underline_color_set != 0,
-            .blink = value.attrs.blink != 0,
-            .inverse = value.attrs.inverse != 0,
-            .invisible = value.attrs.invisible != 0,
-            .strikethrough = value.attrs.strikethrough != 0,
-            .selected = value.attrs.selected != 0,
-        },
-        .link_id = value.link_id,
-    };
-}
-
-fn publicationCellValueIn(value: c.HowlVtSurfaceCell) !source_vt.SourceCell {
-    try validateCellValue(value);
-    return .{
-        .codepoint = value.codepoint,
-        .combining_len = value.combining_len,
-        .combining = value.combining,
-        .flags = .{
-            .continuation = value.flags.continuation,
-        },
-        .fg_color = .{ .kind = value.fg_color.kind, .value = value.fg_color.value },
-        .bg_color = .{ .kind = value.bg_color.kind, .value = value.bg_color.value },
-        .underline_color = .{ .kind = value.underline_color.kind, .value = value.underline_color.value },
-        .underline_style = value.underline_style,
-        .attrs = .{
-            .bold = value.attrs.bold,
-            .dim = value.attrs.dim,
-            .italic = value.attrs.italic,
-            .underline = value.attrs.underline,
-            .underline_color_set = value.attrs.underline_color_set,
-            .blink = value.attrs.blink,
-            .inverse = value.attrs.inverse,
-            .invisible = value.attrs.invisible,
-            .strikethrough = value.attrs.strikethrough,
-            .selected = value.attrs.selected,
-        },
-        .link_id = value.link_id,
-    };
-}
-
-fn validateCellValue(value: c.HowlVtSurfaceCell) !void {
-    if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
-    if (value.combining_len > value.combining.len) return error.InvalidSurfaceSource;
-    for (value.combining[0..value.combining_len]) |cp| {
-        if (cp > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
-    }
-    _ = try colorValueIn(value.fg_color);
-    _ = try colorValueIn(value.bg_color);
-    _ = try colorValueIn(value.underline_color);
-    _ = try underlineStyleValueIn(value.underline_style);
-}
-
-fn validatePublicationCellValue(value: source_vt.SourceCell) !void {
-    if (value.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
-    if (value.combining_len > value.combining.len) return error.InvalidSurfaceSource;
-    for (value.combining[0..value.combining_len]) |cp| {
-        if (cp > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
-    }
-    _ = try colorValueIn(.{ .kind = value.fg_color.kind, .value = value.fg_color.value });
-    _ = try colorValueIn(.{ .kind = value.bg_color.kind, .value = value.bg_color.value });
-    _ = try colorValueIn(.{ .kind = value.underline_color.kind, .value = value.underline_color.value });
-    _ = try underlineStyleValueIn(value.underline_style);
 }
 
 fn colorStateIn(value: c.HowlVtRenderColorState) source_vt.SourceColors {
@@ -785,21 +608,6 @@ fn selectionIn(value: c.HowlVtSelection) source_vt.SourceSelection {
         .selecting = value.selecting,
         .start = .{ .row = value.start.row, .col = value.start.col },
         .end = .{ .row = value.end.row, .col = value.end.col },
-    };
-}
-
-fn colorValueIn(value: c.HowlVtColor) !source_cell.Color {
-    return switch (value.kind) {
-        0 => .{ .kind = .default, .value = 0 },
-        1 => blk: {
-            if (value.value > std.math.maxInt(u8)) return error.InvalidSurfaceSource;
-            break :blk .{ .kind = .indexed, .value = @truncate(value.value) };
-        },
-        2 => blk: {
-            if (value.value > std.math.maxInt(u24)) return error.InvalidSurfaceSource;
-            break :blk .{ .kind = .rgb, .value = @truncate(value.value) };
-        },
-        else => return error.InvalidSurfaceSource,
     };
 }
 
@@ -823,17 +631,49 @@ fn cursorIn(value: c.HowlVtCursor) ?source_cell.CursorInfo {
     return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = shape, .blink = value.blink != 0 };
 }
 
-fn underlineStyleValueIn(value: u8) !source_cell.UnderlineStyle {
-    return switch (value) {
-        0 => .straight,
-        1 => .double,
-        2 => .curly,
-        3 => .dotted,
-        4 => .dashed,
-        else => return error.InvalidSurfaceSource,
-    };
-}
-
 fn pixelIn(value: c.HowlRenderPixelSize) geometry_contract.PixelSize {
     return .{ .width = value.width, .height = value.height };
+}
+
+fn assertVtCellLayout() void {
+    comptime {
+        std.debug.assert(@sizeOf(source_vt.SourceCell) == @sizeOf(c.HowlVtSurfaceCell));
+        std.debug.assert(@alignOf(source_vt.SourceCell) == @alignOf(c.HowlVtSurfaceCell));
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "codepoint");
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "combining_len");
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "combining");
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "flags");
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "fg_color");
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "bg_color");
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "underline_color");
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "underline_style");
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "attrs");
+        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "link_id");
+
+        std.debug.assert(@sizeOf(source_vt.SourceColor) == @sizeOf(c.HowlVtColor));
+        std.debug.assert(@alignOf(source_vt.SourceColor) == @alignOf(c.HowlVtColor));
+        assertOffset(source_vt.SourceColor, c.HowlVtColor, "kind");
+        assertOffset(source_vt.SourceColor, c.HowlVtColor, "value");
+
+        std.debug.assert(@sizeOf(source_vt.SourceCellFlags) == @sizeOf(c.HowlVtSurfaceCellFlags));
+        std.debug.assert(@alignOf(source_vt.SourceCellFlags) == @alignOf(c.HowlVtSurfaceCellFlags));
+        assertOffset(source_vt.SourceCellFlags, c.HowlVtSurfaceCellFlags, "continuation");
+
+        std.debug.assert(@sizeOf(source_vt.SourceCellAttrs) == @sizeOf(c.HowlVtSurfaceCellAttrs));
+        std.debug.assert(@alignOf(source_vt.SourceCellAttrs) == @alignOf(c.HowlVtSurfaceCellAttrs));
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "bold");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "dim");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "italic");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "underline");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "underline_color_set");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "blink");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "inverse");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "invisible");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "strikethrough");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "selected");
+    }
+}
+
+fn assertOffset(comptime Source: type, comptime Abi: type, comptime field: []const u8) void {
+    std.debug.assert(@offsetOf(Source, field) == @offsetOf(Abi, field));
 }

@@ -7,6 +7,10 @@ test {
 const ffi = @import("../ffi.zig");
 
 const c = ffi.c;
+const RenderPublishSlot = @field(c, "Howl" ++ "RenderPublishSlot");
+const RenderPublishSlotCommit = @field(c, "Howl" ++ "RenderPublishSlotCommit");
+const VtSurfaceCell = @field(c, "Howl" ++ "VtSurfaceCell");
+const VtSurfaceCellAttrs = @field(c, "Howl" ++ "VtSurfaceCellAttrs");
 
 comptime {
     std.debug.assert(c.HOWL_RENDER_CALL_OK == 0);
@@ -75,7 +79,7 @@ test "render ffi publish slot translates vt cell ffi storage" {
     const geometry = ffi.syncGeometry(handle, .{ .render_px = .{ .width = 256, .height = 128 }, .grid_px = .{ .width = 256, .height = 128 } });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, geometry.status);
 
-    var slot = std.mem.zeroes(c.HowlRenderPublishSlot);
+    var slot = std.mem.zeroes(RenderPublishSlot);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.reservePublishSlot(handle, 2, 2, &slot));
     try std.testing.expectEqual(@as(usize, 4), slot.cells.len);
     for (slot.cells.ptr[0..slot.cells.len], 0..) |*cell, index| {
@@ -99,6 +103,49 @@ test "render ffi publish slot translates vt cell ffi storage" {
     });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
     try std.testing.expectEqual(@as(u64, 9), publish.snapshot_seq);
+}
+
+test "render ffi rejects invalid publish cell codepoint" {
+    var cell = testCell();
+    cell.codepoint = @as(u32, std.math.maxInt(u21)) + 1;
+    try expectInvalidPublishedCell(cell);
+}
+
+test "render ffi rejects invalid publish underline style" {
+    var cell = testCell();
+    cell.underline_style = 5;
+    try expectInvalidPublishedCell(cell);
+}
+
+test "render ffi rejects invalid publish color kind" {
+    var cell = testCell();
+    cell.fg_color = .{ .kind = 3, .value = 0 };
+    try expectInvalidPublishedCell(cell);
+}
+
+test "render ffi reserve write commit and take prepare succeeds" {
+    const handle = ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer ffi.deinit(handle);
+    try std.testing.expect(handle != null);
+
+    _ = ffi.syncGeometry(handle, .{
+        .render_px = .{ .width = 16, .height = 16 },
+        .grid_px = .{ .width = 16, .height = 16 },
+    });
+    var slot = std.mem.zeroes(RenderPublishSlot);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.reservePublishSlot(handle, 1, 1, &slot));
+    slot.cells.ptr[0] = testCell();
+    slot.dirty_rows.ptr[0] = 1;
+    slot.dirty_cols_start.ptr[0] = 0;
+    slot.dirty_cols_end.ptr[0] = 0;
+
+    const publish = ffi.commitPublishSlot(handle, validPublishCommit(11));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
+    try std.testing.expectEqual(@as(u64, 11), publish.snapshot_seq);
+
+    var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, ffi.takePrepareRequest(handle, &request));
+    try std.testing.expectEqual(@as(u64, 11), request.snapshot_seq);
 }
 
 test "render ffi prepare and submit seams report initial idle contract" {
@@ -472,6 +519,18 @@ fn validPartialPreparedFrame() c.HowlRenderPreparedFrame {
     };
 }
 
+fn validPublishCommit(snapshot_seq: u64) RenderPublishSlotCommit {
+    return .{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = snapshot_seq,
+        .is_alternate_screen = 0,
+        .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+    };
+}
+
 fn createPreparedHandle(handle: c.HowlRenderSurfaceTextHandle) !c.HowlRenderPreparedSurfaceHandle {
     return createPreparedHandleWithSnapshot(handle, 1);
 }
@@ -525,7 +584,7 @@ fn nextPrepareRequest(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) 
     const dirty_rows = [_]u8{1};
     const dirty_cols_start = [_]u16{0};
     const dirty_cols_end = [_]u16{0};
-    var slot = std.mem.zeroes(c.HowlRenderPublishSlot);
+    var slot = std.mem.zeroes(RenderPublishSlot);
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_OK,
         ffi.reservePublishSlot(handle, 1, 1, &slot),
@@ -551,7 +610,7 @@ fn nextPrepareRequest(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) 
     return request;
 }
 
-fn testCell() c.HowlVtSurfaceCell {
+fn testCell() VtSurfaceCell {
     return .{
         .codepoint = 'a',
         .flags = .{ .continuation = 0 },
@@ -559,7 +618,7 @@ fn testCell() c.HowlVtSurfaceCell {
         .bg_color = .{ .kind = 0, .value = 0 },
         .underline_color = .{ .kind = 0, .value = 0 },
         .underline_style = 0,
-        .attrs = std.mem.zeroes(c.HowlVtSurfaceCellAttrs),
+        .attrs = std.mem.zeroes(VtSurfaceCellAttrs),
         .link_id = 0,
     };
 }
@@ -592,4 +651,27 @@ fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderSurfaceTextHandle
     var prepared_handle: c.HowlRenderPreparedSurfaceHandle = null;
     try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, ffi.prepareHandle(handle, request, &prepared_handle));
     try std.testing.expect(prepared_handle == null);
+}
+
+fn expectInvalidPublishedCell(cell: VtSurfaceCell) !void {
+    const handle = ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer ffi.deinit(handle);
+    try std.testing.expect(handle != null);
+
+    _ = ffi.syncGeometry(handle, .{
+        .render_px = .{ .width = 16, .height = 16 },
+        .grid_px = .{ .width = 16, .height = 16 },
+    });
+    var slot = std.mem.zeroes(RenderPublishSlot);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.reservePublishSlot(handle, 1, 1, &slot));
+    slot.cells.ptr[0] = cell;
+    slot.dirty_rows.ptr[0] = 1;
+    slot.dirty_cols_start.ptr[0] = 0;
+    slot.dirty_cols_end.ptr[0] = 0;
+
+    const publish = ffi.commitPublishSlot(handle, validPublishCommit(7));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, publish.status);
+
+    var next_slot = std.mem.zeroes(RenderPublishSlot);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.reservePublishSlot(handle, 1, 1, &next_slot));
 }

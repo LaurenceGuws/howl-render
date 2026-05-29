@@ -1,18 +1,82 @@
 const std = @import("std");
 const tokens = @import("../surface/tokens.zig");
-const vt_publication = @import("../surface/publication_source.zig");
 const source_cell = @import("cell.zig");
 const source_damage = @import("damage.zig");
 const source_slot = @import("slot.zig");
 
-pub const SourceRgb = vt_publication.SourceRgb;
-pub const SourceColor = vt_publication.SourceColor;
-pub const SourceColors = vt_publication.SourceColors;
-pub const SourceCellFlags = vt_publication.SourceCellFlags;
-pub const SourceCellAttrs = vt_publication.SourceCellAttrs;
-pub const SourceCell = vt_publication.SourceCell;
-pub const SourceSelectionPoint = vt_publication.SourceSelectionPoint;
-pub const SourceSelection = vt_publication.SourceSelection;
+pub const SourceRgb = extern struct {
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
+pub const SourceColor = extern struct {
+    kind: u8,
+    reserved0: u8 = 0,
+    reserved1: u8 = 0,
+    reserved2: u8 = 0,
+    value: u32,
+};
+
+pub const SourceColors = extern struct {
+    foreground: SourceRgb,
+    background: SourceRgb,
+    cursor: SourceRgb,
+    palette: [256]SourceRgb,
+};
+
+pub const SourceCellFlags = extern struct {
+    continuation: u8,
+    reserved0: u8 = 0,
+    reserved1: u8 = 0,
+    reserved2: u8 = 0,
+};
+
+pub const SourceCellAttrs = extern struct {
+    bold: u8,
+    dim: u8,
+    italic: u8,
+    underline: u8,
+    underline_color_set: u8,
+    blink: u8,
+    inverse: u8,
+    invisible: u8,
+    strikethrough: u8,
+    selected: u8,
+};
+
+pub const SourceCell = extern struct {
+    codepoint: u32,
+    combining_len: u8 = 0,
+    reserved0: u8 = 0,
+    reserved1: u8 = 0,
+    reserved2: u8 = 0,
+    combining: [3]u32 = [_]u32{0} ** 3,
+    flags: SourceCellFlags,
+    fg_color: SourceColor,
+    bg_color: SourceColor,
+    underline_color: SourceColor,
+    underline_style: u8,
+    reserved3: u8 = 0,
+    reserved4: u8 = 0,
+    reserved5: u8 = 0,
+    attrs: SourceCellAttrs,
+    link_id: u32,
+};
+
+pub const SourceSelectionPoint = extern struct {
+    row: i32,
+    col: u16,
+    reserved0: u16 = 0,
+};
+
+pub const SourceSelection = extern struct {
+    active: u8,
+    selecting: u8,
+    reserved0: u16 = 0,
+    start: SourceSelectionPoint,
+    end: SourceSelectionPoint,
+};
 
 pub const VtSnapshot = struct {
     cols: u16,
@@ -118,6 +182,39 @@ pub const VtPublishResult = struct {
     geometry_epoch: u64,
 };
 
+pub fn validateSourceCell(cell: SourceCell) !void {
+    if (cell.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
+    if (cell.combining_len > cell.combining.len) return error.InvalidSurfaceSource;
+    for (cell.combining[0..cell.combining_len]) |codepoint| {
+        if (codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
+    }
+    if (!sourceColorValid(cell.fg_color)) return error.InvalidSurfaceSource;
+    if (!sourceColorValid(cell.bg_color)) return error.InvalidSurfaceSource;
+    if (!sourceColorValid(cell.underline_color)) return error.InvalidSurfaceSource;
+    if (!underlineStyleValid(cell.underline_style)) return error.InvalidSurfaceSource;
+}
+
+pub fn validateSourceCells(cells: []const SourceCell) !void {
+    for (cells) |cell| try validateSourceCell(cell);
+}
+
+pub fn validateReservedSourceMeta(meta: ReservedSourceMeta) !void {
+    if (meta.snapshot_seq == 0) return error.InvalidSurfaceSource;
+}
+
+pub fn sourceColorValid(color: SourceColor) bool {
+    return switch (color.kind) {
+        0 => true,
+        1 => color.value <= std.math.maxInt(u8),
+        2 => color.value <= std.math.maxInt(u24),
+        else => false,
+    };
+}
+
+pub fn underlineStyleValid(value: u8) bool {
+    return value <= 4;
+}
+
 pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
     if (source.cols == 0) return error.InvalidSurfaceSource;
     if (source.rows == 0) return error.InvalidSurfaceSource;
@@ -203,4 +300,65 @@ pub fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoin
         .dirty_cols_start = dirty_cols_start,
         .dirty_cols_end = dirty_cols_end,
     };
+}
+
+fn validTestCell() SourceCell {
+    var cell = std.mem.zeroes(SourceCell);
+    cell.codepoint = 'A';
+    return cell;
+}
+
+test "source vt rejects source cell codepoint above u21" {
+    var cell = validTestCell();
+    cell.codepoint = @as(u32, std.math.maxInt(u21)) + 1;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateSourceCell(cell));
+}
+
+test "source vt rejects combining length beyond storage" {
+    var cell = validTestCell();
+    cell.combining_len = 4;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateSourceCell(cell));
+}
+
+test "source vt rejects active combining codepoint above u21" {
+    var cell = validTestCell();
+    cell.combining_len = 1;
+    cell.combining[0] = @as(u32, std.math.maxInt(u21)) + 1;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateSourceCell(cell));
+}
+
+test "source vt rejects invalid color kind" {
+    var cell = validTestCell();
+    cell.fg_color = .{ .kind = 3, .value = 0 };
+    try std.testing.expectError(error.InvalidSurfaceSource, validateSourceCell(cell));
+}
+
+test "source vt rejects indexed color outside u8" {
+    var cell = validTestCell();
+    cell.bg_color = .{ .kind = 1, .value = @as(u32, std.math.maxInt(u8)) + 1 };
+    try std.testing.expectError(error.InvalidSurfaceSource, validateSourceCell(cell));
+}
+
+test "source vt rejects rgb color outside u24" {
+    var cell = validTestCell();
+    cell.underline_color = .{ .kind = 2, .value = @as(u32, std.math.maxInt(u24)) + 1 };
+    try std.testing.expectError(error.InvalidSurfaceSource, validateSourceCell(cell));
+}
+
+test "source vt rejects underline style above shipped range" {
+    var cell = validTestCell();
+    cell.underline_style = 5;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateSourceCell(cell));
+}
+
+test "source vt rejects reserved source meta without snapshot" {
+    try std.testing.expectError(error.InvalidSurfaceSource, validateReservedSourceMeta(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 0,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(source_cell.CursorInfo),
+        .colors = std.mem.zeroes(SourceColors),
+        .selection = std.mem.zeroes(SourceSelection),
+    }));
 }

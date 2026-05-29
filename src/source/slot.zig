@@ -111,8 +111,8 @@ pub const SourceSlot = struct {
         meta: source_vt.ReservedSourceMeta,
         dirty_epoch: u64,
     ) !source_vt.PublicationSource {
-        var source = self.reserved orelse return error.MissingPublishSlot;
-        self.reserved = null;
+        try source_vt.validateReservedSourceMeta(meta);
+        const source = if (self.reserved) |*value| value else return error.MissingPublishSlot;
         source.scroll_row = meta.scroll_row;
         source.history_count = meta.history_count;
         source.snapshot_seq = meta.snapshot_seq;
@@ -121,6 +121,7 @@ pub const SourceSlot = struct {
         source.cursor = meta.cursor;
         source.colors = meta.colors;
         source.selection = meta.selection;
+        try source_vt.validateSourceCells(source.cells);
         try source_damage.validateDirtySource(
             source.rows,
             source.cols,
@@ -134,7 +135,9 @@ pub const SourceSlot = struct {
             source.dirty_cols_start,
             source.dirty_cols_end,
         );
-        return source;
+        const committed = source.*;
+        self.reserved = null;
+        return committed;
     }
 
     pub fn reservedSource(self: *SourceSlot) ?*source_vt.PublicationSource {
@@ -222,6 +225,43 @@ test "source slot reuses retained publish slot storage across reservations" {
     try std.testing.expectEqual(first_dirty_rows, second.dirty_rows.ptr);
     try std.testing.expectEqual(first_dirty_cols_start, second.dirty_cols_start.ptr);
     try std.testing.expectEqual(first_dirty_cols_end, second.dirty_cols_end.ptr);
+}
+
+test "source slot exposes retained source cell storage for publication" {
+    var slot_owner = SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
+    try slot_owner.syncReservedSlotCapacity(2, 1);
+
+    const slot = try slot_owner.reserveSourceSlot(2, 1);
+    try std.testing.expectEqual(slot_owner.retained_slot.cells.ptr, slot.cells.ptr);
+    try std.testing.expectEqual(@as(usize, 2), slot.cells.len);
+    slot_owner.cancelReservedSource();
+}
+
+test "source slot commit rejects invalid source cell without ffi scratch" {
+    var slot_owner = SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
+    try slot_owner.syncReservedSlotCapacity(1, 1);
+
+    const slot = try slot_owner.reserveSourceSlot(1, 1);
+    slot.cells[0] = std.mem.zeroes(source_vt.SourceCell);
+    slot.cells[0].codepoint = @as(u32, std.math.maxInt(u21)) + 1;
+    slot.dirty_rows[0] = 1;
+    slot.dirty_cols_start[0] = 0;
+    slot.dirty_cols_end[0] = 0;
+
+    try std.testing.expectError(error.InvalidSurfaceSource, slot_owner.commitReservedSource(.{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .is_alternate_screen = false,
+        .cursor = std.mem.zeroes(source_cell.CursorInfo),
+        .colors = std.mem.zeroes(source_vt.SourceColors),
+        .selection = std.mem.zeroes(source_vt.SourceSelection),
+    }, 1));
+    try std.testing.expect(slot_owner.reserved != null);
+    slot_owner.cancelReservedSource();
+    try std.testing.expect(slot_owner.reserved == null);
 }
 
 test "source slot commit returns source without prepare or submit state" {

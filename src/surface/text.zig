@@ -561,7 +561,6 @@ pub const SurfaceTextOwner = struct {
     }
 
     pub fn commitPublishSlot(self: *SurfaceTextOwner, meta: source_vt.ReservedSourceMeta) !source_vt.VtPublishResult {
-        std.debug.assert(meta.snapshot_seq != 0);
         var source = try self.source_slot.commitReservedSource(meta, self.nextSourceDirtyEpoch());
         source.cursor_phase_visible = self.cursor_blink_visible;
         return self.prepare_requests.acceptSource(source, self.submittedToken(), self.geometry.geometry_epoch);
