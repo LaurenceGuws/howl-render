@@ -615,9 +615,10 @@ test "prepareSurfaceGraphics wires prepared graphics into surface prepare contra
         .format = 24,
         .width = 1,
         .height = 1,
-        .payload_len = 4,
+        .payload_len = 3,
     }});
-    source.graphics_payload_bytes = try std.testing.allocator.dupe(u8, "QUJD");
+    source.graphics_payload_bytes = try std.testing.allocator.dupe(u8, &.{ 'A', 'B', 'C' });
+    source.graphics_payload_kind = .decoded_pixels;
     var placement0 = std.mem.zeroes(abi.FfiVtGraphicsPlacement);
     placement0.image_id = 5;
     placement0.placement_id = 1;
@@ -722,7 +723,7 @@ fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepo
     };
 }
 
-test "graphics cache reuses same payload across later publication changes" {
+test "decoded graphics cache reuses same payload across later publication changes" {
     var session = SurfaceText.init(std.testing.allocator);
     defer session.deinit();
 
@@ -733,60 +734,38 @@ test "graphics cache reuses same payload across later publication changes" {
     };
     defer graphics.deinit(std.testing.allocator);
 
-    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 4 }};
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], "QUJD", .legacy_protocol);
+    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 }};
+    try session.graphics_preparer.prepare(&graphics, source_images[0..], &.{ 1, 2, 3 }, .decoded_pixels);
     try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
     try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
 
     std.testing.allocator.free(graphics.images);
     graphics.images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }});
+    try session.graphics_preparer.prepare(&graphics, source_images[0..], &.{ 1, 2, 3 }, .decoded_pixels);
+    try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
+    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
+}
+
+test "legacy graphics payloads produce no raster" {
+    var session = SurfaceText.init(std.testing.allocator);
+    defer session.deinit();
+
+    var graphics = surface.PreparedGraphics{
+        .publication_seq = 1,
+        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }}),
+        .placements = try std.testing.allocator.dupe(surface.PreparedGraphicsPlacement, &.{std.mem.zeroes(surface.PreparedGraphicsPlacement)}),
+    };
+    defer graphics.deinit(std.testing.allocator);
+    graphics.placements[0].image_index = 0;
+
+    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 4 }};
     try session.graphics_preparer.prepare(&graphics, source_images[0..], "QUJD", .legacy_protocol);
-    try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
-    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
-}
-
-test "png graphics decode succeeds" {
-    var session = SurfaceText.init(std.testing.allocator);
-    defer session.deinit();
-
-    var graphics = surface.PreparedGraphics{
-        .publication_seq = 1,
-        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 1, .height = 1, .format = 100, .raster_index = graphics_prepare.invalid_graphics_raster_index }}),
-        .placements = &.{},
-    };
-    defer graphics.deinit(std.testing.allocator);
-
-    const payload = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQVDJ2AQABWQCrEyolqwAAAABJRU5ErkJggg==";
-    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 100, .width = 1, .height = 1, .payload_len = payload.len }};
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], payload, .legacy_protocol);
-
-    try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
-    try std.testing.expectEqual(@as(u32, 0), graphics.images[0].raster_index);
-    const raster = session.graphicsRaster(0).?;
-    try std.testing.expectEqual(@as(u32, 1), raster.width);
-    try std.testing.expectEqual(@as(u32, 1), raster.height);
-    try std.testing.expectEqual(@as(u32, 4), raster.stride);
-    try std.testing.expectEqualSlices(u8, &.{ 17, 34, 51, 68 }, raster.pixels_rgba);
-}
-
-test "png graphics decode rejects metadata mismatch" {
-    var session = SurfaceText.init(std.testing.allocator);
-    defer session.deinit();
-
-    var graphics = surface.PreparedGraphics{
-        .publication_seq = 1,
-        .images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 2, .height = 1, .format = 100, .raster_index = graphics_prepare.invalid_graphics_raster_index }}),
-        .placements = &.{},
-    };
-    defer graphics.deinit(std.testing.allocator);
-
-    const payload = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQVDJ2AQABWQCrEyolqwAAAABJRU5ErkJggg==";
-    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 100, .width = 2, .height = 1, .payload_len = payload.len }};
-    try std.testing.expectError(error.InvalidGraphicsPayload, session.graphics_preparer.prepare(&graphics, source_images[0..], payload, .legacy_protocol));
     try std.testing.expectEqual(@as(usize, 0), session.graphics_preparer.decoded_graphics_rasters.len);
+    try std.testing.expectEqual(@as(usize, 0), graphics.images.len);
+    try std.testing.expectEqual(@as(usize, 0), graphics.placements.len);
 }
 
-test "graphics cache replaces same image id when payload changes" {
+test "decoded graphics cache replaces same image id when payload changes" {
     var session = SurfaceText.init(std.testing.allocator);
     defer session.deinit();
 
@@ -797,13 +776,13 @@ test "graphics cache replaces same image id when payload changes" {
     };
     defer graphics.deinit(std.testing.allocator);
 
-    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 4 }};
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], "QUJD", .legacy_protocol);
+    const source_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 }};
+    try session.graphics_preparer.prepare(&graphics, source_images[0..], &.{ 1, 2, 3 }, .decoded_pixels);
     const first_key = session.graphics_preparer.graphics_publication_image_keys[0].key;
 
     std.testing.allocator.free(graphics.images);
     graphics.images = try std.testing.allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 1, .height = 1, .format = 24, .raster_index = graphics_prepare.invalid_graphics_raster_index }});
-    try session.graphics_preparer.prepare(&graphics, source_images[0..], "REVG", .legacy_protocol);
+    try session.graphics_preparer.prepare(&graphics, source_images[0..], &.{ 4, 5, 6 }, .decoded_pixels);
     try std.testing.expectEqual(@as(usize, 1), session.graphics_preparer.decoded_graphics_rasters.len);
     try std.testing.expect(!graphics_prepare.decodedGraphicsKeyEqual(first_key, session.graphics_preparer.graphics_publication_image_keys[0].key));
 }

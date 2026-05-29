@@ -4,11 +4,6 @@
 
 const std = @import("std");
 
-fn addStbImage(module: *std.Build.Module, b: *std.Build) void {
-    module.addIncludePath(b.path("src"));
-    module.addCSourceFile(.{ .file = b.path("src/stb_image.c") });
-}
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -40,7 +35,6 @@ pub fn build(b: *std.Build) void {
     internal_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     internal_mod.linkLibrary(harfbuzz_lib);
     internal_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    addStbImage(internal_mod, b);
 
     const perf_freetype_dep = b.dependency("freetype", .{
         .target = target,
@@ -74,7 +68,6 @@ pub fn build(b: *std.Build) void {
     render_owner.addIncludePath(freetype_lib.getEmittedIncludeTree());
     render_owner.linkLibrary(harfbuzz_lib);
     render_owner.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    addStbImage(render_owner, b);
     const render_tests = b.addTest(.{
         .name = "test-render",
         .root_module = render_owner,
@@ -99,7 +92,6 @@ pub fn build(b: *std.Build) void {
     abi_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     abi_mod.linkLibrary(harfbuzz_lib);
     abi_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    addStbImage(abi_mod, b);
     const abi_tests = b.addTest(.{
         .name = "test-abi",
         .root_module = abi_mod,
@@ -139,7 +131,6 @@ pub fn build(b: *std.Build) void {
     ffi_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     ffi_mod.linkLibrary(harfbuzz_lib);
     ffi_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    addStbImage(ffi_mod, b);
     const ffi_lib = b.addLibrary(.{
         .name = "howl_render",
         .linkage = .dynamic,
@@ -162,7 +153,6 @@ pub fn build(b: *std.Build) void {
     benchmark_mod.addIncludePath(perf_freetype_lib.getEmittedIncludeTree());
     benchmark_mod.linkLibrary(perf_harfbuzz_lib);
     benchmark_mod.addIncludePath(perf_harfbuzz_lib.getEmittedIncludeTree());
-    addStbImage(benchmark_mod, b);
 
     const benchmark_exe = b.addExecutable(.{
         .name = "render_benchmark",

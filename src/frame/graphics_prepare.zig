@@ -1,6 +1,5 @@
 const std = @import("std");
 const abi = @import("../ffi_types.zig");
-const stb_image = @import("../stb_image.zig");
 const queue = @import("queue.zig");
 const surface = @import("surface.zig");
 
@@ -73,6 +72,12 @@ pub const GraphicsPreparer = struct {
     ) !void {
         const source_payloads = try self.sourceGraphicsPayloads(source_images, payload_bytes, payload_kind);
         defer self.allocator.free(source_payloads);
+        if (payload_kind == .legacy_protocol) {
+            self.replaceGraphicsPublicationImageKeys(&.{});
+            self.sweepDecodedGraphicsRasters();
+            try self.bindPreparedGraphicsRasters(prepared);
+            return;
+        }
 
         var publication_keys = try self.allocator.alloc(GraphicsPublicationImageKey, source_payloads.len);
         errdefer self.allocator.free(publication_keys);
@@ -269,88 +274,13 @@ fn decodeGraphicsRaster(
     key: DecodedGraphicsKey,
 ) !?DecodedGraphicsRaster {
     switch (source_payload.payload_kind) {
-        .legacy_protocol => switch (source_payload.image.format) {
-            24 => return try decodeBase64RawGraphicsRaster(allocator, source_payload, key, 3),
-            32 => return try decodeBase64RawGraphicsRaster(allocator, source_payload, key, 4),
-            100 => return try decodePngGraphicsRaster(allocator, source_payload, key),
-            else => return null,
-        },
+        .legacy_protocol => return null,
         .decoded_pixels => switch (source_payload.image.format) {
             24 => return try decodeDecodedRawGraphicsRaster(allocator, source_payload, key, 3),
             32 => return try decodeDecodedRawGraphicsRaster(allocator, source_payload, key, 4),
             else => return error.InvalidGraphicsPayload,
         },
     }
-}
-
-fn decodePngGraphicsRaster(
-    allocator: std.mem.Allocator,
-    source_payload: SourceGraphicsPayload,
-    key: DecodedGraphicsKey,
-) !DecodedGraphicsRaster {
-    const metadata_width = source_payload.image.width;
-    const metadata_height = source_payload.image.height;
-    const expected_stride = try graphicsBytesLen(metadata_width, 4);
-    const expected_len = try graphicsBytesLen(try graphicsPixelCount(metadata_width, metadata_height), 4);
-    const png_len = std.base64.standard.Decoder.calcSizeForSlice(source_payload.payload) catch return error.InvalidGraphicsPayload;
-    const png_bytes = try allocator.alloc(u8, png_len);
-    defer allocator.free(png_bytes);
-    try std.base64.standard.Decoder.decode(png_bytes, source_payload.payload);
-
-    const decoded = stb_image.decodeRgba(png_bytes) catch return error.InvalidGraphicsPayload;
-    defer decoded.deinit(allocator);
-    if (decoded.width != metadata_width) return error.InvalidGraphicsPayload;
-    if (decoded.height != metadata_height) return error.InvalidGraphicsPayload;
-    if (decoded.pixels_rgba.len != expected_len) return error.InvalidGraphicsPayload;
-    if (decoded.stride != expected_stride) return error.InvalidGraphicsPayload;
-
-    return .{
-        .key = key,
-        .width = decoded.width,
-        .height = decoded.height,
-        .stride = std.math.cast(u32, decoded.stride) orelse return error.InvalidGraphicsPayload,
-        .pixels_rgba = try allocator.dupe(u8, decoded.pixels_rgba),
-    };
-}
-
-fn decodeBase64RawGraphicsRaster(
-    allocator: std.mem.Allocator,
-    source_payload: SourceGraphicsPayload,
-    key: DecodedGraphicsKey,
-    channels: u32,
-) !DecodedGraphicsRaster {
-    const pixel_count = try graphicsPixelCount(source_payload.image.width, source_payload.image.height);
-    const expected_len = try graphicsBytesLen(pixel_count, channels);
-    const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(source_payload.payload) catch return error.InvalidGraphicsPayload;
-    if (decoded_len != expected_len) return error.InvalidGraphicsPayload;
-    const stride = try graphicsBytesLen(source_payload.image.width, 4);
-    const pixels_rgba = try allocator.alloc(u8, try graphicsBytesLen(pixel_count, 4));
-    errdefer allocator.free(pixels_rgba);
-
-    if (channels == 4) {
-        try std.base64.standard.Decoder.decode(pixels_rgba, source_payload.payload);
-    } else {
-        const rgb = try allocator.alloc(u8, expected_len);
-        defer allocator.free(rgb);
-        try std.base64.standard.Decoder.decode(rgb, source_payload.payload);
-        var src_index: usize = 0;
-        var dst_index: usize = 0;
-        while (src_index < rgb.len) : (src_index += 3) {
-            pixels_rgba[dst_index] = rgb[src_index];
-            pixels_rgba[dst_index + 1] = rgb[src_index + 1];
-            pixels_rgba[dst_index + 2] = rgb[src_index + 2];
-            pixels_rgba[dst_index + 3] = 255;
-            dst_index += 4;
-        }
-    }
-
-    return .{
-        .key = key,
-        .width = source_payload.image.width,
-        .height = source_payload.image.height,
-        .stride = std.math.cast(u32, stride) orelse return error.InvalidGraphicsPayload,
-        .pixels_rgba = pixels_rgba,
-    };
 }
 
 fn decodeDecodedRawGraphicsRaster(
