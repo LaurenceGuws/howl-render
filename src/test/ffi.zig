@@ -16,8 +16,8 @@ const work_state = @import("../work_state.zig");
 const c = ffi_root.c;
 const RenderVtSurfaceSlot = @field(c, "Howl" ++ "RenderVtSurfaceSlot");
 const RenderVtSurfaceCommit = @field(c, "Howl" ++ "RenderVtSurfaceCommit");
-const VtSurfaceCell = @field(c, "Howl" ++ "VtSurfaceCell");
-const VtSurfaceCellAttrs = @field(c, "Howl" ++ "VtSurfaceCellAttrs");
+const RenderSourceCell = @field(c, "Howl" ++ "RenderSourceCell");
+const RenderSourceCellAttrs = @field(c, "Howl" ++ "RenderSourceCellAttrs");
 
 comptime {
     std.debug.assert(c.HOWL_RENDER_CALL_OK == 0);
@@ -105,7 +105,7 @@ test "render ffi vt surface slot translates vt cell ffi storage" {
         .snapshot_seq = 9,
         .is_alternate_screen = 0,
         .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
-        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+        .colors = std.mem.zeroes(c.HowlRenderSourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
@@ -534,7 +534,7 @@ fn validVtSurfaceCommit(snapshot_seq: u64) RenderVtSurfaceCommit {
         .snapshot_seq = snapshot_seq,
         .is_alternate_screen = 0,
         .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
-        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+        .colors = std.mem.zeroes(c.HowlRenderSourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     };
 }
@@ -608,7 +608,7 @@ fn nextPrepareRequest(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u64) 
         .snapshot_seq = snapshot_seq,
         .is_alternate_screen = 0,
         .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
-        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+        .colors = std.mem.zeroes(c.HowlRenderSourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
@@ -618,7 +618,7 @@ fn nextPrepareRequest(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u64) 
     return request;
 }
 
-fn testCell() VtSurfaceCell {
+fn testCell() RenderSourceCell {
     return .{
         .codepoint = 'a',
         .flags = .{ .continuation = 0 },
@@ -626,7 +626,7 @@ fn testCell() VtSurfaceCell {
         .bg_color = .{ .kind = 0, .value = 0 },
         .underline_color = .{ .kind = 0, .value = 0 },
         .underline_style = 0,
-        .attrs = std.mem.zeroes(VtSurfaceCellAttrs),
+        .attrs = std.mem.zeroes(RenderSourceCellAttrs),
         .link_id = 0,
     };
 }
@@ -661,7 +661,7 @@ fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderTextSessionHandle
     try std.testing.expect(prepared_handle == null);
 }
 
-fn expectInvalidPublishedCell(cell: VtSurfaceCell) !void {
+fn expectInvalidPublishedCell(cell: RenderSourceCell) !void {
     const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
     defer text_session.deinit(handle);
     try std.testing.expect(handle != null);

@@ -78,6 +78,15 @@ pub const SourceSelection = extern struct {
     end: SourceSelectionPoint,
 };
 
+pub const SourceCursor = extern struct {
+    row: u16,
+    col: u16,
+    visible: u8,
+    shape: u8,
+    blink: u8,
+    reserved0: u8 = 0,
+};
+
 pub const VtSnapshot = struct {
     cols: u16,
     rows: u16,

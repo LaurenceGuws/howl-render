@@ -94,7 +94,7 @@ pub fn vtSurfacePublishResultWithStatus(
     };
 }
 
-pub fn colorStateIn(value: c.HowlVtRenderColorState) source_vt.SourceColors {
+pub fn colorStateIn(value: c.HowlRenderSourceColors) source_vt.SourceColors {
     var palette: [256]source_vt.SourceRgb = undefined;
     for (value.palette, 0..) |color, index| {
         palette[index] = .{ .r = color.r, .g = color.g, .b = color.b };
@@ -107,7 +107,7 @@ pub fn colorStateIn(value: c.HowlVtRenderColorState) source_vt.SourceColors {
     };
 }
 
-pub fn selectionIn(value: c.HowlVtSelection) source_vt.SourceSelection {
+pub fn selectionIn(value: c.HowlRenderSourceSelection) source_vt.SourceSelection {
     return .{
         .active = value.active,
         .selecting = value.selecting,
@@ -116,7 +116,7 @@ pub fn selectionIn(value: c.HowlVtSelection) source_vt.SourceSelection {
     };
 }
 
-pub fn cursorIn(value: c.HowlVtCursor) ?source_cell.CursorInfo {
+pub fn cursorIn(value: c.HowlRenderSourceCursor) ?source_cell.CursorInfo {
     const shape = switch (value.shape) {
         0 => source_cell.CursorShape.block,
         1 => .underline,
@@ -135,41 +135,70 @@ pub fn cursorIn(value: c.HowlVtCursor) ?source_cell.CursorInfo {
 
 pub fn assertVtCellLayout() void {
     comptime {
-        std.debug.assert(@sizeOf(source_vt.SourceCell) == @sizeOf(c.HowlVtSurfaceCell));
-        std.debug.assert(@alignOf(source_vt.SourceCell) == @alignOf(c.HowlVtSurfaceCell));
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "codepoint");
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "combining_len");
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "combining");
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "flags");
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "fg_color");
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "bg_color");
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "underline_color");
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "underline_style");
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "attrs");
-        assertOffset(source_vt.SourceCell, c.HowlVtSurfaceCell, "link_id");
+        assertLayout(source_vt.SourceRgb, c.HowlRenderSourceRgb);
+        assertOffset(source_vt.SourceRgb, c.HowlRenderSourceRgb, "r");
+        assertOffset(source_vt.SourceRgb, c.HowlRenderSourceRgb, "g");
+        assertOffset(source_vt.SourceRgb, c.HowlRenderSourceRgb, "b");
 
-        std.debug.assert(@sizeOf(source_vt.SourceColor) == @sizeOf(c.HowlVtColor));
-        std.debug.assert(@alignOf(source_vt.SourceColor) == @alignOf(c.HowlVtColor));
-        assertOffset(source_vt.SourceColor, c.HowlVtColor, "kind");
-        assertOffset(source_vt.SourceColor, c.HowlVtColor, "value");
+        assertLayout(source_vt.SourceColor, c.HowlRenderSourceColor);
+        assertOffset(source_vt.SourceColor, c.HowlRenderSourceColor, "kind");
+        assertOffset(source_vt.SourceColor, c.HowlRenderSourceColor, "value");
 
-        std.debug.assert(@sizeOf(source_vt.SourceCellFlags) == @sizeOf(c.HowlVtSurfaceCellFlags));
-        std.debug.assert(@alignOf(source_vt.SourceCellFlags) == @alignOf(c.HowlVtSurfaceCellFlags));
-        assertOffset(source_vt.SourceCellFlags, c.HowlVtSurfaceCellFlags, "continuation");
+        assertLayout(source_vt.SourceCellFlags, c.HowlRenderSourceCellFlags);
+        assertOffset(source_vt.SourceCellFlags, c.HowlRenderSourceCellFlags, "continuation");
 
-        std.debug.assert(@sizeOf(source_vt.SourceCellAttrs) == @sizeOf(c.HowlVtSurfaceCellAttrs));
-        std.debug.assert(@alignOf(source_vt.SourceCellAttrs) == @alignOf(c.HowlVtSurfaceCellAttrs));
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "bold");
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "dim");
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "italic");
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "underline");
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "underline_color_set");
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "blink");
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "inverse");
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "invisible");
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "strikethrough");
-        assertOffset(source_vt.SourceCellAttrs, c.HowlVtSurfaceCellAttrs, "selected");
+        assertLayout(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs);
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "bold");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "dim");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "italic");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "underline");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "underline_color_set");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "blink");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "inverse");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "invisible");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "strikethrough");
+        assertOffset(source_vt.SourceCellAttrs, c.HowlRenderSourceCellAttrs, "selected");
+
+        assertLayout(source_vt.SourceCell, c.HowlRenderSourceCell);
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "codepoint");
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "combining_len");
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "combining");
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "flags");
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "fg_color");
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "bg_color");
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "underline_color");
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "underline_style");
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "attrs");
+        assertOffset(source_vt.SourceCell, c.HowlRenderSourceCell, "link_id");
+
+        assertLayout(source_vt.SourceColors, c.HowlRenderSourceColors);
+        assertOffset(source_vt.SourceColors, c.HowlRenderSourceColors, "foreground");
+        assertOffset(source_vt.SourceColors, c.HowlRenderSourceColors, "background");
+        assertOffset(source_vt.SourceColors, c.HowlRenderSourceColors, "cursor");
+        assertOffset(source_vt.SourceColors, c.HowlRenderSourceColors, "palette");
+
+        assertLayout(source_vt.SourceSelectionPoint, c.HowlRenderSourceSelectionPos);
+        assertOffset(source_vt.SourceSelectionPoint, c.HowlRenderSourceSelectionPos, "row");
+        assertOffset(source_vt.SourceSelectionPoint, c.HowlRenderSourceSelectionPos, "col");
+
+        assertLayout(source_vt.SourceSelection, c.HowlRenderSourceSelection);
+        assertOffset(source_vt.SourceSelection, c.HowlRenderSourceSelection, "active");
+        assertOffset(source_vt.SourceSelection, c.HowlRenderSourceSelection, "selecting");
+        assertOffset(source_vt.SourceSelection, c.HowlRenderSourceSelection, "start");
+        assertOffset(source_vt.SourceSelection, c.HowlRenderSourceSelection, "end");
+
+        assertLayout(source_vt.SourceCursor, c.HowlRenderSourceCursor);
+        assertOffset(source_vt.SourceCursor, c.HowlRenderSourceCursor, "row");
+        assertOffset(source_vt.SourceCursor, c.HowlRenderSourceCursor, "col");
+        assertOffset(source_vt.SourceCursor, c.HowlRenderSourceCursor, "visible");
+        assertOffset(source_vt.SourceCursor, c.HowlRenderSourceCursor, "shape");
+        assertOffset(source_vt.SourceCursor, c.HowlRenderSourceCursor, "blink");
     }
+}
+
+pub fn assertLayout(comptime Source: type, comptime Abi: type) void {
+    std.debug.assert(@sizeOf(Source) == @sizeOf(Abi));
+    std.debug.assert(@alignOf(Source) == @alignOf(Abi));
 }
 
 pub fn assertOffset(comptime Source: type, comptime Abi: type, comptime field: []const u8) void {

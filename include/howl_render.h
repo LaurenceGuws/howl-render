@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "howl_vt.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -194,7 +193,90 @@ typedef struct {
 } HowlRenderVtSurfacePublishResult;
 
 typedef struct {
-  HowlVtSurfaceCell *ptr;
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+} HowlRenderSourceRgb;
+
+typedef struct {
+  uint8_t kind;
+  uint8_t reserved0;
+  uint8_t reserved1;
+  uint8_t reserved2;
+  uint32_t value;
+} HowlRenderSourceColor;
+
+typedef struct {
+  uint8_t continuation;
+  uint8_t reserved0;
+  uint8_t reserved1;
+  uint8_t reserved2;
+} HowlRenderSourceCellFlags;
+
+typedef struct {
+  uint8_t bold;
+  uint8_t dim;
+  uint8_t italic;
+  uint8_t underline;
+  uint8_t underline_color_set;
+  uint8_t blink;
+  uint8_t inverse;
+  uint8_t invisible;
+  uint8_t strikethrough;
+  uint8_t selected;
+} HowlRenderSourceCellAttrs;
+
+typedef struct {
+  uint32_t codepoint;
+  uint8_t combining_len;
+  uint8_t reserved0;
+  uint8_t reserved1;
+  uint8_t reserved2;
+  uint32_t combining[3];
+  HowlRenderSourceCellFlags flags;
+  HowlRenderSourceColor fg_color;
+  HowlRenderSourceColor bg_color;
+  HowlRenderSourceColor underline_color;
+  uint8_t underline_style;
+  uint8_t reserved3;
+  uint8_t reserved4;
+  uint8_t reserved5;
+  HowlRenderSourceCellAttrs attrs;
+  uint32_t link_id;
+} HowlRenderSourceCell;
+
+typedef struct {
+  HowlRenderSourceRgb foreground;
+  HowlRenderSourceRgb background;
+  HowlRenderSourceRgb cursor;
+  HowlRenderSourceRgb palette[256];
+} HowlRenderSourceColors;
+
+typedef struct {
+  int32_t row;
+  uint16_t col;
+  uint16_t reserved0;
+} HowlRenderSourceSelectionPos;
+
+typedef struct {
+  uint8_t active;
+  uint8_t selecting;
+  uint16_t reserved0;
+  HowlRenderSourceSelectionPos start;
+  HowlRenderSourceSelectionPos end;
+} HowlRenderSourceSelection;
+
+typedef struct {
+  uint16_t row;
+  uint16_t col;
+  uint8_t visible;
+  uint8_t shape;
+  uint8_t blink;
+  uint8_t reserved0;
+} HowlRenderSourceCursor;
+
+typedef struct {
+  HowlRenderSourceCell *ptr;
   size_t len;
 } HowlRenderVtCellWriteSpan;
 
@@ -212,9 +294,9 @@ typedef struct {
   uint8_t is_alternate_screen;
   uint8_t reserved0;
   uint16_t reserved1;
-  HowlVtCursor cursor;
-  HowlVtRenderColorState colors;
-  HowlVtSelection selection;
+  HowlRenderSourceCursor cursor;
+  HowlRenderSourceColors colors;
+  HowlRenderSourceSelection selection;
 } HowlRenderVtSurfaceCommit;
 
 typedef struct {
