@@ -1,5 +1,5 @@
 const text = @import("../text/text.zig");
-const tokens = @import("tokens.zig");
+const tokens = @import("../surface/tokens.zig");
 
 pub fn markRendered(atlas: *text.AtlasCache.OwnedAtlasCache, outputs: []const text.Rasterizer.RasterSpriteOutput) void {
     for (outputs) |output| {
@@ -15,7 +15,7 @@ pub fn damageKind(prepared: anytype) tokens.DamageKind {
     return .partial;
 }
 
-pub fn renderMetrics(comptime RenderMetrics: type, prepare_metrics: anytype, prepared: anytype, uploads_committed: u64, counters: anytype, render_us: u64) RenderMetrics {
+pub fn metrics(comptime Metrics: type, prepare_metrics: anytype, prepared: anytype, uploads_committed: u64, counters: anytype, render_us: u64) Metrics {
     return .{
         .sync_us = prepare_metrics.sync_us,
         .copy_us = prepare_metrics.copy_us,

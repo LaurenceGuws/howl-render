@@ -3,7 +3,7 @@ const c = @import("ffi.zig").c;
 const handle_owner = @import("handle.zig");
 const prepared_owner = @import("surface/prepared_owner.zig");
 const prepare_request_boundary = @import("prepare_request.zig");
-const surface_feedback = @import("surface_feedback.zig");
+const submit_result = @import("submit_result.zig");
 
 pub fn prepareHandle(
     surface_text_handle: c.HowlRenderSurfaceTextHandle,
@@ -89,7 +89,7 @@ pub fn preparedInfoOut(value: prepared_owner.PreparedInfo) c.HowlRenderPreparedS
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
         .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
-        .prepare_metrics = surface_feedback.surfaceMetricsOut(value.prepare_metrics),
+        .prepare_metrics = submit_result.metricsOut(value.prepare_metrics),
         .damage_kind = value.damage_kind,
     };
 }
@@ -104,7 +104,7 @@ pub fn infoFailure(status: c_int) c.HowlRenderPreparedSurfaceInfo {
         .render_px = .{ .width = 0, .height = 0 },
         .cell_px = .{ .width = 0, .height = 0 },
         .grid = .{ .cols = 0, .rows = 0 },
-        .prepare_metrics = std.mem.zeroes(c.HowlRenderSurfaceMetrics),
+        .prepare_metrics = std.mem.zeroes(c.HowlRenderMetrics),
         .damage_kind = 0,
     };
 }
@@ -131,7 +131,7 @@ pub fn preparedDiagnosticsOut(
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .missing_glyphs = value.missing_glyphs,
-        .resolve_metrics = surface_feedback.surfaceMetricsOut(value.resolve_metrics),
+        .resolve_metrics = submit_result.metricsOut(value.resolve_metrics),
     };
 }
 
@@ -139,7 +139,7 @@ pub fn diagnosticsFailure(status: c_int) c.HowlRenderPreparedSurfaceDiagnostics 
     return .{
         .status = status,
         .missing_glyphs = 0,
-        .resolve_metrics = std.mem.zeroes(c.HowlRenderSurfaceMetrics),
+        .resolve_metrics = std.mem.zeroes(c.HowlRenderMetrics),
     };
 }
 

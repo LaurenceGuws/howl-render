@@ -1,13 +1,13 @@
 const tokens = @import("../surface/tokens.zig");
 const text_pipeline = @import("../text/pipeline.zig");
 
-pub const RenderSurfaceHandle = struct {
+pub const HostSurface = struct {
     host_surface_id: u64,
     width: u16,
     height: u16,
 };
 
-pub const RenderMetrics = struct {
+pub const Metrics = struct {
     sync_us: u64 = 0,
     copy_us: u64 = 0,
     render_us: u64 = 0,
@@ -27,15 +27,15 @@ pub const RenderMetrics = struct {
     missing_glyphs: u64 = 0,
 };
 
-pub const RenderSurfaceFeedback = struct {
+pub const SubmitResult = struct {
     damage_kind: tokens.DamageKind,
     uploads_committed: u64,
     resolve: text_pipeline.ResolveObservability,
-    surface: RenderSurfaceHandle,
-    metrics: RenderMetrics,
+    host_surface: HostSurface,
+    metrics: Metrics,
     render_us: u64,
 
-    pub fn damageKind(self: RenderSurfaceFeedback) tokens.DamageKind {
+    pub fn damageKind(self: SubmitResult) tokens.DamageKind {
         return self.damage_kind;
     }
 };

@@ -1,9 +1,9 @@
 const std = @import("std");
 const c = @import("ffi.zig").c;
-const prepared_feedback = @import("prepared/feedback.zig");
+const prepared_submit_result = @import("prepared/submit_result.zig");
 const surface_text = @import("surface/text.zig");
 
-pub fn surfaceMetricsOut(value: prepared_feedback.RenderMetrics) c.HowlRenderSurfaceMetrics {
+pub fn metricsOut(value: prepared_submit_result.Metrics) c.HowlRenderMetrics {
     return .{
         .sync_us = value.sync_us,
         .copy_us = value.copy_us,
@@ -25,29 +25,37 @@ pub fn surfaceMetricsOut(value: prepared_feedback.RenderMetrics) c.HowlRenderSur
     };
 }
 
-pub fn surfaceFeedbackOut(value: prepared_feedback.RenderSurfaceFeedback) c.HowlRenderSurfaceFeedback {
+pub fn submitResultOut(value: prepared_submit_result.SubmitResult) c.HowlRenderSubmitResult {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .damage_kind = @intFromEnum(value.damageKind()),
-        .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height },
-        .metrics = surfaceMetricsOut(value.metrics),
+        .host_surface = .{
+            .host_surface_id = value.host_surface.host_surface_id,
+            .width = value.host_surface.width,
+            .height = value.host_surface.height,
+        },
+        .metrics = metricsOut(value.metrics),
     };
 }
 
-pub fn failedSurfaceFeedback() c.HowlRenderSurfaceFeedback {
+pub fn failedSubmitResult() c.HowlRenderSubmitResult {
     return .{
         .status = c.HOWL_RENDER_CALL_FAILED,
         .damage_kind = 0,
-        .surface = .{ .host_surface_id = 0, .width = 0, .height = 0 },
-        .metrics = std.mem.zeroes(c.HowlRenderSurfaceMetrics),
+        .host_surface = .{ .host_surface_id = 0, .width = 0, .height = 0 },
+        .metrics = std.mem.zeroes(c.HowlRenderMetrics),
     };
 }
 
-pub fn executionInputIn(
-    value: c.HowlRenderSurfaceExecutionInput,
-) surface_text.SurfaceText.RenderSurfaceExecutionInput {
+pub fn submitExecutionIn(
+    value: c.HowlRenderSubmitExecution,
+) surface_text.SurfaceText.SubmitExecution {
     return .{
-        .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height },
+        .host_surface = .{
+            .host_surface_id = value.host_surface.host_surface_id,
+            .width = value.host_surface.width,
+            .height = value.host_surface.height,
+        },
         .uploads_committed = value.uploads_committed,
         .render_us = value.render_us,
     };

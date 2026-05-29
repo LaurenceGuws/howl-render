@@ -3,7 +3,7 @@ const geometry_mod = @import("geometry.zig");
 const input = @import("input.zig");
 const tokens = @import("tokens.zig");
 const prepared_owner = @import("prepared_owner.zig");
-const submit_feedback = @import("submit_feedback.zig");
+const prepared_submit = @import("../prepared/submit.zig");
 const render_geometry = @import("../render/geometry.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const source_cell = @import("../source/cell.zig");
@@ -11,7 +11,7 @@ const source_vt = @import("../source/vt.zig");
 const source_slot = @import("../source/slot.zig");
 const source_prepare = @import("../source/prepare_request.zig");
 const prepared_surface = @import("../prepared/surface.zig");
-const prepared_feedback = @import("../prepared/feedback.zig");
+const prepared_submit_result = @import("../prepared/submit_result.zig");
 const session_submitted = @import("../session/submitted.zig");
 const contract = @import("../text/contract.zig");
 const text_pipeline = @import("../text/pipeline.zig");
@@ -69,8 +69,8 @@ pub const SurfaceText = struct {
     pub const FrameLayout = geometry_contract.SurfaceLayout;
     pub const PreparedTimings = prepared_surface.PrepareMetrics;
     pub const DamageKind = enum { partial, scroll, full };
-    pub const RenderSurfaceExecutionInput = struct {
-        surface: prepared_feedback.RenderSurfaceHandle,
+    pub const SubmitExecution = struct {
+        host_surface: prepared_submit_result.HostSurface,
         uploads_committed: u64,
         render_us: u64,
     };
@@ -147,22 +147,22 @@ pub const SurfaceText = struct {
     pub fn submitSurface(
         self: *SurfaceText,
         prepared: *prepared_surface.PreparedSurface,
-        execution: RenderSurfaceExecutionInput,
-    ) !prepared_feedback.RenderSurfaceFeedback {
+        execution: SubmitExecution,
+    ) !prepared_submit_result.SubmitResult {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
-        submit_feedback.markRendered(&self.text_preparer.?.atlas, prepared.text_frame.raster_plan.outputs);
-        const submitted = prepared_feedback.RenderSurfaceFeedback{
-            .damage_kind = submit_feedback.damageKind(prepared),
+        prepared_submit.markRendered(&self.text_preparer.?.atlas, prepared.text_frame.raster_plan.outputs);
+        const submitted = prepared_submit_result.SubmitResult{
+            .damage_kind = prepared_submit.damageKind(prepared),
             .uploads_committed = execution.uploads_committed,
             .resolve = prepared.resolve,
-            .surface = execution.surface,
+            .host_surface = execution.host_surface,
             .metrics = undefined,
             .render_us = execution.render_us,
         };
         var final = submitted;
-        final.metrics = submit_feedback.renderMetrics(
-            prepared_feedback.RenderMetrics,
+        final.metrics = prepared_submit.metrics(
+            prepared_submit_result.Metrics,
             prepared.prepare_metrics,
             prepared,
             final.uploads_committed,

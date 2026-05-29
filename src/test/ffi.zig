@@ -342,10 +342,10 @@ test "render ffi direct submit after release fails" {
 
     prepared_surface.release(prepared_handle);
 
-    var feedback = std.mem.zeroes(c.HowlRenderSurfaceFeedback);
+    var result = std.mem.zeroes(c.HowlRenderSubmitResult);
     const execution = validExecutionInput();
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, &feedback));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_FAILED, feedback.status);
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, &result));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_FAILED, result.status);
 }
 
 test "render ffi successful direct submit consumes handle once" {
@@ -354,13 +354,14 @@ test "render ffi successful direct submit consumes handle once" {
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
     const execution = validExecutionInput();
-    var feedback = std.mem.zeroes(c.HowlRenderSurfaceFeedback);
+    var result = std.mem.zeroes(c.HowlRenderSubmitResult);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, &feedback));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, feedback.status);
-    try std.testing.expectEqual(execution.surface.width, feedback.surface.width);
-    try std.testing.expectEqual(execution.surface.height, feedback.surface.height);
-    try std.testing.expectEqual(execution.uploads_committed, feedback.metrics.uploads);
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, &result));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, result.status);
+    try std.testing.expectEqual(execution.host_surface.host_surface_id, result.host_surface.host_surface_id);
+    try std.testing.expectEqual(execution.host_surface.width, result.host_surface.width);
+    try std.testing.expectEqual(execution.host_surface.height, result.host_surface.height);
+    try std.testing.expectEqual(execution.uploads_committed, result.metrics.uploads);
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
 }
 
@@ -384,11 +385,11 @@ test "render ffi direct submit rejects wrong surface width without consuming han
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
     var execution = validExecutionInput();
-    execution.surface.width += 1;
+    execution.host_surface.width += 1;
 
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
 
-    execution.surface.width -= 1;
+    execution.host_surface.width -= 1;
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
 }
 
@@ -398,11 +399,11 @@ test "render ffi direct submit rejects wrong surface height without consuming ha
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
     var execution = validExecutionInput();
-    execution.surface.height += 1;
+    execution.host_surface.height += 1;
 
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
 
-    execution.surface.height -= 1;
+    execution.host_surface.height -= 1;
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
 }
 
@@ -568,9 +569,9 @@ fn preparedFrameFromHandle(prepared_handle: c.HowlRenderPreparedSurfaceHandle) !
     };
 }
 
-fn validExecutionInput() c.HowlRenderSurfaceExecutionInput {
+fn validExecutionInput() c.HowlRenderSubmitExecution {
     return .{
-        .surface = .{ .host_surface_id = 1, .width = 16, .height = 16 },
+        .host_surface = .{ .host_surface_id = 1, .width = 16, .height = 16 },
         .uploads_committed = 1,
         .render_us = 1,
     };
@@ -646,8 +647,8 @@ fn expectInvalidPreparedFrameRejected(handle: c.HowlRenderSurfaceTextHandle, pre
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.publishPrepared(handle, prepared));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.acceptSubmitted(handle, prepared));
 
-    const execution = c.HowlRenderSurfaceExecutionInput{
-        .surface = .{ .host_surface_id = 1, .width = 1, .height = 1 },
+    const execution = c.HowlRenderSubmitExecution{
+        .host_surface = .{ .host_surface_id = 1, .width = 1, .height = 1 },
         .uploads_committed = 0,
         .render_us = 0,
     };

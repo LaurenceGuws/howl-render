@@ -2,7 +2,7 @@ const std = @import("std");
 const tokens = @import("tokens.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_surface = @import("../prepared/surface.zig");
-const prepared_feedback = @import("../prepared/feedback.zig");
+const prepared_submit_result = @import("../prepared/submit_result.zig");
 const surface_buffer = @import("buffer.zig");
 const surface_text = @import("text.zig");
 const text = @import("../text/text.zig");
@@ -18,7 +18,7 @@ pub const PreparedInfo = struct {
     render_px: geometry_contract.PixelSize,
     cell_px: geometry_contract.CellSize,
     grid: geometry_contract.GridSize,
-    prepare_metrics: prepared_feedback.RenderMetrics,
+    prepare_metrics: prepared_submit_result.Metrics,
     damage_kind: u8,
 };
 
@@ -29,7 +29,7 @@ pub const PreparedBuffer = struct {
 
 pub const PreparedDiagnostics = struct {
     missing_glyphs: u64,
-    resolve_metrics: prepared_feedback.RenderMetrics,
+    resolve_metrics: prepared_submit_result.Metrics,
 };
 
 pub const Owner = struct {
@@ -45,15 +45,15 @@ pub const Owner = struct {
     render_px: geometry_contract.PixelSize,
     cell_px: geometry_contract.CellSize,
     grid: geometry_contract.GridSize,
-    prepare_metrics: prepared_feedback.RenderMetrics,
+    prepare_metrics: prepared_submit_result.Metrics,
     damage_kind: u8,
     rgba_pixels: []u8 = &.{},
     uploads_required: u64,
     missing_glyphs: u64,
-    resolve_metrics: prepared_feedback.RenderMetrics,
+    resolve_metrics: prepared_submit_result.Metrics,
 
     pub const SubmitResult = union(enum) {
-        rendered: prepared_feedback.RenderSurfaceFeedback,
+        rendered: prepared_submit_result.SubmitResult,
         needs_prepare,
         failed,
     };
@@ -150,7 +150,7 @@ pub const Owner = struct {
     pub fn submitOwned(
         self: *Owner,
         session_owner: *surface_text.SurfaceTextOwner,
-        execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
+        execution: surface_text.SurfaceText.SubmitExecution,
     ) SubmitResult {
         if (self.state != .submit_ready) return .failed;
         return self.performSubmit(session_owner, execution);
@@ -159,11 +159,11 @@ pub const Owner = struct {
     fn performSubmit(
         self: *Owner,
         session_owner: *surface_text.SurfaceTextOwner,
-        execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
+        execution: surface_text.SurfaceText.SubmitExecution,
     ) SubmitResult {
         if (!self.belongsToSession(session_owner)) return .failed;
         if (!executionMatchesPrepared(self.render_px, self.uploads_required, execution)) return .failed;
-        const feedback = session_owner.session.submitSurface(&self.prepared, execution) catch {
+        const result = session_owner.session.submitSurface(&self.prepared, execution) catch {
             return .failed;
         };
         session_owner.retainSurfacePixels(
@@ -173,14 +173,14 @@ pub const Owner = struct {
             self.snapshot_seq,
         );
         self.consume();
-        return .{ .rendered = feedback };
+        return .{ .rendered = result };
     }
 
     pub fn submit(
         self: *Owner,
         session_owner: *surface_text.SurfaceTextOwner,
         prepared_frame: tokens.PreparedFrame,
-        execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
+        execution: surface_text.SurfaceText.SubmitExecution,
     ) SubmitResult {
         if (self.state != .prepared) return .failed;
         if (!self.belongsToSession(session_owner)) return .failed;
@@ -240,7 +240,7 @@ fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: prepared_surf
     };
 }
 
-fn preparedMetricsOut(value: prepared_surface.PreparedSurface) prepared_feedback.RenderMetrics {
+fn preparedMetricsOut(value: prepared_surface.PreparedSurface) prepared_submit_result.Metrics {
     const scene = value.text_frame.scene.scene;
     const clear_fills = count64(scene.clear_draws);
     const background_fills = count64(scene.background_draws);
@@ -267,7 +267,7 @@ fn preparedMetricsOut(value: prepared_surface.PreparedSurface) prepared_feedback
     };
 }
 
-fn resolveMetricsOut(value: prepared_surface.PreparedSurface) prepared_feedback.RenderMetrics {
+fn resolveMetricsOut(value: prepared_surface.PreparedSurface) prepared_submit_result.Metrics {
     return .{
         .sync_us = 0,
         .copy_us = 0,
@@ -312,11 +312,11 @@ fn samePreparedFrame(a: tokens.PreparedFrame, b: tokens.PreparedFrame) bool {
 fn executionMatchesPrepared(
     render_px: geometry_contract.PixelSize,
     uploads_required: u64,
-    execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
+    execution: surface_text.SurfaceText.SubmitExecution,
 ) bool {
     if (execution.uploads_committed != uploads_required) return false;
-    if (execution.surface.width != render_px.width) return false;
-    if (execution.surface.height != render_px.height) return false;
+    if (execution.host_surface.width != render_px.width) return false;
+    if (execution.host_surface.height != render_px.height) return false;
     return true;
 }
 
@@ -564,22 +564,22 @@ test "owner validates realized uploads and host surface dimensions before submit
     const uploads_required: u64 = 3;
 
     try std.testing.expect(executionMatchesPrepared(render_px, uploads_required, .{
-        .surface = .{ .host_surface_id = 1, .width = 11, .height = 12 },
+        .host_surface = .{ .host_surface_id = 1, .width = 11, .height = 12 },
         .uploads_committed = 3,
         .render_us = 1,
     }));
     try std.testing.expect(!executionMatchesPrepared(render_px, uploads_required, .{
-        .surface = .{ .host_surface_id = 1, .width = 11, .height = 12 },
+        .host_surface = .{ .host_surface_id = 1, .width = 11, .height = 12 },
         .uploads_committed = 2,
         .render_us = 1,
     }));
     try std.testing.expect(!executionMatchesPrepared(render_px, uploads_required, .{
-        .surface = .{ .host_surface_id = 1, .width = 10, .height = 12 },
+        .host_surface = .{ .host_surface_id = 1, .width = 10, .height = 12 },
         .uploads_committed = 3,
         .render_us = 1,
     }));
     try std.testing.expect(!executionMatchesPrepared(render_px, uploads_required, .{
-        .surface = .{ .host_surface_id = 1, .width = 11, .height = 13 },
+        .host_surface = .{ .host_surface_id = 1, .width = 11, .height = 13 },
         .uploads_committed = 3,
         .render_us = 1,
     }));

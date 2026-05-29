@@ -2,7 +2,7 @@ const std = @import("std");
 const c = @import("ffi.zig").c;
 const handle_owner = @import("handle.zig");
 const prepared_owner = @import("surface/prepared_owner.zig");
-const surface_feedback = @import("surface_feedback.zig");
+const submit_result = @import("submit_result.zig");
 const tokens = @import("surface/tokens.zig");
 
 pub fn publishPrepared(
@@ -98,17 +98,17 @@ pub fn submit(
     surface_text_handle: c.HowlRenderSurfaceTextHandle,
     prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
     prepared_frame_in: c.HowlRenderPreparedFrame,
-    execution_in: ?*const c.HowlRenderSurfaceExecutionInput,
-    feedback_out: ?*c.HowlRenderSurfaceFeedback,
+    execution_in: ?*const c.HowlRenderSubmitExecution,
+    result_out: ?*c.HowlRenderSubmitResult,
 ) callconv(.c) c_int {
-    if (feedback_out) |out| out.* = surface_feedback.failedSurfaceFeedback();
+    if (result_out) |out| out.* = submit_result.failedSubmitResult();
     const owner = handle_owner.surfaceTextOwner(surface_text_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     const prepared = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     const execution = execution_in orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     const prepared_frame = preparedFrameIn(prepared_frame_in) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
-    return switch (prepared.submit(owner, prepared_frame, surface_feedback.executionInputIn(execution.*))) {
+    return switch (prepared.submit(owner, prepared_frame, submit_result.submitExecutionIn(execution.*))) {
         .rendered => |submitted| blk: {
-            if (feedback_out) |out| out.* = surface_feedback.surfaceFeedbackOut(submitted);
+            if (result_out) |out| out.* = submit_result.submitResultOut(submitted);
             break :blk c.HOWL_RENDER_SUBMIT_RENDERED;
         },
         .needs_prepare => c.HOWL_RENDER_SUBMIT_NEEDS_PREPARE,
@@ -178,10 +178,10 @@ fn damageKindIn(value: u8) ?tokens.DamageKind {
 pub fn submitHandle(
     surface_text_handle: c.HowlRenderSurfaceTextHandle,
     prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
-    execution_in: ?*const c.HowlRenderSurfaceExecutionInput,
-    feedback_out: ?*c.HowlRenderSurfaceFeedback,
+    execution_in: ?*const c.HowlRenderSubmitExecution,
+    result_out: ?*c.HowlRenderSubmitResult,
 ) callconv(.c) c_int {
-    if (feedback_out) |out| out.* = surface_feedback.failedSurfaceFeedback();
+    if (result_out) |out| out.* = submit_result.failedSubmitResult();
     const owner = handle_owner.surfaceTextOwner(surface_text_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     const execution = execution_in orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     if (owner.prepared_submit_handle != handle_owner.opaquePreparedHandle(prepared_surface_handle)) return c.HOWL_RENDER_SUBMIT_FAILED;
@@ -191,11 +191,11 @@ pub fn submitHandle(
         return c.HOWL_RENDER_SUBMIT_FAILED;
     }
     const submitted = prepared.pipelineFrame().token;
-    return switch (prepared.submitOwned(owner, surface_feedback.executionInputIn(execution.*))) {
-        .rendered => |feedback| blk: {
+    return switch (prepared.submitOwned(owner, submit_result.submitExecutionIn(execution.*))) {
+        .rendered => |result| blk: {
             owner.prepared_submit_handle = null;
             owner.acceptSubmitted(.{ .token = submitted });
-            if (feedback_out) |out| out.* = surface_feedback.surfaceFeedbackOut(feedback);
+            if (result_out) |out| out.* = submit_result.submitResultOut(result);
             break :blk c.HOWL_RENDER_SUBMIT_RENDERED;
         },
         .needs_prepare => c.HOWL_RENDER_SUBMIT_NEEDS_PREPARE,
