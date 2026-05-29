@@ -250,9 +250,10 @@ pub const FfiVtSelection = extern struct {
 pub const FfiVtGraphicsMeta = extern struct {
     image_count: u32,
     placement_count: u32,
-    virtual_placement_count: u32,
     is_alternate_screen: u8,
     reserved0: u8 = 0,
+    reserved1: u16 = 0,
+    reserved2: u32 = 0,
     publication_seq: u64,
     dirty_generation: u64,
 };
@@ -300,17 +301,6 @@ pub const FfiVtGraphicsPlacement = extern struct {
     effective_rows: u32,
     flags: u32 = 0,
     render_order_key: u64 = 0,
-};
-
-pub const FfiVtGraphicsVirtualPlacement = extern struct {
-    image_id: u32,
-    placement_id: u32,
-    source_x: u32,
-    source_y: u32,
-    source_width: u32,
-    source_height: u32,
-    columns: u32,
-    rows: u32,
 };
 
 pub const FfiGeometry = extern struct {
@@ -390,7 +380,6 @@ pub const FfiPublishDecodedGraphicsSlotCommit = extern struct {
     graphics: FfiVtGraphicsMeta,
     graphics_images: FfiVtGraphicsDecodedImageSpan,
     graphics_placements: FfiVtGraphicsPlacementSpan,
-    graphics_virtual_placements: FfiVtGraphicsVirtualPlacementSpan,
     graphics_payload_bytes: FfiByteSpan,
 };
 
@@ -467,11 +456,6 @@ pub const FfiVtGraphicsDecodedImageSpan = extern struct {
 
 pub const FfiVtGraphicsPlacementSpan = extern struct {
     ptr: [*c]const FfiVtGraphicsPlacement,
-    len: c_size_t,
-};
-
-pub const FfiVtGraphicsVirtualPlacementSpan = extern struct {
-    ptr: [*c]const FfiVtGraphicsVirtualPlacement,
     len: c_size_t,
 };
 

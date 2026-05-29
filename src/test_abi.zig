@@ -522,10 +522,9 @@ fn expectDecodedGraphicsPreparedImageRef(format: u16, payload: []const u8) !void
         .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{ .image_count = 1, .placement_count = 1, .virtual_placement_count = 0, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
+        .graphics = .{ .image_count = 1, .placement_count = 1, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
         .graphics_images = .{ .ptr = images[0..].ptr, .len = images.len },
         .graphics_placements = .{ .ptr = placements[0..].ptr, .len = placements.len },
-        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
         .graphics_payload_bytes = .{ .ptr = payload.ptr, .len = payload.len },
     });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, published.status);
@@ -597,7 +596,6 @@ fn nextPrepareRequest(handle: abi.SurfaceTextHandle, snapshot_seq: u64) !abi.Ffi
         .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
         .graphics_images = .{ .ptr = null, .len = 0 },
         .graphics_placements = .{ .ptr = null, .len = 0 },
-        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
         .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
     });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);

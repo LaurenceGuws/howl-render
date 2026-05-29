@@ -139,8 +139,6 @@ pub fn commitPublishDecodedGraphicsSlot(handle: abi.SurfaceTextHandle, commit: a
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
-    var graphics = commit.graphics;
-    graphics.virtual_placement_count = 0;
     const result = owner.flow.commitDecodedPublishSlot(.{
         .history_count = commit.history_count,
         .scroll_row = commit.scroll_row,
@@ -149,10 +147,9 @@ pub fn commitPublishDecodedGraphicsSlot(handle: abi.SurfaceTextHandle, commit: a
         .cursor = cursor,
         .colors = commit.colors,
         .selection = commit.selection,
-        .graphics = graphics,
+        .graphics = commit.graphics,
         .graphics_images = decoded_graphics_images,
         .graphics_placements = graphics_placements,
-        .graphics_virtual_placements = &.{},
         .graphics_payload_bytes = graphics_payload_bytes,
     }) catch {
         owner.flow.cancelPublishSlot();
@@ -586,20 +583,9 @@ fn graphicsPlacementsIn(span: abi.FfiVtGraphicsPlacementSpan) ![]const abi.FfiVt
     return span.ptr[0..span.len];
 }
 
-fn graphicsVirtualPlacementsIn(span: abi.FfiVtGraphicsVirtualPlacementSpan) ![]const abi.FfiVtGraphicsVirtualPlacement {
-    if (span.len == 0) return &.{};
-    if (span.ptr == null) return error.InvalidSurfaceSource;
-    return span.ptr[0..span.len];
-}
-
 fn graphicsPlacementsDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsPlacementSpan) ![]abi.FfiVtGraphicsPlacement {
     const items = try graphicsPlacementsIn(span);
     return try allocator.dupe(abi.FfiVtGraphicsPlacement, items);
-}
-
-fn graphicsVirtualPlacementsDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsVirtualPlacementSpan) ![]abi.FfiVtGraphicsVirtualPlacement {
-    const items = try graphicsVirtualPlacementsIn(span);
-    return try allocator.dupe(abi.FfiVtGraphicsVirtualPlacement, items);
 }
 
 fn underlineStyleValueIn(value: u8) !surface.UnderlineStyle {

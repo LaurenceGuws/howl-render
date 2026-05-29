@@ -121,7 +121,6 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
         .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
         .graphics_images = .{ .ptr = null, .len = 0 },
         .graphics_placements = .{ .ptr = null, .len = 0 },
-        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
         .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
     });
     try std.testing.expectEqual(@as(c_int, 0), publish.status);
@@ -282,7 +281,6 @@ test "ffi publish slot exposes render-owned reserved cells directly" {
         .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
         .graphics_images = .{ .ptr = null, .len = 0 },
         .graphics_placements = .{ .ptr = null, .len = 0 },
-        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
         .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
     });
     try std.testing.expectEqual(@as(c_int, 0), publish.status);
