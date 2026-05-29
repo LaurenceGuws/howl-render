@@ -1,11 +1,11 @@
 const std = @import("std");
 const geometry_mod = @import("geometry.zig");
 const input = @import("input.zig");
-const pipeline = @import("pipeline.zig");
-const prepared_surface_owner = @import("prepared_surface_owner.zig");
-const queue = @import("queue.zig");
+const tokens = @import("tokens.zig");
+const prepared_owner = @import("prepared_owner.zig");
+const flow = @import("flow.zig");
 const submit_feedback = @import("submit_feedback.zig");
-const surface = @import("surface.zig");
+const surface_types = @import("types.zig");
 const contract = @import("../text/contract.zig");
 const text_pipeline = @import("../text/pipeline.zig");
 const text = @import("../text/text.zig");
@@ -42,7 +42,7 @@ fn lockMutex(mutex: *ThreadMutex) void {
 }
 
 pub const SurfaceTextConfig = struct {
-    surface_px: surface.PixelSize,
+    surface_px: surface_types.PixelSize,
     font_size_px: u16 = 16,
     font_path: ?[:0]const u8 = null,
 };
@@ -59,20 +59,20 @@ pub const SurfaceText = struct {
         session_config: SurfaceTextConfig,
     };
 
-    pub const FrameLayout = surface.SurfaceLayout;
-    pub const PreparedTimings = surface.PrepareMetrics;
+    pub const FrameLayout = surface_types.SurfaceLayout;
+    pub const PreparedTimings = surface_types.PrepareMetrics;
     pub const DamageKind = enum { partial, scroll, full };
-    pub const SubmittedReport = surface.SurfaceExecutionReport;
+    pub const SubmittedReport = surface_types.SurfaceExecutionReport;
     pub const RenderSurfaceExecutionInput = struct {
-        surface: surface.RenderSurfaceHandle,
+        surface: surface_types.RenderSurfaceHandle,
         uploads_committed: u64,
         render_us: u64,
     };
     pub const PrepareInput = struct {
         config: SurfaceTextConfig,
-        request: pipeline.RenderRequest,
-        layout: surface.PrepareLayout,
-        state: queue.PublicationSource,
+        request: tokens.RenderRequest,
+        layout: surface_types.PrepareLayout,
+        state: flow.PublicationSource,
     };
 
     pub fn init(allocator: std.mem.Allocator) SurfaceText {
@@ -97,8 +97,8 @@ pub const SurfaceText = struct {
     pub fn deriveFrameLayout(
         self: *SurfaceText,
         config: SurfaceTextConfig,
-        render_px: surface.PixelSize,
-        grid_px: surface.PixelSize,
+        render_px: surface_types.PixelSize,
+        grid_px: surface_types.PixelSize,
     ) geometry_mod.FrameGeometryError!FrameLayout {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
@@ -106,7 +106,7 @@ pub const SurfaceText = struct {
         if (grid_px.width == 0 or grid_px.height == 0) return error.InvalidGridSize;
         var context = TextContext{ .session = self, .session_config = config };
         const cell_px = text_support.deriveCellSize(&context);
-        const layout = surface.SurfaceLayout{ .cell_px = cell_px, .grid = geometry_mod.deriveGridSize(grid_px, cell_px) };
+        const layout = surface_types.SurfaceLayout{ .cell_px = cell_px, .grid = geometry_mod.deriveGridSize(grid_px, cell_px) };
         return .{ .cell_px = layout.cell_px, .grid = layout.grid };
     }
 
@@ -122,7 +122,7 @@ pub const SurfaceText = struct {
         return false;
     }
 
-    pub fn prepareSurface(self: *SurfaceText, prepare: PrepareInput) !surface.PreparedSurface {
+    pub fn prepareSurface(self: *SurfaceText, prepare: PrepareInput) !surface_types.PreparedSurface {
         var faces: [max_font_faces]text.FontSession.FontFaceRecord = undefined;
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
@@ -138,11 +138,11 @@ pub const SurfaceText = struct {
         return owned;
     }
 
-    pub fn submitSurface(self: *SurfaceText, prepared: *surface.PreparedSurface, execution: RenderSurfaceExecutionInput) !surface.RenderSurfaceFeedback {
+    pub fn submitSurface(self: *SurfaceText, prepared: *surface_types.PreparedSurface, execution: RenderSurfaceExecutionInput) !surface_types.RenderSurfaceFeedback {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         submit_feedback.markRendered(&self.text_preparer.?.atlas, prepared.text_frame.raster_plan.outputs);
-        const submitted = surface.RenderSurfaceFeedback{
+        const submitted = surface_types.RenderSurfaceFeedback{
             .damage_kind = submit_feedback.damageKind(prepared),
             .uploads_committed = execution.uploads_committed,
             .resolve = prepared.resolve,
@@ -152,7 +152,7 @@ pub const SurfaceText = struct {
         };
         var final = submitted;
         final.metrics = submit_feedback.renderMetrics(
-            surface.RenderMetrics,
+            surface_types.RenderMetrics,
             prepared.prepare_metrics,
             prepared,
             final.uploads_committed,
@@ -176,7 +176,7 @@ pub const SurfaceText = struct {
         grid: contract.GridMetrics,
         prepared: text.OwnedPreparedTextFrame,
         resolve: text_pipeline.ResolveObservability,
-    ) surface.PreparedSurface {
+    ) surface_types.PreparedSurface {
         return .{
             .allocator = allocator,
             .request = prepare.request,
@@ -301,7 +301,7 @@ pub const SurfaceText = struct {
         };
     }
 
-    fn prepareMetrics(timings: text.PrepareTimings) surface.PrepareMetrics {
+    fn prepareMetrics(timings: text.PrepareTimings) surface_types.PrepareMetrics {
         const total = timings.input_us + timings.sparse_us + timings.clusters_us + timings.resolve_us + timings.shape_us + timings.group_us + timings.scene_us + timings.raster_us + timings.atlas_us;
         return .{
             .sync_us = timings.input_us,
@@ -324,11 +324,11 @@ pub const SurfaceText = struct {
 pub const SurfaceTextOwner = struct {
     allocator: std.mem.Allocator,
     session: SurfaceText,
-    flow: queue.Flow,
+    flow: flow.Flow,
     config: SurfaceTextConfig,
     prepared_publish_handle: PreparedSurfaceHandle = null,
     prepared_submit_handle: PreparedSurfaceHandle = null,
-    prepared_handles: std.ArrayList(*prepared_surface_owner.Owner) = .empty,
+    prepared_handles: std.ArrayList(*prepared_owner.Owner) = .empty,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
     retained_surface_pixels: []u8 = &.{},
@@ -341,14 +341,14 @@ pub const SurfaceTextOwner = struct {
     pub fn create(allocator: std.mem.Allocator, config: SurfaceTextConfig) ?*SurfaceTextOwner {
         std.debug.assert(config.font_size_px > 0);
         const owner = allocator.create(SurfaceTextOwner) catch return null;
-        owner.* = .{ .allocator = allocator, .session = SurfaceText.init(allocator), .flow = queue.Flow.init(allocator), .config = config };
+        owner.* = .{ .allocator = allocator, .session = SurfaceText.init(allocator), .flow = flow.Flow.init(allocator), .config = config };
         return owner;
     }
 
     pub fn destroy(self: *SurfaceTextOwner) void {
         self.prepared_publish_handle = null;
         self.prepared_submit_handle = null;
-        for (self.prepared_handles.items) |prepared_owner| prepared_owner.destroy();
+        for (self.prepared_handles.items) |prepared| prepared.destroy();
         self.prepared_handles.deinit(self.allocator);
         self.prepared_handles = .empty;
         if (self.font_path) |path| self.allocator.free(path);
@@ -403,7 +403,7 @@ pub const SurfaceTextOwner = struct {
         return self.session.isValidFont(self.config);
     }
 
-    pub fn prepareHandle(self: *SurfaceTextOwner, token: pipeline.SnapshotToken) !*prepared_surface_owner.Owner {
+    pub fn prepareHandle(self: *SurfaceTextOwner, token: tokens.SnapshotToken) !*prepared_owner.Owner {
         const prepare = try self.flow.consumePrepare(token);
         errdefer _ = self.flow.retryTakenPrepare(token);
         var prepared = try self.session.prepareSurface(.{
@@ -413,15 +413,15 @@ pub const SurfaceTextOwner = struct {
             .state = prepare.state,
         });
         errdefer prepared.deinit();
-        return prepared_surface_owner.Owner.create(self, prepared);
+        return prepared_owner.Owner.create(self, prepared);
     }
 
-    pub fn registerPreparedHandle(self: *SurfaceTextOwner, prepared_owner: *prepared_surface_owner.Owner) !void {
-        try self.prepared_handles.append(self.allocator, prepared_owner);
+    pub fn registerPreparedHandle(self: *SurfaceTextOwner, prepared: *prepared_owner.Owner) !void {
+        try self.prepared_handles.append(self.allocator, prepared);
     }
 
-    pub fn clearCachedPreparedHandle(self: *SurfaceTextOwner, prepared_owner: *prepared_surface_owner.Owner) void {
-        const handle: PreparedSurfaceHandle = @ptrCast(prepared_owner);
+    pub fn clearCachedPreparedHandle(self: *SurfaceTextOwner, prepared: *prepared_owner.Owner) void {
+        const handle: PreparedSurfaceHandle = @ptrCast(prepared);
         if (self.prepared_publish_handle == handle) self.prepared_publish_handle = null;
         if (self.prepared_submit_handle == handle) self.prepared_submit_handle = null;
     }
@@ -453,7 +453,7 @@ pub const SurfaceTextOwner = struct {
         freeOwnedFallbackFontPaths(self.allocator, &old);
     }
 
-    pub fn requiredRetainedSurfaceBase(self: *const SurfaceTextOwner, prepared: *const surface.PreparedSurface) []const u8 {
+    pub fn requiredRetainedSurfaceBase(self: *const SurfaceTextOwner, prepared: *const surface_types.PreparedSurface) []const u8 {
         std.debug.assert(prepared.damageKind() == .partial);
         // Queue validation already proved that partial prepares must compose
         // against the last submitted full pixels from this render owner.
@@ -512,7 +512,7 @@ test "retainSurfacePixels adopts full pixels for later partial prepares" {
     var owner = SurfaceTextOwner{
         .allocator = std.heap.c_allocator,
         .session = SurfaceText.init(std.heap.c_allocator),
-        .flow = queue.Flow.init(std.heap.c_allocator),
+        .flow = flow.Flow.init(std.heap.c_allocator),
         .config = .{ .surface_px = .{ .width = 2, .height = 3 } },
     };
     defer owner.clearRetainedSurface();
@@ -529,7 +529,7 @@ test "retainSurfacePixels adopts full pixels for later partial prepares" {
     try std.testing.expectEqual(@as(u16, 3), owner.retained_surface_height);
     try std.testing.expectEqual(@as(u64, 1), owner.retained_surface_snapshot_seq);
 
-    const prepared = surface.PreparedSurface{
+    const prepared = surface_types.PreparedSurface{
         .allocator = std.heap.c_allocator,
         .request = .{
             .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
@@ -561,10 +561,10 @@ test "retainSurfacePixels adopts full pixels for later partial prepares" {
     try std.testing.expectEqualSlices(u8, pixels, base);
 }
 
-fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !queue.PublicationSource {
-    const cells = try allocator.alloc(@import("../surface/publication_source.zig").SourceCell, 1);
+fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !flow.PublicationSource {
+    const cells = try allocator.alloc(@import("publication_source.zig").SourceCell, 1);
     errdefer allocator.free(cells);
-    cells[0] = std.mem.zeroes(@import("../surface/publication_source.zig").SourceCell);
+    cells[0] = std.mem.zeroes(@import("publication_source.zig").SourceCell);
     cells[0].codepoint = codepoint;
     const dirty_rows = try allocator.dupe(u8, &.{1});
     errdefer allocator.free(dirty_rows);
@@ -581,9 +581,9 @@ fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepo
         .dirty_epoch = snapshot_seq,
         .is_alternate_screen = false,
         .cells = cells,
-        .cursor = std.mem.zeroes(surface.CursorInfo),
-        .colors = std.mem.zeroes(@import("../surface/publication_source.zig").SourceColors),
-        .selection = std.mem.zeroes(@import("../surface/publication_source.zig").SourceSelection),
+        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .colors = std.mem.zeroes(@import("publication_source.zig").SourceColors),
+        .selection = std.mem.zeroes(@import("publication_source.zig").SourceSelection),
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -647,7 +647,7 @@ test "invalidateTextState clears retained pixel state" {
     var owner = SurfaceTextOwner{
         .allocator = std.heap.c_allocator,
         .session = SurfaceText.init(std.heap.c_allocator),
-        .flow = queue.Flow.init(std.heap.c_allocator),
+        .flow = flow.Flow.init(std.heap.c_allocator),
         .config = .{ .surface_px = .{ .width = 1, .height = 1 } },
     };
     defer owner.clearRetainedSurface();

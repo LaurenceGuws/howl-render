@@ -1,11 +1,11 @@
-const surface = @import("surface.zig");
+const surface_types = @import("types.zig");
 
 pub const FrameGeometryError = error{
     InvalidSurfaceSize,
     InvalidGridSize,
 };
 
-pub fn deriveGridSize(grid_px: surface.PixelSize, cell_px: surface.CellSize) surface.GridSize {
+pub fn deriveGridSize(grid_px: surface_types.PixelSize, cell_px: surface_types.CellSize) surface_types.GridSize {
     const cell_w: u16 = if (cell_px.width == 0) 1 else cell_px.width;
     const cell_h: u16 = if (cell_px.height == 0) 1 else cell_px.height;
     return .{
@@ -15,10 +15,10 @@ pub fn deriveGridSize(grid_px: surface.PixelSize, cell_px: surface.CellSize) sur
 }
 
 pub fn deriveGridForFrame(
-    render_px: surface.PixelSize,
-    grid_px: surface.PixelSize,
-    cell_px: surface.CellSize,
-) FrameGeometryError!surface.GridSize {
+    render_px: surface_types.PixelSize,
+    grid_px: surface_types.PixelSize,
+    cell_px: surface_types.CellSize,
+) FrameGeometryError!surface_types.GridSize {
     if (render_px.width == 0 or render_px.height == 0) return error.InvalidSurfaceSize;
     if (grid_px.width == 0 or grid_px.height == 0) return error.InvalidGridSize;
     return deriveGridSize(grid_px, cell_px);

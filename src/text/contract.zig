@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const Rgba8 = @import("../frame/rgba.zig").Rgba8;
+pub const Rgba8 = @import("../surface/rgba.zig").Rgba8;
 
 pub const UnderlineStyle = enum {
     straight,

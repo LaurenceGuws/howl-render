@@ -1,5 +1,5 @@
 const std = @import("std");
-const pipeline = @import("pipeline.zig");
+const tokens = @import("tokens.zig");
 const contract = @import("../text/contract.zig");
 const text_pipeline = @import("../text/pipeline.zig");
 const text = @import("../text/text.zig");
@@ -241,7 +241,7 @@ pub const SurfaceLayout = struct {
 
 pub const PreparedSurface = struct {
     allocator: std.mem.Allocator,
-    request: pipeline.RenderRequest,
+    request: tokens.RenderRequest,
     geometry_epoch: u64,
     render_px: PixelSize,
     cell_px: CellSize,
@@ -255,12 +255,12 @@ pub const PreparedSurface = struct {
         self.* = undefined;
     }
 
-    pub fn damageKind(self: *const PreparedSurface) pipeline.DamageKind {
+    pub fn damageKind(self: *const PreparedSurface) tokens.DamageKind {
         if (self.text_frame.scene.scene.full_redraw) return .full;
         return .partial;
     }
 
-    pub fn pipelineFrame(self: *const PreparedSurface) pipeline.PreparedFrame {
+    pub fn pipelineFrame(self: *const PreparedSurface) tokens.PreparedFrame {
         const damage_kind = self.damageKind();
         const damage_base_seq = if (damage_kind == .partial)
             self.request.token.damage_base_seq
@@ -280,14 +280,14 @@ pub const PreparedSurface = struct {
 };
 
 pub const RenderSurfaceFeedback = struct {
-    damage_kind: pipeline.DamageKind,
+    damage_kind: tokens.DamageKind,
     uploads_committed: u64,
     resolve: text_pipeline.ResolveObservability,
     surface: RenderSurfaceHandle,
     metrics: RenderMetrics,
     render_us: u64,
 
-    pub fn damageKind(self: RenderSurfaceFeedback) pipeline.DamageKind {
+    pub fn damageKind(self: RenderSurfaceFeedback) tokens.DamageKind {
         return self.damage_kind;
     }
 };

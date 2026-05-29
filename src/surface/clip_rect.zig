@@ -1,5 +1,5 @@
 const std = @import("std");
-const surface = @import("surface.zig");
+const surface_types = @import("types.zig");
 
 pub const ClipRect = struct {
     x: c_int,
@@ -8,7 +8,7 @@ pub const ClipRect = struct {
     h: c_int,
 };
 
-pub fn clipRectTopOrigin(surface_px: surface.PixelSize, x: i32, y: i32, width: u16, height: u16) ?ClipRect {
+pub fn clipRectTopOrigin(surface_px: surface_types.PixelSize, x: i32, y: i32, width: u16, height: u16) ?ClipRect {
     if (width == 0 or height == 0) return null;
     const sw: i32 = @intCast(surface_px.width);
     const sh: i32 = @intCast(surface_px.height);
@@ -26,7 +26,7 @@ pub fn clipRectTopOrigin(surface_px: surface.PixelSize, x: i32, y: i32, width: u
     };
 }
 
-pub fn clipRect(surface_px: surface.PixelSize, x: i32, y: i32, width: u16, height: u16) ?ClipRect {
+pub fn clipRect(surface_px: surface_types.PixelSize, x: i32, y: i32, width: u16, height: u16) ?ClipRect {
     const clipped = clipRectTopOrigin(surface_px, x, y, width, height) orelse return null;
     const sh: i32 = @intCast(surface_px.height);
     const bottom_y = sh - (clipped.y + clipped.h);

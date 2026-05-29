@@ -2,11 +2,11 @@ const std = @import("std");
 pub const c = @cImport({
     @cInclude("howl_render.h");
 });
-const pipeline = @import("frame/pipeline.zig");
-const prepared_surface_owner = @import("frame/prepared_surface_owner.zig");
-const surface_text = @import("frame/surface_text.zig");
-const queue = @import("frame/queue.zig");
-const surface = @import("frame/surface.zig");
+const tokens = @import("surface/tokens.zig");
+const prepared_owner = @import("surface/prepared_owner.zig");
+const surface_text = @import("surface/text.zig");
+const flow = @import("surface/flow.zig");
+const surface_types = @import("surface/types.zig");
 const vt_publication = @import("surface/publication_source.zig");
 const text_support = @import("text/font/ft_hb/support.zig");
 
@@ -132,27 +132,27 @@ pub fn reservePublishSlot(handle: c.HowlRenderSurfaceTextHandle, cols: u16, rows
 }
 
 pub fn commitPublishSlot(handle: c.HowlRenderSurfaceTextHandle, commit: c.HowlRenderPublishSlotCommit) callconv(.c) c.HowlRenderVtPublishResult {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const owner = ownerFromHandle(handle) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     const reserved = if (owner.flow.publication_state.reserved) |*value| value else {
         owner.flow.cancelPublishSlot();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
     const cursor = cursorIn(commit.cursor) orelse {
         owner.flow.cancelPublishSlot();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
     if (commit.snapshot_seq == 0) {
         owner.flow.cancelPublishSlot();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
     copyPublishScratch(owner, reserved.cells) catch {
         owner.flow.cancelPublishSlot();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
     for (reserved.cells) |cell| {
         validatePublicationCellValue(cell) catch {
             owner.flow.cancelPublishSlot();
-            return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+            return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
         };
     }
     const result = owner.flow.commitPublishSlot(.{
@@ -165,14 +165,14 @@ pub fn commitPublishSlot(handle: c.HowlRenderSurfaceTextHandle, commit: c.HowlRe
         .selection = selectionIn(commit.selection),
     }) catch {
         owner.flow.cancelPublishSlot();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
     return vtPublishResultOut(result);
 }
 
 pub fn rejectPublishSlot(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) callconv(.c) c.HowlRenderVtPublishResult {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    if (snapshot_seq == 0) return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const owner = ownerFromHandle(handle) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    if (snapshot_seq == 0) return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtPublishResultWithStatus(owner.flow.rejectPublishSlot(snapshot_seq), c.HOWL_RENDER_CALL_FAILED);
 }
 
@@ -199,12 +199,12 @@ pub fn publishPrepared(handle: c.HowlRenderSurfaceTextHandle, prepared_in: c.How
 
 pub fn publishPreparedHandle(handle: c.HowlRenderSurfaceTextHandle, prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle) callconv(.c) c_int {
     const owner = ownerFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
-    const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
-    if (!prepared_owner.belongsToSession(owner)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!prepared_owner.markPublished()) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    const prepared = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
+    if (!prepared.belongsToSession(owner)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!prepared.markPublished()) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     owner.prepared_submit_handle = null;
     owner.prepared_publish_handle = opaquePreparedHandle(prepared_surface_handle);
-    owner.flow.publishPrepared(prepared_owner.pipelineFrame());
+    owner.flow.publishPrepared(prepared.pipelineFrame());
     return c.HOWL_RENDER_CALL_OK;
 }
 
@@ -241,14 +241,14 @@ pub fn takeSubmitHandle(handle: c.HowlRenderSurfaceTextHandle, out: ?*c.HowlRend
         },
         .submit => |prepared| blk: {
             const prepared_handle = owner.prepared_publish_handle orelse break :blk c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
-            const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_handle) orelse break :blk c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
-            if (!prepared_owner.isLive()) {
+            const prepared_surface = prepared_owner.Owner.fromHandle(prepared_handle) orelse break :blk c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
+            if (!prepared_surface.isLive()) {
                 owner.prepared_publish_handle = null;
                 owner.prepared_submit_handle = null;
                 break :blk c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
             }
-            if (!samePreparedFrame(prepared_owner.pipelineFrame(), prepared)) break :blk c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
-            if (!prepared_owner.markSubmitReady()) break :blk c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
+            if (!samePreparedFrame(prepared_surface.pipelineFrame(), prepared)) break :blk c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
+            if (!prepared_surface.markSubmitReady()) break :blk c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
             owner.prepared_publish_handle = null;
             owner.prepared_submit_handle = prepared_handle;
             prepared_out.* = abiPreparedHandle(prepared_handle);
@@ -271,13 +271,13 @@ pub fn submitHandle(surface_text_handle: c.HowlRenderSurfaceTextHandle, prepared
     const owner = ownerFromHandle(surface_text_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     const execution = execution_in orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     if (owner.prepared_submit_handle != opaquePreparedHandle(prepared_surface_handle)) return c.HOWL_RENDER_SUBMIT_FAILED;
-    const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
-    if (!prepared_owner.isLive()) {
+    const prepared = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
+    if (!prepared.isLive()) {
         owner.prepared_submit_handle = null;
         return c.HOWL_RENDER_SUBMIT_FAILED;
     }
-    const submitted = prepared_owner.pipelineFrame().token;
-    return switch (prepared_owner.submitOwned(owner, executionInputIn(execution.*))) {
+    const submitted = prepared.pipelineFrame().token;
+    return switch (prepared.submitOwned(owner, executionInputIn(execution.*))) {
         .rendered => |feedback| blk: {
             owner.prepared_submit_handle = null;
             owner.flow.acceptSubmitted(.{ .token = submitted });
@@ -306,18 +306,18 @@ pub fn prepareHandle(surface_text_handle: c.HowlRenderSurfaceTextHandle, prepare
     const owner = ownerFromHandle(surface_text_handle) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const value = prepared_out orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const token = prepareTokenIn(prepare_request) orelse return c.HOWL_RENDER_PREPARE_FAILED;
-    const prepared_owner = owner.prepareHandle(token) catch return c.HOWL_RENDER_PREPARE_FAILED;
-    value.* = @ptrCast(prepared_owner);
+    const prepared = owner.prepareHandle(token) catch return c.HOWL_RENDER_PREPARE_FAILED;
+    value.* = @ptrCast(prepared);
     return c.HOWL_RENDER_PREPARE_READY;
 }
 
 pub fn submit(surface_text_handle: c.HowlRenderSurfaceTextHandle, prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, prepared_frame_in: c.HowlRenderPreparedFrame, execution_in: ?*const c.HowlRenderSurfaceExecutionInput, feedback_out: ?*c.HowlRenderSurfaceFeedback) callconv(.c) c_int {
     if (feedback_out) |out| out.* = failedSurfaceFeedback();
     const owner = ownerFromHandle(surface_text_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
-    const prepared_owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
+    const prepared = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     const execution = execution_in orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     const prepared_frame = preparedFrameIn(prepared_frame_in) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
-    return switch (prepared_owner.submit(owner, prepared_frame, executionInputIn(execution.*))) {
+    return switch (prepared.submit(owner, prepared_frame, executionInputIn(execution.*))) {
         .rendered => |submitted| blk: {
             if (feedback_out) |out| out.* = surfaceFeedbackOut(submitted);
             break :blk c.HOWL_RENDER_SUBMIT_RENDERED;
@@ -328,13 +328,13 @@ pub fn submit(surface_text_handle: c.HowlRenderSurfaceTextHandle, prepared_surfa
 }
 
 pub fn release(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle) callconv(.c) void {
-    const owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse return;
+    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse return;
     owner.release();
 }
 
 pub fn describe(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, info_out: ?*c.HowlRenderPreparedSurfaceInfo) callconv(.c) c_int {
     const out = info_out;
-    const owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse {
+    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
         if (out) |value| value.* = infoFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
         return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     };
@@ -349,7 +349,7 @@ pub fn describe(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, info
 
 pub fn buffer(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, buffer_out: ?*c.HowlRenderPreparedSurfaceBuffer) callconv(.c) c_int {
     const out = buffer_out;
-    const owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse {
+    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
         if (out) |value| value.* = bufferFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
         return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     };
@@ -364,7 +364,7 @@ pub fn buffer(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, buffer
 
 pub fn diagnostics(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, diagnostics_out: ?*c.HowlRenderPreparedSurfaceDiagnostics) callconv(.c) c_int {
     const out = diagnostics_out;
-    const owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse {
+    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
         if (out) |value| value.* = diagnosticsFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
         return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     };
@@ -377,7 +377,7 @@ pub fn diagnostics(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, d
     return c.HOWL_RENDER_CALL_OK;
 }
 
-fn preparedInfoOut(value: prepared_surface_owner.PreparedInfo) c.HowlRenderPreparedSurfaceInfo {
+fn preparedInfoOut(value: prepared_owner.PreparedInfo) c.HowlRenderPreparedSurfaceInfo {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .snapshot_seq = value.snapshot_seq,
@@ -407,7 +407,7 @@ fn infoFailure(status: c_int) c.HowlRenderPreparedSurfaceInfo {
     };
 }
 
-fn preparedBufferOut(value: prepared_surface_owner.PreparedBuffer) c.HowlRenderPreparedSurfaceBuffer {
+fn preparedBufferOut(value: prepared_owner.PreparedBuffer) c.HowlRenderPreparedSurfaceBuffer {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .rgba_pixels = byteSpan(value.rgba_pixels),
@@ -423,7 +423,7 @@ fn bufferFailure(status: c_int) c.HowlRenderPreparedSurfaceBuffer {
     };
 }
 
-fn preparedDiagnosticsOut(value: prepared_surface_owner.PreparedDiagnostics) c.HowlRenderPreparedSurfaceDiagnostics {
+fn preparedDiagnosticsOut(value: prepared_owner.PreparedDiagnostics) c.HowlRenderPreparedSurfaceDiagnostics {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .missing_glyphs = value.missing_glyphs,
@@ -439,7 +439,7 @@ fn diagnosticsFailure(status: c_int) c.HowlRenderPreparedSurfaceDiagnostics {
     };
 }
 
-fn surfaceFeedbackOut(value: surface.RenderSurfaceFeedback) c.HowlRenderSurfaceFeedback {
+fn surfaceFeedbackOut(value: surface_types.RenderSurfaceFeedback) c.HowlRenderSurfaceFeedback {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .damage_kind = @intFromEnum(value.damageKind()),
@@ -457,7 +457,7 @@ fn failedSurfaceFeedback() c.HowlRenderSurfaceFeedback {
     };
 }
 
-fn surfaceMetricsOut(value: surface.RenderMetrics) c.HowlRenderSurfaceMetrics {
+fn surfaceMetricsOut(value: surface_types.RenderMetrics) c.HowlRenderSurfaceMetrics {
     return .{
         .sync_us = value.sync_us,
         .copy_us = value.copy_us,
@@ -483,7 +483,7 @@ fn executionInputIn(value: c.HowlRenderSurfaceExecutionInput) surface_text.Surfa
     return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height }, .uploads_committed = value.uploads_committed, .render_us = value.render_us };
 }
 
-fn geometryOut(value: surface.GeometryResponse) c.HowlRenderGeometryResponse {
+fn geometryOut(value: surface_types.GeometryResponse) c.HowlRenderGeometryResponse {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .changed = @intFromBool(value.changed),
@@ -494,11 +494,11 @@ fn geometryOut(value: surface.GeometryResponse) c.HowlRenderGeometryResponse {
     };
 }
 
-fn vtPublishResultOut(value: queue.VtPublishResult) c.HowlRenderVtPublishResult {
+fn vtPublishResultOut(value: flow.VtPublishResult) c.HowlRenderVtPublishResult {
     return vtPublishResultWithStatus(value, c.HOWL_RENDER_CALL_OK);
 }
 
-fn vtPublishResultWithStatus(value: queue.VtPublishResult, status: c_int) c.HowlRenderVtPublishResult {
+fn vtPublishResultWithStatus(value: flow.VtPublishResult, status: c_int) c.HowlRenderVtPublishResult {
     return .{
         .status = status,
         .published = @intFromBool(value.published),
@@ -509,7 +509,7 @@ fn vtPublishResultWithStatus(value: queue.VtPublishResult, status: c_int) c.Howl
     };
 }
 
-fn publishSlotOut(value: queue.PublicationSlot, cells: []c.HowlVtSurfaceCell) c.HowlRenderPublishSlot {
+fn publishSlotOut(value: flow.PublicationSlot, cells: []c.HowlVtSurfaceCell) c.HowlRenderPublishSlot {
     std.debug.assert(cells.len == value.cells.len);
     return .{
         .cells = .{ .ptr = if (cells.len == 0) null else cells.ptr, .len = cells.len },
@@ -570,15 +570,15 @@ fn removePublishScratch(owner: *surface_text.SurfaceTextOwner) void {
     }
 }
 
-fn opaquePreparedHandle(handle: c.HowlRenderPreparedSurfaceHandle) prepared_surface_owner.PreparedSurfaceHandle {
+fn opaquePreparedHandle(handle: c.HowlRenderPreparedSurfaceHandle) prepared_owner.PreparedSurfaceHandle {
     return if (handle) |value| @ptrCast(value) else null;
 }
 
-fn abiPreparedHandle(handle: prepared_surface_owner.PreparedSurfaceHandle) c.HowlRenderPreparedSurfaceHandle {
+fn abiPreparedHandle(handle: prepared_owner.PreparedSurfaceHandle) c.HowlRenderPreparedSurfaceHandle {
     return if (handle) |value| @ptrCast(value) else null;
 }
 
-fn pendingStateOut(value: queue.PendingState) c.HowlRenderPendingState {
+fn pendingStateOut(value: flow.PendingState) c.HowlRenderPendingState {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .source_pending = @intFromBool(value.source_pending),
@@ -596,7 +596,7 @@ fn pendingStateFailure(status: c_int) c.HowlRenderPendingState {
     };
 }
 
-fn prepareRequestOut(value: pipeline.RenderRequest) c.HowlRenderPrepareRequest {
+fn prepareRequestOut(value: tokens.RenderRequest) c.HowlRenderPrepareRequest {
     return .{
         .snapshot_seq = value.token.snapshot_seq,
         .dirty_epoch = value.token.dirty_epoch,
@@ -606,7 +606,7 @@ fn prepareRequestOut(value: pipeline.RenderRequest) c.HowlRenderPrepareRequest {
     };
 }
 
-fn preparedFrameOut(value: pipeline.PreparedFrame) c.HowlRenderPreparedFrame {
+fn preparedFrameOut(value: tokens.PreparedFrame) c.HowlRenderPreparedFrame {
     return .{
         .snapshot_seq = value.token.snapshot_seq,
         .dirty_epoch = value.token.dirty_epoch,
@@ -617,7 +617,7 @@ fn preparedFrameOut(value: pipeline.PreparedFrame) c.HowlRenderPreparedFrame {
     };
 }
 
-fn prepareTokenIn(value: c.HowlRenderPrepareRequest) ?pipeline.SnapshotToken {
+fn prepareTokenIn(value: c.HowlRenderPrepareRequest) ?tokens.SnapshotToken {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     if (value.snapshot_seq == 0) return null;
     if (value.dirty_epoch == 0) return null;
@@ -641,7 +641,7 @@ fn prepareTokenIn(value: c.HowlRenderPrepareRequest) ?pipeline.SnapshotToken {
     };
 }
 
-fn preparedFrameIn(value: c.HowlRenderPreparedFrame) ?pipeline.PreparedFrame {
+fn preparedFrameIn(value: c.HowlRenderPreparedFrame) ?tokens.PreparedFrame {
     const damage_kind = damageKindIn(value.damage_kind) orelse return null;
     if (value.snapshot_seq == 0) return null;
     if (value.dirty_epoch == 0) return null;
@@ -662,7 +662,7 @@ fn preparedFrameIn(value: c.HowlRenderPreparedFrame) ?pipeline.PreparedFrame {
     return .{ .token = .{ .snapshot_seq = value.snapshot_seq, .dirty_epoch = value.dirty_epoch, .geometry_epoch = value.geometry_epoch, .damage_base_seq = value.damage_base_seq, .damage_kind = damage_kind }, .required_base_seq = value.required_base_seq };
 }
 
-fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool {
+fn samePreparedFrame(a: tokens.PreparedFrame, b: tokens.PreparedFrame) bool {
     return a.token.snapshot_seq == b.token.snapshot_seq and
         a.token.dirty_epoch == b.token.dirty_epoch and
         a.token.geometry_epoch == b.token.geometry_epoch and
@@ -681,7 +681,7 @@ fn byteSpan(items: []u8) c.HowlRenderByteSpan {
     return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
 }
 
-fn cellValueIn(value: c.HowlVtSurfaceCell) !surface.Cell {
+fn cellValueIn(value: c.HowlVtSurfaceCell) !surface_types.Cell {
     try validateCellValue(value);
     return .{
         .codepoint = @intCast(value.codepoint),
@@ -785,7 +785,7 @@ fn selectionIn(value: c.HowlVtSelection) vt_publication.SourceSelection {
     };
 }
 
-fn colorValueIn(value: c.HowlVtColor) !surface.Color {
+fn colorValueIn(value: c.HowlVtColor) !surface_types.Color {
     return switch (value.kind) {
         0 => .{ .kind = .default, .value = 0 },
         1 => blk: {
@@ -800,18 +800,18 @@ fn colorValueIn(value: c.HowlVtColor) !surface.Color {
     };
 }
 
-fn damageKindIn(value: u8) ?pipeline.DamageKind {
+fn damageKindIn(value: u8) ?tokens.DamageKind {
     return switch (value) {
-        @intFromEnum(pipeline.DamageKind.none) => .none,
-        @intFromEnum(pipeline.DamageKind.partial) => .partial,
-        @intFromEnum(pipeline.DamageKind.full) => .full,
+        @intFromEnum(tokens.DamageKind.none) => .none,
+        @intFromEnum(tokens.DamageKind.partial) => .partial,
+        @intFromEnum(tokens.DamageKind.full) => .full,
         else => null,
     };
 }
 
-fn cursorIn(value: c.HowlVtCursor) ?surface.CursorInfo {
+fn cursorIn(value: c.HowlVtCursor) ?surface_types.CursorInfo {
     const shape = switch (value.shape) {
-        0 => surface.CursorShape.block,
+        0 => surface_types.CursorShape.block,
         1 => .underline,
         2 => .beam,
         3 => .hollow_block,
@@ -820,7 +820,7 @@ fn cursorIn(value: c.HowlVtCursor) ?surface.CursorInfo {
     return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = shape, .blink = value.blink != 0 };
 }
 
-fn underlineStyleValueIn(value: u8) !surface.UnderlineStyle {
+fn underlineStyleValueIn(value: u8) !surface_types.UnderlineStyle {
     return switch (value) {
         0 => .straight,
         1 => .double,
@@ -831,6 +831,6 @@ fn underlineStyleValueIn(value: u8) !surface.UnderlineStyle {
     };
 }
 
-fn pixelIn(value: c.HowlRenderPixelSize) surface.PixelSize {
+fn pixelIn(value: c.HowlRenderPixelSize) surface_types.PixelSize {
     return .{ .width = value.width, .height = value.height };
 }

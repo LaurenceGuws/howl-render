@@ -485,7 +485,7 @@ fn createPreparedHandleWithSnapshot(handle: c.HowlRenderSurfaceTextHandle, snaps
 }
 
 fn createTestSurfaceTextHandle() !c.HowlRenderSurfaceTextHandle {
-    const owner = @import("../frame/surface_text.zig").SurfaceTextOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
+    const owner = @import("../surface/text.zig").SurfaceTextOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
     return @ptrCast(owner);
 }
 

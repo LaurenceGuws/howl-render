@@ -1,5 +1,5 @@
 const text = @import("../text/text.zig");
-const pipeline = @import("pipeline.zig");
+const tokens = @import("tokens.zig");
 
 pub fn markRendered(atlas: *text.AtlasCache.OwnedAtlasCache, outputs: []const text.Rasterizer.RasterSpriteOutput) void {
     for (outputs) |output| {
@@ -10,7 +10,7 @@ pub fn markRendered(atlas: *text.AtlasCache.OwnedAtlasCache, outputs: []const te
     }
 }
 
-pub fn damageKind(prepared: anytype) pipeline.DamageKind {
+pub fn damageKind(prepared: anytype) tokens.DamageKind {
     if (prepared.text_frame.scene.scene.full_redraw) return .full;
     return .partial;
 }

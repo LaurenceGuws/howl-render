@@ -1,7 +1,7 @@
 const std = @import("std");
-const pipeline = @import("pipeline.zig");
-const vt_publication = @import("../surface/publication_source.zig");
-const surface_types = @import("surface.zig");
+const tokens = @import("tokens.zig");
+const vt_publication = @import("publication_source.zig");
+const surface_types = @import("types.zig");
 
 const ThreadMutex = struct {
     state: std.Io.Mutex = .init,
@@ -16,26 +16,26 @@ fn lockMutex(mutex: *ThreadMutex) void {
 }
 
 pub const SubmitDecision = union(enum) {
-    submit: pipeline.PreparedFrame,
-    stale: pipeline.SnapshotToken,
-    needs_full_prepare: pipeline.FullPrepareReason,
+    submit: tokens.PreparedFrame,
+    stale: tokens.SnapshotToken,
+    needs_full_prepare: tokens.FullPrepareReason,
     idle,
 };
 
 const TerminalSurface = struct {
-    const SubmitMailbox = pipeline.LatestMailbox(pipeline.PreparedFrame);
+    const SubmitMailbox = tokens.LatestMailbox(tokens.PreparedFrame);
 
     mutex: ThreadMutex = .{},
     submit_mailbox: SubmitMailbox = .{},
-    submitted_frame: ?pipeline.SubmittedFrame = null,
+    submitted_frame: ?tokens.SubmittedFrame = null,
 
-    fn publishPrepared(self: *TerminalSurface, prepared: pipeline.PreparedFrame) void {
+    fn publishPrepared(self: *TerminalSurface, prepared: tokens.PreparedFrame) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         self.submit_mailbox.publish(prepared);
     }
 
-    fn takeValidatedSubmitWithLatest(self: *TerminalSurface, latest_token: ?pipeline.SnapshotToken) SubmitDecision {
+    fn takeValidatedSubmitWithLatest(self: *TerminalSurface, latest_token: ?tokens.SnapshotToken) SubmitDecision {
         lockMutex(&self.mutex);
         const prepared = self.submit_mailbox.takeLatest() orelse {
             self.mutex.unlock();
@@ -51,17 +51,17 @@ const TerminalSurface = struct {
         return .{ .needs_full_prepare = reason };
     }
 
-    fn validatePrepared(self: *const TerminalSurface, prepared: pipeline.PreparedFrame) pipeline.SubmitValidation {
+    fn validatePrepared(self: *const TerminalSurface, prepared: tokens.PreparedFrame) tokens.SubmitValidation {
         const surface: *TerminalSurface = @constCast(self);
         lockMutex(&surface.mutex);
         defer surface.mutex.unlock();
         const submitted = self.submitted_frame orelse {
             return if (prepared.requiresRetainedBase()) .missing_retained_base else .valid;
         };
-        return pipeline.validatePreparedFrame(prepared, submitted);
+        return tokens.validatePreparedFrame(prepared, submitted);
     }
 
-    fn acceptSubmitted(self: *TerminalSurface, frame: pipeline.SubmittedFrame) void {
+    fn acceptSubmitted(self: *TerminalSurface, frame: tokens.SubmittedFrame) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         std.debug.assert(frame.token.snapshot_seq != 0);
@@ -79,7 +79,7 @@ const TerminalSurface = struct {
         };
     }
 
-    fn prepareTokenForRetainedState(token: pipeline.SnapshotToken, submitted_token: ?pipeline.SnapshotToken) pipeline.SnapshotToken {
+    fn prepareTokenForRetainedState(token: tokens.SnapshotToken, submitted_token: ?tokens.SnapshotToken) tokens.SnapshotToken {
         if (!token.requiresRetainedBase()) return token;
         const submitted = submitted_token orelse return forceFull(token);
         if (submitted.geometry_epoch != token.geometry_epoch) return forceFull(token);
@@ -87,7 +87,7 @@ const TerminalSurface = struct {
         return token;
     }
 
-    fn forceFull(token: pipeline.SnapshotToken) pipeline.SnapshotToken {
+    fn forceFull(token: tokens.SnapshotToken) tokens.SnapshotToken {
         return .{
             .snapshot_seq = token.snapshot_seq,
             .dirty_epoch = token.dirty_epoch,
@@ -97,7 +97,7 @@ const TerminalSurface = struct {
         };
     }
 
-    fn isStalePrepared(self: *const TerminalSurface, latest_token: ?pipeline.SnapshotToken, token: pipeline.SnapshotToken) bool {
+    fn isStalePrepared(self: *const TerminalSurface, latest_token: ?tokens.SnapshotToken, token: tokens.SnapshotToken) bool {
         _ = self;
         const latest = latest_token orelse return false;
         return latest.isNewerThan(token);
@@ -193,7 +193,7 @@ pub const PublicationSource = struct {
 pub const VtPublishResult = struct {
     published: bool,
     queued: bool,
-    damage_kind: pipeline.DamageKind,
+    damage_kind: tokens.DamageKind,
     snapshot_seq: u64,
     geometry_epoch: u64,
 };
@@ -222,14 +222,14 @@ pub const PendingState = struct {
 };
 
 pub const PrepareConsume = struct {
-    request: pipeline.RenderRequest,
+    request: tokens.RenderRequest,
     layout: surface_types.PrepareLayout,
     state: PublicationSource,
 };
 
 const Publication = struct {
     source: PublicationSource,
-    damage_kind: pipeline.DamageKind = .none,
+    damage_kind: tokens.DamageKind = .none,
 
     fn deinit(self: *Publication, allocator: std.mem.Allocator) void {
         self.source.deinit(allocator);
@@ -239,7 +239,7 @@ const Publication = struct {
 
 const ActivePrepare = struct {
     publication: Publication,
-    request: pipeline.RenderRequest,
+    request: tokens.RenderRequest,
     taken: bool = false,
 
     fn deinit(self: *ActivePrepare, allocator: std.mem.Allocator) void {
@@ -348,7 +348,7 @@ const PublicationState = struct {
         self.reserved = null;
     }
 
-    fn commitReservedSource(self: *PublicationState, meta: ReservedSourceMeta, dirty_epoch: u64, submitted_token: ?pipeline.SnapshotToken, geometry_epoch: u64) !VtPublishResult {
+    fn commitReservedSource(self: *PublicationState, meta: ReservedSourceMeta, dirty_epoch: u64, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) !VtPublishResult {
         var source = self.reserved orelse return error.MissingPublishSlot;
         self.reserved = null;
         source.scroll_row = meta.scroll_row;
@@ -363,7 +363,7 @@ const PublicationState = struct {
         return self.acceptSource(source, submitted_token, geometry_epoch);
     }
 
-    fn acceptSource(self: *PublicationState, source: PublicationSource, submitted_token: ?pipeline.SnapshotToken, geometry_epoch: u64) VtPublishResult {
+    fn acceptSource(self: *PublicationState, source: PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) VtPublishResult {
         canonicalizeDirtyMetadata(source.rows, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
         const snapshot = source.snapshot();
         const damage_kind = self.classify(source, submitted_token);
@@ -397,7 +397,7 @@ const PublicationState = struct {
         };
     }
 
-    fn takePrepareRequest(self: *PublicationState, geometry_epoch: u64, submitted_token: ?pipeline.SnapshotToken) ?pipeline.RenderRequest {
+    fn takePrepareRequest(self: *PublicationState, geometry_epoch: u64, submitted_token: ?tokens.SnapshotToken) ?tokens.RenderRequest {
         if (self.active == null or (self.active.?.taken and self.pending != null)) {
             self.blink_refresh_pending = false;
             self.activatePending(geometry_epoch, submitted_token);
@@ -422,7 +422,7 @@ const PublicationState = struct {
         return self.active.?.request;
     }
 
-    fn consumePrepare(self: *PublicationState, layout: surface_types.PrepareLayout, token: pipeline.SnapshotToken) !PrepareConsume {
+    fn consumePrepare(self: *PublicationState, layout: surface_types.PrepareLayout, token: tokens.SnapshotToken) !PrepareConsume {
         const active = self.active orelse return error.MissingPublishedSource;
         if (!sameSnapshotToken(active.request.token, token)) return error.MismatchedPublishedSource;
         return .{
@@ -432,7 +432,7 @@ const PublicationState = struct {
         };
     }
 
-    fn latestToken(self: *const PublicationState) ?pipeline.SnapshotToken {
+    fn latestToken(self: *const PublicationState) ?tokens.SnapshotToken {
         if (self.pending) |publication| {
             return .{
                 .snapshot_seq = publication.source.snapshot_seq,
@@ -460,7 +460,7 @@ const PublicationState = struct {
         return true;
     }
 
-    fn retryTakenPrepare(self: *PublicationState, token: pipeline.SnapshotToken) bool {
+    fn retryTakenPrepare(self: *PublicationState, token: tokens.SnapshotToken) bool {
         if (self.pending != null) return false;
         const active = if (self.active) |*active| active else return false;
         if (!active.taken) return false;
@@ -484,7 +484,7 @@ const PublicationState = struct {
         self.blink_refresh_pending = true;
     }
 
-    fn retireAtOrBefore(self: *PublicationState, token: pipeline.SnapshotToken) void {
+    fn retireAtOrBefore(self: *PublicationState, token: tokens.SnapshotToken) void {
         if (self.pending) |*publication| {
             if (publication.source.snapshot_seq <= token.snapshot_seq) {
                 publication.deinit(self.allocator);
@@ -499,7 +499,7 @@ const PublicationState = struct {
         }
     }
 
-    fn retirePendingAtOrBefore(self: *PublicationState, token: pipeline.SnapshotToken) void {
+    fn retirePendingAtOrBefore(self: *PublicationState, token: tokens.SnapshotToken) void {
         if (self.pending) |*publication| {
             if (publication.source.snapshot_seq <= token.snapshot_seq) {
                 publication.deinit(self.allocator);
@@ -530,10 +530,10 @@ const PublicationState = struct {
         self.blink_refresh_pending = false;
     }
 
-    fn activatePending(self: *PublicationState, geometry_epoch: u64, submitted_token: ?pipeline.SnapshotToken) void {
+    fn activatePending(self: *PublicationState, geometry_epoch: u64, submitted_token: ?tokens.SnapshotToken) void {
         const publication = self.pending orelse return;
         self.pending = null;
-        const token = pipeline.SnapshotToken{
+        const token = tokens.SnapshotToken{
             .snapshot_seq = publication.source.snapshot_seq,
             .dirty_epoch = publication.source.dirty_epoch,
             .geometry_epoch = geometry_epoch,
@@ -550,7 +550,7 @@ const PublicationState = struct {
         };
     }
 
-    fn classify(self: *const PublicationState, source: PublicationSource, submitted_token: ?pipeline.SnapshotToken) pipeline.DamageKind {
+    fn classify(self: *const PublicationState, source: PublicationSource, submitted_token: ?tokens.SnapshotToken) tokens.DamageKind {
         const snapshot = source.snapshot();
         const damage_kind = classifyDirty(snapshot);
         const prior = self.priorSource() orelse return damage_kind;
@@ -728,7 +728,7 @@ fn slotCellCountChecked(cols: u16, rows: u16) !usize {
     return std.math.mul(usize, cols, rows);
 }
 
-fn sameSnapshotToken(a: pipeline.SnapshotToken, b: pipeline.SnapshotToken) bool {
+fn sameSnapshotToken(a: tokens.SnapshotToken, b: tokens.SnapshotToken) bool {
     return a.snapshot_seq == b.snapshot_seq and
         a.dirty_epoch == b.dirty_epoch and
         a.geometry_epoch == b.geometry_epoch and
@@ -757,7 +757,7 @@ fn samePublicationSource(a: PublicationSource, b: PublicationSource) bool {
         std.mem.eql(u16, a.dirty_cols_end, b.dirty_cols_end);
 }
 
-fn classifyDirty(snapshot: VtSnapshot) pipeline.DamageKind {
+fn classifyDirty(snapshot: VtSnapshot) tokens.DamageKind {
     std.debug.assert(snapshot.dirty_rows.len == snapshot.rows);
     std.debug.assert(snapshot.dirty_cols_start.len == snapshot.rows);
     std.debug.assert(snapshot.dirty_cols_end.len == snapshot.rows);
@@ -900,7 +900,7 @@ pub const Flow = struct {
         };
     }
 
-    pub fn prepare(self: *Flow) ?pipeline.RenderRequest {
+    pub fn prepare(self: *Flow) ?tokens.RenderRequest {
         const submitted_token = blk: {
             lockMutex(&self.surface.mutex);
             defer self.surface.mutex.unlock();
@@ -914,12 +914,12 @@ pub const Flow = struct {
         return self.publication_state.active.?.request;
     }
 
-    pub fn consumePrepare(self: *Flow, token: pipeline.SnapshotToken) !PrepareConsume {
+    pub fn consumePrepare(self: *Flow, token: tokens.SnapshotToken) !PrepareConsume {
         const layout = self.prepareLayout(token.geometry_epoch);
         return self.publication_state.consumePrepare(layout, token);
     }
 
-    pub fn retryTakenPrepare(self: *Flow, token: pipeline.SnapshotToken) bool {
+    pub fn retryTakenPrepare(self: *Flow, token: tokens.SnapshotToken) bool {
         return self.publication_state.retryTakenPrepare(token);
     }
 
@@ -937,7 +937,7 @@ pub const Flow = struct {
         };
     }
 
-    pub fn publishPrepared(self: *Flow, prepared: pipeline.PreparedFrame) void {
+    pub fn publishPrepared(self: *Flow, prepared: tokens.PreparedFrame) void {
         self.surface.publishPrepared(prepared);
     }
 
@@ -951,7 +951,7 @@ pub const Flow = struct {
         return decision;
     }
 
-    pub fn acceptSubmitted(self: *Flow, frame: pipeline.SubmittedFrame) void {
+    pub fn acceptSubmitted(self: *Flow, frame: tokens.SubmittedFrame) void {
         if (frame.token.geometry_epoch != self.geometry_epoch) {
             _ = self.publication_state.requestFullPrepare();
             return;
@@ -975,7 +975,7 @@ pub const Flow = struct {
         return self.source_dirty_epoch;
     }
 
-    fn submittedToken(self: *Flow) ?pipeline.SnapshotToken {
+    fn submittedToken(self: *Flow) ?tokens.SnapshotToken {
         lockMutex(&self.surface.mutex);
         defer self.surface.mutex.unlock();
         return if (self.surface.submitted_frame) |frame| frame.token else null;
@@ -1055,7 +1055,7 @@ fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u
     };
 }
 
-fn fullPrepareReason(validation: pipeline.SubmitValidation) pipeline.FullPrepareReason {
+fn fullPrepareReason(validation: tokens.SubmitValidation) tokens.FullPrepareReason {
     return switch (validation) {
         .valid => unreachable,
         .stale_geometry => .geometry_changed,
@@ -1083,7 +1083,7 @@ test "surface validates submit candidates before GPU mutation" {
 
 test "surface keeps submitted identity as retained base only" {
     var surface = TerminalSurface{};
-    const frame = pipeline.SubmittedFrame{
+    const frame = tokens.SubmittedFrame{
         .token = .{ .snapshot_seq = 7, .dirty_epoch = 9, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
         .atlas_epoch = 11,
         .surface_epoch = 13,
@@ -1129,7 +1129,7 @@ test "flow keeps blink refresh out of source publication queue" {
     try std.testing.expect(flow.setCursorBlinkVisible(false));
     const second_request = flow.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 7), second_request.token.snapshot_seq);
-    try std.testing.expectEqual(pipeline.DamageKind.full, second_request.token.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, second_request.token.damage_kind);
     try std.testing.expectEqual(first_request.token.dirty_epoch, second_request.token.dirty_epoch);
     const pending = flow.pendingState();
     try std.testing.expect(!pending.source_pending);
@@ -1157,7 +1157,7 @@ test "flow redraws blinking cursor phase without a fresh vt source" {
 
     const second_request = flow.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 9), second_request.token.snapshot_seq);
-    try std.testing.expectEqual(pipeline.DamageKind.full, second_request.token.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, second_request.token.damage_kind);
     try std.testing.expectEqual(first_request.token.dirty_epoch, second_request.token.dirty_epoch);
 
     const prepare = try flow.consumePrepare(second_request.token);
@@ -1239,7 +1239,7 @@ test "full prepare after submitted frame carries no retained base" {
     _ = flow.acceptSource(second);
 
     const request = flow.prepare() orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, request.token.damage_kind);
     try std.testing.expectEqual(@as(u64, 0), request.token.damage_base_seq);
 }
 
@@ -1286,7 +1286,7 @@ test "cursor movement republishes clean later vt snapshot" {
 
     const published = flow.acceptSource(clean_source);
     try std.testing.expect(published.published);
-    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, published.damage_kind);
 }
 
 test "cursor shape change republishes clean later vt snapshot" {
@@ -1311,7 +1311,7 @@ test "cursor shape change republishes clean later vt snapshot" {
 
     const published = flow.acceptSource(second);
     try std.testing.expect(published.published);
-    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, published.damage_kind);
 }
 
 test "color state change republishes clean later vt snapshot" {
@@ -1339,7 +1339,7 @@ test "color state change republishes clean later vt snapshot" {
     second.colors.palette[1] = .{ .r = 10, .g = 11, .b = 12 };
     const published = flow.acceptSource(second);
     try std.testing.expect(published.published);
-    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, published.damage_kind);
 }
 
 test "flow coalesces snapshots into latest prepare request" {
@@ -1376,7 +1376,7 @@ test "flow turns partial snapshot full without retained base" {
 
     _ = flow.acceptSnapshot(testSnapshot(10, 10, 0, 2, &dirty_rows, &dirty_cols_start, &dirty_cols_end));
     const request = flow.prepare() orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, request.token.damage_kind);
     try std.testing.expectEqual(@as(u64, 0), request.token.damage_base_seq);
 }
 
@@ -1404,12 +1404,12 @@ test "flow rejects stale submit and requests full latest prepare" {
 
     const decision = flow.submit();
     switch (decision) {
-        .needs_full_prepare => |reason| try std.testing.expectEqual(pipeline.FullPrepareReason.retained_base_stale, reason),
+        .needs_full_prepare => |reason| try std.testing.expectEqual(tokens.FullPrepareReason.retained_base_stale, reason),
         else => return error.TestUnexpectedResult,
     }
     const request = flow.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), request.token.snapshot_seq);
-    try std.testing.expectEqual(pipeline.DamageKind.full, request.token.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, request.token.damage_kind);
 }
 
 test "flow drops pending prepare at submitted token" {
@@ -1469,7 +1469,7 @@ test "flow reject publish slot clears reserved source" {
     const result = flow.rejectPublishSlot(7);
     try std.testing.expectEqual(false, result.published);
     try std.testing.expectEqual(false, result.queued);
-    try std.testing.expectEqual(pipeline.DamageKind.none, result.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.none, result.damage_kind);
     try std.testing.expectEqual(@as(u64, 7), result.snapshot_seq);
     try std.testing.expectEqual(geometry.geometry_epoch, result.geometry_epoch);
     try std.testing.expect(!flow.pendingState().source_pending);
@@ -1613,7 +1613,7 @@ test "flow canonicalizes clean dirty metadata before equality dedupe" {
     const second = flow.acceptSnapshot(testSnapshot(2, 3, 0, 7, &dirty_rows, &second_dirty_cols_start, &second_dirty_cols_end));
     try std.testing.expect(!second.published);
     try std.testing.expect(!second.queued);
-    try std.testing.expectEqual(pipeline.DamageKind.none, second.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.none, second.damage_kind);
 }
 
 test "flow preserves dirty row spans and sentinels while canonicalizing" {
@@ -1741,7 +1741,7 @@ test "flow forces full snapshot damage while prior snapshot is still pending" {
     _ = flow.acceptSnapshot(testSnapshot(10, 10, 0, 1, &full_dirty_rows, &full_dirty_cols_start, &full_dirty_cols_end));
     const second = flow.acceptSnapshot(testSnapshot(10, 10, 0, 2, &partial_dirty_rows, &partial_dirty_cols_start, &partial_dirty_cols_end));
     try std.testing.expect(second.published);
-    try std.testing.expectEqual(pipeline.DamageKind.full, second.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, second.damage_kind);
 }
 
 test "flow forces full snapshot on scroll row change" {
@@ -1762,7 +1762,7 @@ test "flow forces full snapshot on scroll row change" {
     _ = flow.acceptSnapshot(testSnapshot(10, 10, 0, 1, &full_dirty_rows, &full_dirty_cols_start, &full_dirty_cols_end));
     _ = flow.prepare();
     const second = flow.acceptSnapshot(testSnapshot(10, 10, 1, 2, &partial_dirty_rows, &partial_dirty_cols_start, &partial_dirty_cols_end));
-    try std.testing.expectEqual(pipeline.DamageKind.full, second.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.full, second.damage_kind);
 }
 
 test "flow drops clean snapshot" {
@@ -1784,5 +1784,5 @@ test "flow drops clean snapshot" {
     _ = flow.prepare();
     const second = flow.acceptSnapshot(testSnapshot(10, 10, 0, 2, &clean_dirty_rows, &clean_dirty_cols_start, &clean_dirty_cols_end));
     try std.testing.expect(!second.published);
-    try std.testing.expectEqual(pipeline.DamageKind.none, second.damage_kind);
+    try std.testing.expectEqual(tokens.DamageKind.none, second.damage_kind);
 }

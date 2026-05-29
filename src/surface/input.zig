@@ -1,7 +1,7 @@
 const std = @import("std");
-const publication = @import("../surface/publication_source.zig");
-const queue = @import("queue.zig");
-const surface = @import("surface.zig");
+const publication = @import("publication_source.zig");
+const flow = @import("flow.zig");
+const surface_types = @import("types.zig");
 const contract = @import("../text/contract.zig");
 const frame_preparer = @import("../text/frame_preparer.zig");
 const scene = @import("../text/scene.zig");
@@ -116,7 +116,7 @@ fn mapTextSceneCursorShape(shape: anytype) scene.CursorShape {
     return .block;
 }
 
-fn mapUnderlineStyle(style: surface.UnderlineStyle) contract.UnderlineStyle {
+fn mapUnderlineStyle(style: surface_types.UnderlineStyle) contract.UnderlineStyle {
     return switch (style) {
         .straight => .straight,
         .double => .double,
@@ -126,7 +126,7 @@ fn mapUnderlineStyle(style: surface.UnderlineStyle) contract.UnderlineStyle {
     };
 }
 
-fn isAlacrittyEmptyCell(cell: surface.Cell) bool {
+fn isAlacrittyEmptyCell(cell: surface_types.Cell) bool {
     const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
     const default_bg = cell.bg_color.kind == .default;
     const visible_flags = cell.flags.continuation or
@@ -235,7 +235,7 @@ fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) 
     return .any;
 }
 
-fn mapCellInput(src: surface.Cell, t: FrameTheme) contract.CellInput {
+fn mapCellInput(src: surface_types.Cell, t: FrameTheme) contract.CellInput {
     var out: contract.CellInput = .{
         .codepoint = src.codepoint,
         .combining_len = src.combining_len,
@@ -298,7 +298,7 @@ fn canMapDirtyOnly(state: anytype) bool {
 
 fn mapDirtyCellsOnly(
     dst: []contract.CellInput,
-    cells: []const surface.Cell,
+    cells: []const surface_types.Cell,
     grid_cols: u16,
     grid_rows: u16,
     dirty_rows: []const bool,
@@ -372,7 +372,7 @@ pub fn vtStateToTextSceneInput(
 
 pub fn publicationSourceToTextSceneInput(
     allocator: std.mem.Allocator,
-    source: queue.PublicationSource,
+    source: flow.PublicationSource,
     full_damage: bool,
 ) !OwnedTextSceneInput {
     return publicationSourceToTextSceneInputWithTheme(allocator, source, full_damage, themeFromPublicationColors(source.colors));
@@ -387,7 +387,7 @@ pub fn vtStateToFrameTextInput(
 
 pub fn publicationSourceToTextSceneInputWithTheme(
     allocator: std.mem.Allocator,
-    source: queue.PublicationSource,
+    source: flow.PublicationSource,
     full_damage: bool,
     t: FrameTheme,
 ) !OwnedTextSceneInput {
@@ -405,7 +405,7 @@ pub fn publicationSourceToTextSceneInputWithTheme(
 
 pub fn publicationSourceToTextSceneInputBorrowed(
     cell_inputs: []contract.CellInput,
-    source: queue.PublicationSource,
+    source: flow.PublicationSource,
     full_damage: bool,
 ) BorrowedTextSceneInput {
     return publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, themeFromPublicationColors(source.colors));
@@ -413,7 +413,7 @@ pub fn publicationSourceToTextSceneInputBorrowed(
 
 pub fn publicationSourceToTextSceneInputBorrowedWithTheme(
     cell_inputs: []contract.CellInput,
-    source: queue.PublicationSource,
+    source: flow.PublicationSource,
     full_damage: bool,
     t: FrameTheme,
 ) BorrowedTextSceneInput {
@@ -532,8 +532,8 @@ pub fn vtStateToFrameTextInputWithTheme(
     };
 }
 
-test "frame_input converts frame state to text scene input" {
-    const cells = [_]surface.Cell{.{
+test "surface input converts VT source to text scene input" {
+    const cells = [_]surface_types.Cell{.{
         .codepoint = 'A',
         .underline_color = .{ .kind = .rgb, .value = 0xCC3366 },
         .attrs = .{ .underline = true, .underline_color_set = true },
@@ -556,8 +556,8 @@ test "frame_input converts frame state to text scene input" {
     try std.testing.expect(input.options.scene.damage.full);
 }
 
-test "frame_input maps inverse frame state colors" {
-    const cells = [_]surface.Cell{.{
+test "surface input maps inverse VT source colors" {
+    const cells = [_]surface_types.Cell{.{
         .codepoint = 'R',
         .fg_color = .{ .kind = .rgb, .value = 0x102030 },
         .bg_color = .{ .kind = .rgb, .value = 0xA0B0C0 },
@@ -580,7 +580,7 @@ test "frame_input maps inverse frame state colors" {
     try std.testing.expect(!input.cells[0].empty);
 }
 
-test "frame_input maps publication combining truth" {
+test "surface input maps publication combining truth" {
     var cells = [_]publication.SourceCell{.{
         .codepoint = 'o',
         .combining_len = 1,
@@ -620,7 +620,7 @@ test "frame_input maps publication combining truth" {
     try std.testing.expectEqual(@as(u32, 0x0300), mapped.cells[0].combining[0]);
 }
 
-test "frame_input maps publication style and presentation truth" {
+test "surface input maps publication style and presentation truth" {
     var cells = [_]publication.SourceCell{.{
         .codepoint = 0x2716,
         .combining_len = 1,
@@ -659,7 +659,7 @@ test "frame_input maps publication style and presentation truth" {
     try std.testing.expectEqual(contract.TextPresentation.emoji, mapped.cells[0].presentation);
 }
 
-test "frame_input maps publication style attrs dim and invisible" {
+test "surface input maps publication style attrs dim and invisible" {
     var cells = [_]publication.SourceCell{
         .{
             .codepoint = 'I',
@@ -724,7 +724,7 @@ test "frame_input maps publication style attrs dim and invisible" {
     try std.testing.expectEqual(@as(u8, 0x33), mapped.cells[1].bg.b);
 }
 
-test "frame_input maps inverse publication colors" {
+test "surface input maps inverse publication colors" {
     var cells = [_]publication.SourceCell{
         .{
             .codepoint = 'R',
@@ -788,8 +788,8 @@ test "frame_input maps inverse publication colors" {
     try std.testing.expectEqual(@as(u8, 0xEE), mapped.cells[1].bg.b);
 }
 
-test "frame_input marks Alacritty-empty cells before color mapping" {
-    const cells = [_]surface.Cell{
+test "surface input marks Alacritty-empty cells before color mapping" {
+    const cells = [_]surface_types.Cell{
         .{},
         .{ .codepoint = '\t' },
         .{ .codepoint = ' ', .bg_color = .{ .kind = .rgb, .value = 0 } },
@@ -812,8 +812,8 @@ test "frame_input marks Alacritty-empty cells before color mapping" {
     try std.testing.expect(!input.cells[4].empty);
 }
 
-test "frame_input keeps fg-colored blanks empty" {
-    const cells = [_]surface.Cell{
+test "surface input keeps fg-colored blanks empty" {
+    const cells = [_]surface_types.Cell{
         .{ .codepoint = ' ', .fg_color = .{ .kind = .indexed, .value = 2 } },
         .{ .codepoint = '\t', .fg_color = .{ .kind = .rgb, .value = 0x33AAFF } },
     };
@@ -830,8 +830,8 @@ test "frame_input keeps fg-colored blanks empty" {
     try std.testing.expect(input.cells[1].empty);
 }
 
-test "frame_input threads partial damage into text scene input" {
-    const cells = [_]surface.Cell{ .{}, .{} };
+test "surface input threads partial damage into text scene input" {
+    const cells = [_]surface_types.Cell{ .{}, .{} };
     const dirty_rows = [_]bool{ false, true };
     const dirty_starts = [_]u16{ 0, 2 };
     const dirty_ends = [_]u16{ 0, 5 };
@@ -852,8 +852,8 @@ test "frame_input threads partial damage into text scene input" {
     try std.testing.expectEqual(@as(u16, 2), input.options.scene.damage.dirty_cols_start[1]);
 }
 
-test "frame_input maps only dirty ranges for partial damage" {
-    const cells = [_]surface.Cell{
+test "surface input maps only dirty ranges for partial damage" {
+    const cells = [_]surface_types.Cell{
         .{ .codepoint = 'A' },
         .{ .codepoint = 'B' },
         .{ .codepoint = 'C' },
@@ -882,7 +882,7 @@ test "frame_input maps only dirty ranges for partial damage" {
     try std.testing.expect(!input.cells[3].empty);
 }
 
-test "frame_input borrowed publication mapping reuses caller storage" {
+test "surface input borrowed publication mapping reuses caller storage" {
     var cells = [_]publication.SourceCell{
         .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
         .{ .codepoint = ' ', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
@@ -918,7 +918,7 @@ test "frame_input borrowed publication mapping reuses caller storage" {
     try std.testing.expect(mapped.cells[1].empty);
 }
 
-test "frame_input borrowed publication mapping preserves cursor blink truth" {
+test "surface input borrowed publication mapping preserves cursor blink truth" {
     var cells = [_]publication.SourceCell{.{
         .codepoint = 'A',
         .flags = .{ .continuation = 0 },
@@ -960,7 +960,7 @@ test "frame_input borrowed publication mapping preserves cursor blink truth" {
     try std.testing.expect(mapped.options.scene.cursor.?.blink);
 }
 
-test "frame_input borrowed publication mapping hides blinking cursor when host phase is off" {
+test "surface input borrowed publication mapping hides blinking cursor when host phase is off" {
     var cells = [_]publication.SourceCell{.{
         .codepoint = 'A',
         .flags = .{ .continuation = 0 },
@@ -996,7 +996,7 @@ test "frame_input borrowed publication mapping hides blinking cursor when host p
     try std.testing.expectEqual(@as(?scene.CursorInput, null), mapped.options.scene.cursor);
 }
 
-test "frame_input borrowed publication mapping applies selection styling across scrollback rows" {
+test "surface input borrowed publication mapping applies selection styling across scrollback rows" {
     var cells = [_]publication.SourceCell{
         .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 2, .value = 0x102030 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 1 }, .link_id = 0 },
         .{ .codepoint = 'B', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 2, .value = 0x405060 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
@@ -1032,7 +1032,7 @@ test "frame_input borrowed publication mapping applies selection styling across 
     try std.testing.expectEqual(@as(u21, 'B'), mapped.cells[1].codepoint);
 }
 
-test "frame_input borrowed publication mapping uses vt-owned color state" {
+test "surface input borrowed publication mapping uses vt-owned color state" {
     var cells = [_]publication.SourceCell{.{
         .codepoint = 'A',
         .flags = .{ .continuation = 0 },
@@ -1075,7 +1075,7 @@ test "frame_input borrowed publication mapping uses vt-owned color state" {
     try std.testing.expectEqual(@as(u8, 7), mapped.options.scene.cursor.?.color.r);
 }
 
-test "frame_input remaps semantic default and indexed cells when vt colors change" {
+test "surface input remaps semantic default and indexed cells when vt colors change" {
     var cells = [_]publication.SourceCell{.{
         .codepoint = 'A',
         .flags = .{ .continuation = 0 },

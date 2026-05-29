@@ -1,17 +1,16 @@
-
 const std = @import("std");
-const geometry = @import("../frame/geometry.zig");
-const surface = @import("../frame/surface.zig");
+const geometry = @import("../surface/geometry.zig");
+const surface_types = @import("../surface/types.zig");
 
 test "render frame pixel geometry clamps to drawable size" {
-    const frame = surface.FramePixels{ .render_width = 0, .render_height = -2, .grid_width = 80, .grid_height = 24 };
+    const frame = surface_types.FramePixels{ .render_width = 0, .render_height = -2, .grid_width = 80, .grid_height = 24 };
     try std.testing.expectEqual(@as(u16, 1), frame.renderWidth());
     try std.testing.expectEqual(@as(u16, 1), frame.renderHeight());
     try std.testing.expectEqual(@as(u16, 80), frame.gridWidth());
     try std.testing.expectEqual(@as(u16, 24), frame.gridHeight());
 }
 
-test "frame geometry helpers derive grid deterministically" {
+test "surface geometry derives grid deterministically" {
     const grid = geometry.deriveGridSize(.{ .width = 80, .height = 48 }, .{ .width = 8, .height = 16 });
     try std.testing.expectEqual(@as(u16, 10), grid.cols);
     try std.testing.expectEqual(@as(u16, 3), grid.rows);

@@ -1,8 +1,8 @@
 const std = @import("std");
-const pipeline = @import("pipeline.zig");
-const surface = @import("surface.zig");
-const surface_buffer = @import("surface_buffer.zig");
-const surface_text = @import("surface_text.zig");
+const tokens = @import("tokens.zig");
+const surface_types = @import("types.zig");
+const surface_buffer = @import("buffer.zig");
+const surface_text = @import("text.zig");
 const text = @import("../text/text.zig");
 const contract = @import("../text/contract.zig");
 
@@ -13,10 +13,10 @@ pub const PreparedInfo = struct {
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
-    render_px: surface.PixelSize,
-    cell_px: surface.CellSize,
-    grid: surface.GridSize,
-    prepare_metrics: surface.RenderMetrics,
+    render_px: surface_types.PixelSize,
+    cell_px: surface_types.CellSize,
+    grid: surface_types.GridSize,
+    prepare_metrics: surface_types.RenderMetrics,
     damage_kind: u8,
 };
 
@@ -27,38 +27,38 @@ pub const PreparedBuffer = struct {
 
 pub const PreparedDiagnostics = struct {
     missing_glyphs: u64,
-    resolve_metrics: surface.RenderMetrics,
+    resolve_metrics: surface_types.RenderMetrics,
 };
 
 pub const Owner = struct {
     pub const State = enum { prepared, published, submit_ready, released, consumed };
 
     session_owner: *surface_text.SurfaceTextOwner,
-    prepared: surface.PreparedSurface,
+    prepared: surface_types.PreparedSurface,
     state: State = .prepared,
     snapshot_seq: u64,
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
-    render_px: surface.PixelSize,
-    cell_px: surface.CellSize,
-    grid: surface.GridSize,
-    prepare_metrics: surface.RenderMetrics,
+    render_px: surface_types.PixelSize,
+    cell_px: surface_types.CellSize,
+    grid: surface_types.GridSize,
+    prepare_metrics: surface_types.RenderMetrics,
     damage_kind: u8,
     rgba_pixels: []u8 = &.{},
     uploads_required: u64,
     missing_glyphs: u64,
-    resolve_metrics: surface.RenderMetrics,
+    resolve_metrics: surface_types.RenderMetrics,
 
     pub const SubmitResult = union(enum) {
-        rendered: surface.RenderSurfaceFeedback,
+        rendered: surface_types.RenderSurfaceFeedback,
         needs_prepare,
         failed,
     };
 
     pub fn create(
         session_owner: *surface_text.SurfaceTextOwner,
-        value: surface.PreparedSurface,
+        value: surface_types.PreparedSurface,
     ) !*Owner {
         var owner = try session_owner.allocator.create(Owner);
         owner.* = ownerBase(session_owner, value);
@@ -136,7 +136,7 @@ pub const Owner = struct {
         };
     }
 
-    pub fn pipelineFrame(self: *const Owner) pipeline.PreparedFrame {
+    pub fn pipelineFrame(self: *const Owner) tokens.PreparedFrame {
         std.debug.assert(self.isLive());
         return self.prepared.pipelineFrame();
     }
@@ -177,7 +177,7 @@ pub const Owner = struct {
     pub fn submit(
         self: *Owner,
         session_owner: *surface_text.SurfaceTextOwner,
-        prepared_frame: pipeline.PreparedFrame,
+        prepared_frame: tokens.PreparedFrame,
         execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
     ) SubmitResult {
         if (self.state != .prepared) return .failed;
@@ -219,7 +219,7 @@ pub const Owner = struct {
     }
 };
 
-fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: surface.PreparedSurface) Owner {
+fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: surface_types.PreparedSurface) Owner {
     return .{
         .session_owner = session_owner,
         .prepared = value,
@@ -238,7 +238,7 @@ fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: surface.Prepa
     };
 }
 
-fn preparedMetricsOut(value: surface.PreparedSurface) surface.RenderMetrics {
+fn preparedMetricsOut(value: surface_types.PreparedSurface) surface_types.RenderMetrics {
     const scene = value.text_frame.scene.scene;
     const clear_fills = count64(scene.clear_draws);
     const background_fills = count64(scene.background_draws);
@@ -265,7 +265,7 @@ fn preparedMetricsOut(value: surface.PreparedSurface) surface.RenderMetrics {
     };
 }
 
-fn resolveMetricsOut(value: surface.PreparedSurface) surface.RenderMetrics {
+fn resolveMetricsOut(value: surface_types.PreparedSurface) surface_types.RenderMetrics {
     return .{
         .sync_us = 0,
         .copy_us = 0,
@@ -298,7 +298,7 @@ fn count64(items: anytype) u64 {
     return @intCast(items.len);
 }
 
-fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool {
+fn samePreparedFrame(a: tokens.PreparedFrame, b: tokens.PreparedFrame) bool {
     return a.token.snapshot_seq == b.token.snapshot_seq and
         a.token.dirty_epoch == b.token.dirty_epoch and
         a.token.geometry_epoch == b.token.geometry_epoch and
@@ -308,7 +308,7 @@ fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool 
 }
 
 fn executionMatchesPrepared(
-    render_px: surface.PixelSize,
+    render_px: surface_types.PixelSize,
     uploads_required: u64,
     execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
 ) bool {
@@ -333,7 +333,7 @@ test "create returns missing-sprite without double free" {
         .cell_span = 1,
     }};
 
-    const prepared = surface.PreparedSurface{
+    const prepared = surface_types.PreparedSurface{
         .allocator = std.testing.allocator,
         .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
         .geometry_epoch = 1,
@@ -558,7 +558,7 @@ test "owner exports prepared metrics and required upload count truth" {
 }
 
 test "owner validates realized uploads and host surface dimensions before submit" {
-    const render_px = surface.PixelSize{ .width = 11, .height = 12 };
+    const render_px = surface_types.PixelSize{ .width = 11, .height = 12 };
     const uploads_required: u64 = 3;
 
     try std.testing.expect(executionMatchesPrepared(render_px, uploads_required, .{

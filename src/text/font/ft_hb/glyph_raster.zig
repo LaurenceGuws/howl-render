@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const contract = @import("../../contract.zig");
-const surface_text = @import("../../../frame/surface_text.zig");
+const surface_text = @import("../../../surface/text.zig");
 const text = @import("../../text.zig");
 const provider_mod = @import("support.zig");
 const special_sprite = @import("special_sprite.zig");
@@ -99,7 +99,7 @@ fn rasterizeProviderGlyphFromFace(_: anytype, dst: []u8, width: u16, height: u16
             if (dx >= width or dy >= height) continue;
             // FreeType bitmap pitch/height are external buffer geometry; translate only at the slice seam.
             dst[@intCast(rasterPixelOffset(width, dx, dy))] = bitmapAlpha(
-                bitmap.buffer[0 .. @intCast(@as(u32, pitch_abs) * @as(u32, bh))],
+                bitmap.buffer[0..@intCast(@as(u32, pitch_abs) * @as(u32, bh))],
                 bitmap.pixel_mode,
                 pitch_abs,
                 pitch_is_negative,

@@ -1,6 +1,6 @@
 const std = @import("std");
-const surface = @import("surface.zig");
-const surface_text = @import("surface_text.zig");
+const surface_types = @import("types.zig");
+const surface_text = @import("text.zig");
 const contract = @import("../text/contract.zig");
 const text = @import("../text/text.zig");
 
@@ -8,7 +8,7 @@ pub fn compose(
     allocator: std.mem.Allocator,
     base_pixels: ?[]const u8,
     session: *surface_text.SurfaceText,
-    prepared: *const surface.PreparedSurface,
+    prepared: *const surface_types.PreparedSurface,
 ) ![]u8 {
     const width = prepared.render_px.width;
     const height = prepared.render_px.height;
@@ -43,7 +43,7 @@ const Composer = struct {
     width: u16,
     height: u16,
     session: *surface_text.SurfaceText,
-    prepared: *const surface.PreparedSurface,
+    prepared: *const surface_types.PreparedSurface,
 
     fn clear(self: *Composer) !void {
         drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_frame.scene.scene.clear_draws);
@@ -66,7 +66,7 @@ const Composer = struct {
     }
 };
 
-fn composePreparedSurface(composer: anytype, prepared: *const surface.PreparedSurface) !void {
+fn composePreparedSurface(composer: anytype, prepared: *const surface_types.PreparedSurface) !void {
     _ = prepared;
     try composer.clear();
     try composer.background();
@@ -81,7 +81,7 @@ fn seedSurfacePixels(pixels: []u8, base_pixels: ?[]const u8) void {
         return;
     };
     // Partial prepared frames are realized here against the render-owned
-    // retained base. Hosts only ever consume one complete prepared surface.
+    // retained base. Hosts only ever consume one complete prepared surface_types.
     std.debug.assert(base.len == pixels.len);
     @memcpy(pixels, base);
 }
@@ -149,7 +149,7 @@ fn drawSprites(
     width: u16,
     height: u16,
     session: *surface_text.SurfaceText,
-    prepared: *const surface.PreparedSurface,
+    prepared: *const surface_types.PreparedSurface,
 ) !void {
     for (prepared.text_frame.scene.scene.sprite_draws) |draw| {
         const sprite = try lookupSprite(session, prepared, draw.sprite.key);
@@ -159,7 +159,7 @@ fn drawSprites(
 
 fn lookupSprite(
     session: *surface_text.SurfaceText,
-    prepared: *const surface.PreparedSurface,
+    prepared: *const surface_types.PreparedSurface,
     sprite_key: contract.SpriteKey,
 ) !SpriteRaster {
     for (prepared.text_frame.raster_plan.outputs) |output| {
@@ -347,7 +347,7 @@ test "compose preserves retained content outside partial updates" {
         .cell_span = 2,
     };
 
-    var prepared = surface.PreparedSurface{
+    var prepared = surface_types.PreparedSurface{
         .allocator = allocator,
         .request = .{
             .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
@@ -416,7 +416,7 @@ fn testPreparedSurface(
     background_draws: []const contract.TextBackgroundDraw,
     decoration_draws: []const contract.TextDecorationDraw,
     cursor_draws: []const contract.TextCursorDraw,
-) surface.PreparedSurface {
+) surface_types.PreparedSurface {
     return .{
         .allocator = allocator,
         .request = .{
