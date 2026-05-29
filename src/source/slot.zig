@@ -1,5 +1,5 @@
 const std = @import("std");
-const surface_types = @import("../surface/types.zig");
+const source_cell = @import("cell.zig");
 const source_vt = @import("vt.zig");
 const source_damage = @import("damage.zig");
 
@@ -157,7 +157,7 @@ pub const SourceSlot = struct {
             .dirty_epoch = 0,
             .is_alternate_screen = false,
             .cells = slot.cells,
-            .cursor = std.mem.zeroes(surface_types.CursorInfo),
+            .cursor = std.mem.zeroes(source_cell.CursorInfo),
             .colors = std.mem.zeroes(source_vt.SourceColors),
             .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
             .cursor_phase_visible = true,
@@ -241,7 +241,7 @@ test "source slot commit returns source without prepare or submit state" {
         .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .cursor = std.mem.zeroes(source_cell.CursorInfo),
         .colors = std.mem.zeroes(source_vt.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
     }, 7);

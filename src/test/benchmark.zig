@@ -1,5 +1,5 @@
 const std = @import("std");
-const surface_types = @import("../surface/types.zig");
+const geometry_contract = @import("../render/geometry_contract.zig");
 const contract = @import("../text/contract.zig");
 const text_mod = @import("../text/text.zig");
 
@@ -73,7 +73,7 @@ const Workload = struct {
         dirty_cols_start: []const u16,
         dirty_cols_end: []const u16,
     },
-    cell_px: surface_types.CellSize,
+    cell_px: geometry_contract.CellSize,
     dirty_cells_per_run: u32,
 };
 
@@ -223,7 +223,7 @@ fn rgba(r: u8, g: u8, b: u8) contract.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = 255 };
 }
 
-fn defaultCellMetrics(cell_px: surface_types.CellSize) contract.CellMetrics {
+fn defaultCellMetrics(cell_px: geometry_contract.CellSize) contract.CellMetrics {
     const h = @max(cell_px.height, 1);
     return .{
         .cell_w_px = @max(cell_px.width, 1),

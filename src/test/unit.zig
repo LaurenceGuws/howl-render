@@ -1,9 +1,9 @@
 const std = @import("std");
 const geometry = @import("../surface/geometry.zig");
-const surface_types = @import("../surface/types.zig");
+const geometry_contract = @import("../render/geometry_contract.zig");
 
 test "render frame pixel geometry clamps to drawable size" {
-    const frame = surface_types.FramePixels{ .render_width = 0, .render_height = -2, .grid_width = 80, .grid_height = 24 };
+    const frame = geometry_contract.FramePixels{ .render_width = 0, .render_height = -2, .grid_width = 80, .grid_height = 24 };
     try std.testing.expectEqual(@as(u16, 1), frame.renderWidth());
     try std.testing.expectEqual(@as(u16, 1), frame.renderHeight());
     try std.testing.expectEqual(@as(u16, 80), frame.gridWidth());

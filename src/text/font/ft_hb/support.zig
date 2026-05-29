@@ -5,7 +5,7 @@ const contract = @import("../../contract.zig");
 const surface_text = @import("../../../surface/text.zig");
 const text_mod = @import("../../text.zig");
 const text_pipeline = @import("../../pipeline.zig");
-const surface_types = @import("../../../surface/types.zig");
+const geometry_contract = @import("../../../render/geometry_contract.zig");
 const text_cache = @import("cache.zig");
 const c_api = @import("c_api.zig");
 
@@ -461,7 +461,7 @@ pub fn configuredCellMetrics(self: anytype) contract.CellMetrics {
     return deriveCellMetrics(self);
 }
 
-pub fn deriveCellSize(self: anytype) surface_types.CellSize {
+pub fn deriveCellSize(self: anytype) geometry_contract.CellSize {
     const cell = deriveCellMetrics(self);
     return .{ .width = cell.cell_w_px, .height = cell.cell_h_px };
 }

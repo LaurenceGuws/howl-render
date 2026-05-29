@@ -1,7 +1,7 @@
 const std = @import("std");
 const tokens = @import("../surface/tokens.zig");
 const vt_publication = @import("../surface/publication_source.zig");
-const surface_types = @import("../surface/types.zig");
+const source_cell = @import("cell.zig");
 const source_damage = @import("damage.zig");
 const source_slot = @import("slot.zig");
 
@@ -36,7 +36,7 @@ pub const PublicationSource = struct {
     dirty_epoch: u64,
     is_alternate_screen: bool,
     cells: []SourceCell,
-    cursor: surface_types.CursorInfo,
+    cursor: source_cell.CursorInfo,
     colors: SourceColors,
     selection: SourceSelection,
     cursor_phase_visible: bool,
@@ -105,7 +105,7 @@ pub const ReservedSourceMeta = struct {
     scroll_row: u64,
     snapshot_seq: u64,
     is_alternate_screen: bool,
-    cursor: surface_types.CursorInfo,
+    cursor: source_cell.CursorInfo,
     colors: SourceColors,
     selection: SourceSelection,
 };
@@ -166,7 +166,7 @@ pub fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot
         .dirty_epoch = snapshot.dirty_epoch,
         .is_alternate_screen = snapshot.is_alternate_screen,
         .cells = cells,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .cursor = std.mem.zeroes(source_cell.CursorInfo),
         .colors = std.mem.zeroes(SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
@@ -195,7 +195,7 @@ pub fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoin
         .dirty_epoch = snapshot_seq,
         .is_alternate_screen = false,
         .cells = cells,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .cursor = std.mem.zeroes(source_cell.CursorInfo),
         .colors = std.mem.zeroes(SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,

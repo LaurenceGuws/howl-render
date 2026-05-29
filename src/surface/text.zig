@@ -4,11 +4,14 @@ const input = @import("input.zig");
 const tokens = @import("tokens.zig");
 const prepared_owner = @import("prepared_owner.zig");
 const submit_feedback = @import("submit_feedback.zig");
-const surface_types = @import("types.zig");
 const render_geometry = @import("../render/geometry.zig");
+const geometry_contract = @import("../render/geometry_contract.zig");
+const source_cell = @import("../source/cell.zig");
 const source_vt = @import("../source/vt.zig");
 const source_slot = @import("../source/slot.zig");
 const source_prepare = @import("../source/prepare_request.zig");
+const prepared_surface = @import("../prepared/surface.zig");
+const prepared_feedback = @import("../prepared/feedback.zig");
 const session_submitted = @import("../session/submitted.zig");
 const contract = @import("../text/contract.zig");
 const text_pipeline = @import("../text/pipeline.zig");
@@ -46,7 +49,7 @@ fn lockMutex(mutex: *ThreadMutex) void {
 }
 
 pub const SurfaceTextConfig = struct {
-    surface_px: surface_types.PixelSize,
+    surface_px: geometry_contract.PixelSize,
     font_size_px: u16 = 16,
     font_path: ?[:0]const u8 = null,
 };
@@ -63,19 +66,18 @@ pub const SurfaceText = struct {
         session_config: SurfaceTextConfig,
     };
 
-    pub const FrameLayout = surface_types.SurfaceLayout;
-    pub const PreparedTimings = surface_types.PrepareMetrics;
+    pub const FrameLayout = geometry_contract.SurfaceLayout;
+    pub const PreparedTimings = prepared_surface.PrepareMetrics;
     pub const DamageKind = enum { partial, scroll, full };
-    pub const SubmittedReport = surface_types.SurfaceExecutionReport;
     pub const RenderSurfaceExecutionInput = struct {
-        surface: surface_types.RenderSurfaceHandle,
+        surface: prepared_feedback.RenderSurfaceHandle,
         uploads_committed: u64,
         render_us: u64,
     };
     pub const PrepareInput = struct {
         config: SurfaceTextConfig,
         request: tokens.RenderRequest,
-        layout: surface_types.PrepareLayout,
+        layout: geometry_contract.PrepareLayout,
         state: source_vt.PublicationSource,
     };
 
@@ -101,8 +103,8 @@ pub const SurfaceText = struct {
     pub fn deriveFrameLayout(
         self: *SurfaceText,
         config: SurfaceTextConfig,
-        render_px: surface_types.PixelSize,
-        grid_px: surface_types.PixelSize,
+        render_px: geometry_contract.PixelSize,
+        grid_px: geometry_contract.PixelSize,
     ) geometry_mod.FrameGeometryError!FrameLayout {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
@@ -110,7 +112,7 @@ pub const SurfaceText = struct {
         if (grid_px.width == 0 or grid_px.height == 0) return error.InvalidGridSize;
         var context = TextContext{ .session = self, .session_config = config };
         const cell_px = text_support.deriveCellSize(&context);
-        const layout = surface_types.SurfaceLayout{ .cell_px = cell_px, .grid = geometry_mod.deriveGridSize(grid_px, cell_px) };
+        const layout = geometry_contract.SurfaceLayout{ .cell_px = cell_px, .grid = geometry_mod.deriveGridSize(grid_px, cell_px) };
         return .{ .cell_px = layout.cell_px, .grid = layout.grid };
     }
 
@@ -126,7 +128,7 @@ pub const SurfaceText = struct {
         return false;
     }
 
-    pub fn prepareSurface(self: *SurfaceText, prepare: PrepareInput) !surface_types.PreparedSurface {
+    pub fn prepareSurface(self: *SurfaceText, prepare: PrepareInput) !prepared_surface.PreparedSurface {
         var faces: [max_font_faces]text.FontSession.FontFaceRecord = undefined;
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
@@ -142,11 +144,15 @@ pub const SurfaceText = struct {
         return owned;
     }
 
-    pub fn submitSurface(self: *SurfaceText, prepared: *surface_types.PreparedSurface, execution: RenderSurfaceExecutionInput) !surface_types.RenderSurfaceFeedback {
+    pub fn submitSurface(
+        self: *SurfaceText,
+        prepared: *prepared_surface.PreparedSurface,
+        execution: RenderSurfaceExecutionInput,
+    ) !prepared_feedback.RenderSurfaceFeedback {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         submit_feedback.markRendered(&self.text_preparer.?.atlas, prepared.text_frame.raster_plan.outputs);
-        const submitted = surface_types.RenderSurfaceFeedback{
+        const submitted = prepared_feedback.RenderSurfaceFeedback{
             .damage_kind = submit_feedback.damageKind(prepared),
             .uploads_committed = execution.uploads_committed,
             .resolve = prepared.resolve,
@@ -156,7 +162,7 @@ pub const SurfaceText = struct {
         };
         var final = submitted;
         final.metrics = submit_feedback.renderMetrics(
-            surface_types.RenderMetrics,
+            prepared_feedback.RenderMetrics,
             prepared.prepare_metrics,
             prepared,
             final.uploads_committed,
@@ -180,7 +186,7 @@ pub const SurfaceText = struct {
         grid: contract.GridMetrics,
         prepared: text.OwnedPreparedTextFrame,
         resolve: text_pipeline.ResolveObservability,
-    ) surface_types.PreparedSurface {
+    ) prepared_surface.PreparedSurface {
         return .{
             .allocator = allocator,
             .request = prepare.request,
@@ -305,7 +311,7 @@ pub const SurfaceText = struct {
         };
     }
 
-    fn prepareMetrics(timings: text.PrepareTimings) surface_types.PrepareMetrics {
+    fn prepareMetrics(timings: text.PrepareTimings) prepared_surface.PrepareMetrics {
         const total = timings.input_us + timings.sparse_us + timings.clusters_us + timings.resolve_us + timings.shape_us + timings.group_us + timings.scene_us + timings.raster_us + timings.atlas_us;
         return .{
             .sync_us = timings.input_us,
@@ -474,7 +480,10 @@ pub const SurfaceTextOwner = struct {
         freeOwnedFallbackFontPaths(self.allocator, &old);
     }
 
-    pub fn requiredRetainedSurfaceBase(self: *const SurfaceTextOwner, prepared: *const surface_types.PreparedSurface) []const u8 {
+    pub fn requiredRetainedSurfaceBase(
+        self: *const SurfaceTextOwner,
+        prepared: *const prepared_surface.PreparedSurface,
+    ) []const u8 {
         std.debug.assert(prepared.damageKind() == .partial);
         // Queue validation already proved that partial prepares must compose
         // against the last submitted full pixels from this render owner.
@@ -520,7 +529,10 @@ pub const SurfaceTextOwner = struct {
         return self.submitted.submittedToken();
     }
 
-    pub fn syncGeometry(self: *SurfaceTextOwner, layout: surface_types.Geometry) !surface_types.GeometryResponse {
+    pub fn syncGeometry(
+        self: *SurfaceTextOwner,
+        layout: geometry_contract.Geometry,
+    ) !geometry_contract.GeometryResponse {
         const response = self.geometry.sync(layout);
         if (response.changed) {
             const cols = @max(1, @divTrunc(layout.grid_px.width, @max(layout.cell_px.width, 1)));
@@ -668,7 +680,7 @@ test "retainSurfacePixels adopts full pixels for later partial prepares" {
     try std.testing.expectEqual(@as(u16, 3), owner.retained_surface_height);
     try std.testing.expectEqual(@as(u64, 1), owner.retained_surface_snapshot_seq);
 
-    const prepared = surface_types.PreparedSurface{
+    const prepared = prepared_surface.PreparedSurface{
         .allocator = std.heap.c_allocator,
         .request = .{
             .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
@@ -720,7 +732,7 @@ fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepo
         .dirty_epoch = snapshot_seq,
         .is_alternate_screen = false,
         .cells = cells,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
+        .cursor = std.mem.zeroes(source_cell.CursorInfo),
         .colors = std.mem.zeroes(source_vt.SourceColors),
         .selection = std.mem.zeroes(source_vt.SourceSelection),
         .cursor_phase_visible = true,

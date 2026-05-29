@@ -1,6 +1,6 @@
 const std = @import("std");
 const tokens = @import("../surface/tokens.zig");
-const surface_types = @import("../surface/types.zig");
+const geometry_contract = @import("../render/geometry_contract.zig");
 const source_vt = @import("vt.zig");
 const source_damage = @import("damage.zig");
 const source_slot = @import("slot.zig");
@@ -13,7 +13,7 @@ pub const PendingState = struct {
 
 pub const PrepareConsume = struct {
     request: tokens.RenderRequest,
-    layout: surface_types.PrepareLayout,
+    layout: geometry_contract.PrepareLayout,
     state: source_vt.PublicationSource,
 };
 
@@ -130,7 +130,7 @@ pub const PrepareRequests = struct {
 
     pub fn consumePrepare(
         self: *PrepareRequests,
-        layout: surface_types.PrepareLayout,
+        layout: geometry_contract.PrepareLayout,
         token: tokens.SnapshotToken,
     ) !PrepareConsume {
         const active = self.active orelse return error.MissingPublishedSource;

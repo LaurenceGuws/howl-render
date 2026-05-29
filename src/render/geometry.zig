@@ -1,13 +1,13 @@
 const std = @import("std");
-const surface_types = @import("../surface/types.zig");
+const geometry_contract = @import("geometry_contract.zig");
 
 pub const GeometryOwner = struct {
-    render_px: surface_types.PixelSize = .{ .width = 0, .height = 0 },
-    grid_px: surface_types.PixelSize = .{ .width = 0, .height = 0 },
-    cell_px: surface_types.CellSize = .{ .width = 0, .height = 0 },
+    render_px: geometry_contract.PixelSize = .{ .width = 0, .height = 0 },
+    grid_px: geometry_contract.PixelSize = .{ .width = 0, .height = 0 },
+    cell_px: geometry_contract.CellSize = .{ .width = 0, .height = 0 },
     geometry_epoch: u64 = 0,
 
-    pub fn sync(self: *GeometryOwner, layout: surface_types.Geometry) surface_types.GeometryResponse {
+    pub fn sync(self: *GeometryOwner, layout: geometry_contract.Geometry) geometry_contract.GeometryResponse {
         const changed = self.geometry_epoch == 0 or
             self.render_px.width != layout.render_px.width or
             self.render_px.height != layout.render_px.height or
@@ -30,7 +30,7 @@ pub const GeometryOwner = struct {
         };
     }
 
-    pub fn prepareLayout(self: *const GeometryOwner, geometry_epoch: u64) surface_types.PrepareLayout {
+    pub fn prepareLayout(self: *const GeometryOwner, geometry_epoch: u64) geometry_contract.PrepareLayout {
         std.debug.assert(self.geometry_epoch != 0);
         std.debug.assert(self.geometry_epoch == geometry_epoch);
         std.debug.assert(self.render_px.width > 0);

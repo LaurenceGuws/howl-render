@@ -1,6 +1,6 @@
 const std = @import("std");
 const source_vt = @import("../source/vt.zig");
-const surface_types = @import("types.zig");
+const source_cell = @import("../source/cell.zig");
 const contract = @import("../text/contract.zig");
 const frame_preparer = @import("../text/frame_preparer.zig");
 const scene = @import("../text/scene.zig");
@@ -115,7 +115,7 @@ fn mapTextSceneCursorShape(shape: anytype) scene.CursorShape {
     return .block;
 }
 
-fn mapUnderlineStyle(style: surface_types.UnderlineStyle) contract.UnderlineStyle {
+fn mapUnderlineStyle(style: source_cell.UnderlineStyle) contract.UnderlineStyle {
     return switch (style) {
         .straight => .straight,
         .double => .double,
@@ -125,7 +125,7 @@ fn mapUnderlineStyle(style: surface_types.UnderlineStyle) contract.UnderlineStyl
     };
 }
 
-fn isAlacrittyEmptyCell(cell: surface_types.Cell) bool {
+fn isAlacrittyEmptyCell(cell: source_cell.Cell) bool {
     const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
     const default_bg = cell.bg_color.kind == .default;
     const visible_flags = cell.flags.continuation or
@@ -234,7 +234,7 @@ fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) 
     return .any;
 }
 
-fn mapCellInput(src: surface_types.Cell, t: FrameTheme) contract.CellInput {
+fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
     var out: contract.CellInput = .{
         .codepoint = src.codepoint,
         .combining_len = src.combining_len,
@@ -297,7 +297,7 @@ fn canMapDirtyOnly(state: anytype) bool {
 
 fn mapDirtyCellsOnly(
     dst: []contract.CellInput,
-    cells: []const surface_types.Cell,
+    cells: []const source_cell.Cell,
     grid_cols: u16,
     grid_rows: u16,
     dirty_rows: []const bool,
@@ -532,7 +532,7 @@ pub fn vtStateToFrameTextInputWithTheme(
 }
 
 test "surface input converts VT source to text scene input" {
-    const cells = [_]surface_types.Cell{.{
+    const cells = [_]source_cell.Cell{.{
         .codepoint = 'A',
         .underline_color = .{ .kind = .rgb, .value = 0xCC3366 },
         .attrs = .{ .underline = true, .underline_color_set = true },
@@ -556,7 +556,7 @@ test "surface input converts VT source to text scene input" {
 }
 
 test "surface input maps inverse VT source colors" {
-    const cells = [_]surface_types.Cell{.{
+    const cells = [_]source_cell.Cell{.{
         .codepoint = 'R',
         .fg_color = .{ .kind = .rgb, .value = 0x102030 },
         .bg_color = .{ .kind = .rgb, .value = 0xA0B0C0 },
@@ -788,7 +788,7 @@ test "surface input maps inverse publication colors" {
 }
 
 test "surface input marks Alacritty-empty cells before color mapping" {
-    const cells = [_]surface_types.Cell{
+    const cells = [_]source_cell.Cell{
         .{},
         .{ .codepoint = '\t' },
         .{ .codepoint = ' ', .bg_color = .{ .kind = .rgb, .value = 0 } },
@@ -812,7 +812,7 @@ test "surface input marks Alacritty-empty cells before color mapping" {
 }
 
 test "surface input keeps fg-colored blanks empty" {
-    const cells = [_]surface_types.Cell{
+    const cells = [_]source_cell.Cell{
         .{ .codepoint = ' ', .fg_color = .{ .kind = .indexed, .value = 2 } },
         .{ .codepoint = '\t', .fg_color = .{ .kind = .rgb, .value = 0x33AAFF } },
     };
@@ -830,7 +830,7 @@ test "surface input keeps fg-colored blanks empty" {
 }
 
 test "surface input threads partial damage into text scene input" {
-    const cells = [_]surface_types.Cell{ .{}, .{} };
+    const cells = [_]source_cell.Cell{ .{}, .{} };
     const dirty_rows = [_]bool{ false, true };
     const dirty_starts = [_]u16{ 0, 2 };
     const dirty_ends = [_]u16{ 0, 5 };
@@ -852,7 +852,7 @@ test "surface input threads partial damage into text scene input" {
 }
 
 test "surface input maps only dirty ranges for partial damage" {
-    const cells = [_]surface_types.Cell{
+    const cells = [_]source_cell.Cell{
         .{ .codepoint = 'A' },
         .{ .codepoint = 'B' },
         .{ .codepoint = 'C' },

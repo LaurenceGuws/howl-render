@@ -1,6 +1,8 @@
 const std = @import("std");
 const tokens = @import("tokens.zig");
-const surface_types = @import("types.zig");
+const geometry_contract = @import("../render/geometry_contract.zig");
+const prepared_surface = @import("../prepared/surface.zig");
+const prepared_feedback = @import("../prepared/feedback.zig");
 const surface_buffer = @import("buffer.zig");
 const surface_text = @import("text.zig");
 const text = @import("../text/text.zig");
@@ -13,10 +15,10 @@ pub const PreparedInfo = struct {
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
-    render_px: surface_types.PixelSize,
-    cell_px: surface_types.CellSize,
-    grid: surface_types.GridSize,
-    prepare_metrics: surface_types.RenderMetrics,
+    render_px: geometry_contract.PixelSize,
+    cell_px: geometry_contract.CellSize,
+    grid: geometry_contract.GridSize,
+    prepare_metrics: prepared_feedback.RenderMetrics,
     damage_kind: u8,
 };
 
@@ -27,38 +29,38 @@ pub const PreparedBuffer = struct {
 
 pub const PreparedDiagnostics = struct {
     missing_glyphs: u64,
-    resolve_metrics: surface_types.RenderMetrics,
+    resolve_metrics: prepared_feedback.RenderMetrics,
 };
 
 pub const Owner = struct {
     pub const State = enum { prepared, published, submit_ready, released, consumed };
 
     session_owner: *surface_text.SurfaceTextOwner,
-    prepared: surface_types.PreparedSurface,
+    prepared: prepared_surface.PreparedSurface,
     state: State = .prepared,
     snapshot_seq: u64,
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
-    render_px: surface_types.PixelSize,
-    cell_px: surface_types.CellSize,
-    grid: surface_types.GridSize,
-    prepare_metrics: surface_types.RenderMetrics,
+    render_px: geometry_contract.PixelSize,
+    cell_px: geometry_contract.CellSize,
+    grid: geometry_contract.GridSize,
+    prepare_metrics: prepared_feedback.RenderMetrics,
     damage_kind: u8,
     rgba_pixels: []u8 = &.{},
     uploads_required: u64,
     missing_glyphs: u64,
-    resolve_metrics: surface_types.RenderMetrics,
+    resolve_metrics: prepared_feedback.RenderMetrics,
 
     pub const SubmitResult = union(enum) {
-        rendered: surface_types.RenderSurfaceFeedback,
+        rendered: prepared_feedback.RenderSurfaceFeedback,
         needs_prepare,
         failed,
     };
 
     pub fn create(
         session_owner: *surface_text.SurfaceTextOwner,
-        value: surface_types.PreparedSurface,
+        value: prepared_surface.PreparedSurface,
     ) !*Owner {
         var owner = try session_owner.allocator.create(Owner);
         owner.* = ownerBase(session_owner, value);
@@ -219,7 +221,7 @@ pub const Owner = struct {
     }
 };
 
-fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: surface_types.PreparedSurface) Owner {
+fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: prepared_surface.PreparedSurface) Owner {
     return .{
         .session_owner = session_owner,
         .prepared = value,
@@ -238,7 +240,7 @@ fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: surface_types
     };
 }
 
-fn preparedMetricsOut(value: surface_types.PreparedSurface) surface_types.RenderMetrics {
+fn preparedMetricsOut(value: prepared_surface.PreparedSurface) prepared_feedback.RenderMetrics {
     const scene = value.text_frame.scene.scene;
     const clear_fills = count64(scene.clear_draws);
     const background_fills = count64(scene.background_draws);
@@ -265,7 +267,7 @@ fn preparedMetricsOut(value: surface_types.PreparedSurface) surface_types.Render
     };
 }
 
-fn resolveMetricsOut(value: surface_types.PreparedSurface) surface_types.RenderMetrics {
+fn resolveMetricsOut(value: prepared_surface.PreparedSurface) prepared_feedback.RenderMetrics {
     return .{
         .sync_us = 0,
         .copy_us = 0,
@@ -308,7 +310,7 @@ fn samePreparedFrame(a: tokens.PreparedFrame, b: tokens.PreparedFrame) bool {
 }
 
 fn executionMatchesPrepared(
-    render_px: surface_types.PixelSize,
+    render_px: geometry_contract.PixelSize,
     uploads_required: u64,
     execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
 ) bool {
@@ -333,7 +335,7 @@ test "create returns missing-sprite without double free" {
         .cell_span = 1,
     }};
 
-    const prepared = surface_types.PreparedSurface{
+    const prepared = prepared_surface.PreparedSurface{
         .allocator = std.testing.allocator,
         .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
         .geometry_epoch = 1,
@@ -558,7 +560,7 @@ test "owner exports prepared metrics and required upload count truth" {
 }
 
 test "owner validates realized uploads and host surface dimensions before submit" {
-    const render_px = surface_types.PixelSize{ .width = 11, .height = 12 };
+    const render_px = geometry_contract.PixelSize{ .width = 11, .height = 12 };
     const uploads_required: u64 = 3;
 
     try std.testing.expect(executionMatchesPrepared(render_px, uploads_required, .{

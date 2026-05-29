@@ -5,7 +5,9 @@ pub const c = @cImport({
 const tokens = @import("surface/tokens.zig");
 const prepared_owner = @import("surface/prepared_owner.zig");
 const surface_text = @import("surface/text.zig");
-const surface_types = @import("surface/types.zig");
+const geometry_contract = @import("render/geometry_contract.zig");
+const source_cell = @import("source/cell.zig");
+const prepared_feedback = @import("prepared/feedback.zig");
 const source_vt = @import("source/vt.zig");
 const source_slot = @import("source/slot.zig");
 const source_prepare = @import("source/prepare_request.zig");
@@ -440,7 +442,7 @@ fn diagnosticsFailure(status: c_int) c.HowlRenderPreparedSurfaceDiagnostics {
     };
 }
 
-fn surfaceFeedbackOut(value: surface_types.RenderSurfaceFeedback) c.HowlRenderSurfaceFeedback {
+fn surfaceFeedbackOut(value: prepared_feedback.RenderSurfaceFeedback) c.HowlRenderSurfaceFeedback {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .damage_kind = @intFromEnum(value.damageKind()),
@@ -458,7 +460,7 @@ fn failedSurfaceFeedback() c.HowlRenderSurfaceFeedback {
     };
 }
 
-fn surfaceMetricsOut(value: surface_types.RenderMetrics) c.HowlRenderSurfaceMetrics {
+fn surfaceMetricsOut(value: prepared_feedback.RenderMetrics) c.HowlRenderSurfaceMetrics {
     return .{
         .sync_us = value.sync_us,
         .copy_us = value.copy_us,
@@ -484,7 +486,7 @@ fn executionInputIn(value: c.HowlRenderSurfaceExecutionInput) surface_text.Surfa
     return .{ .surface = .{ .host_surface_id = value.surface.host_surface_id, .width = value.surface.width, .height = value.surface.height }, .uploads_committed = value.uploads_committed, .render_us = value.render_us };
 }
 
-fn geometryOut(value: surface_types.GeometryResponse) c.HowlRenderGeometryResponse {
+fn geometryOut(value: geometry_contract.GeometryResponse) c.HowlRenderGeometryResponse {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .changed = @intFromBool(value.changed),
@@ -682,7 +684,7 @@ fn byteSpan(items: []u8) c.HowlRenderByteSpan {
     return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
 }
 
-fn cellValueIn(value: c.HowlVtSurfaceCell) !surface_types.Cell {
+fn cellValueIn(value: c.HowlVtSurfaceCell) !source_cell.Cell {
     try validateCellValue(value);
     return .{
         .codepoint = @intCast(value.codepoint),
@@ -786,7 +788,7 @@ fn selectionIn(value: c.HowlVtSelection) source_vt.SourceSelection {
     };
 }
 
-fn colorValueIn(value: c.HowlVtColor) !surface_types.Color {
+fn colorValueIn(value: c.HowlVtColor) !source_cell.Color {
     return switch (value.kind) {
         0 => .{ .kind = .default, .value = 0 },
         1 => blk: {
@@ -810,9 +812,9 @@ fn damageKindIn(value: u8) ?tokens.DamageKind {
     };
 }
 
-fn cursorIn(value: c.HowlVtCursor) ?surface_types.CursorInfo {
+fn cursorIn(value: c.HowlVtCursor) ?source_cell.CursorInfo {
     const shape = switch (value.shape) {
-        0 => surface_types.CursorShape.block,
+        0 => source_cell.CursorShape.block,
         1 => .underline,
         2 => .beam,
         3 => .hollow_block,
@@ -821,7 +823,7 @@ fn cursorIn(value: c.HowlVtCursor) ?surface_types.CursorInfo {
     return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = shape, .blink = value.blink != 0 };
 }
 
-fn underlineStyleValueIn(value: u8) !surface_types.UnderlineStyle {
+fn underlineStyleValueIn(value: u8) !source_cell.UnderlineStyle {
     return switch (value) {
         0 => .straight,
         1 => .double,
@@ -832,6 +834,6 @@ fn underlineStyleValueIn(value: u8) !surface_types.UnderlineStyle {
     };
 }
 
-fn pixelIn(value: c.HowlRenderPixelSize) surface_types.PixelSize {
+fn pixelIn(value: c.HowlRenderPixelSize) geometry_contract.PixelSize {
     return .{ .width = value.width, .height = value.height };
 }
