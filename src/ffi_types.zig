@@ -264,17 +264,6 @@ pub const FfiVtGraphicsRowAnchor = extern struct {
     value: u32,
 };
 
-pub const FfiVtGraphicsImage = extern struct {
-    image_id: u32,
-    image_ref_id: u32 = 0,
-    image_number: u32,
-    format: u16,
-    reserved0: u16 = 0,
-    width: u32,
-    height: u32,
-    payload_len: u64,
-};
-
 pub const FfiVtGraphicsDecodedImage = extern struct {
     image_id: u32,
     image_ref_id: u32 = 0,
@@ -388,23 +377,6 @@ pub const FfiPublishSlot = extern struct {
     dirty_cols_end: FfiU16WriteSpan,
 };
 
-pub const FfiPublishSlotCommit = extern struct {
-    history_count: u64,
-    scroll_row: u64,
-    snapshot_seq: u64,
-    is_alternate_screen: u8,
-    reserved0: u8 = 0,
-    reserved1: u16 = 0,
-    cursor: FfiVtCursor,
-    colors: FfiVtRenderColorState,
-    selection: FfiVtSelection,
-    graphics: FfiVtGraphicsMeta,
-    graphics_images: FfiVtGraphicsImageSpan,
-    graphics_placements: FfiVtGraphicsPlacementSpan,
-    graphics_virtual_placements: FfiVtGraphicsVirtualPlacementSpan,
-    graphics_payload_bytes: FfiByteSpan,
-};
-
 pub const FfiPublishDecodedGraphicsSlotCommit = extern struct {
     history_count: u64,
     scroll_row: u64,
@@ -488,34 +460,6 @@ pub const FfiSurfaceExecutionInput = extern struct {
     render_us: u64,
 };
 
-pub const FfiVtSurface = extern struct {
-    cells: FfiVtCellSpan,
-    cols: u16,
-    rows: u16,
-    history_count: u64,
-    scroll_row: u64,
-    snapshot_seq: u64,
-    is_alternate_screen: u8,
-    reserved0: u8 = 0,
-    reserved1: u16 = 0,
-    dirty_rows: FfiByteSpan,
-    dirty_cols_start: FfiU16Span,
-    dirty_cols_end: FfiU16Span,
-    cursor: FfiVtCursor,
-    colors: FfiVtRenderColorState,
-    selection: FfiVtSelection,
-    graphics: FfiVtGraphicsMeta,
-    graphics_images: FfiVtGraphicsImageSpan,
-    graphics_placements: FfiVtGraphicsPlacementSpan,
-    graphics_virtual_placements: FfiVtGraphicsVirtualPlacementSpan,
-    graphics_payload_bytes: FfiByteSpan,
-};
-
-pub const FfiVtGraphicsImageSpan = extern struct {
-    ptr: [*c]const FfiVtGraphicsImage,
-    len: c_size_t,
-};
-
 pub const FfiVtGraphicsDecodedImageSpan = extern struct {
     ptr: [*c]const FfiVtGraphicsDecodedImage,
     len: c_size_t,
@@ -555,14 +499,9 @@ comptime {
     std.debug.assert(@sizeOf(FfiVtRgb8) == 3);
     std.debug.assert(@sizeOf(FfiVtRenderColorState) == 777);
     std.debug.assert(@sizeOf(FfiVtCursor) == 8);
-    std.debug.assert(@sizeOf(FfiVtGraphicsImage) == 32);
     std.debug.assert(@sizeOf(FfiVtGraphicsDecodedImage) == 32);
     std.debug.assert(@offsetOf(FfiVtGraphicsDecodedImage, "payload_len") == 24);
     std.debug.assert(@sizeOf(FfiVtGraphicsPlacement) == 104);
     std.debug.assert(@offsetOf(FfiVtGraphicsPlacement, "flags") == 88);
     std.debug.assert(@offsetOf(FfiVtGraphicsPlacement, "render_order_key") == 96);
-    std.debug.assert(@sizeOf(FfiVtGraphicsImageSpan) == @sizeOf(FfiVtGraphicsDecodedImageSpan));
-    std.debug.assert(@sizeOf(FfiPublishSlotCommit) == @sizeOf(FfiPublishDecodedGraphicsSlotCommit));
-    std.debug.assert(@offsetOf(FfiPublishSlotCommit, "graphics_images") == @offsetOf(FfiPublishDecodedGraphicsSlotCommit, "graphics_images"));
-    std.debug.assert(@offsetOf(FfiPublishSlotCommit, "graphics_payload_bytes") == @offsetOf(FfiPublishDecodedGraphicsSlotCommit, "graphics_payload_bytes"));
 }

@@ -25,7 +25,7 @@ pub fn prepareGraphics(
     layout: surface.PrepareLayout,
     viewport: ViewportState,
     publication_seq: u64,
-    images: []const abi.FfiVtGraphicsImage,
+    images: []const abi.FfiVtGraphicsDecodedImage,
     placements: []const abi.FfiVtGraphicsPlacement,
 ) !surface.PreparedGraphics {
     var prepared_images = std.ArrayList(surface.PreparedGraphicsImageRef).empty;
@@ -176,7 +176,7 @@ fn classifyLayer(z_index: i32) surface.PreparedGraphicsLayer {
     return .above_text;
 }
 
-fn findImage(images: []const abi.FfiVtGraphicsImage, image_id: u32) ?abi.FfiVtGraphicsImage {
+fn findImage(images: []const abi.FfiVtGraphicsDecodedImage, image_id: u32) ?abi.FfiVtGraphicsDecodedImage {
     for (images) |image| {
         if (image.image_id == image_id) return image;
     }
@@ -186,7 +186,7 @@ fn findImage(images: []const abi.FfiVtGraphicsImage, image_id: u32) ?abi.FfiVtGr
 fn appendImageRef(
     allocator: std.mem.Allocator,
     prepared_images: *std.ArrayList(surface.PreparedGraphicsImageRef),
-    image: abi.FfiVtGraphicsImage,
+    image: abi.FfiVtGraphicsDecodedImage,
 ) !u32 {
     std.debug.assert(image.image_ref_id != 0);
     for (prepared_images.items, 0..) |prepared, image_index| {
@@ -205,7 +205,7 @@ fn appendImageRef(
     return std.math.cast(u32, prepared_images.items.len - 1) orelse return error.OutOfMemory;
 }
 
-fn resolveSourceRect(image: abi.FfiVtGraphicsImage, placement: abi.FfiVtGraphicsPlacement) ?SourceRect {
+fn resolveSourceRect(image: abi.FfiVtGraphicsDecodedImage, placement: abi.FfiVtGraphicsPlacement) ?SourceRect {
     if (placement.source_x >= image.width) return null;
     if (placement.source_y >= image.height) return null;
 
@@ -379,7 +379,7 @@ test "graphics viewport reports fully off-screen below placement as invisible" {
 }
 
 test "graphics viewport prepares visible placement" {
-    const images = [_]abi.FfiVtGraphicsImage{.{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
         .image_id = 7,
         .image_ref_id = 77,
         .format = 24,
@@ -431,7 +431,7 @@ test "graphics viewport prepares visible placement" {
 }
 
 test "graphics viewport adjusts source rect after clipping" {
-    const images = [_]abi.FfiVtGraphicsImage{.{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
         .image_id = 9,
         .image_ref_id = 99,
         .format = 24,
@@ -479,7 +479,7 @@ test "graphics viewport adjusts source rect after clipping" {
 }
 
 test "graphics viewport rejects fully off-screen placement" {
-    const images = [_]abi.FfiVtGraphicsImage{.{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
         .image_id = 3,
         .image_ref_id = 33,
         .format = 24,
@@ -517,7 +517,7 @@ test "graphics viewport rejects fully off-screen placement" {
 }
 
 test "graphics viewport classifies kitty z bands and stable ordering" {
-    const images = [_]abi.FfiVtGraphicsImage{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{
         .{ .image_id = 9, .image_ref_id = 90, .format = 24, .width = 16, .height = 16, .payload_len = 0, .image_number = 0 },
         .{ .image_id = 4, .image_ref_id = 40, .format = 24, .width = 16, .height = 16, .payload_len = 0, .image_number = 0 },
     };
@@ -567,7 +567,7 @@ test "graphics viewport classifies kitty z bands and stable ordering" {
 }
 
 test "graphics viewport sorts same z and image by render order key" {
-    const images = [_]abi.FfiVtGraphicsImage{.{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
         .image_id = 7,
         .image_ref_id = 70,
         .format = 24,
@@ -613,7 +613,7 @@ test "graphics viewport sorts same z and image by render order key" {
 }
 
 test "graphics viewport falls back to ordinal for equal render order keys" {
-    const images = [_]abi.FfiVtGraphicsImage{.{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
         .image_id = 7,
         .image_ref_id = 70,
         .format = 24,

@@ -93,14 +93,6 @@ pub fn syncGeometry(handle: abi.SurfaceTextHandle, geometry: abi.FfiGeometry) ca
     }) catch return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.failed), .changed = 0, .render_px = .{ .width = 0, .height = 0 }, .grid_px = .{ .width = 0, .height = 0 }, .cell_px = .{ .width = 0, .height = 0 }, .geometry_epoch = 0 });
 }
 
-pub fn publishVtSource(handle: abi.SurfaceTextHandle, source_in: abi.FfiVtSurface) callconv(.c) abi.FfiVtPublishResult {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    const source = vtSurfaceIn(owner.allocator, source_in) catch {
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    return vtPublishResultOut(owner.flow.acceptSource(source));
-}
-
 pub fn reservePublishSlot(handle: abi.SurfaceTextHandle, cols: u16, rows: u16, out: ?*abi.FfiPublishSlot) callconv(.c) c_int {
     const slot_out = out orelse return @intFromEnum(abi.HowlRenderCallStatus.invalid_argument);
     slot_out.* = std.mem.zeroes(abi.FfiPublishSlot);
@@ -109,84 +101,6 @@ pub fn reservePublishSlot(handle: abi.SurfaceTextHandle, cols: u16, rows: u16, o
     const slot = owner.flow.reservePublishSlot(cols, rows) catch return @intFromEnum(abi.HowlRenderCallStatus.failed);
     slot_out.* = publishSlotOut(slot);
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
-}
-
-pub fn commitPublishSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishSlotCommit) callconv(.c) abi.FfiVtPublishResult {
-    const owner = ownerFromHandle(handle) orelse return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    const reserved = owner.flow.publication_state.reserved orelse {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    const cursor = cursorIn(commit.cursor) orelse {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    if (commit.snapshot_seq == 0) {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    }
-    for (reserved.cells) |cell| {
-        validateCellValue(cell) catch {
-            owner.flow.cancelPublishSlot();
-            return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-        };
-    }
-    const graphics_images = graphicsImagesIn(commit.graphics_images) catch {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    const graphics_placements = graphicsPlacementsIn(commit.graphics_placements) catch {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    const graphics_virtual_placements = graphicsVirtualPlacementsIn(commit.graphics_virtual_placements) catch {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    const graphics_payload_bytes = byteSpanIn(commit.graphics_payload_bytes) catch {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    if (graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count or graphics_virtual_placements.len != commit.graphics.virtual_placement_count) {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    }
-    const result = owner.flow.commitPublishSlot(.{
-        .history_count = commit.history_count,
-        .scroll_row = commit.scroll_row,
-        .snapshot_seq = commit.snapshot_seq,
-        .is_alternate_screen = commit.is_alternate_screen != 0,
-        .cursor = cursor,
-        .colors = commit.colors,
-        .selection = commit.selection,
-        .graphics = commit.graphics,
-        .graphics_images = graphics_images,
-        .graphics_placements = graphics_placements,
-        .graphics_virtual_placements = graphics_virtual_placements,
-        .graphics_payload_bytes = graphics_payload_bytes,
-        .graphics_payload_kind = .legacy_protocol,
-    }) catch |err| {
-        std.debug.panic(
-            "render commitPublishSlot rejected: err={s} snapshot_seq={d} alt={} rows={d} cols={d} history_count={d} scroll_row={d} graphics=(images={d} placements={d} virtuals={d} alt={d} pub={d} dirty={d}) payload_len={d}",
-            .{
-                @errorName(err),
-                commit.snapshot_seq,
-                commit.is_alternate_screen != 0,
-                reserved.dirty_rows.len,
-                if (reserved.dirty_rows.len == 0) 0 else reserved.cells.len / reserved.dirty_rows.len,
-                commit.history_count,
-                commit.scroll_row,
-                commit.graphics.image_count,
-                commit.graphics.placement_count,
-                commit.graphics.virtual_placement_count,
-                commit.graphics.is_alternate_screen,
-                commit.graphics.publication_seq,
-                commit.graphics.dirty_generation,
-                graphics_payload_bytes.len,
-            },
-        );
-    };
-    return vtPublishResultOut(result);
 }
 
 pub fn commitPublishDecodedGraphicsSlot(handle: abi.SurfaceTextHandle, commit: abi.FfiPublishDecodedGraphicsSlotCommit) callconv(.c) abi.FfiVtPublishResult {
@@ -213,11 +127,6 @@ pub fn commitPublishDecodedGraphicsSlot(handle: abi.SurfaceTextHandle, commit: a
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    const graphics_images = graphicsDecodedImagesCopy(owner.allocator, decoded_graphics_images) catch {
-        owner.flow.cancelPublishSlot();
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.failed), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    };
-    defer if (graphics_images.len > 0) owner.allocator.free(graphics_images);
     const graphics_placements = graphicsPlacementsIn(commit.graphics_placements) catch {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
@@ -226,13 +135,13 @@ pub fn commitPublishDecodedGraphicsSlot(handle: abi.SurfaceTextHandle, commit: a
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     };
-    if (graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count) {
+    if (decoded_graphics_images.len != commit.graphics.image_count or graphics_placements.len != commit.graphics.placement_count) {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     }
     var graphics = commit.graphics;
     graphics.virtual_placement_count = 0;
-    const result = owner.flow.commitPublishSlot(.{
+    const result = owner.flow.commitDecodedPublishSlot(.{
         .history_count = commit.history_count,
         .scroll_row = commit.scroll_row,
         .snapshot_seq = commit.snapshot_seq,
@@ -241,11 +150,10 @@ pub fn commitPublishDecodedGraphicsSlot(handle: abi.SurfaceTextHandle, commit: a
         .colors = commit.colors,
         .selection = commit.selection,
         .graphics = graphics,
-        .graphics_images = graphics_images,
+        .graphics_images = decoded_graphics_images,
         .graphics_placements = graphics_placements,
         .graphics_virtual_placements = &.{},
         .graphics_payload_bytes = graphics_payload_bytes,
-        .graphics_payload_kind = .decoded_pixels,
     }) catch {
         owner.flow.cancelPublishSlot();
         return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument), .published = 0, .queued = 0, .damage_kind = @intFromEnum(pipeline.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
@@ -582,88 +490,10 @@ fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool 
         a.required_base_seq == b.required_base_seq;
 }
 
-fn vtSurfaceIn(allocator: std.mem.Allocator, value: abi.FfiVtSurface) !queue.PublicationSource {
-    const cell_count: u32 = @as(u32, value.cols) * @as(u32, value.rows);
-    if (value.cells.len != cell_count) return error.InvalidSurfaceSource;
-
-    const source_cells = value.cells.ptr[0..@intCast(cell_count)];
-    for (source_cells) |cell| try validateCellValue(cell);
-    const cells = try allocator.dupe(abi.FfiVtCell, source_cells);
-    errdefer allocator.free(cells);
-
-    const dirty_rows = try dirtyRowsIn(allocator, value.rows, value.dirty_rows);
-    errdefer if (dirty_rows.len > 0) allocator.free(dirty_rows);
-    const dirty_cols_start = try dirtyColsIn(allocator, value.rows, value.dirty_cols_start);
-    errdefer if (dirty_cols_start.len > 0) allocator.free(dirty_cols_start);
-    const dirty_cols_end = try dirtyColsIn(allocator, value.rows, value.dirty_cols_end);
-    errdefer if (dirty_cols_end.len > 0) allocator.free(dirty_cols_end);
-    const graphics_images = try graphicsImagesDup(allocator, value.graphics_images);
-    errdefer if (graphics_images.len > 0) allocator.free(graphics_images);
-    const graphics_placements = try graphicsPlacementsDup(allocator, value.graphics_placements);
-    errdefer if (graphics_placements.len > 0) allocator.free(graphics_placements);
-    const graphics_virtual_placements = try graphicsVirtualPlacementsDup(allocator, value.graphics_virtual_placements);
-    errdefer if (graphics_virtual_placements.len > 0) allocator.free(graphics_virtual_placements);
-    const graphics_payload_bytes = try byteSpanDup(allocator, value.graphics_payload_bytes);
-    errdefer if (graphics_payload_bytes.len > 0) allocator.free(graphics_payload_bytes);
-    if (graphics_images.len != value.graphics.image_count or graphics_placements.len != value.graphics.placement_count or graphics_virtual_placements.len != value.graphics.virtual_placement_count) {
-        return error.InvalidSurfaceSource;
-    }
-
-    const cursor = cursorIn(value.cursor) orelse return error.InvalidSurfaceSource;
-    const source: queue.PublicationSource = .{
-        .cols = value.cols,
-        .rows = value.rows,
-        .history_count = value.history_count,
-        .scroll_row = value.scroll_row,
-        .snapshot_seq = value.snapshot_seq,
-        .dirty_epoch = 0,
-        .is_alternate_screen = value.is_alternate_screen != 0,
-        .cells = cells,
-        .cursor = cursor,
-        .colors = value.colors,
-        .selection = value.selection,
-        .graphics = value.graphics,
-        .graphics_images = graphics_images,
-        .graphics_placements = graphics_placements,
-        .graphics_virtual_placements = graphics_virtual_placements,
-        .graphics_payload_bytes = graphics_payload_bytes,
-        .graphics_payload_kind = .legacy_protocol,
-        .cursor_phase_visible = true,
-        .dirty_rows = dirty_rows,
-        .dirty_cols_start = dirty_cols_start,
-        .dirty_cols_end = dirty_cols_end,
-    };
-    try queue.validatePublicationSourceBoundary(source);
-    return source;
-}
-
-fn dirtyRowsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiByteSpan) ![]u8 {
-    if (span.len == 0) return &.{};
-    if (span.ptr == null or span.len != rows) return error.InvalidSurfaceSource;
-    const out = try allocator.alloc(u8, rows);
-    errdefer allocator.free(out);
-    @memcpy(out, span.ptr[0..rows]);
-    for (out) |dirty| {
-        if (dirty > 1) return error.InvalidSurfaceSource;
-    }
-    return out;
-}
-
 fn byteSpanIn(span: abi.FfiByteSpan) ![]const u8 {
     if (span.len == 0) return &.{};
     if (span.ptr == null) return error.InvalidSurfaceSource;
     return span.ptr[0..span.len];
-}
-
-fn byteSpanDup(allocator: std.mem.Allocator, span: abi.FfiByteSpan) ![]u8 {
-    const bytes = try byteSpanIn(span);
-    return try allocator.dupe(u8, bytes);
-}
-
-fn dirtyColsIn(allocator: std.mem.Allocator, rows: u16, span: abi.FfiU16Span) ![]u16 {
-    if (span.len == 0) return &.{};
-    if (span.ptr == null or span.len != rows) return error.InvalidSurfaceSource;
-    return try allocator.dupe(u16, span.ptr[0..rows]);
 }
 
 fn cellValueIn(value: abi.FfiVtCell) !surface.Cell {
@@ -744,12 +574,6 @@ fn cursorIn(value: abi.FfiVtCursor) ?surface.CursorInfo {
     return .{ .row = value.row, .col = value.col, .visible = value.visible != 0, .shape = shape, .blink = value.blink != 0 };
 }
 
-fn graphicsImagesIn(span: abi.FfiVtGraphicsImageSpan) ![]const abi.FfiVtGraphicsImage {
-    if (span.len == 0) return &.{};
-    if (span.ptr == null) return error.InvalidSurfaceSource;
-    return span.ptr[0..span.len];
-}
-
 fn graphicsDecodedImagesIn(span: abi.FfiVtGraphicsDecodedImageSpan) ![]const abi.FfiVtGraphicsDecodedImage {
     if (span.len == 0) return &.{};
     if (span.ptr == null) return error.InvalidSurfaceSource;
@@ -766,32 +590,6 @@ fn graphicsVirtualPlacementsIn(span: abi.FfiVtGraphicsVirtualPlacementSpan) ![]c
     if (span.len == 0) return &.{};
     if (span.ptr == null) return error.InvalidSurfaceSource;
     return span.ptr[0..span.len];
-}
-
-fn graphicsImagesDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsImageSpan) ![]abi.FfiVtGraphicsImage {
-    const items = try graphicsImagesIn(span);
-    return try allocator.dupe(abi.FfiVtGraphicsImage, items);
-}
-
-fn graphicsDecodedImagesCopy(
-    allocator: std.mem.Allocator,
-    items: []const abi.FfiVtGraphicsDecodedImage,
-) ![]abi.FfiVtGraphicsImage {
-    const out = try allocator.alloc(abi.FfiVtGraphicsImage, items.len);
-    errdefer allocator.free(out);
-    for (items, 0..) |item, i| {
-        out[i] = .{
-            .image_id = item.image_id,
-            .image_ref_id = item.image_ref_id,
-            .image_number = item.image_number,
-            .format = item.format,
-            .reserved0 = item.reserved0,
-            .width = item.width,
-            .height = item.height,
-            .payload_len = item.payload_len,
-        };
-    }
-    return out;
 }
 
 fn graphicsPlacementsDup(allocator: std.mem.Allocator, span: abi.FfiVtGraphicsPlacementSpan) ![]abi.FfiVtGraphicsPlacement {
@@ -817,40 +615,4 @@ fn underlineStyleValueIn(value: u8) !surface.UnderlineStyle {
 
 fn pixelIn(value: abi.FfiPixelSize) surface.PixelSize {
     return .{ .width = value.width, .height = value.height };
-}
-
-test "dirtyRowsIn rejects bytes outside boolean domain" {
-    const dirty_rows = [_]u8{2};
-    try std.testing.expectError(error.InvalidSurfaceSource, dirtyRowsIn(std.testing.allocator, 1, .{
-        .ptr = @constCast(dirty_rows[0..].ptr),
-        .len = dirty_rows.len,
-    }));
-}
-
-test "vtSurfaceIn rejects graphics screen identity mismatch" {
-    const cells = [_]abi.FfiVtCell{std.mem.zeroes(abi.FfiVtCell)};
-    const dirty_rows = [_]u8{1};
-    const dirty_cols_start = [_]u16{0};
-    const dirty_cols_end = [_]u16{0};
-
-    try std.testing.expectError(error.InvalidGraphicsMetadata, vtSurfaceIn(std.testing.allocator, .{
-        .cells = .{ .ptr = @constCast(cells[0..].ptr), .len = cells.len },
-        .cols = 1,
-        .rows = 1,
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = 0,
-        .dirty_rows = .{ .ptr = @constCast(dirty_rows[0..].ptr), .len = dirty_rows.len },
-        .dirty_cols_start = .{ .ptr = @constCast(dirty_cols_start[0..].ptr), .len = dirty_cols_start.len },
-        .dirty_cols_end = .{ .ptr = @constCast(dirty_cols_end[0..].ptr), .len = dirty_cols_end.len },
-        .cursor = std.mem.zeroes(abi.FfiVtCursor),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = .{ .image_count = 0, .placement_count = 0, .virtual_placement_count = 0, .is_alternate_screen = 1, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_images = .{ .ptr = null, .len = 0 },
-        .graphics_placements = .{ .ptr = null, .len = 0 },
-        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
-        .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
-    }));
 }

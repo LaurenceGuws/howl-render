@@ -262,11 +262,6 @@ typedef struct {
 } HowlRenderVtGraphicsMeta;
 
 typedef struct {
-  const HowlVtGraphicsImage *ptr;
-  size_t len;
-} HowlRenderVtGraphicsImageSpan;
-
-typedef struct {
   const HowlVtGraphicsDecodedImage *ptr;
   size_t len;
 } HowlRenderVtGraphicsDecodedImageSpan;
@@ -280,23 +275,6 @@ typedef struct {
   const HowlVtGraphicsVirtualPlacement *ptr;
   size_t len;
 } HowlRenderVtGraphicsVirtualPlacementSpan;
-
-typedef struct {
-  uint64_t history_count;
-  uint64_t scroll_row;
-  uint64_t snapshot_seq;
-  uint8_t is_alternate_screen;
-  uint8_t reserved0;
-  uint16_t reserved1;
-  HowlVtCursor cursor;
-  HowlVtRenderColorState colors;
-  HowlVtSelection selection;
-  HowlRenderVtGraphicsMeta graphics;
-  HowlRenderVtGraphicsImageSpan graphics_images;
-  HowlRenderVtGraphicsPlacementSpan graphics_placements;
-  HowlRenderVtGraphicsVirtualPlacementSpan graphics_virtual_placements;
-  HowlRenderByteSpan graphics_payload_bytes;
-} HowlRenderPublishSlotCommit;
 
 typedef struct {
   uint64_t history_count;
@@ -382,28 +360,6 @@ typedef struct {
 } HowlRenderSurfaceExecutionInput;
 
 typedef struct {
-  HowlVtSurfaceCellSpan cells;
-  uint16_t cols;
-  uint16_t rows;
-  uint64_t history_count;
-  uint64_t scroll_row;
-  uint64_t snapshot_seq;
-  uint8_t is_alternate_screen;
-  uint8_t reserved0;
-  uint16_t reserved1;
-  HowlVtByteSpan dirty_rows;
-  HowlVtU16Span dirty_cols_start;
-  HowlVtU16Span dirty_cols_end;
-  HowlVtCursor cursor;
-  HowlVtRenderColorState colors;
-  HowlVtSelection selection;
-  HowlRenderVtGraphicsMeta graphics;
-  HowlRenderVtGraphicsImageSpan graphics_images;
-  HowlRenderVtGraphicsPlacementSpan graphics_placements;
-  HowlRenderByteSpan graphics_payload_bytes;
-} HowlRenderVtSurface;
-
-typedef struct {
   int32_t status;
   uint8_t damage_kind;
   uint8_t reserved0;
@@ -428,9 +384,7 @@ int howl_render_surface_text_set_font_path(HowlRenderSurfaceTextHandle handle, c
 int howl_render_surface_text_set_fallback_font_paths(HowlRenderSurfaceTextHandle handle, const uint8_t *const *ptrs, size_t count);
 int howl_render_surface_text_set_cursor_blink_visible(HowlRenderSurfaceTextHandle handle, uint8_t visible);
 HowlRenderGeometryResponse howl_render_surface_text_sync_geometry(HowlRenderSurfaceTextHandle handle, HowlRenderGeometry geometry);
-HowlRenderVtPublishResult howl_render_surface_text_publish_vt_source(HowlRenderSurfaceTextHandle handle, HowlRenderVtSurface source);
 int howl_render_surface_text_reserve_publish_slot(HowlRenderSurfaceTextHandle handle, uint16_t cols, uint16_t rows, HowlRenderPublishSlot *slot_out);
-HowlRenderVtPublishResult howl_render_surface_text_commit_publish_slot(HowlRenderSurfaceTextHandle handle, HowlRenderPublishSlotCommit commit);
 HowlRenderVtPublishResult howl_render_surface_text_commit_publish_decoded_graphics_slot(HowlRenderSurfaceTextHandle handle, HowlRenderPublishDecodedGraphicsSlotCommit commit);
 HowlRenderVtPublishResult howl_render_surface_text_reject_publish_slot(HowlRenderSurfaceTextHandle handle, uint64_t snapshot_seq);
 void howl_render_surface_text_cancel_publish_slot(HowlRenderSurfaceTextHandle handle);

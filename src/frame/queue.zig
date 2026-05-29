@@ -136,11 +136,10 @@ pub const PublicationSource = struct {
     colors: abi.FfiVtRenderColorState,
     selection: abi.FfiVtSelection,
     graphics: abi.FfiVtGraphicsMeta,
-    graphics_images: []abi.FfiVtGraphicsImage = &.{},
+    graphics_images: []abi.FfiVtGraphicsDecodedImage = &.{},
     graphics_placements: []abi.FfiVtGraphicsPlacement = &.{},
     graphics_virtual_placements: []abi.FfiVtGraphicsVirtualPlacement = &.{},
     graphics_payload_bytes: []u8 = &.{},
-    graphics_payload_kind: GraphicsPayloadKind = .legacy_protocol,
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
@@ -170,7 +169,7 @@ pub const PublicationSource = struct {
         errdefer allocator.free(dirty_cols_start);
         const dirty_cols_end = try allocator.dupe(u16, self.dirty_cols_end);
         errdefer allocator.free(dirty_cols_end);
-        const graphics_images = try allocator.dupe(abi.FfiVtGraphicsImage, self.graphics_images);
+        const graphics_images = try allocator.dupe(abi.FfiVtGraphicsDecodedImage, self.graphics_images);
         errdefer allocator.free(graphics_images);
         const graphics_placements = try allocator.dupe(abi.FfiVtGraphicsPlacement, self.graphics_placements);
         errdefer allocator.free(graphics_placements);
@@ -196,7 +195,6 @@ pub const PublicationSource = struct {
             .graphics_placements = graphics_placements,
             .graphics_virtual_placements = graphics_virtual_placements,
             .graphics_payload_bytes = graphics_payload_bytes,
-            .graphics_payload_kind = self.graphics_payload_kind,
             .cursor_phase_visible = self.cursor_phase_visible,
             .dirty_rows = dirty_rows,
             .dirty_cols_start = dirty_cols_start,
@@ -251,16 +249,10 @@ pub const ReservedSourceMeta = struct {
     colors: abi.FfiVtRenderColorState,
     selection: abi.FfiVtSelection,
     graphics: abi.FfiVtGraphicsMeta,
-    graphics_images: []const abi.FfiVtGraphicsImage = &.{},
+    graphics_images: []const abi.FfiVtGraphicsDecodedImage = &.{},
     graphics_placements: []const abi.FfiVtGraphicsPlacement = &.{},
     graphics_virtual_placements: []const abi.FfiVtGraphicsVirtualPlacement = &.{},
     graphics_payload_bytes: []const u8 = &.{},
-    graphics_payload_kind: GraphicsPayloadKind = .legacy_protocol,
-};
-
-pub const GraphicsPayloadKind = enum(u8) {
-    legacy_protocol,
-    decoded_pixels,
 };
 
 pub const PendingState = struct {
@@ -416,9 +408,8 @@ const PublicationState = struct {
             meta.graphics_placements,
             meta.graphics_virtual_placements,
             meta.graphics_payload_bytes,
-            meta.graphics_payload_kind,
         );
-        source.graphics_images = try self.allocator.dupe(abi.FfiVtGraphicsImage, meta.graphics_images);
+        source.graphics_images = try self.allocator.dupe(abi.FfiVtGraphicsDecodedImage, meta.graphics_images);
         errdefer self.allocator.free(source.graphics_images);
         source.graphics_placements = try self.allocator.dupe(abi.FfiVtGraphicsPlacement, meta.graphics_placements);
         errdefer self.allocator.free(source.graphics_placements);
@@ -426,7 +417,6 @@ const PublicationState = struct {
         errdefer self.allocator.free(source.graphics_virtual_placements);
         source.graphics_payload_bytes = try self.allocator.dupe(u8, meta.graphics_payload_bytes);
         errdefer self.allocator.free(source.graphics_payload_bytes);
-        source.graphics_payload_kind = meta.graphics_payload_kind;
         return self.acceptSource(source, submitted_token, geometry_epoch);
     }
 
@@ -672,7 +662,6 @@ const PublicationState = struct {
             .graphics_placements = &.{},
             .graphics_virtual_placements = &.{},
             .graphics_payload_bytes = &.{},
-            .graphics_payload_kind = .legacy_protocol,
             .cursor_phase_visible = true,
             .dirty_rows = slot.dirty_rows,
             .dirty_cols_start = slot.dirty_cols_start,
@@ -714,7 +703,6 @@ const PublicationState = struct {
         const graphics_placements = source.graphics_placements;
         const graphics_virtual_placements = source.graphics_virtual_placements;
         const graphics_payload_bytes = source.graphics_payload_bytes;
-        const graphics_payload_kind = source.graphics_payload_kind;
         const cursor_phase_visible = source.cursor_phase_visible;
         source.* = self.retainedSource(source.cols, source.rows);
         source.history_count = history_count;
@@ -730,7 +718,6 @@ const PublicationState = struct {
         source.graphics_placements = graphics_placements;
         source.graphics_virtual_placements = graphics_virtual_placements;
         source.graphics_payload_bytes = graphics_payload_bytes;
-        source.graphics_payload_kind = graphics_payload_kind;
         source.cursor_phase_visible = cursor_phase_visible;
     }
 };
@@ -738,11 +725,10 @@ const PublicationState = struct {
 fn validateGraphicsSource(
     publication_is_alternate_screen: bool,
     meta: abi.FfiVtGraphicsMeta,
-    images: []const abi.FfiVtGraphicsImage,
+    images: []const abi.FfiVtGraphicsDecodedImage,
     placements: []const abi.FfiVtGraphicsPlacement,
     virtual_placements: []const abi.FfiVtGraphicsVirtualPlacement,
     payload_bytes: []const u8,
-    payload_kind: GraphicsPayloadKind,
 ) !void {
     if (meta.is_alternate_screen > 1) return error.InvalidGraphicsMetadata;
     if ((meta.is_alternate_screen != 0) != publication_is_alternate_screen) return error.InvalidGraphicsMetadata;
@@ -750,11 +736,11 @@ fn validateGraphicsSource(
     if (meta.placement_count != placements.len) return error.InvalidGraphicsMetadata;
     if (meta.virtual_placement_count != virtual_placements.len) return error.InvalidGraphicsMetadata;
     try validateGraphicsReferences(images, placements, virtual_placements);
-    try validateGraphicsPayloadSource(images, payload_bytes, payload_kind);
+    try validateGraphicsPayloadSource(images, payload_bytes);
 }
 
 fn validateGraphicsReferences(
-    images: []const abi.FfiVtGraphicsImage,
+    images: []const abi.FfiVtGraphicsDecodedImage,
     placements: []const abi.FfiVtGraphicsPlacement,
     virtual_placements: []const abi.FfiVtGraphicsVirtualPlacement,
 ) !void {
@@ -773,7 +759,7 @@ fn validateGraphicsReferences(
     }
 }
 
-fn graphicsImageExists(images: []const abi.FfiVtGraphicsImage, image_id: u32) bool {
+fn graphicsImageExists(images: []const abi.FfiVtGraphicsDecodedImage, image_id: u32) bool {
     for (images) |image| {
         if (image.image_id == image_id) return true;
     }
@@ -781,27 +767,23 @@ fn graphicsImageExists(images: []const abi.FfiVtGraphicsImage, image_id: u32) bo
 }
 
 fn validateGraphicsPayloadSource(
-    images: []const abi.FfiVtGraphicsImage,
+    images: []const abi.FfiVtGraphicsDecodedImage,
     payload_bytes: []const u8,
-    payload_kind: GraphicsPayloadKind,
 ) !void {
-    const total = try totalGraphicsPayloadLen(images, payload_kind);
+    const total = try totalGraphicsPayloadLen(images);
     if (total != payload_bytes.len) return error.InvalidGraphicsPayload;
 }
 
-fn totalGraphicsPayloadLen(images: []const abi.FfiVtGraphicsImage, payload_kind: GraphicsPayloadKind) !usize {
+fn totalGraphicsPayloadLen(images: []const abi.FfiVtGraphicsDecodedImage) !usize {
     var total: u64 = 0;
     for (images) |image| {
-        const payload_len = switch (payload_kind) {
-            .legacy_protocol => image.payload_len,
-            .decoded_pixels => try decodedGraphicsPayloadLen(image),
-        };
+        const payload_len = try decodedGraphicsPayloadLen(image);
         total = std.math.add(u64, total, payload_len) catch return error.InvalidGraphicsPayload;
     }
     return std.math.cast(usize, total) orelse return error.InvalidGraphicsPayload;
 }
 
-fn decodedGraphicsPayloadLen(image: abi.FfiVtGraphicsImage) !u64 {
+fn decodedGraphicsPayloadLen(image: abi.FfiVtGraphicsDecodedImage) !u64 {
     if (image.width == 0) return error.InvalidGraphicsPayload;
     if (image.height == 0) return error.InvalidGraphicsPayload;
     const channels: u64 = switch (image.format) {
@@ -828,7 +810,6 @@ pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
         source.graphics_placements,
         source.graphics_virtual_placements,
         source.graphics_payload_bytes,
-        source.graphics_payload_kind,
     );
 }
 
@@ -936,7 +917,6 @@ fn samePublicationSource(a: PublicationSource, b: PublicationSource) bool {
         std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_placements), std.mem.sliceAsBytes(b.graphics_placements)) and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_virtual_placements), std.mem.sliceAsBytes(b.graphics_virtual_placements)) and
         std.mem.eql(u8, a.graphics_payload_bytes, b.graphics_payload_bytes) and
-        a.graphics_payload_kind == b.graphics_payload_kind and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.cells), std.mem.sliceAsBytes(b.cells)) and
         std.mem.eql(u8, a.dirty_rows, b.dirty_rows) and
         std.mem.eql(u16, a.dirty_cols_start, b.dirty_cols_start) and
@@ -1040,7 +1020,7 @@ pub const Flow = struct {
         return try self.publication_state.reserveSourceSlot(cols, rows);
     }
 
-    pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
+    pub fn commitDecodedPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
         std.debug.assert(meta.snapshot_seq != 0);
         return try self.publication_state.commitReservedSource(meta, self.nextSourceDirtyEpoch(), self.submittedToken(), self.geometry_epoch);
     }
@@ -1609,14 +1589,14 @@ test "graphics publication change replaces retained copied item metadata" {
     first.graphics.dirty_generation = 1;
     first.graphics.image_count = 1;
     first.graphics.placement_count = 1;
-    first.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsImage, &.{.{
+    first.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsDecodedImage, &.{.{
         .image_id = 7,
         .image_ref_id = 70,
         .image_number = 1,
         .format = 24,
         .width = 2,
         .height = 1,
-        .payload_len = 4,
+        .payload_len = 6,
     }});
     first.graphics_payload_bytes = try std.heap.c_allocator.dupe(u8, "AAAA");
     first.graphics_placements = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsPlacement, &.{.{
@@ -1653,7 +1633,7 @@ test "graphics publication change replaces retained copied item metadata" {
     second.graphics.dirty_generation = 2;
     second.graphics.image_count = 1;
     second.graphics.placement_count = 1;
-    second.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsImage, &.{.{
+    second.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsDecodedImage, &.{.{
         .image_id = 8,
         .image_ref_id = 80,
         .image_number = 2,
@@ -1879,7 +1859,7 @@ test "flow can reserve a new publish slot after submitting retained source" {
     first.dirty_cols_start[0] = 0;
     first.dirty_cols_end[0] = 0;
 
-    const published = try flow.commitPublishSlot(.{
+    const published = try flow.commitDecodedPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
@@ -1914,14 +1894,14 @@ test "flow commit publish slot copies graphics item metadata" {
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 0;
 
-    const images = [_]abi.FfiVtGraphicsImage{.{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
         .image_id = 7,
         .image_ref_id = 70,
         .image_number = 9,
         .format = 24,
         .width = 2,
         .height = 1,
-        .payload_len = 4,
+        .payload_len = 6,
     }};
     const placements = [_]abi.FfiVtGraphicsPlacement{.{
         .image_id = 7,
@@ -1956,7 +1936,7 @@ test "flow commit publish slot copies graphics item metadata" {
         .columns = 10,
         .rows = 12,
     }};
-    const published = try flow.commitPublishSlot(.{
+    const published = try flow.commitDecodedPublishSlot(.{
         .history_count = 5,
         .scroll_row = 0,
         .snapshot_seq = 1,
@@ -1968,7 +1948,7 @@ test "flow commit publish slot copies graphics item metadata" {
         .graphics_images = images[0..],
         .graphics_placements = placements[0..],
         .graphics_virtual_placements = virtual_placements[0..],
-        .graphics_payload_bytes = "QUJD",
+        .graphics_payload_bytes = &.{ 1, 2, 3, 4, 5, 6 },
     });
     try std.testing.expect(published.published);
 
@@ -1988,7 +1968,7 @@ test "flow commit publish slot copies graphics item metadata" {
     try std.testing.expectEqual(@as(u32, 4), prepare.state.graphics_placements[0].dest_grid_columns);
     try std.testing.expectEqual(@as(u32, 2), prepare.state.graphics_placements[0].dest_grid_rows);
     try std.testing.expectEqual(@as(u64, 3), prepare.state.graphics.publication_seq);
-    try std.testing.expectEqualStrings("QUJD", prepare.state.graphics_payload_bytes);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6 }, prepare.state.graphics_payload_bytes);
 }
 
 test "flow commit publish slot validates graphics payload byte size" {
@@ -2007,7 +1987,7 @@ test "flow commit publish slot validates graphics payload byte size" {
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 0;
 
-    const images = [_]abi.FfiVtGraphicsImage{.{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
         .image_id = 1,
         .image_ref_id = 10,
         .image_number = 0,
@@ -2017,7 +1997,7 @@ test "flow commit publish slot validates graphics payload byte size" {
         .payload_len = 4,
     }};
 
-    try std.testing.expectError(error.InvalidGraphicsPayload, flow.commitPublishSlot(.{
+    try std.testing.expectError(error.InvalidGraphicsPayload, flow.commitDecodedPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
@@ -2082,7 +2062,7 @@ fn expectDecodedGraphicsCommitError(options: struct {
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 0;
 
-    const images = [_]abi.FfiVtGraphicsImage{.{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
         .image_id = 1,
         .image_ref_id = 10,
         .image_number = 0,
@@ -2091,7 +2071,7 @@ fn expectDecodedGraphicsCommitError(options: struct {
         .height = options.height,
         .payload_len = options.payload_len,
     }};
-    try std.testing.expectError(error.InvalidGraphicsPayload, flow.commitPublishSlot(.{
+    try std.testing.expectError(error.InvalidGraphicsPayload, flow.commitDecodedPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
@@ -2104,7 +2084,6 @@ fn expectDecodedGraphicsCommitError(options: struct {
         .graphics_placements = &.{},
         .graphics_virtual_placements = &.{},
         .graphics_payload_bytes = options.payload,
-        .graphics_payload_kind = .decoded_pixels,
     }));
 }
 
@@ -2124,7 +2103,7 @@ test "flow commit publish slot validates graphics metadata counts" {
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 0;
 
-    const images = [_]abi.FfiVtGraphicsImage{.{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
         .image_id = 1,
         .image_ref_id = 10,
         .image_number = 0,
@@ -2136,7 +2115,7 @@ test "flow commit publish slot validates graphics metadata counts" {
     const placements = [_]abi.FfiVtGraphicsPlacement{std.mem.zeroes(abi.FfiVtGraphicsPlacement)};
     const virtual_placements = [_]abi.FfiVtGraphicsVirtualPlacement{std.mem.zeroes(abi.FfiVtGraphicsVirtualPlacement)};
 
-    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitPublishSlot(.{
+    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitDecodedPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
@@ -2175,7 +2154,7 @@ fn expectInvalidVirtualPlacement(field: InvalidVirtualPlacementField) !void {
     var dirty_rows = [_]u8{1};
     var dirty_cols_start = [_]u16{0};
     var dirty_cols_end = [_]u16{0};
-    var images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 0 }};
+    var images = [_]abi.FfiVtGraphicsDecodedImage{.{ .image_id = 7, .image_ref_id = 70, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 0 }};
     var virtual_placement = abi.FfiVtGraphicsVirtualPlacement{
         .image_id = 7,
         .placement_id = 9,
@@ -2234,7 +2213,7 @@ test "flow commit publish slot rejects dirty row byte outside boolean domain" {
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 0;
 
-    try std.testing.expectError(error.InvalidSurfaceSource, flow.commitPublishSlot(.{
+    try std.testing.expectError(error.InvalidSurfaceSource, flow.commitDecodedPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
@@ -2272,7 +2251,7 @@ test "flow commit publish slot accepts dirty row span sentinel without dirty col
     slot.dirty_cols_start[1] = 2;
     slot.dirty_cols_end[1] = 0;
 
-    const published = try flow.commitPublishSlot(.{
+    const published = try flow.commitDecodedPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
@@ -2345,7 +2324,7 @@ test "flow commit publish slot canonicalizes clean dirty metadata" {
     slot.dirty_cols_start[1] = 2;
     slot.dirty_cols_end[1] = 1;
 
-    const published = try flow.commitPublishSlot(.{
+    const published = try flow.commitDecodedPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 13,
@@ -2415,7 +2394,7 @@ test "flow commit publish slot rejects graphics placement without image" {
         .effective_rows = 1,
     }};
 
-    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitPublishSlot(.{
+    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitDecodedPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
@@ -2445,7 +2424,7 @@ test "flow commit publish slot rejects graphics screen mismatch" {
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 0;
 
-    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitPublishSlot(.{
+    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitDecodedPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,

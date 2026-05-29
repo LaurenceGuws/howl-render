@@ -1,12 +1,10 @@
 const std = @import("std");
 const abi = @import("../ffi_types.zig");
-const queue = @import("queue.zig");
 const surface = @import("surface.zig");
 
 pub const invalid_graphics_raster_index = std.math.maxInt(u32);
 
 pub const DecodedGraphicsKey = struct {
-    payload_kind: queue.GraphicsPayloadKind,
     format: u16,
     width: u32,
     height: u32,
@@ -35,9 +33,8 @@ pub const GraphicsRasterView = struct {
 };
 
 pub const SourceGraphicsPayload = struct {
-    image: abi.FfiVtGraphicsImage,
+    image: abi.FfiVtGraphicsDecodedImage,
     payload: []const u8,
-    payload_kind: queue.GraphicsPayloadKind,
 };
 
 pub const GraphicsPreparer = struct {
@@ -66,23 +63,15 @@ pub const GraphicsPreparer = struct {
     pub fn prepare(
         self: *GraphicsPreparer,
         prepared: *surface.PreparedGraphics,
-        source_images: []const abi.FfiVtGraphicsImage,
+        source_images: []const abi.FfiVtGraphicsDecodedImage,
         payload_bytes: []const u8,
-        payload_kind: queue.GraphicsPayloadKind,
     ) !void {
-        const source_payloads = try self.sourceGraphicsPayloads(source_images, payload_bytes, payload_kind);
+        const source_payloads = try self.sourceGraphicsPayloads(source_images, payload_bytes);
         defer self.allocator.free(source_payloads);
-        if (payload_kind == .legacy_protocol) {
-            self.replaceGraphicsPublicationImageKeys(&.{});
-            self.sweepDecodedGraphicsRasters();
-            try self.bindPreparedGraphicsRasters(prepared);
-            return;
-        }
-
         var publication_keys = try self.allocator.alloc(GraphicsPublicationImageKey, source_payloads.len);
         errdefer self.allocator.free(publication_keys);
         for (source_payloads, 0..) |source_payload, i| {
-            const key = graphicsKeyForPayload(source_payload.payload_kind, source_payload.image, source_payload.payload);
+            const key = graphicsKey(source_payload.image, source_payload.payload);
             publication_keys[i] = .{ .image_ref_id = source_payload.image.image_ref_id, .key = key };
             _ = try self.ensureDecodedGraphicsRaster(source_payload, key);
         }
@@ -104,9 +93,8 @@ pub const GraphicsPreparer = struct {
 
     fn sourceGraphicsPayloads(
         self: *GraphicsPreparer,
-        source_images: []const abi.FfiVtGraphicsImage,
+        source_images: []const abi.FfiVtGraphicsDecodedImage,
         payload_bytes: []const u8,
-        payload_kind: queue.GraphicsPayloadKind,
     ) ![]SourceGraphicsPayload {
         var payloads = try self.allocator.alloc(SourceGraphicsPayload, source_images.len);
         errdefer self.allocator.free(payloads);
@@ -118,7 +106,6 @@ pub const GraphicsPreparer = struct {
             payloads[i] = .{
                 .image = image,
                 .payload = payload_bytes[offset..next_offset],
-                .payload_kind = payload_kind,
             };
             offset = next_offset;
         }
@@ -238,19 +225,10 @@ pub const GraphicsPreparer = struct {
     }
 };
 
-pub fn graphicsKey(image: abi.FfiVtGraphicsImage, payload: []const u8) DecodedGraphicsKey {
-    return graphicsKeyForPayload(.legacy_protocol, image, payload);
-}
-
-pub fn graphicsKeyForPayload(
-    payload_kind: queue.GraphicsPayloadKind,
-    image: abi.FfiVtGraphicsImage,
-    payload: []const u8,
-) DecodedGraphicsKey {
+pub fn graphicsKey(image: abi.FfiVtGraphicsDecodedImage, payload: []const u8) DecodedGraphicsKey {
     var hasher = std.hash.Wyhash.init(0x4752415048494353);
     hasher.update(payload);
     return .{
-        .payload_kind = payload_kind,
         .format = image.format,
         .width = image.width,
         .height = image.height,
@@ -260,8 +238,7 @@ pub fn graphicsKeyForPayload(
 }
 
 pub fn decodedGraphicsKeyEqual(a: DecodedGraphicsKey, b: DecodedGraphicsKey) bool {
-    return a.payload_kind == b.payload_kind and
-        a.format == b.format and
+    return a.format == b.format and
         a.width == b.width and
         a.height == b.height and
         a.payload_len == b.payload_len and
@@ -273,14 +250,11 @@ fn decodeGraphicsRaster(
     source_payload: SourceGraphicsPayload,
     key: DecodedGraphicsKey,
 ) !?DecodedGraphicsRaster {
-    switch (source_payload.payload_kind) {
-        .legacy_protocol => return null,
-        .decoded_pixels => switch (source_payload.image.format) {
-            24 => return try decodeDecodedRawGraphicsRaster(allocator, source_payload, key, 3),
-            32 => return try decodeDecodedRawGraphicsRaster(allocator, source_payload, key, 4),
-            else => return error.InvalidGraphicsPayload,
-        },
-    }
+    return switch (source_payload.image.format) {
+        24 => try decodeDecodedRawGraphicsRaster(allocator, source_payload, key, 3),
+        32 => try decodeDecodedRawGraphicsRaster(allocator, source_payload, key, 4),
+        else => error.InvalidGraphicsPayload,
+    };
 }
 
 fn decodeDecodedRawGraphicsRaster(
@@ -332,13 +306,13 @@ test "sourceGraphicsPayloads binds exact payload slices across multiple images" 
     var preparer = GraphicsPreparer.init(std.testing.allocator);
     defer preparer.deinit();
 
-    const images = [_]abi.FfiVtGraphicsImage{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{
         .{ .image_id = 1, .image_ref_id = 10, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
         .{ .image_id = 2, .image_ref_id = 20, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 },
         .{ .image_id = 3, .image_ref_id = 30, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 1 },
     };
 
-    const payloads = try preparer.sourceGraphicsPayloads(images[0..], "ABCDEF", .legacy_protocol);
+    const payloads = try preparer.sourceGraphicsPayloads(images[0..], "ABCDEF");
     defer std.testing.allocator.free(payloads);
 
     try std.testing.expectEqual(@as(usize, 3), payloads.len);
@@ -354,28 +328,13 @@ test "sourceGraphicsPayloads rejects trailing or truncated multi-image payload b
     var preparer = GraphicsPreparer.init(std.testing.allocator);
     defer preparer.deinit();
 
-    const images = [_]abi.FfiVtGraphicsImage{
+    const images = [_]abi.FfiVtGraphicsDecodedImage{
         .{ .image_id = 1, .image_ref_id = 10, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
         .{ .image_id = 2, .image_ref_id = 20, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 2 },
     };
 
-    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], "ABCDE", .legacy_protocol));
-    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], "ABC", .legacy_protocol));
-}
-
-test "decoded graphics key distinguishes payload kind" {
-    const image = abi.FfiVtGraphicsImage{
-        .image_id = 1,
-        .image_ref_id = 10,
-        .image_number = 0,
-        .format = 24,
-        .width = 1,
-        .height = 1,
-        .payload_len = 3,
-    };
-    const legacy_key = graphicsKeyForPayload(.legacy_protocol, image, "ABC");
-    const decoded_key = graphicsKeyForPayload(.decoded_pixels, image, "ABC");
-    try std.testing.expect(!decodedGraphicsKeyEqual(legacy_key, decoded_key));
+    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], "ABCDE"));
+    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], "ABC"));
 }
 
 test "decoded graphics prepares raw rgb and rgba payloads" {
@@ -388,8 +347,8 @@ test "decoded graphics prepares raw rgb and rgba payloads" {
         .placements = &.{},
     };
     defer rgb_graphics.deinit(std.testing.allocator);
-    const rgb_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 1, .image_ref_id = 10, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 }};
-    try preparer.prepare(&rgb_graphics, rgb_images[0..], &.{ 1, 2, 3 }, .decoded_pixels);
+    const rgb_images = [_]abi.FfiVtGraphicsDecodedImage{.{ .image_id = 1, .image_ref_id = 10, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 }};
+    try preparer.prepare(&rgb_graphics, rgb_images[0..], &.{ 1, 2, 3 });
     try std.testing.expectEqual(@as(usize, 1), rgb_graphics.images.len);
     try std.testing.expectEqual(@as(u32, 10), rgb_graphics.images[0].image_ref_id);
     try std.testing.expectEqual(@as(u32, 0), rgb_graphics.images[0].raster_index);
@@ -401,8 +360,8 @@ test "decoded graphics prepares raw rgb and rgba payloads" {
         .placements = &.{},
     };
     defer rgba_graphics.deinit(std.testing.allocator);
-    const rgba_images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 2, .image_ref_id = 20, .image_number = 0, .format = 32, .width = 1, .height = 1, .payload_len = 4 }};
-    try preparer.prepare(&rgba_graphics, rgba_images[0..], &.{ 4, 5, 6, 7 }, .decoded_pixels);
+    const rgba_images = [_]abi.FfiVtGraphicsDecodedImage{.{ .image_id = 2, .image_ref_id = 20, .image_number = 0, .format = 32, .width = 1, .height = 1, .payload_len = 4 }};
+    try preparer.prepare(&rgba_graphics, rgba_images[0..], &.{ 4, 5, 6, 7 });
     try std.testing.expectEqual(@as(u32, 0), rgba_graphics.images[0].raster_index);
     try std.testing.expectEqualSlices(u8, &.{ 4, 5, 6, 7 }, preparer.raster(0).?.pixels_rgba);
 }
@@ -411,9 +370,9 @@ test "decoded graphics rejects exact byte and format violations" {
     var preparer = GraphicsPreparer.init(std.testing.allocator);
     defer preparer.deinit();
 
-    const images = [_]abi.FfiVtGraphicsImage{.{ .image_id = 1, .image_ref_id = 10, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 }};
-    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], &.{ 1, 2 }, .decoded_pixels));
-    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], &.{ 1, 2, 3, 4 }, .decoded_pixels));
+    const images = [_]abi.FfiVtGraphicsDecodedImage{.{ .image_id = 1, .image_ref_id = 10, .image_number = 0, .format = 24, .width = 1, .height = 1, .payload_len = 3 }};
+    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], &.{ 1, 2 }));
+    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.sourceGraphicsPayloads(images[0..], &.{ 1, 2, 3, 4 }));
 
     var graphics = surface.PreparedGraphics{
         .publication_seq = 1,
@@ -421,6 +380,6 @@ test "decoded graphics rejects exact byte and format violations" {
         .placements = &.{},
     };
     defer graphics.deinit(std.testing.allocator);
-    const unsupported = [_]abi.FfiVtGraphicsImage{.{ .image_id = 2, .image_ref_id = 20, .image_number = 0, .format = 100, .width = 1, .height = 1, .payload_len = 4 }};
-    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.prepare(&graphics, unsupported[0..], &.{ 1, 2, 3, 4 }, .decoded_pixels));
+    const unsupported = [_]abi.FfiVtGraphicsDecodedImage{.{ .image_id = 2, .image_ref_id = 20, .image_number = 0, .format = 100, .width = 1, .height = 1, .payload_len = 4 }};
+    try std.testing.expectError(error.InvalidGraphicsPayload, preparer.prepare(&graphics, unsupported[0..], &.{ 1, 2, 3, 4 }));
 }

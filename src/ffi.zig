@@ -26,7 +26,6 @@ const FfiSurfaceExecutionInput = abi.FfiSurfaceExecutionInput;
 const FfiSurfaceFeedback = abi.FfiSurfaceFeedback;
 const FfiPreparedSurfaceInfo = abi.FfiPreparedSurfaceInfo;
 const FfiVtRenderColorState = abi.FfiVtRenderColorState;
-const FfiVtSurface = abi.FfiVtSurface;
 
 const surfaceTextDeriveFrameLayout = surface_text_ffi.deriveFrameLayout;
 const surfaceTextInit = surface_text_ffi.init;
@@ -37,9 +36,8 @@ const surfaceTextSetFontPath = surface_text_ffi.setFontPath;
 const surfaceTextSetFallbackFontPaths = surface_text_ffi.setFallbackFontPaths;
 const surfaceTextSetCursorBlinkVisible = surface_text_ffi.setCursorBlinkVisible;
 const surfaceTextSyncGeometry = surface_text_ffi.syncGeometry;
-const surfaceTextPublishVtSource = surface_text_ffi.publishVtSource;
 const surfaceTextReservePublishSlot = surface_text_ffi.reservePublishSlot;
-const surfaceTextCommitPublishSlot = surface_text_ffi.commitPublishSlot;
+const surfaceTextCommitPublishDecodedGraphicsSlot = surface_text_ffi.commitPublishDecodedGraphicsSlot;
 const surfaceTextRejectPublishSlot = surface_text_ffi.rejectPublishSlot;
 const surfaceTextCancelPublishSlot = surface_text_ffi.cancelPublishSlot;
 const surfaceTextTakePrepareRequest = surface_text_ffi.takePrepareRequest;
@@ -85,29 +83,6 @@ fn testCursor(shape: u8) FfiVtCursor {
     return .{ .row = 0, .col = 0, .visible = 1, .shape = shape, .blink = 0 };
 }
 
-fn testVtSurface(cells: []const FfiVtCell, cursor: FfiVtCursor) FfiVtSurface {
-    return .{
-        .cells = .{ .ptr = if (cells.len == 0) null else cells.ptr, .len = cells.len },
-        .cols = 1,
-        .rows = 1,
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = 0,
-        .dirty_rows = .{ .ptr = null, .len = 0 },
-        .dirty_cols_start = .{ .ptr = null, .len = 0 },
-        .dirty_cols_end = .{ .ptr = null, .len = 0 },
-        .cursor = cursor,
-        .colors = std.mem.zeroes(FfiVtRenderColorState),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
-        .graphics_images = .{ .ptr = null, .len = 0 },
-        .graphics_placements = .{ .ptr = null, .len = 0 },
-        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
-        .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
-    };
-}
-
 fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
     const render_px = FfiPixelSize{ .width = 16, .height = 16 };
     const grid_px = FfiPixelSize{ .width = 16, .height = 16 };
@@ -123,23 +98,31 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
     });
     try std.testing.expectEqual(@as(c_int, 0), sync.status);
 
-    const cells = [_]FfiVtCell{testCell()};
-    const publish = surfaceTextPublishVtSource(handle, .{
-        .cells = .{ .ptr = cells[0..].ptr, .len = cells.len },
-        .cols = 1,
-        .rows = 1,
+    var slot: FfiPublishSlot = undefined;
+    try std.testing.expectEqual(
+        @intFromEnum(HowlRenderCallStatus.ok),
+        surfaceTextReservePublishSlot(handle, 1, 1, &slot),
+    );
+    slot.cells.ptr[0] = testCell();
+    slot.dirty_rows.ptr[0] = dirty_rows[0];
+    slot.dirty_cols_start.ptr[0] = dirty_cols_start[0];
+    slot.dirty_cols_end.ptr[0] = dirty_cols_end[0];
+
+    const publish = surfaceTextCommitPublishDecodedGraphicsSlot(handle, .{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = 0,
         .reserved0 = 0,
         .reserved1 = 0,
-        .dirty_rows = .{ .ptr = dirty_rows[0..].ptr, .len = dirty_rows.len },
-        .dirty_cols_start = .{ .ptr = dirty_cols_start[0..].ptr, .len = dirty_cols_start.len },
-        .dirty_cols_end = .{ .ptr = dirty_cols_end[0..].ptr, .len = dirty_cols_end.len },
         .cursor = testCursor(0),
         .colors = std.mem.zeroes(FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .graphics_images = .{ .ptr = null, .len = 0 },
+        .graphics_placements = .{ .ptr = null, .len = 0 },
+        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
+        .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
     });
     try std.testing.expectEqual(@as(c_int, 0), publish.status);
 
@@ -147,15 +130,6 @@ fn nextPrepareInput(handle: SurfaceTextHandle) !TestPrepareInput {
     try std.testing.expectEqual(HowlRenderPrepareStatus.ready, surfaceTextTakePrepareRequest(handle, &request));
 
     return .{ .request = request };
-}
-
-fn expectPublishVtSourceFails(vt_surface: FfiVtSurface) !void {
-    const handle = testHandle();
-    defer surfaceTextDeinit(handle);
-    try std.testing.expect(handle != null);
-
-    const result = surfaceTextPublishVtSource(handle, vt_surface);
-    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.invalid_argument), result.status);
 }
 
 test "ffi surface session rejects missing handle" {
@@ -247,29 +221,6 @@ test "ffi fallback font paths accept abi limit and reject overflow" {
     );
 }
 
-test "ffi vt source rejects invalid dirty spans" {
-    const handle = testHandle();
-    defer surfaceTextDeinit(handle);
-
-    const cells = [_]FfiVtCell{testCell()};
-    const result = surfaceTextPublishVtSource(handle, .{
-        .cells = .{ .ptr = cells[0..].ptr, .len = cells.len },
-        .cols = 1,
-        .rows = 1,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = 0,
-        .reserved0 = 0,
-        .reserved1 = 0,
-        .dirty_rows = .{ .ptr = null, .len = 1 },
-        .dirty_cols_start = .{ .ptr = null, .len = 1 },
-        .dirty_cols_end = .{ .ptr = null, .len = 1 },
-        .cursor = testCursor(0),
-        .colors = std.mem.zeroes(FfiVtRenderColorState),
-    });
-    try std.testing.expectEqual(@intFromEnum(HowlRenderCallStatus.invalid_argument), result.status);
-}
-
 test "ffi prepared frame rejects invalid damage kind" {
     const handle = testHandle();
     defer surfaceTextDeinit(handle);
@@ -290,38 +241,6 @@ test "ffi prepared frame rejects invalid damage kind" {
         @intFromEnum(HowlRenderCallStatus.invalid_argument),
         surfaceTextAcceptSubmitted(handle, prepared),
     );
-}
-
-test "ffi vt source rejects invalid cell color kind" {
-    var cell = testCell();
-    cell.fg_color.kind = 9;
-    const cells = [_]FfiVtCell{cell};
-    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
-}
-
-test "ffi vt source rejects rgb value outside u24" {
-    var cell = testCell();
-    cell.fg_color.kind = 2;
-    cell.fg_color.value = std.math.maxInt(u24) + 1;
-    const cells = [_]FfiVtCell{cell};
-    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
-}
-
-test "ffi vt source rejects invalid cursor shape" {
-    const cells = [_]FfiVtCell{testCell()};
-    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(9)));
-}
-
-test "ffi vt source rejects invalid underline style" {
-    var cell = testCell();
-    cell.underline_style = 9;
-    const cells = [_]FfiVtCell{cell};
-    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
-}
-
-test "ffi vt source rejects extra cells beyond declared grid" {
-    const cells = [_]FfiVtCell{ testCell(), testCell() };
-    try expectPublishVtSourceFails(testVtSurface(&cells, testCursor(0)));
 }
 
 test "ffi publish slot exposes render-owned reserved cells directly" {
@@ -353,12 +272,18 @@ test "ffi publish slot exposes render-owned reserved cells directly" {
     slot.dirty_cols_start.ptr[0] = 0;
     slot.dirty_cols_end.ptr[0] = 0;
 
-    const publish = surfaceTextCommitPublishSlot(handle, .{
+    const publish = surfaceTextCommitPublishDecodedGraphicsSlot(handle, .{
         .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = 0,
         .cursor = testCursor(0),
         .colors = std.mem.zeroes(FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
+        .graphics_images = .{ .ptr = null, .len = 0 },
+        .graphics_placements = .{ .ptr = null, .len = 0 },
+        .graphics_virtual_placements = .{ .ptr = null, .len = 0 },
+        .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
     });
     try std.testing.expectEqual(@as(c_int, 0), publish.status);
     try std.testing.expectEqual(@as(u8, 1), publish.published);

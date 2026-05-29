@@ -573,21 +573,24 @@ fn nextPrepareRequest(handle: abi.SurfaceTextHandle, snapshot_seq: u64) !abi.Ffi
     });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, sync.status);
 
-    const cells = [_]abi.FfiVtCell{testCell()};
     const dirty_rows = [_]u8{1};
     const dirty_cols_start = [_]u16{0};
     const dirty_cols_end = [_]u16{0};
-    const publish = surface_text_ffi.publishVtSource(handle, .{
-        .cells = .{ .ptr = cells[0..].ptr, .len = cells.len },
-        .cols = 1,
-        .rows = 1,
+    var slot = std.mem.zeroes(abi.FfiPublishSlot);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_OK,
+        surface_text_ffi.reservePublishSlot(handle, 1, 1, &slot),
+    );
+    slot.cells.ptr[0] = testCell();
+    slot.dirty_rows.ptr[0] = dirty_rows[0];
+    slot.dirty_cols_start.ptr[0] = dirty_cols_start[0];
+    slot.dirty_cols_end.ptr[0] = dirty_cols_end[0];
+
+    const publish = surface_text_ffi.commitPublishDecodedGraphicsSlot(handle, .{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = snapshot_seq,
         .is_alternate_screen = 0,
-        .dirty_rows = .{ .ptr = dirty_rows[0..].ptr, .len = dirty_rows.len },
-        .dirty_cols_start = .{ .ptr = dirty_cols_start[0..].ptr, .len = dirty_cols_start.len },
-        .dirty_cols_end = .{ .ptr = dirty_cols_end[0..].ptr, .len = dirty_cols_end.len },
         .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
