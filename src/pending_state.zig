@@ -3,11 +3,11 @@ const handle_owner = @import("handle.zig");
 const source_prepare = @import("source/prepare_request.zig");
 
 pub fn pendingState(
-    value: c.HowlRenderSurfaceTextHandle,
+    value: c.HowlRenderTextSessionHandle,
     out: ?*c.HowlRenderPendingState,
 ) callconv(.c) c_int {
     const pending_out = out;
-    const owner = handle_owner.surfaceTextOwner(value) orelse {
+    const owner = handle_owner.textSessionOwner(value) orelse {
         if (pending_out) |pending| pending.* = pendingStateFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
         return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     };

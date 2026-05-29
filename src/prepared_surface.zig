@@ -6,13 +6,13 @@ const prepare_request_boundary = @import("prepare_request.zig");
 const submit_result = @import("submit_result.zig");
 
 pub fn prepareHandle(
-    surface_text_handle: c.HowlRenderSurfaceTextHandle,
+    text_session_handle: c.HowlRenderTextSessionHandle,
     prepare_request: c.HowlRenderPrepareRequest,
     prepared_handle_out: ?*c.HowlRenderPreparedSurfaceHandle,
 ) callconv(.c) c_int {
     const prepared_out = prepared_handle_out;
     if (prepared_out) |value| value.* = null;
-    const owner = handle_owner.surfaceTextOwner(surface_text_handle) orelse return c.HOWL_RENDER_PREPARE_FAILED;
+    const owner = handle_owner.textSessionOwner(text_session_handle) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const value = prepared_out orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const token = prepare_request_boundary.prepareTokenIn(prepare_request) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const prepared = owner.prepareHandle(token) catch return c.HOWL_RENDER_PREPARE_FAILED;

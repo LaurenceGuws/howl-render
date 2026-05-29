@@ -1,8 +1,8 @@
 const std = @import("std");
-const geometry_mod = @import("geometry.zig");
-const input = @import("input.zig");
-const tokens = @import("tokens.zig");
-const prepared_owner = @import("prepared_owner.zig");
+const geometry_mod = @import("../surface/geometry.zig");
+const input = @import("../surface/input.zig");
+const tokens = @import("../surface/tokens.zig");
+const prepared_owner = @import("../surface/prepared_owner.zig");
 const prepared_submit = @import("../prepared/submit.zig");
 const render_geometry = @import("../render/geometry.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
@@ -12,7 +12,7 @@ const source_slot = @import("../source/slot.zig");
 const source_prepare = @import("../source/prepare_request.zig");
 const prepared_surface = @import("../prepared/surface.zig");
 const prepared_submit_result = @import("../prepared/submit_result.zig");
-const session_submitted = @import("../session/submitted.zig");
+const session_submitted = @import("submitted.zig");
 const contract = @import("../text/contract.zig");
 const text_pipeline = @import("../text/pipeline.zig");
 const text = @import("../text/text.zig");
@@ -48,13 +48,13 @@ fn lockMutex(mutex: *ThreadMutex) void {
     std.Io.Threaded.mutexLock(&mutex.state);
 }
 
-pub const SurfaceTextConfig = struct {
+pub const TextSessionConfig = struct {
     surface_px: geometry_contract.PixelSize,
     font_size_px: u16 = 16,
     font_path: ?[:0]const u8 = null,
 };
 
-pub const SurfaceText = struct {
+pub const TextSession = struct {
     allocator: std.mem.Allocator,
     text_state: text_support.State,
     mutex: ThreadMutex = .{},
@@ -62,8 +62,8 @@ pub const SurfaceText = struct {
     cell_input_scratch: []contract.CellInput = &.{},
 
     const TextContext = struct {
-        session: *SurfaceText,
-        session_config: SurfaceTextConfig,
+        session: *TextSession,
+        session_config: TextSessionConfig,
     };
 
     pub const FrameLayout = geometry_contract.SurfaceLayout;
@@ -75,20 +75,20 @@ pub const SurfaceText = struct {
         render_us: u64,
     };
     pub const PrepareInput = struct {
-        config: SurfaceTextConfig,
+        config: TextSessionConfig,
         request: tokens.RenderRequest,
         layout: geometry_contract.PrepareLayout,
         state: source_vt.PublicationSource,
     };
 
-    pub fn init(allocator: std.mem.Allocator) SurfaceText {
+    pub fn init(allocator: std.mem.Allocator) TextSession {
         return .{
             .allocator = allocator,
             .text_state = text_support.State.init(allocator),
         };
     }
 
-    pub fn deinit(self: *SurfaceText) void {
+    pub fn deinit(self: *TextSession) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         if (self.text_preparer) |*preparer| {
@@ -101,8 +101,8 @@ pub const SurfaceText = struct {
     }
 
     pub fn deriveLayout(
-        self: *SurfaceText,
-        config: SurfaceTextConfig,
+        self: *TextSession,
+        config: TextSessionConfig,
         render_px: geometry_contract.PixelSize,
         grid_px: geometry_contract.PixelSize,
     ) geometry_mod.FrameGeometryError!FrameLayout {
@@ -116,7 +116,7 @@ pub const SurfaceText = struct {
         return .{ .cell_px = layout.cell_px, .grid = layout.grid };
     }
 
-    pub fn isValidFont(self: *SurfaceText, config: SurfaceTextConfig) bool {
+    pub fn isValidFont(self: *TextSession, config: TextSessionConfig) bool {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         var context = TextContext{ .session = self, .session_config = config };
@@ -128,7 +128,7 @@ pub const SurfaceText = struct {
         return false;
     }
 
-    pub fn prepareSurface(self: *SurfaceText, prepare: PrepareInput) !prepared_surface.PreparedSurface {
+    pub fn prepareSurface(self: *TextSession, prepare: PrepareInput) !prepared_surface.PreparedSurface {
         var faces: [max_font_faces]text.FontSession.FontFaceRecord = undefined;
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
@@ -145,7 +145,7 @@ pub const SurfaceText = struct {
     }
 
     pub fn submitSurface(
-        self: *SurfaceText,
+        self: *TextSession,
         prepared: *prepared_surface.PreparedSurface,
         execution: SubmitExecution,
     ) !prepared_submit_result.SubmitResult {
@@ -173,7 +173,7 @@ pub const SurfaceText = struct {
         return final;
     }
 
-    pub fn atlasRaster(self: *SurfaceText, key: contract.SpriteKey) ?text.AtlasCache.StoredRaster {
+    pub fn atlasRaster(self: *TextSession, key: contract.SpriteKey) ?text.AtlasCache.StoredRaster {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         const preparer = self.text_preparer orelse return null;
@@ -200,7 +200,7 @@ pub const SurfaceText = struct {
         };
     }
 
-    fn ensureTextPreparer(self: *SurfaceText, context: *TextContext) !*text.TextFramePreparer {
+    fn ensureTextPreparer(self: *TextSession, context: *TextContext) !*text.TextFramePreparer {
         const capacity = ftHbCapacity(context);
         if (self.text_preparer == null) {
             var ft_hb = ftHbSource(context);
@@ -232,7 +232,7 @@ pub const SurfaceText = struct {
         };
     }
 
-    fn ensureCellInputScratchCapacity(self: *SurfaceText, cell_count: usize) !void {
+    fn ensureCellInputScratchCapacity(self: *TextSession, cell_count: usize) !void {
         if (self.cell_input_scratch.len >= cell_count) return;
         const scratch = try self.allocator.alloc(contract.CellInput, cell_count);
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
@@ -331,16 +331,16 @@ pub const SurfaceText = struct {
     }
 };
 
-pub const SurfaceTextOwner = struct {
+pub const TextSessionOwner = struct {
     allocator: std.mem.Allocator,
-    session: SurfaceText,
+    session: TextSession,
     geometry: render_geometry.GeometryOwner,
     source_slot: source_slot.SourceSlot,
     prepare_requests: source_prepare.PrepareRequests,
     submitted: session_submitted.Submitted,
     source_dirty_epoch: u64 = 0,
     cursor_blink_visible: bool = true,
-    config: SurfaceTextConfig,
+    config: TextSessionConfig,
     prepared_publish_handle: PreparedSurfaceHandle = null,
     prepared_submit_handle: PreparedSurfaceHandle = null,
     prepared_handles: std.ArrayList(*prepared_owner.Owner) = .empty,
@@ -353,12 +353,12 @@ pub const SurfaceTextOwner = struct {
 
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };
 
-    pub fn create(allocator: std.mem.Allocator, config: SurfaceTextConfig) ?*SurfaceTextOwner {
+    pub fn create(allocator: std.mem.Allocator, config: TextSessionConfig) ?*TextSessionOwner {
         std.debug.assert(config.font_size_px > 0);
-        const owner = allocator.create(SurfaceTextOwner) catch return null;
+        const owner = allocator.create(TextSessionOwner) catch return null;
         owner.* = .{
             .allocator = allocator,
-            .session = SurfaceText.init(allocator),
+            .session = TextSession.init(allocator),
             .geometry = .{},
             .source_slot = source_slot.SourceSlot.init(allocator),
             .prepare_requests = source_prepare.PrepareRequests.init(allocator),
@@ -368,7 +368,7 @@ pub const SurfaceTextOwner = struct {
         return owner;
     }
 
-    pub fn destroy(self: *SurfaceTextOwner) void {
+    pub fn destroy(self: *TextSessionOwner) void {
         self.prepared_publish_handle = null;
         self.prepared_submit_handle = null;
         for (self.prepared_handles.items) |prepared| prepared.destroy();
@@ -384,13 +384,13 @@ pub const SurfaceTextOwner = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn setFontSizePx(self: *SurfaceTextOwner, font_size_px: u16) void {
+    pub fn setFontSizePx(self: *TextSessionOwner, font_size_px: u16) void {
         std.debug.assert(font_size_px > 0);
         self.config.font_size_px = font_size_px;
         self.invalidateTextState();
     }
 
-    pub fn setFontPathBytes(self: *SurfaceTextOwner, bytes: ?[]const u8) FontConfigError!void {
+    pub fn setFontPathBytes(self: *TextSessionOwner, bytes: ?[]const u8) FontConfigError!void {
         const value = bytes orelse {
             self.setOwnedFontPath(null);
             return;
@@ -403,7 +403,7 @@ pub const SurfaceTextOwner = struct {
         self.setOwnedFontPath(owned);
     }
 
-    pub fn setFallbackFontPathPtrs(self: *SurfaceTextOwner, raw_paths: []const ?[*]const u8) FontConfigError!void {
+    pub fn setFallbackFontPathPtrs(self: *TextSessionOwner, raw_paths: []const ?[*]const u8) FontConfigError!void {
         const path_count = text_support.fallbackFontCount(count32(raw_paths)) orelse return error.InvalidArgument;
         var staged = std.ArrayList([:0]u8).empty;
         defer freeOwnedFallbackFontPaths(self.allocator, &staged);
@@ -423,11 +423,11 @@ pub const SurfaceTextOwner = struct {
         self.adoptFallbackFontPaths(&staged);
     }
 
-    pub fn isValidFont(self: *SurfaceTextOwner) bool {
+    pub fn isValidFont(self: *TextSessionOwner) bool {
         return self.session.isValidFont(self.config);
     }
 
-    pub fn prepareHandle(self: *SurfaceTextOwner, token: tokens.SnapshotToken) !*prepared_owner.Owner {
+    pub fn prepareHandle(self: *TextSessionOwner, token: tokens.SnapshotToken) !*prepared_owner.Owner {
         const consume = try self.prepare_requests.consumePrepare(
             self.geometry.prepareLayout(token.geometry_epoch),
             token,
@@ -443,17 +443,17 @@ pub const SurfaceTextOwner = struct {
         return prepared_owner.Owner.create(self, prepared);
     }
 
-    pub fn registerPreparedHandle(self: *SurfaceTextOwner, prepared: *prepared_owner.Owner) !void {
+    pub fn registerPreparedHandle(self: *TextSessionOwner, prepared: *prepared_owner.Owner) !void {
         try self.prepared_handles.append(self.allocator, prepared);
     }
 
-    pub fn clearCachedPreparedHandle(self: *SurfaceTextOwner, prepared: *prepared_owner.Owner) void {
+    pub fn clearCachedPreparedHandle(self: *TextSessionOwner, prepared: *prepared_owner.Owner) void {
         const handle: PreparedSurfaceHandle = @ptrCast(prepared);
         if (self.prepared_publish_handle == handle) self.prepared_publish_handle = null;
         if (self.prepared_submit_handle == handle) self.prepared_submit_handle = null;
     }
 
-    pub fn invalidateTextState(self: *SurfaceTextOwner) void {
+    pub fn invalidateTextState(self: *TextSessionOwner) void {
         text_support.resetLoadedFace(&self.session);
         self.session.text_state.face_text_cache.clear();
         self.session.text_state.shape_run_cache.clear();
@@ -462,7 +462,7 @@ pub const SurfaceTextOwner = struct {
         self.clearRetainedSurface();
     }
 
-    pub fn setOwnedFontPath(self: *SurfaceTextOwner, owned: ?[:0]u8) void {
+    pub fn setOwnedFontPath(self: *TextSessionOwner, owned: ?[:0]u8) void {
         if (owned) |path| std.debug.assert(path.len > 0);
         const old = self.font_path;
         self.font_path = owned;
@@ -471,7 +471,7 @@ pub const SurfaceTextOwner = struct {
         if (old) |path| self.allocator.free(path);
     }
 
-    pub fn adoptFallbackFontPaths(self: *SurfaceTextOwner, owned_paths: *std.ArrayList([:0]u8)) void {
+    pub fn adoptFallbackFontPaths(self: *TextSessionOwner, owned_paths: *std.ArrayList([:0]u8)) void {
         var old = self.fallback_font_paths;
         self.fallback_font_paths = owned_paths.*;
         owned_paths.* = .empty;
@@ -481,7 +481,7 @@ pub const SurfaceTextOwner = struct {
     }
 
     pub fn requiredRetainedSurfaceBase(
-        self: *const SurfaceTextOwner,
+        self: *const TextSessionOwner,
         prepared: *const prepared_surface.PreparedSurface,
     ) []const u8 {
         std.debug.assert(prepared.damageKind() == .partial);
@@ -496,7 +496,7 @@ pub const SurfaceTextOwner = struct {
         return self.retained_surface_pixels;
     }
 
-    pub fn retainSurfacePixels(self: *SurfaceTextOwner, pixels: *[]u8, width: u16, height: u16, snapshot_seq: u64) void {
+    pub fn retainSurfacePixels(self: *TextSessionOwner, pixels: *[]u8, width: u16, height: u16, snapshot_seq: u64) void {
         std.debug.assert(width > 0);
         std.debug.assert(height > 0);
         const pixels_len: u64 = @as(u64, width) * @as(u64, height) * 4;
@@ -511,7 +511,7 @@ pub const SurfaceTextOwner = struct {
         pixels.* = &.{};
     }
 
-    pub fn clearRetainedSurface(self: *SurfaceTextOwner) void {
+    pub fn clearRetainedSurface(self: *TextSessionOwner) void {
         if (self.retained_surface_pixels.len > 0) self.allocator.free(self.retained_surface_pixels);
         self.retained_surface_pixels = &.{};
         self.retained_surface_width = 0;
@@ -519,18 +519,18 @@ pub const SurfaceTextOwner = struct {
         self.retained_surface_snapshot_seq = 0;
     }
 
-    pub fn nextSourceDirtyEpoch(self: *SurfaceTextOwner) u64 {
+    pub fn nextSourceDirtyEpoch(self: *TextSessionOwner) u64 {
         self.source_dirty_epoch +%= 1;
         if (self.source_dirty_epoch == 0) self.source_dirty_epoch = 1;
         return self.source_dirty_epoch;
     }
 
-    pub fn submittedToken(self: *SurfaceTextOwner) ?tokens.SnapshotToken {
+    pub fn submittedToken(self: *TextSessionOwner) ?tokens.SnapshotToken {
         return self.submitted.submittedToken();
     }
 
     pub fn syncGeometry(
-        self: *SurfaceTextOwner,
+        self: *TextSessionOwner,
         layout: geometry_contract.Geometry,
     ) !geometry_contract.GeometryResponse {
         const response = self.geometry.sync(layout);
@@ -543,7 +543,7 @@ pub const SurfaceTextOwner = struct {
         return response;
     }
 
-    pub fn setCursorBlinkVisible(self: *SurfaceTextOwner, visible: bool) bool {
+    pub fn setCursorBlinkVisible(self: *TextSessionOwner, visible: bool) bool {
         if (self.cursor_blink_visible == visible) return false;
         self.cursor_blink_visible = visible;
         var changed = false;
@@ -555,22 +555,22 @@ pub const SurfaceTextOwner = struct {
         return true;
     }
 
-    pub fn reservePublishSlot(self: *SurfaceTextOwner, cols: u16, rows: u16) !source_slot.PublicationSlot {
+    pub fn reservePublishSlot(self: *TextSessionOwner, cols: u16, rows: u16) !source_slot.PublicationSlot {
         if (self.prepare_requests.retainedSlotInUse()) return error.PublishSlotBusy;
         return try self.source_slot.reserveSourceSlot(cols, rows);
     }
 
-    pub fn commitPublishSlot(self: *SurfaceTextOwner, meta: source_vt.ReservedSourceMeta) !source_vt.VtPublishResult {
+    pub fn commitPublishSlot(self: *TextSessionOwner, meta: source_vt.ReservedSourceMeta) !source_vt.VtPublishResult {
         var source = try self.source_slot.commitReservedSource(meta, self.nextSourceDirtyEpoch());
         source.cursor_phase_visible = self.cursor_blink_visible;
         return self.prepare_requests.acceptSource(source, self.submittedToken(), self.geometry.geometry_epoch);
     }
 
-    pub fn cancelPublishSlot(self: *SurfaceTextOwner) void {
+    pub fn cancelPublishSlot(self: *TextSessionOwner) void {
         self.source_slot.cancelReservedSource();
     }
 
-    pub fn rejectPublishSlot(self: *SurfaceTextOwner, snapshot_seq: u64) source_vt.VtPublishResult {
+    pub fn rejectPublishSlot(self: *TextSessionOwner, snapshot_seq: u64) source_vt.VtPublishResult {
         std.debug.assert(snapshot_seq != 0);
         self.source_slot.cancelReservedSource();
         return .{
@@ -582,7 +582,7 @@ pub const SurfaceTextOwner = struct {
         };
     }
 
-    pub fn prepare(self: *SurfaceTextOwner) ?tokens.RenderRequest {
+    pub fn prepare(self: *TextSessionOwner) ?tokens.RenderRequest {
         const submitted_token = self.submittedToken();
         const request = self.prepare_requests.takePrepareRequest(
             self.geometry.geometry_epoch,
@@ -601,11 +601,11 @@ pub const SurfaceTextOwner = struct {
         return self.prepare_requests.active.?.request;
     }
 
-    pub fn publishPrepared(self: *SurfaceTextOwner, prepared: tokens.PreparedSurfaceToken) void {
+    pub fn publishPrepared(self: *TextSessionOwner, prepared: tokens.PreparedSurfaceToken) void {
         self.submitted.publishPrepared(prepared);
     }
 
-    pub fn submit(self: *SurfaceTextOwner) session_submitted.SubmitDecision {
+    pub fn submit(self: *TextSessionOwner) session_submitted.SubmitDecision {
         const decision = self.submitted.takeValidatedSubmitWithLatest(self.prepare_requests.latestToken());
         switch (decision) {
             .stale => |token| self.prepare_requests.retireAtOrBefore(token),
@@ -617,7 +617,7 @@ pub const SurfaceTextOwner = struct {
         return decision;
     }
 
-    pub fn acceptSubmitted(self: *SurfaceTextOwner, submitted: tokens.SubmittedSurfaceToken) void {
+    pub fn acceptSubmitted(self: *TextSessionOwner, submitted: tokens.SubmittedSurfaceToken) void {
         if (submitted.token.geometry_epoch != self.geometry.geometry_epoch) {
             _ = self.prepare_requests.requestFullPrepare(session_submitted.Submitted.forceFull);
             return;
@@ -626,7 +626,7 @@ pub const SurfaceTextOwner = struct {
         self.submitted.acceptSubmitted(submitted);
     }
 
-    pub fn pendingState(self: *const SurfaceTextOwner) source_prepare.PendingState {
+    pub fn pendingState(self: *const TextSessionOwner) source_prepare.PendingState {
         const pending = self.submitted.pendingState();
         return .{
             .source_pending = self.source_slot.sourcePending() or self.prepare_requests.sourcePending(),
@@ -635,7 +635,7 @@ pub const SurfaceTextOwner = struct {
         };
     }
 
-    fn syncFallbackFontPaths(self: *SurfaceTextOwner) void {
+    fn syncFallbackFontPaths(self: *TextSessionOwner) void {
         const count = text_support.fallbackFontCount(count32(self.fallback_font_paths.items)) orelse unreachable;
         self.session.text_state.fallback_font_paths_len = count;
         var slot: text_support.FallbackFontCount = 0;
@@ -655,9 +655,9 @@ pub const SurfaceTextOwner = struct {
 };
 
 test "retainSurfacePixels adopts full pixels for later partial prepares" {
-    var owner = SurfaceTextOwner{
+    var owner = TextSessionOwner{
         .allocator = std.heap.c_allocator,
-        .session = SurfaceText.init(std.heap.c_allocator),
+        .session = TextSession.init(std.heap.c_allocator),
         .geometry = .{},
         .source_slot = source_slot.SourceSlot.init(std.heap.c_allocator),
         .prepare_requests = source_prepare.PrepareRequests.init(std.heap.c_allocator),
@@ -742,10 +742,10 @@ fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepo
 }
 
 test "ft hb retained capacities separate cache slots from run scratch" {
-    var session = SurfaceText.init(std.testing.allocator);
+    var session = TextSession.init(std.testing.allocator);
     defer session.deinit();
 
-    var context = SurfaceText.TextContext{
+    var context = TextSession.TextContext{
         .session = &session,
         .session_config = .{
             .surface_px = .{ .width = 80, .height = 32 },
@@ -753,7 +753,7 @@ test "ft hb retained capacities separate cache slots from run scratch" {
         },
     };
 
-    const capacity = SurfaceText.ftHbCapacity(&context);
+    const capacity = TextSession.ftHbCapacity(&context);
     try std.testing.expectEqual(@as(u32, 20), capacity.face_text_cache_entries);
     try std.testing.expectEqual(@as(u32, 20), capacity.glyph_cell_cache_entries);
     try std.testing.expectEqual(@as(u32, 20), capacity.shape_run_cache_entries);
@@ -762,7 +762,7 @@ test "ft hb retained capacities separate cache slots from run scratch" {
 }
 
 test "surface text owner keeps source and submitted owners separate" {
-    const owner = SurfaceTextOwner.create(
+    const owner = TextSessionOwner.create(
         std.testing.allocator,
         .{ .surface_px = .{ .width = 8, .height = 16 } },
     ) orelse return error.OutOfMemory;
@@ -774,10 +774,10 @@ test "surface text owner keeps source and submitted owners separate" {
 }
 
 test "ft hb retained capacities cap shape run cache slots" {
-    var session = SurfaceText.init(std.testing.allocator);
+    var session = TextSession.init(std.testing.allocator);
     defer session.deinit();
 
-    var context = SurfaceText.TextContext{
+    var context = TextSession.TextContext{
         .session = &session,
         .session_config = .{
             .surface_px = .{ .width = 4096, .height = 4096 },
@@ -785,14 +785,14 @@ test "ft hb retained capacities cap shape run cache slots" {
         },
     };
 
-    const capacity = SurfaceText.ftHbCapacity(&context);
+    const capacity = TextSession.ftHbCapacity(&context);
     try std.testing.expectEqual(@as(u32, ft_hb_shape_run_cache_entry_cap), capacity.shape_run_cache_entries);
     try std.testing.expectEqual(@as(u32, ft_hb_face_text_cache_entry_cap), capacity.face_text_cache_entries);
     try std.testing.expectEqual(@as(u32, ft_hb_glyph_cell_cache_entry_cap), capacity.glyph_cell_cache_entries);
 }
 
 test "surface text retains translated cell scratch across prepares" {
-    var session = SurfaceText.init(std.testing.allocator);
+    var session = TextSession.init(std.testing.allocator);
     defer session.deinit();
 
     try session.ensureCellInputScratchCapacity(4);
@@ -806,9 +806,9 @@ test "surface text retains translated cell scratch across prepares" {
 }
 
 test "invalidateTextState clears retained pixel state" {
-    var owner = SurfaceTextOwner{
+    var owner = TextSessionOwner{
         .allocator = std.heap.c_allocator,
-        .session = SurfaceText.init(std.heap.c_allocator),
+        .session = TextSession.init(std.heap.c_allocator),
         .geometry = .{},
         .source_slot = source_slot.SourceSlot.init(std.heap.c_allocator),
         .prepare_requests = source_prepare.PrepareRequests.init(std.heap.c_allocator),
@@ -834,7 +834,7 @@ test "invalidateTextState clears retained pixel state" {
 }
 
 test "setOwnedFontPath keeps owner and config font paths aligned" {
-    const owner = SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const owner = TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
 
     const first = try std.heap.c_allocator.dupeZ(u8, "first-font");
@@ -855,7 +855,7 @@ test "setOwnedFontPath keeps owner and config font paths aligned" {
 }
 
 test "adoptFallbackFontPaths syncs state and clears stale slots" {
-    const owner = SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const owner = TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
 
     var first = std.ArrayList([:0]u8).empty;
@@ -877,7 +877,7 @@ test "adoptFallbackFontPaths syncs state and clears stale slots" {
 }
 
 test "setFallbackFontPathPtrs rejects overflow and null entries" {
-    const owner = SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const owner = TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
 
     var overflow_paths: [text_support.max_fallback_fonts + 1]?[*]const u8 = [_]?[*]const u8{"font".ptr} ** (text_support.max_fallback_fonts + 1);

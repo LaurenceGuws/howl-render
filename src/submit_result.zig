@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @import("ffi.zig").c;
 const prepared_submit_result = @import("prepared/submit_result.zig");
-const surface_text = @import("surface/text.zig");
+const text_session = @import("session/text.zig");
 
 pub fn metricsOut(value: prepared_submit_result.Metrics) c.HowlRenderMetrics {
     return .{
@@ -49,7 +49,7 @@ pub fn failedSubmitResult() c.HowlRenderSubmitResult {
 
 pub fn submitExecutionIn(
     value: c.HowlRenderSubmitExecution,
-) surface_text.SurfaceText.SubmitExecution {
+) text_session.TextSession.SubmitExecution {
     return .{
         .host_surface = .{
             .host_surface_id = value.host_surface.host_surface_id,

@@ -1,8 +1,8 @@
 const c = @import("ffi.zig").c;
 const prepared_owner = @import("surface/prepared_owner.zig");
-const surface_text = @import("surface/text.zig");
+const text_session = @import("session/text.zig");
 
-pub fn surfaceTextOwner(handle: c.HowlRenderSurfaceTextHandle) ?*surface_text.SurfaceTextOwner {
+pub fn textSessionOwner(handle: c.HowlRenderTextSessionHandle) ?*text_session.TextSessionOwner {
     const owned = handle orelse return null;
     return @ptrCast(@alignCast(owned));
 }

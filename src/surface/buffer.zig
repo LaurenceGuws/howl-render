@@ -1,13 +1,13 @@
 const std = @import("std");
 const prepared_surface = @import("../prepared/surface.zig");
-const surface_text = @import("text.zig");
+const text_session = @import("../session/text.zig");
 const contract = @import("../text/contract.zig");
 const text = @import("../text/text.zig");
 
 pub fn compose(
     allocator: std.mem.Allocator,
     base_pixels: ?[]const u8,
-    session: *surface_text.SurfaceText,
+    session: *text_session.TextSession,
     prepared: *const prepared_surface.PreparedSurface,
 ) ![]u8 {
     const width = prepared.render_px.width;
@@ -42,7 +42,7 @@ const Composer = struct {
     pixels: []u8,
     width: u16,
     height: u16,
-    session: *surface_text.SurfaceText,
+    session: *text_session.TextSession,
     prepared: *const prepared_surface.PreparedSurface,
 
     fn clear(self: *Composer) !void {
@@ -148,7 +148,7 @@ fn drawSprites(
     pixels: []u8,
     width: u16,
     height: u16,
-    session: *surface_text.SurfaceText,
+    session: *text_session.TextSession,
     prepared: *const prepared_surface.PreparedSurface,
 ) !void {
     for (prepared.text_frame.scene.scene.sprite_draws) |draw| {
@@ -158,7 +158,7 @@ fn drawSprites(
 }
 
 fn lookupSprite(
-    session: *surface_text.SurfaceText,
+    session: *text_session.TextSession,
     prepared: *const prepared_surface.PreparedSurface,
     sprite_key: contract.SpriteKey,
 ) !SpriteRaster {
@@ -315,7 +315,7 @@ fn blendPixel(pixels: []u8, dst_index: u32, r: u8, g: u8, b: u8, a: u8) void {
 }
 
 test "compose preserves retained content outside partial updates" {
-    var session = surface_text.SurfaceText.init(std.heap.c_allocator);
+    var session = text_session.TextSession.init(std.heap.c_allocator);
     defer session.deinit();
 
     const allocator = std.testing.allocator;

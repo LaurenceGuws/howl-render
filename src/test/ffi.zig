@@ -11,7 +11,7 @@ const prepared_surface = @import("../prepared_surface.zig");
 const publish_slot = @import("../publish_slot.zig");
 const submission = @import("../submission.zig");
 const surface_geometry = @import("../surface_geometry.zig");
-const surface_text = @import("../surface_text.zig");
+const text_session = @import("../text_session.zig");
 
 const c = ffi_root.c;
 const RenderPublishSlot = @field(c, "Howl" ++ "RenderPublishSlot");
@@ -27,8 +27,8 @@ comptime {
 }
 
 test "render ffi missing handles report shipped contract" {
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, surface_text.setFontSize(null, 12));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, surface_text.isValidFont(null));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, text_session.setFontSize(null, 12));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, text_session.isValidFont(null));
 
     var pending = std.mem.zeroes(c.HowlRenderPendingState);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, pending_state.pendingState(null, &pending));
@@ -54,18 +54,18 @@ test "render ffi missing handles report shipped contract" {
 }
 
 test "render ffi invalid arguments report shipped contract" {
-    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer surface_text.deinit(handle);
+    const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, surface_text.setFontSize(handle, 0));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, surface_text.setFontPath(handle, null, 1));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, text_session.setFontSize(handle, 0));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, text_session.setFontPath(handle, null, 1));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, publish_slot.reservePublishSlot(handle, 0, 1, null));
 }
 
 test "render ffi lifecycle exports geometry and layout contract" {
-    const handle = surface_text.init(.{ .surface_px = .{ .width = 32, .height = 32 }, .font_size_px = 8 });
-    defer surface_text.deinit(handle);
+    const handle = text_session.init(.{ .surface_px = .{ .width = 32, .height = 32 }, .font_size_px = 8 });
+    defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
 
     const layout = surface_geometry.deriveLayout(handle, .{ .width = 32, .height = 32 }, .{ .width = 32, .height = 32 });
@@ -79,8 +79,8 @@ test "render ffi lifecycle exports geometry and layout contract" {
 }
 
 test "render ffi publish slot translates vt cell ffi storage" {
-    const handle = surface_text.init(.{ .surface_px = .{ .width = 256, .height = 128 }, .font_size_px = 8 });
-    defer surface_text.deinit(handle);
+    const handle = text_session.init(.{ .surface_px = .{ .width = 256, .height = 128 }, .font_size_px = 8 });
+    defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
 
     const geometry = surface_geometry.syncGeometry(handle, .{ .render_px = .{ .width = 256, .height = 128 }, .grid_px = .{ .width = 256, .height = 128 } });
@@ -131,8 +131,8 @@ test "render ffi rejects invalid publish color kind" {
 }
 
 test "render ffi reserve write commit and take prepare succeeds" {
-    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer surface_text.deinit(handle);
+    const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
 
     _ = surface_geometry.syncGeometry(handle, .{
@@ -156,8 +156,8 @@ test "render ffi reserve write commit and take prepare succeeds" {
 }
 
 test "render ffi prepare and submit seams report initial idle contract" {
-    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer surface_text.deinit(handle);
+    const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
 
     var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
@@ -168,8 +168,8 @@ test "render ffi prepare and submit seams report initial idle contract" {
 }
 
 test "render ffi valid prepared surface tokens are accepted by publish prepared" {
-    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer surface_text.deinit(handle);
+    const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPrepared(handle, validFullPreparedSurfaceToken()));
@@ -177,8 +177,8 @@ test "render ffi valid prepared surface tokens are accepted by publish prepared"
 }
 
 test "render ffi invalid prepared surface tokens are rejected at prepared seams" {
-    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer surface_text.deinit(handle);
+    const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
 
     const prepared_handle = try createPreparedHandle(handle);
@@ -226,8 +226,8 @@ test "render ffi invalid prepared surface tokens are rejected at prepared seams"
 }
 
 test "render ffi invalid prepare requests fail and leave output handle null" {
-    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer surface_text.deinit(handle);
+    const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
 
     var zero_snapshot = validFullPrepareRequest();
@@ -260,8 +260,8 @@ test "render ffi invalid prepare requests fail and leave output handle null" {
 }
 
 test "render ffi live prepared handle describes buffer and diagnostics" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
@@ -281,8 +281,8 @@ test "render ffi live prepared handle describes buffer and diagnostics" {
 }
 
 test "render ffi released prepared handle rejects describe buffer and diagnostics" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
     prepared_surface.release(prepared_handle);
@@ -303,8 +303,8 @@ test "render ffi released prepared handle rejects describe buffer and diagnostic
 }
 
 test "render ffi prepared handle release is idempotent" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
     prepared_surface.release(prepared_handle);
@@ -312,8 +312,8 @@ test "render ffi prepared handle release is idempotent" {
 }
 
 test "render ffi publish after release rejects invalid argument" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
     prepared_surface.release(prepared_handle);
@@ -322,8 +322,8 @@ test "render ffi publish after release rejects invalid argument" {
 }
 
 test "render ffi take submit after releasing published handle fails without released handle" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPreparedHandle(handle, prepared_handle));
@@ -335,8 +335,8 @@ test "render ffi take submit after releasing published handle fails without rele
 }
 
 test "render ffi direct submit after release fails" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const token = try preparedSurfaceTokenFromHandle(prepared_handle);
 
@@ -349,8 +349,8 @@ test "render ffi direct submit after release fails" {
 }
 
 test "render ffi successful direct submit consumes handle once" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     const execution = validExecutionInput();
@@ -366,8 +366,8 @@ test "render ffi successful direct submit consumes handle once" {
 }
 
 test "render ffi direct submit rejects wrong upload count without consuming handle" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     var execution = validExecutionInput();
@@ -380,8 +380,8 @@ test "render ffi direct submit rejects wrong upload count without consuming hand
 }
 
 test "render ffi direct submit rejects wrong surface width without consuming handle" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     var execution = validExecutionInput();
@@ -394,8 +394,8 @@ test "render ffi direct submit rejects wrong surface width without consuming han
 }
 
 test "render ffi direct submit rejects wrong surface height without consuming handle" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     var execution = validExecutionInput();
@@ -408,8 +408,8 @@ test "render ffi direct submit rejects wrong surface height without consuming ha
 }
 
 test "render ffi consumed prepared handle rejects describe buffer and diagnostics" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     const execution = validExecutionInput();
@@ -432,8 +432,8 @@ test "render ffi consumed prepared handle rejects describe buffer and diagnostic
 }
 
 test "render ffi successful handle submit consumes handle once" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPreparedHandle(handle, prepared_handle));
@@ -447,8 +447,8 @@ test "render ffi successful handle submit consumes handle once" {
 }
 
 test "render ffi handle submit rejects wrong upload count without consuming handle" {
-    const handle = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle);
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPreparedHandle(handle, prepared_handle));
@@ -465,10 +465,10 @@ test "render ffi handle submit rejects wrong upload count without consuming hand
 }
 
 test "render ffi cross session prepared handle publish and submit reject" {
-    const handle_a = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle_a);
-    const handle_b = try createTestSurfaceTextHandle();
-    defer surface_text.deinit(handle_b);
+    const handle_a = try createTestTextSessionHandle();
+    defer text_session.deinit(handle_a);
+    const handle_b = try createTestTextSessionHandle();
+    defer text_session.deinit(handle_b);
     const prepared_handle = try createPreparedHandle(handle_a);
     const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     const execution = validExecutionInput();
@@ -478,11 +478,11 @@ test "render ffi cross session prepared handle publish and submit reject" {
 }
 
 test "render ffi surface teardown frees outstanding prepared handles" {
-    const handle = try createTestSurfaceTextHandle();
+    const handle = try createTestTextSessionHandle();
     _ = try createPreparedHandleWithSnapshot(handle, 1);
     _ = try createPreparedHandleWithSnapshot(handle, 2);
 
-    surface_text.deinit(handle);
+    text_session.deinit(handle);
 }
 
 fn validFullPrepareRequest() c.HowlRenderPrepareRequest {
@@ -539,11 +539,11 @@ fn validPublishCommit(snapshot_seq: u64) RenderPublishSlotCommit {
     };
 }
 
-fn createPreparedHandle(handle: c.HowlRenderSurfaceTextHandle) !c.HowlRenderPreparedSurfaceHandle {
+fn createPreparedHandle(handle: c.HowlRenderTextSessionHandle) !c.HowlRenderPreparedSurfaceHandle {
     return createPreparedHandleWithSnapshot(handle, 1);
 }
 
-fn createPreparedHandleWithSnapshot(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) !c.HowlRenderPreparedSurfaceHandle {
+fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u64) !c.HowlRenderPreparedSurfaceHandle {
     const request = try nextPrepareRequest(handle, snapshot_seq);
     var prepared_handle: c.HowlRenderPreparedSurfaceHandle = null;
     try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepared_surface.prepareHandle(handle, request, &prepared_handle));
@@ -551,8 +551,8 @@ fn createPreparedHandleWithSnapshot(handle: c.HowlRenderSurfaceTextHandle, snaps
     return prepared_handle;
 }
 
-fn createTestSurfaceTextHandle() !c.HowlRenderSurfaceTextHandle {
-    const owner = @import("../surface/text.zig").SurfaceTextOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
+fn createTestTextSessionHandle() !c.HowlRenderTextSessionHandle {
+    const owner = @import("../session/text.zig").TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
     return @ptrCast(owner);
 }
 
@@ -577,7 +577,7 @@ fn validExecutionInput() c.HowlRenderSubmitExecution {
     };
 }
 
-fn nextPrepareRequest(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) !c.HowlRenderPrepareRequest {
+fn nextPrepareRequest(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u64) !c.HowlRenderPrepareRequest {
     const render_px = c.HowlRenderPixelSize{ .width = 16, .height = 16 };
     const grid_px = c.HowlRenderPixelSize{ .width = 16, .height = 16 };
     const layout = surface_geometry.deriveLayout(handle, render_px, grid_px);
@@ -643,7 +643,7 @@ fn damageFull() u8 {
     return @intCast(c.HOWL_RENDER_DAMAGE_FULL);
 }
 
-fn expectInvalidPreparedSurfaceTokenRejected(handle: c.HowlRenderSurfaceTextHandle, prepared_handle: c.HowlRenderPreparedSurfaceHandle, prepared: c.HowlRenderPreparedSurfaceToken) !void {
+fn expectInvalidPreparedSurfaceTokenRejected(handle: c.HowlRenderTextSessionHandle, prepared_handle: c.HowlRenderPreparedSurfaceHandle, prepared: c.HowlRenderPreparedSurfaceToken) !void {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.publishPrepared(handle, prepared));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.acceptSubmitted(handle, prepared));
 
@@ -655,15 +655,15 @@ fn expectInvalidPreparedSurfaceTokenRejected(handle: c.HowlRenderSurfaceTextHand
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, prepared, &execution, null));
 }
 
-fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderSurfaceTextHandle, request: c.HowlRenderPrepareRequest) !void {
+fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderTextSessionHandle, request: c.HowlRenderPrepareRequest) !void {
     var prepared_handle: c.HowlRenderPreparedSurfaceHandle = null;
     try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, prepared_surface.prepareHandle(handle, request, &prepared_handle));
     try std.testing.expect(prepared_handle == null);
 }
 
 fn expectInvalidPublishedCell(cell: VtSurfaceCell) !void {
-    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer surface_text.deinit(handle);
+    const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
 
     _ = surface_geometry.syncGeometry(handle, .{

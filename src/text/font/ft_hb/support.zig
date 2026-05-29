@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const test_font_options = @import("test_font_options");
 const contract = @import("../../contract.zig");
-const surface_text = @import("../../../surface/text.zig");
+const text_session = @import("../../../session/text.zig");
 const text_mod = @import("../../text.zig");
 const text_pipeline = @import("../../pipeline.zig");
 const geometry_contract = @import("../../../render/geometry_contract.zig");
@@ -109,7 +109,7 @@ fn textState(self: anytype) *State {
     @compileError("text state owner missing text_state field");
 }
 
-fn configView(self: anytype) surface_text.SurfaceTextConfig {
+fn configView(self: anytype) text_session.TextSessionConfig {
     const T = @TypeOf(self.*);
     if (@hasField(T, "config")) return self.config;
     if (@hasField(T, "session_config")) return self.session_config;
@@ -728,7 +728,7 @@ test "provider loads fallback face for symbol glyph with primary present" {
     const symbol_path = try std.Io.Dir.cwd().realPathFileAlloc(io, font_paths.symbol_path, std.testing.allocator);
     defer std.testing.allocator.free(symbol_path);
 
-    const owner = surface_text.SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const owner = text_session.TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
 
     owner.setOwnedFontPath(try std.heap.c_allocator.dupeZ(u8, primary_path));
@@ -737,8 +737,8 @@ test "provider loads fallback face for symbol glyph with primary present" {
     owner.adoptFallbackFontPaths(&fallbacks);
 
     const Context = struct {
-        session: *surface_text.SurfaceText,
-        session_config: surface_text.SurfaceTextConfig,
+        session: *text_session.TextSession,
+        session_config: text_session.TextSessionConfig,
     };
     var context = Context{ .session = &owner.session, .session_config = owner.config };
 

@@ -11,14 +11,14 @@ comptime {
 }
 
 pub fn reservePublishSlot(
-    value: c.HowlRenderSurfaceTextHandle,
+    value: c.HowlRenderTextSessionHandle,
     cols: u16,
     rows: u16,
     out: ?*c.HowlRenderPublishSlot,
 ) callconv(.c) c_int {
     const slot_out = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     slot_out.* = std.mem.zeroes(c.HowlRenderPublishSlot);
-    const owner = handle_owner.surfaceTextOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
+    const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     if (cols == 0 or rows == 0) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     const slot = owner.reservePublishSlot(cols, rows) catch return c.HOWL_RENDER_CALL_FAILED;
     slot_out.* = publishSlotOut(slot);
@@ -26,10 +26,10 @@ pub fn reservePublishSlot(
 }
 
 pub fn commitPublishSlot(
-    value: c.HowlRenderSurfaceTextHandle,
+    value: c.HowlRenderTextSessionHandle,
     commit: c.HowlRenderPublishSlotCommit,
 ) callconv(.c) c.HowlRenderVtPublishResult {
-    const owner = handle_owner.surfaceTextOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const owner = handle_owner.textSessionOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     const cursor = cursorIn(commit.cursor) orelse {
         owner.cancelPublishSlot();
         return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
@@ -50,16 +50,16 @@ pub fn commitPublishSlot(
 }
 
 pub fn rejectPublishSlot(
-    value: c.HowlRenderSurfaceTextHandle,
+    value: c.HowlRenderTextSessionHandle,
     snapshot_seq: u64,
 ) callconv(.c) c.HowlRenderVtPublishResult {
-    const owner = handle_owner.surfaceTextOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const owner = handle_owner.textSessionOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     if (snapshot_seq == 0) return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtPublishResultWithStatus(owner.rejectPublishSlot(snapshot_seq), c.HOWL_RENDER_CALL_FAILED);
 }
 
-pub fn cancelPublishSlot(value: c.HowlRenderSurfaceTextHandle) callconv(.c) void {
-    const owner = handle_owner.surfaceTextOwner(value) orelse return;
+pub fn cancelPublishSlot(value: c.HowlRenderTextSessionHandle) callconv(.c) void {
+    const owner = handle_owner.textSessionOwner(value) orelse return;
     owner.cancelPublishSlot();
 }
 

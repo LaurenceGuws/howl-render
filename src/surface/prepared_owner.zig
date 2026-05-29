@@ -4,7 +4,7 @@ const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_surface = @import("../prepared/surface.zig");
 const prepared_submit_result = @import("../prepared/submit_result.zig");
 const surface_buffer = @import("buffer.zig");
-const surface_text = @import("text.zig");
+const text_session = @import("../session/text.zig");
 const text = @import("../text/text.zig");
 const contract = @import("../text/contract.zig");
 
@@ -35,7 +35,7 @@ pub const PreparedDiagnostics = struct {
 pub const Owner = struct {
     pub const State = enum { prepared, published, submit_ready, released, consumed };
 
-    session_owner: *surface_text.SurfaceTextOwner,
+    session_owner: *text_session.TextSessionOwner,
     prepared: prepared_surface.PreparedSurface,
     state: State = .prepared,
     snapshot_seq: u64,
@@ -59,7 +59,7 @@ pub const Owner = struct {
     };
 
     pub fn create(
-        session_owner: *surface_text.SurfaceTextOwner,
+        session_owner: *text_session.TextSessionOwner,
         value: prepared_surface.PreparedSurface,
     ) !*Owner {
         var owner = try session_owner.allocator.create(Owner);
@@ -143,14 +143,14 @@ pub const Owner = struct {
         return self.prepared.preparedSurfaceToken();
     }
 
-    pub fn belongsToSession(self: *const Owner, session_owner: *surface_text.SurfaceTextOwner) bool {
+    pub fn belongsToSession(self: *const Owner, session_owner: *text_session.TextSessionOwner) bool {
         return self.session_owner == session_owner;
     }
 
     pub fn submitOwned(
         self: *Owner,
-        session_owner: *surface_text.SurfaceTextOwner,
-        execution: surface_text.SurfaceText.SubmitExecution,
+        session_owner: *text_session.TextSessionOwner,
+        execution: text_session.TextSession.SubmitExecution,
     ) SubmitResult {
         if (self.state != .submit_ready) return .failed;
         return self.performSubmit(session_owner, execution);
@@ -158,8 +158,8 @@ pub const Owner = struct {
 
     fn performSubmit(
         self: *Owner,
-        session_owner: *surface_text.SurfaceTextOwner,
-        execution: surface_text.SurfaceText.SubmitExecution,
+        session_owner: *text_session.TextSessionOwner,
+        execution: text_session.TextSession.SubmitExecution,
     ) SubmitResult {
         if (!self.belongsToSession(session_owner)) return .failed;
         if (!executionMatchesPrepared(self.render_px, self.uploads_required, execution)) return .failed;
@@ -178,9 +178,9 @@ pub const Owner = struct {
 
     pub fn submit(
         self: *Owner,
-        session_owner: *surface_text.SurfaceTextOwner,
+        session_owner: *text_session.TextSessionOwner,
         prepared_token: tokens.PreparedSurfaceToken,
-        execution: surface_text.SurfaceText.SubmitExecution,
+        execution: text_session.TextSession.SubmitExecution,
     ) SubmitResult {
         if (self.state != .prepared) return .failed;
         if (!self.belongsToSession(session_owner)) return .failed;
@@ -221,7 +221,7 @@ pub const Owner = struct {
     }
 };
 
-fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: prepared_surface.PreparedSurface) Owner {
+fn ownerBase(session_owner: *text_session.TextSessionOwner, value: prepared_surface.PreparedSurface) Owner {
     return .{
         .session_owner = session_owner,
         .prepared = value,
@@ -312,7 +312,7 @@ fn samePreparedSurfaceToken(a: tokens.PreparedSurfaceToken, b: tokens.PreparedSu
 fn executionMatchesPrepared(
     render_px: geometry_contract.PixelSize,
     uploads_required: u64,
-    execution: surface_text.SurfaceText.SubmitExecution,
+    execution: text_session.TextSession.SubmitExecution,
 ) bool {
     if (execution.uploads_committed != uploads_required) return false;
     if (execution.host_surface.width != render_px.width) return false;
@@ -321,7 +321,7 @@ fn executionMatchesPrepared(
 }
 
 test "create returns missing-sprite without double free" {
-    const session_owner = surface_text.SurfaceTextOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = text_session.TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     var sprite_draws = [_]contract.TextSpriteDraw{.{

@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const contract = @import("../../contract.zig");
-const surface_text = @import("../../../surface/text.zig");
+const text_session = @import("../../../session/text.zig");
 const text = @import("../../text.zig");
 const provider_mod = @import("support.zig");
 const special_sprite = @import("special_sprite.zig");
@@ -36,7 +36,7 @@ fn unlockFt(self: anytype) void {
     @compileError("text state owner missing text_state field");
 }
 
-fn configView(self: anytype) surface_text.SurfaceTextConfig {
+fn configView(self: anytype) text_session.TextSessionConfig {
     const T = @TypeOf(self.*);
     if (@hasField(T, "config")) return self.config;
     if (@hasField(T, "session_config")) return self.session_config;
