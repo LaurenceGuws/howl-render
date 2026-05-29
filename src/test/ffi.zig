@@ -4,9 +4,16 @@ test {
     std.testing.refAllDecls(@import("../libhowl_render.zig"));
     _ = @import("unit.zig");
 }
-const ffi = @import("../ffi.zig");
+const ffi_root = @import("../ffi.zig");
+const pending_state = @import("../pending_state.zig");
+const prepare_request = @import("../prepare_request.zig");
+const prepared_surface = @import("../prepared_surface.zig");
+const publish_slot = @import("../publish_slot.zig");
+const submission = @import("../submission.zig");
+const surface_geometry = @import("../surface_geometry.zig");
+const surface_text = @import("../surface_text.zig");
 
-const c = ffi.c;
+const c = ffi_root.c;
 const RenderPublishSlot = @field(c, "Howl" ++ "RenderPublishSlot");
 const RenderPublishSlotCommit = @field(c, "Howl" ++ "RenderPublishSlotCommit");
 const VtSurfaceCell = @field(c, "Howl" ++ "VtSurfaceCell");
@@ -20,67 +27,67 @@ comptime {
 }
 
 test "render ffi missing handles report shipped contract" {
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, ffi.setFontSize(null, 12));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, ffi.isValidFont(null));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, surface_text.setFontSize(null, 12));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, surface_text.isValidFont(null));
 
     var pending = std.mem.zeroes(c.HowlRenderPendingState);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, ffi.pendingState(null, &pending));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, pending_state.pendingState(null, &pending));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, pending.status);
 
-    ffi.release(null);
+    prepared_surface.release(null);
 
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, ffi.describe(null, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface.describe(null, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, info.status);
 
     var buffer = std.mem.zeroes(c.HowlRenderPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, ffi.buffer(null, &buffer));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface.buffer(null, &buffer));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, buffer.status);
     try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
     try std.testing.expect(buffer.rgba_pixels.ptr == null);
     try std.testing.expectEqual(@as(u64, 0), buffer.uploads_committed);
 
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, ffi.diagnostics(null, &diagnostics));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface.diagnostics(null, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, diagnostics.status);
     try std.testing.expectEqual(@as(u64, 0), diagnostics.missing_glyphs);
 }
 
 test "render ffi invalid arguments report shipped contract" {
-    const handle = ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer ffi.deinit(handle);
+    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.setFontSize(handle, 0));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.setFontPath(handle, null, 1));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.reservePublishSlot(handle, 0, 1, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, surface_text.setFontSize(handle, 0));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, surface_text.setFontPath(handle, null, 1));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, publish_slot.reservePublishSlot(handle, 0, 1, null));
 }
 
 test "render ffi lifecycle exports geometry and layout contract" {
-    const handle = ffi.init(.{ .surface_px = .{ .width = 32, .height = 32 }, .font_size_px = 8 });
-    defer ffi.deinit(handle);
+    const handle = surface_text.init(.{ .surface_px = .{ .width = 32, .height = 32 }, .font_size_px = 8 });
+    defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
-    const layout = ffi.deriveFrameLayout(handle, .{ .width = 32, .height = 32 }, .{ .width = 32, .height = 32 });
+    const layout = surface_geometry.deriveFrameLayout(handle, .{ .width = 32, .height = 32 }, .{ .width = 32, .height = 32 });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, layout.status);
     try std.testing.expect(layout.cell_px.width > 0);
     try std.testing.expect(layout.cell_px.height > 0);
 
-    const geometry = ffi.syncGeometry(handle, .{ .render_px = .{ .width = 32, .height = 32 }, .grid_px = .{ .width = 32, .height = 32 } });
+    const geometry = surface_geometry.syncGeometry(handle, .{ .render_px = .{ .width = 32, .height = 32 }, .grid_px = .{ .width = 32, .height = 32 } });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, geometry.status);
     try std.testing.expect(geometry.geometry_epoch != 0);
 }
 
 test "render ffi publish slot translates vt cell ffi storage" {
-    const handle = ffi.init(.{ .surface_px = .{ .width = 256, .height = 128 }, .font_size_px = 8 });
-    defer ffi.deinit(handle);
+    const handle = surface_text.init(.{ .surface_px = .{ .width = 256, .height = 128 }, .font_size_px = 8 });
+    defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
-    const geometry = ffi.syncGeometry(handle, .{ .render_px = .{ .width = 256, .height = 128 }, .grid_px = .{ .width = 256, .height = 128 } });
+    const geometry = surface_geometry.syncGeometry(handle, .{ .render_px = .{ .width = 256, .height = 128 }, .grid_px = .{ .width = 256, .height = 128 } });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, geometry.status);
 
     var slot = std.mem.zeroes(RenderPublishSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.reservePublishSlot(handle, 2, 2, &slot));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish_slot.reservePublishSlot(handle, 2, 2, &slot));
     try std.testing.expectEqual(@as(usize, 4), slot.cells.len);
     for (slot.cells.ptr[0..slot.cells.len], 0..) |*cell, index| {
         cell.* = testCell();
@@ -92,7 +99,7 @@ test "render ffi publish slot translates vt cell ffi storage" {
     @memcpy(slot.dirty_cols_start.ptr[0..slot.dirty_cols_start.len], &[_]u16{ 0, 0 });
     @memcpy(slot.dirty_cols_end.ptr[0..slot.dirty_cols_end.len], &[_]u16{ 1, 1 });
 
-    const publish = ffi.commitPublishSlot(handle, .{
+    const publish = publish_slot.commitPublishSlot(handle, .{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 9,
@@ -124,58 +131,58 @@ test "render ffi rejects invalid publish color kind" {
 }
 
 test "render ffi reserve write commit and take prepare succeeds" {
-    const handle = ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer ffi.deinit(handle);
+    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
-    _ = ffi.syncGeometry(handle, .{
+    _ = surface_geometry.syncGeometry(handle, .{
         .render_px = .{ .width = 16, .height = 16 },
         .grid_px = .{ .width = 16, .height = 16 },
     });
     var slot = std.mem.zeroes(RenderPublishSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.reservePublishSlot(handle, 1, 1, &slot));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish_slot.reservePublishSlot(handle, 1, 1, &slot));
     slot.cells.ptr[0] = testCell();
     slot.dirty_rows.ptr[0] = 1;
     slot.dirty_cols_start.ptr[0] = 0;
     slot.dirty_cols_end.ptr[0] = 0;
 
-    const publish = ffi.commitPublishSlot(handle, validPublishCommit(11));
+    const publish = publish_slot.commitPublishSlot(handle, validPublishCommit(11));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
     try std.testing.expectEqual(@as(u64, 11), publish.snapshot_seq);
 
     var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, ffi.takePrepareRequest(handle, &request));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepare_request.takePrepareRequest(handle, &request));
     try std.testing.expectEqual(@as(u64, 11), request.snapshot_seq);
 }
 
 test "render ffi prepare and submit seams report initial idle contract" {
-    const handle = ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer ffi.deinit(handle);
+    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
     var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_IDLE, ffi.takePrepareRequest(handle, &request));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_IDLE, prepare_request.takePrepareRequest(handle, &request));
 
     var prepared = std.mem.zeroes(c.HowlRenderPreparedFrame);
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_IDLE, ffi.takeSubmitDecision(handle, &prepared));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_IDLE, submission.takeSubmitDecision(handle, &prepared));
 }
 
 test "render ffi valid prepared frames are accepted by publish prepared" {
-    const handle = ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer ffi.deinit(handle);
+    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.publishPrepared(handle, validFullPreparedFrame()));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.publishPrepared(handle, validPartialPreparedFrame()));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPrepared(handle, validFullPreparedFrame()));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPrepared(handle, validPartialPreparedFrame()));
 }
 
 test "render ffi invalid prepared frames are rejected at prepared seams" {
-    const handle = ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer ffi.deinit(handle);
+    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
     const prepared_handle = try createPreparedHandle(handle);
-    defer ffi.release(prepared_handle);
+    defer prepared_surface.release(prepared_handle);
 
     var zero_snapshot = validFullPreparedFrame();
     zero_snapshot.snapshot_seq = 0;
@@ -219,8 +226,8 @@ test "render ffi invalid prepared frames are rejected at prepared seams" {
 }
 
 test "render ffi invalid prepare requests fail and leave output handle null" {
-    const handle = ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer ffi.deinit(handle);
+    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
     var zero_snapshot = validFullPrepareRequest();
@@ -254,219 +261,219 @@ test "render ffi invalid prepare requests fail and leave output handle null" {
 
 test "render ffi live prepared handle describes buffer and diagnostics" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.describe(prepared_handle, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.describe(prepared_handle, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, info.status);
 
     var buffer = std.mem.zeroes(c.HowlRenderPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.buffer(prepared_handle, &buffer));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.buffer(prepared_handle, &buffer));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, buffer.status);
     try std.testing.expect(buffer.rgba_pixels.ptr != null);
     try std.testing.expect(buffer.rgba_pixels.len > 0);
     try std.testing.expectEqual(@as(u64, 1), buffer.uploads_committed);
 
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.diagnostics(prepared_handle, &diagnostics));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, diagnostics.status);
 }
 
 test "render ffi released prepared handle rejects describe buffer and diagnostics" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    ffi.release(prepared_handle);
+    prepared_surface.release(prepared_handle);
 
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.describe(prepared_handle, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.describe(prepared_handle, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, info.status);
 
     var buffer = std.mem.zeroes(c.HowlRenderPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.buffer(prepared_handle, &buffer));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.buffer(prepared_handle, &buffer));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, buffer.status);
     try std.testing.expect(buffer.rgba_pixels.ptr == null);
     try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
 
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.diagnostics(prepared_handle, &diagnostics));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, diagnostics.status);
 }
 
 test "render ffi prepared handle release is idempotent" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    ffi.release(prepared_handle);
-    ffi.release(prepared_handle);
+    prepared_surface.release(prepared_handle);
+    prepared_surface.release(prepared_handle);
 }
 
 test "render ffi publish after release rejects invalid argument" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    ffi.release(prepared_handle);
+    prepared_surface.release(prepared_handle);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.publishPreparedHandle(handle, prepared_handle));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.publishPreparedHandle(handle, prepared_handle));
 }
 
 test "render ffi take submit after releasing published handle fails without released handle" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.publishPreparedHandle(handle, prepared_handle));
-    ffi.release(prepared_handle);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPreparedHandle(handle, prepared_handle));
+    prepared_surface.release(prepared_handle);
 
     var submit_handle: c.HowlRenderPreparedSurfaceHandle = prepared_handle;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_FAILED, ffi.takeSubmitHandle(handle, &submit_handle));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_FAILED, submission.takeSubmitHandle(handle, &submit_handle));
     try std.testing.expect(submit_handle == null);
 }
 
 test "render ffi direct submit after release fails" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
 
-    ffi.release(prepared_handle);
+    prepared_surface.release(prepared_handle);
 
     var feedback = std.mem.zeroes(c.HowlRenderSurfaceFeedback);
     const execution = validExecutionInput();
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, ffi.submit(handle, prepared_handle, frame, &execution, &feedback));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, &feedback));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_FAILED, feedback.status);
 }
 
 test "render ffi successful direct submit consumes handle once" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
     const execution = validExecutionInput();
     var feedback = std.mem.zeroes(c.HowlRenderSurfaceFeedback);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, ffi.submit(handle, prepared_handle, frame, &execution, &feedback));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, &feedback));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, feedback.status);
     try std.testing.expectEqual(execution.surface.width, feedback.surface.width);
     try std.testing.expectEqual(execution.surface.height, feedback.surface.height);
     try std.testing.expectEqual(execution.uploads_committed, feedback.metrics.uploads);
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, ffi.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
 }
 
 test "render ffi direct submit rejects wrong upload count without consuming handle" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
     var execution = validExecutionInput();
     execution.uploads_committed = 0;
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, ffi.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
 
     execution.uploads_committed = 1;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, ffi.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
 }
 
 test "render ffi direct submit rejects wrong surface width without consuming handle" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
     var execution = validExecutionInput();
     execution.surface.width += 1;
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, ffi.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
 
     execution.surface.width -= 1;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, ffi.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
 }
 
 test "render ffi direct submit rejects wrong surface height without consuming handle" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
     var execution = validExecutionInput();
     execution.surface.height += 1;
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, ffi.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
 
     execution.surface.height -= 1;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, ffi.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
 }
 
 test "render ffi consumed prepared handle rejects describe buffer and diagnostics" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
     const execution = validExecutionInput();
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, ffi.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
 
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.describe(prepared_handle, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.describe(prepared_handle, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, info.status);
 
     var buffer = std.mem.zeroes(c.HowlRenderPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.buffer(prepared_handle, &buffer));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.buffer(prepared_handle, &buffer));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, buffer.status);
     try std.testing.expect(buffer.rgba_pixels.ptr == null);
     try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
 
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.diagnostics(prepared_handle, &diagnostics));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, diagnostics.status);
 }
 
 test "render ffi successful handle submit consumes handle once" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.publishPreparedHandle(handle, prepared_handle));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPreparedHandle(handle, prepared_handle));
     var submit_handle: c.HowlRenderPreparedSurfaceHandle = null;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_SUBMIT, ffi.takeSubmitHandle(handle, &submit_handle));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_SUBMIT, submission.takeSubmitHandle(handle, &submit_handle));
     try std.testing.expect(submit_handle == prepared_handle);
     const execution = validExecutionInput();
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, ffi.submitHandle(handle, prepared_handle, &execution, null));
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, ffi.submitHandle(handle, prepared_handle, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submitHandle(handle, prepared_handle, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submitHandle(handle, prepared_handle, &execution, null));
 }
 
 test "render ffi handle submit rejects wrong upload count without consuming handle" {
     const handle = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle);
+    defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.publishPreparedHandle(handle, prepared_handle));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPreparedHandle(handle, prepared_handle));
     var submit_handle: c.HowlRenderPreparedSurfaceHandle = null;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_SUBMIT, ffi.takeSubmitHandle(handle, &submit_handle));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_SUBMIT, submission.takeSubmitHandle(handle, &submit_handle));
     try std.testing.expect(submit_handle == prepared_handle);
 
     var execution = validExecutionInput();
     execution.uploads_committed = 0;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, ffi.submitHandle(handle, prepared_handle, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submitHandle(handle, prepared_handle, &execution, null));
 
     execution.uploads_committed = 1;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, ffi.submitHandle(handle, prepared_handle, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submitHandle(handle, prepared_handle, &execution, null));
 }
 
 test "render ffi cross session prepared handle publish and submit reject" {
     const handle_a = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle_a);
+    defer surface_text.deinit(handle_a);
     const handle_b = try createTestSurfaceTextHandle();
-    defer ffi.deinit(handle_b);
+    defer surface_text.deinit(handle_b);
     const prepared_handle = try createPreparedHandle(handle_a);
     const frame = try preparedFrameFromHandle(prepared_handle);
     const execution = validExecutionInput();
 
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.publishPreparedHandle(handle_b, prepared_handle));
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, ffi.submit(handle_b, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.publishPreparedHandle(handle_b, prepared_handle));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle_b, prepared_handle, frame, &execution, null));
 }
 
 test "render ffi surface teardown frees outstanding prepared handles" {
@@ -474,7 +481,7 @@ test "render ffi surface teardown frees outstanding prepared handles" {
     _ = try createPreparedHandleWithSnapshot(handle, 1);
     _ = try createPreparedHandleWithSnapshot(handle, 2);
 
-    ffi.deinit(handle);
+    surface_text.deinit(handle);
 }
 
 fn validFullPrepareRequest() c.HowlRenderPrepareRequest {
@@ -538,7 +545,7 @@ fn createPreparedHandle(handle: c.HowlRenderSurfaceTextHandle) !c.HowlRenderPrep
 fn createPreparedHandleWithSnapshot(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) !c.HowlRenderPreparedSurfaceHandle {
     const request = try nextPrepareRequest(handle, snapshot_seq);
     var prepared_handle: c.HowlRenderPreparedSurfaceHandle = null;
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, ffi.prepareHandle(handle, request, &prepared_handle));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepared_surface.prepareHandle(handle, request, &prepared_handle));
     try std.testing.expect(prepared_handle != null);
     return prepared_handle;
 }
@@ -550,7 +557,7 @@ fn createTestSurfaceTextHandle() !c.HowlRenderSurfaceTextHandle {
 
 fn preparedFrameFromHandle(prepared_handle: c.HowlRenderPreparedSurfaceHandle) !c.HowlRenderPreparedFrame {
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.describe(prepared_handle, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.describe(prepared_handle, &info));
     return .{
         .snapshot_seq = info.snapshot_seq,
         .dirty_epoch = info.dirty_epoch,
@@ -572,10 +579,10 @@ fn validExecutionInput() c.HowlRenderSurfaceExecutionInput {
 fn nextPrepareRequest(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) !c.HowlRenderPrepareRequest {
     const render_px = c.HowlRenderPixelSize{ .width = 16, .height = 16 };
     const grid_px = c.HowlRenderPixelSize{ .width = 16, .height = 16 };
-    const layout = ffi.deriveFrameLayout(handle, render_px, grid_px);
+    const layout = surface_geometry.deriveFrameLayout(handle, render_px, grid_px);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, layout.status);
 
-    const sync = ffi.syncGeometry(handle, .{
+    const sync = surface_geometry.syncGeometry(handle, .{
         .render_px = render_px,
         .grid_px = grid_px,
     });
@@ -587,14 +594,14 @@ fn nextPrepareRequest(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) 
     var slot = std.mem.zeroes(RenderPublishSlot);
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_OK,
-        ffi.reservePublishSlot(handle, 1, 1, &slot),
+        publish_slot.reservePublishSlot(handle, 1, 1, &slot),
     );
     slot.cells.ptr[0] = testCell();
     slot.dirty_rows.ptr[0] = dirty_rows[0];
     slot.dirty_cols_start.ptr[0] = dirty_cols_start[0];
     slot.dirty_cols_end.ptr[0] = dirty_cols_end[0];
 
-    const publish = ffi.commitPublishSlot(handle, .{
+    const publish = publish_slot.commitPublishSlot(handle, .{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = snapshot_seq,
@@ -606,7 +613,7 @@ fn nextPrepareRequest(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
 
     var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, ffi.takePrepareRequest(handle, &request));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepare_request.takePrepareRequest(handle, &request));
     return request;
 }
 
@@ -636,42 +643,42 @@ fn damageFull() u8 {
 }
 
 fn expectInvalidPreparedFrameRejected(handle: c.HowlRenderSurfaceTextHandle, prepared_handle: c.HowlRenderPreparedSurfaceHandle, prepared: c.HowlRenderPreparedFrame) !void {
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.publishPrepared(handle, prepared));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, ffi.acceptSubmitted(handle, prepared));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.publishPrepared(handle, prepared));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.acceptSubmitted(handle, prepared));
 
     const execution = c.HowlRenderSurfaceExecutionInput{
         .surface = .{ .host_surface_id = 1, .width = 1, .height = 1 },
         .uploads_committed = 0,
         .render_us = 0,
     };
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, ffi.submit(handle, prepared_handle, prepared, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, prepared, &execution, null));
 }
 
 fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderSurfaceTextHandle, request: c.HowlRenderPrepareRequest) !void {
     var prepared_handle: c.HowlRenderPreparedSurfaceHandle = null;
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, ffi.prepareHandle(handle, request, &prepared_handle));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, prepared_surface.prepareHandle(handle, request, &prepared_handle));
     try std.testing.expect(prepared_handle == null);
 }
 
 fn expectInvalidPublishedCell(cell: VtSurfaceCell) !void {
-    const handle = ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer ffi.deinit(handle);
+    const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
+    defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
-    _ = ffi.syncGeometry(handle, .{
+    _ = surface_geometry.syncGeometry(handle, .{
         .render_px = .{ .width = 16, .height = 16 },
         .grid_px = .{ .width = 16, .height = 16 },
     });
     var slot = std.mem.zeroes(RenderPublishSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.reservePublishSlot(handle, 1, 1, &slot));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish_slot.reservePublishSlot(handle, 1, 1, &slot));
     slot.cells.ptr[0] = cell;
     slot.dirty_rows.ptr[0] = 1;
     slot.dirty_cols_start.ptr[0] = 0;
     slot.dirty_cols_end.ptr[0] = 0;
 
-    const publish = ffi.commitPublishSlot(handle, validPublishCommit(7));
+    const publish = publish_slot.commitPublishSlot(handle, validPublishCommit(7));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, publish.status);
 
     var next_slot = std.mem.zeroes(RenderPublishSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, ffi.reservePublishSlot(handle, 1, 1, &next_slot));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish_slot.reservePublishSlot(handle, 1, 1, &next_slot));
 }
