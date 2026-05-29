@@ -92,23 +92,11 @@ pub const Owner = struct {
             .dirty_epoch = self.dirty_epoch,
             .geometry_epoch = self.geometry_epoch,
             .required_base_seq = self.required_base_seq,
-            .graphics_publication_seq = self.prepared.graphics.publication_seq,
             .render_px = self.render_px,
             .cell_px = self.cell_px,
             .grid = self.grid,
             .prepare_metrics = self.prepare_metrics,
             .damage_kind = self.damage_kind,
-            .graphics_image_ref_count = @intCast(self.prepared.graphics.images.len),
-        };
-    }
-
-    pub fn graphicsImageRef(self: *const Owner, image_index: u32) abi.FfiPreparedGraphicsImageRefResult {
-        if (image_index >= self.prepared.graphics.images.len) {
-            return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument) };
-        }
-        return .{
-            .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
-            .image_ref_id = self.prepared.graphics.images[image_index].image_ref_id,
         };
     }
 

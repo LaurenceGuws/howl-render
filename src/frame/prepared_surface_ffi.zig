@@ -37,16 +37,6 @@ pub fn buffer(prepared_surface_handle: abi.PreparedSurfaceHandle, buffer_out: ?*
     return @intFromEnum(abi.HowlRenderCallStatus.ok);
 }
 
-pub fn graphicsImageRef(prepared_surface_handle: abi.PreparedSurfaceHandle, image_index: u32) callconv(.c) abi.FfiPreparedGraphicsImageRefResult {
-    const owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse {
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.missing_handle) };
-    };
-    if (!owner.isLive()) {
-        return .{ .status = @intFromEnum(abi.HowlRenderCallStatus.invalid_argument) };
-    }
-    return owner.graphicsImageRef(image_index);
-}
-
 pub fn diagnostics(prepared_surface_handle: abi.PreparedSurfaceHandle, diagnostics_out: ?*abi.FfiPreparedSurfaceDiagnostics) callconv(.c) c_int {
     const out = diagnostics_out;
     const owner = prepared_surface_owner.Owner.fromHandle(prepared_surface_handle) orelse {
@@ -69,13 +59,11 @@ fn infoFailure(status: c_int) abi.FfiPreparedSurfaceInfo {
         .dirty_epoch = 0,
         .geometry_epoch = 0,
         .required_base_seq = 0,
-        .graphics_publication_seq = 0,
         .render_px = .{ .width = 0, .height = 0 },
         .cell_px = .{ .width = 0, .height = 0 },
         .grid = .{ .cols = 0, .rows = 0 },
         .prepare_metrics = std.mem.zeroes(abi.FfiSurfaceMetrics),
         .damage_kind = 0,
-        .graphics_image_ref_count = 0,
     };
 }
 
