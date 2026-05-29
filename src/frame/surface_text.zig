@@ -1,9 +1,6 @@
 const std = @import("std");
-const abi = @import("../ffi_types.zig");
 const geometry_mod = @import("geometry.zig");
-const graphics_prepare = @import("graphics_prepare.zig");
 const input = @import("input.zig");
-const graphics_viewport = @import("graphics_viewport.zig");
 const pipeline = @import("pipeline.zig");
 const prepared_surface_owner = @import("prepared_surface_owner.zig");
 const queue = @import("queue.zig");
@@ -21,6 +18,7 @@ const ft_hb_glyph_cell_cache_entry_cap: u32 = 4096;
 const ft_hb_shape_run_cache_entry_cap: u32 = 64;
 const ft_hb_shape_input_codepoints_per_cluster_cap: u32 = 16;
 const ft_hb_cached_glyphs_per_run_cap: u32 = 512;
+const PreparedSurfaceHandle = ?*anyopaque;
 
 fn count32(items: anytype) u32 {
     std.debug.assert(items.len <= std.math.maxInt(u32));
@@ -55,7 +53,6 @@ pub const SurfaceText = struct {
     mutex: ThreadMutex = .{},
     text_preparer: ?text.TextFramePreparer = null,
     cell_input_scratch: []contract.CellInput = &.{},
-    graphics_preparer: graphics_prepare.GraphicsPreparer,
 
     const TextContext = struct {
         session: *SurfaceText,
@@ -82,7 +79,6 @@ pub const SurfaceText = struct {
         return .{
             .allocator = allocator,
             .text_state = text_support.State.init(allocator),
-            .graphics_preparer = graphics_prepare.GraphicsPreparer.init(allocator),
         };
     }
 
@@ -95,7 +91,6 @@ pub const SurfaceText = struct {
         }
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
         self.cell_input_scratch = &.{};
-        self.graphics_preparer.deinit();
         self.text_state.deinit();
     }
 
@@ -134,18 +129,11 @@ pub const SurfaceText = struct {
         errdefer self.mutex.unlock();
         try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
         const text_input = input.publicationSourceToTextSceneInputBorrowed(self.cell_input_scratch, prepare.state, prepare.request.token.damage_kind == .full);
-        var graphics = try prepareSurfaceGraphics(self.allocator, prepare);
-        errdefer graphics.deinit(self.allocator);
-        try self.graphics_preparer.prepare(
-            &graphics,
-            prepare.state.graphics_images,
-            prepare.state.graphics_payload_bytes,
-        );
         var resolve: text_pipeline.ResolveObservability = .{};
         const preparer = try self.ensureTextPreparer(&context);
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
         errdefer prepared.deinit();
-        const owned = ownPreparedSurface(self.allocator, prepare, text_input.grid, graphics, prepared, resolve);
+        const owned = ownPreparedSurface(self.allocator, prepare, text_input.grid, prepared, resolve);
         self.mutex.unlock();
         return owned;
     }
@@ -182,17 +170,10 @@ pub const SurfaceText = struct {
         return preparer.atlas.rasterForKey(key);
     }
 
-    pub fn graphicsRaster(self: *SurfaceText, raster_index: u32) ?graphics_prepare.GraphicsRasterView {
-        lockMutex(&self.mutex);
-        defer self.mutex.unlock();
-        return self.graphics_preparer.raster(raster_index);
-    }
-
     fn ownPreparedSurface(
         allocator: std.mem.Allocator,
         prepare: PrepareInput,
         grid: contract.GridMetrics,
-        graphics: surface.PreparedGraphics,
         prepared: text.OwnedPreparedTextFrame,
         resolve: text_pipeline.ResolveObservability,
     ) surface.PreparedSurface {
@@ -203,27 +184,10 @@ pub const SurfaceText = struct {
             .render_px = prepare.layout.render_px,
             .cell_px = prepare.layout.cell_px,
             .grid = .{ .cols = grid.cols, .rows = grid.rows },
-            .graphics = graphics,
             .text_frame = prepared,
             .resolve = resolve,
             .prepare_metrics = prepareMetrics(prepared.timings),
         };
-    }
-
-    fn prepareSurfaceGraphics(allocator: std.mem.Allocator, prepare: PrepareInput) !surface.PreparedGraphics {
-        return graphics_viewport.prepareGraphics(
-            allocator,
-            prepare.layout,
-            .{
-                .rows = prepare.state.rows,
-                .history_count = prepare.state.history_count,
-                .scroll_row = prepare.state.scroll_row,
-                .is_alternate_screen = prepare.state.is_alternate_screen,
-            },
-            prepare.state.graphics.publication_seq,
-            prepare.state.graphics_images,
-            prepare.state.graphics_placements,
-        );
     }
 
     fn ensureTextPreparer(self: *SurfaceText, context: *TextContext) !*text.TextFramePreparer {
@@ -362,8 +326,8 @@ pub const SurfaceTextOwner = struct {
     session: SurfaceText,
     flow: queue.Flow,
     config: SurfaceTextConfig,
-    prepared_publish_handle: abi.PreparedSurfaceHandle = null,
-    prepared_submit_handle: abi.PreparedSurfaceHandle = null,
+    prepared_publish_handle: PreparedSurfaceHandle = null,
+    prepared_submit_handle: PreparedSurfaceHandle = null,
     prepared_handles: std.ArrayList(*prepared_surface_owner.Owner) = .empty,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
@@ -457,7 +421,7 @@ pub const SurfaceTextOwner = struct {
     }
 
     pub fn clearCachedPreparedHandle(self: *SurfaceTextOwner, prepared_owner: *prepared_surface_owner.Owner) void {
-        const handle: abi.PreparedSurfaceHandle = @ptrCast(prepared_owner);
+        const handle: PreparedSurfaceHandle = @ptrCast(prepared_owner);
         if (self.prepared_publish_handle == handle) self.prepared_publish_handle = null;
         if (self.prepared_submit_handle == handle) self.prepared_submit_handle = null;
     }
@@ -492,7 +456,7 @@ pub const SurfaceTextOwner = struct {
     pub fn requiredRetainedSurfaceBase(self: *const SurfaceTextOwner, prepared: *const surface.PreparedSurface) []const u8 {
         std.debug.assert(prepared.damageKind() == .partial);
         // Queue validation already proved that partial prepares must compose
-        // against the last submitted full image from this render owner.
+        // against the last submitted full pixels from this render owner.
         std.debug.assert(self.retained_surface_snapshot_seq == prepared.pipelineFrame().required_base_seq);
         std.debug.assert(self.retained_surface_width == prepared.render_px.width);
         std.debug.assert(self.retained_surface_height == prepared.render_px.height);
@@ -502,7 +466,7 @@ pub const SurfaceTextOwner = struct {
         return self.retained_surface_pixels;
     }
 
-    pub fn retainSurfaceImage(self: *SurfaceTextOwner, pixels: *[]u8, width: u16, height: u16, snapshot_seq: u64) void {
+    pub fn retainSurfacePixels(self: *SurfaceTextOwner, pixels: *[]u8, width: u16, height: u16, snapshot_seq: u64) void {
         std.debug.assert(width > 0);
         std.debug.assert(height > 0);
         const pixels_len: u64 = @as(u64, width) * @as(u64, height) * 4;
@@ -544,7 +508,7 @@ pub const SurfaceTextOwner = struct {
     }
 };
 
-test "retainSurfaceImage adopts full image for later partial prepares" {
+test "retainSurfacePixels adopts full pixels for later partial prepares" {
     var owner = SurfaceTextOwner{
         .allocator = std.heap.c_allocator,
         .session = SurfaceText.init(std.heap.c_allocator),
@@ -558,7 +522,7 @@ test "retainSurfaceImage adopts full image for later partial prepares" {
     const pixels = try std.heap.c_allocator.alloc(u8, 2 * 3 * 4);
     for (pixels, 0..) |*pixel, i| pixel.* = @intCast(i);
     var owned_pixels = pixels;
-    owner.retainSurfaceImage(&owned_pixels, 2, 3, 1);
+    owner.retainSurfacePixels(&owned_pixels, 2, 3, 1);
 
     try std.testing.expect(owned_pixels.len == 0);
     try std.testing.expectEqual(@as(u16, 2), owner.retained_surface_width);
@@ -597,100 +561,10 @@ test "retainSurfaceImage adopts full image for later partial prepares" {
     try std.testing.expectEqualSlices(u8, pixels, base);
 }
 
-test "prepareSurfaceGraphics wires prepared graphics into surface prepare contract" {
-    var session = SurfaceText.init(std.testing.allocator);
-    defer session.deinit();
-    var source = try testPublicationSource(std.testing.allocator, 2, 'A');
-    defer source.deinit(std.testing.allocator);
-    source.history_count = 0;
-    source.scroll_row = 0;
-    source.graphics.publication_seq = 9;
-    source.graphics.image_count = 1;
-    source.graphics.placement_count = 2;
-    source.graphics_images = try std.testing.allocator.dupe(abi.FfiVtGraphicsDecodedImage, &.{.{
-        .image_id = 5,
-        .image_ref_id = 50,
-        .image_number = 0,
-        .format = 24,
-        .width = 1,
-        .height = 1,
-        .payload_len = 3,
-    }});
-    source.graphics_payload_bytes = try std.testing.allocator.dupe(u8, &.{ 'A', 'B', 'C' });
-    var placement0 = std.mem.zeroes(abi.FfiVtGraphicsPlacement);
-    placement0.image_id = 5;
-    placement0.z_index = 2;
-    placement0.anchor = .{ .kind = 1, .value = 0 };
-    placement0.source_width = 1;
-    placement0.source_height = 1;
-    placement0.dest_right_cell_px = 20;
-    placement0.dest_bottom_cell_px = 20;
-    var placement1 = placement0;
-    placement1.z_index = -1;
-    source.graphics_placements = try std.testing.allocator.dupe(abi.FfiVtGraphicsPlacement, &.{ placement0, placement1 });
-
-    var graphics = try SurfaceText.prepareSurfaceGraphics(std.testing.allocator, .{
-        .config = .{ .surface_px = .{ .width = 20, .height = 20 } },
-        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
-        .layout = .{
-            .render_px = .{ .width = 20, .height = 20 },
-            .grid_px = .{ .width = 20, .height = 20 },
-            .cell_px = .{ .width = 20, .height = 20 },
-        },
-        .state = source,
-    });
-    try session.graphics_preparer.prepare(&graphics, source.graphics_images, source.graphics_payload_bytes);
-    const prepared = SurfaceText.ownPreparedSurface(
-        std.testing.allocator,
-        .{
-            .config = .{ .surface_px = .{ .width = 20, .height = 20 } },
-            .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
-            .layout = .{
-                .render_px = .{ .width = 20, .height = 20 },
-                .grid_px = .{ .width = 20, .height = 20 },
-                .cell_px = .{ .width = 20, .height = 20 },
-            },
-            .state = source,
-        },
-        .{ .cols = 1, .rows = 1 },
-        graphics,
-        .{
-            .scene = .{
-                .allocator = std.testing.allocator,
-                .owned = false,
-                .scene = .{
-                    .clear_draws = &.{},
-                    .background_draws = &.{},
-                    .sprite_draws = &.{},
-                    .decoration_draws = &.{},
-                    .cursor_draws = &.{},
-                    .raster_requests = &.{},
-                    .missing = &.{},
-                    .full_redraw = true,
-                },
-            },
-            .raster_plan = .{ .allocator = std.testing.allocator, .outputs = &.{}, .owned = false },
-            .timings = .{},
-        },
-        .{},
-    );
-    defer {
-        var owned = prepared;
-        owned.deinit();
-    }
-
-    try std.testing.expectEqual(@as(u64, 9), prepared.graphics.publication_seq);
-    try std.testing.expectEqual(@as(usize, 1), prepared.graphics.images.len);
-    try std.testing.expectEqual(@as(usize, 2), prepared.graphics.placements.len);
-    try std.testing.expectEqual(@as(u32, 0), prepared.graphics.images[0].raster_index);
-    try std.testing.expectEqual(surface.PreparedGraphicsLayer.below_text, prepared.graphics.placements[0].layer);
-    try std.testing.expectEqual(surface.PreparedGraphicsLayer.above_text, prepared.graphics.placements[1].layer);
-}
-
 fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !queue.PublicationSource {
-    const cells = try allocator.alloc(abi.FfiVtCell, 1);
+    const cells = try allocator.alloc(@import("publication.zig").Cell, 1);
     errdefer allocator.free(cells);
-    cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    cells[0] = std.mem.zeroes(@import("publication.zig").Cell);
     cells[0].codepoint = codepoint;
     const dirty_rows = try allocator.dupe(u8, &.{1});
     errdefer allocator.free(dirty_rows);
@@ -708,10 +582,8 @@ fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepo
         .is_alternate_screen = false,
         .cells = cells,
         .cursor = std.mem.zeroes(surface.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = std.mem.zeroes(abi.FfiVtSelection),
-        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
-        .graphics_payload_bytes = &.{},
+        .colors = std.mem.zeroes(@import("publication.zig").RenderColorState),
+        .selection = std.mem.zeroes(@import("publication.zig").Selection),
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -771,7 +643,7 @@ test "surface text retains translated cell scratch across prepares" {
     try std.testing.expectEqual(@as(usize, 8), session.cell_input_scratch.len);
 }
 
-test "invalidateTextState clears retained image state" {
+test "invalidateTextState clears retained pixel state" {
     var owner = SurfaceTextOwner{
         .allocator = std.heap.c_allocator,
         .session = SurfaceText.init(std.heap.c_allocator),
@@ -785,7 +657,7 @@ test "invalidateTextState clears retained image state" {
     const pixels = try std.heap.c_allocator.alloc(u8, 4);
     @memset(pixels, 9);
     var owned_pixels = pixels;
-    owner.retainSurfaceImage(&owned_pixels, 1, 1, 1);
+    owner.retainSurfacePixels(&owned_pixels, 1, 1, 1);
 
     owner.invalidateTextState();
 

@@ -1,4 +1,3 @@
-const graphics_viewport = @import("frame/graphics_viewport.zig");
 const geometry = @import("frame/geometry.zig");
 const input = @import("frame/input.zig");
 const pipeline = @import("frame/pipeline.zig");
@@ -12,7 +11,6 @@ const text = @import("text/text.zig");
 
 test {
     _ = geometry;
-    _ = graphics_viewport;
     _ = input;
     _ = pipeline;
     _ = queue;

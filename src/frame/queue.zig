@@ -1,6 +1,6 @@
 const std = @import("std");
-const abi = @import("../ffi_types.zig");
 const pipeline = @import("pipeline.zig");
+const vt_publication = @import("publication.zig");
 const surface_types = @import("surface.zig");
 
 const ThreadMutex = struct {
@@ -112,11 +112,6 @@ pub const VtSnapshot = struct {
     snapshot_seq: u64,
     dirty_epoch: u64,
     is_alternate_screen: bool,
-    graphics_publication_seq: u64,
-    graphics_dirty_generation: u64,
-    graphics_image_count: u32,
-    graphics_placement_count: u32,
-    graphics_is_alternate_screen: bool,
     dirty_rows: []const u8,
     dirty_cols_start: []const u16,
     dirty_cols_end: []const u16,
@@ -130,14 +125,10 @@ pub const PublicationSource = struct {
     snapshot_seq: u64,
     dirty_epoch: u64,
     is_alternate_screen: bool,
-    cells: []abi.FfiVtCell,
+    cells: []vt_publication.Cell,
     cursor: surface_types.CursorInfo,
-    colors: abi.FfiVtRenderColorState,
-    selection: abi.FfiVtSelection,
-    graphics: abi.FfiVtGraphicsMeta,
-    graphics_images: []abi.FfiVtGraphicsDecodedImage = &.{},
-    graphics_placements: []abi.FfiVtGraphicsPlacement = &.{},
-    graphics_payload_bytes: []u8 = &.{},
+    colors: vt_publication.RenderColorState,
+    selection: vt_publication.Selection,
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
@@ -151,14 +142,11 @@ pub const PublicationSource = struct {
             if (self.dirty_cols_start.len > 0) allocator.free(self.dirty_cols_start);
             if (self.dirty_cols_end.len > 0) allocator.free(self.dirty_cols_end);
         }
-        if (self.graphics_images.len > 0) allocator.free(self.graphics_images);
-        if (self.graphics_placements.len > 0) allocator.free(self.graphics_placements);
-        if (self.graphics_payload_bytes.len > 0) allocator.free(self.graphics_payload_bytes);
         self.* = undefined;
     }
 
     pub fn clone(self: *const PublicationSource, allocator: std.mem.Allocator) !PublicationSource {
-        const cells = try allocator.dupe(abi.FfiVtCell, self.cells);
+        const cells = try allocator.dupe(vt_publication.Cell, self.cells);
         errdefer allocator.free(cells);
         const dirty_rows = try allocator.dupe(u8, self.dirty_rows);
         errdefer allocator.free(dirty_rows);
@@ -166,13 +154,6 @@ pub const PublicationSource = struct {
         errdefer allocator.free(dirty_cols_start);
         const dirty_cols_end = try allocator.dupe(u16, self.dirty_cols_end);
         errdefer allocator.free(dirty_cols_end);
-        const graphics_images = try allocator.dupe(abi.FfiVtGraphicsDecodedImage, self.graphics_images);
-        errdefer allocator.free(graphics_images);
-        const graphics_placements = try allocator.dupe(abi.FfiVtGraphicsPlacement, self.graphics_placements);
-        errdefer allocator.free(graphics_placements);
-        const graphics_payload_bytes = try allocator.dupe(u8, self.graphics_payload_bytes);
-        errdefer allocator.free(graphics_payload_bytes);
-
         return .{
             .cols = self.cols,
             .rows = self.rows,
@@ -185,10 +166,6 @@ pub const PublicationSource = struct {
             .cursor = self.cursor,
             .colors = self.colors,
             .selection = self.selection,
-            .graphics = self.graphics,
-            .graphics_images = graphics_images,
-            .graphics_placements = graphics_placements,
-            .graphics_payload_bytes = graphics_payload_bytes,
             .cursor_phase_visible = self.cursor_phase_visible,
             .dirty_rows = dirty_rows,
             .dirty_cols_start = dirty_cols_start,
@@ -206,11 +183,6 @@ pub const PublicationSource = struct {
             .snapshot_seq = self.snapshot_seq,
             .dirty_epoch = self.dirty_epoch,
             .is_alternate_screen = self.is_alternate_screen,
-            .graphics_publication_seq = self.graphics.publication_seq,
-            .graphics_dirty_generation = self.graphics.dirty_generation,
-            .graphics_image_count = self.graphics.image_count,
-            .graphics_placement_count = self.graphics.placement_count,
-            .graphics_is_alternate_screen = self.graphics.is_alternate_screen != 0,
             .dirty_rows = self.dirty_rows,
             .dirty_cols_start = self.dirty_cols_start,
             .dirty_cols_end = self.dirty_cols_end,
@@ -227,7 +199,7 @@ pub const VtPublishResult = struct {
 };
 
 pub const PublicationSlot = struct {
-    cells: []abi.FfiVtCell,
+    cells: []vt_publication.Cell,
     dirty_rows: []u8,
     dirty_cols_start: []u16,
     dirty_cols_end: []u16,
@@ -239,12 +211,8 @@ pub const ReservedSourceMeta = struct {
     snapshot_seq: u64,
     is_alternate_screen: bool,
     cursor: surface_types.CursorInfo,
-    colors: abi.FfiVtRenderColorState,
-    selection: abi.FfiVtSelection,
-    graphics: abi.FfiVtGraphicsMeta,
-    graphics_images: []const abi.FfiVtGraphicsDecodedImage = &.{},
-    graphics_placements: []const abi.FfiVtGraphicsPlacement = &.{},
-    graphics_payload_bytes: []const u8 = &.{},
+    colors: vt_publication.RenderColorState,
+    selection: vt_publication.Selection,
 };
 
 pub const PendingState = struct {
@@ -282,7 +250,7 @@ const ActivePrepare = struct {
 
 const PublicationState = struct {
     const RetainedSlot = struct {
-        cells: []abi.FfiVtCell = &.{},
+        cells: []vt_publication.Cell = &.{},
         dirty_rows: []u8 = &.{},
         dirty_cols_start: []u16 = &.{},
         dirty_cols_end: []u16 = &.{},
@@ -303,7 +271,7 @@ const PublicationState = struct {
             if (self.cols_capacity >= cols and self.rows_capacity >= rows) return;
 
             const cell_count = slotCellCount(cols, rows);
-            const cells = try allocator.alloc(abi.FfiVtCell, cell_count);
+            const cells = try allocator.alloc(vt_publication.Cell, cell_count);
             errdefer allocator.free(cells);
             const dirty_rows = try allocator.alloc(u8, rows);
             errdefer allocator.free(dirty_rows);
@@ -391,21 +359,7 @@ const PublicationState = struct {
         source.cursor = meta.cursor;
         source.colors = meta.colors;
         source.selection = meta.selection;
-        source.graphics = meta.graphics;
         try validateDirtySource(source.rows, source.cols, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
-        try validateGraphicsSource(
-            meta.is_alternate_screen,
-            meta.graphics,
-            meta.graphics_images,
-            meta.graphics_placements,
-            meta.graphics_payload_bytes,
-        );
-        source.graphics_images = try self.allocator.dupe(abi.FfiVtGraphicsDecodedImage, meta.graphics_images);
-        errdefer self.allocator.free(source.graphics_images);
-        source.graphics_placements = try self.allocator.dupe(abi.FfiVtGraphicsPlacement, meta.graphics_placements);
-        errdefer self.allocator.free(source.graphics_placements);
-        source.graphics_payload_bytes = try self.allocator.dupe(u8, meta.graphics_payload_bytes);
-        errdefer self.allocator.free(source.graphics_payload_bytes);
         return self.acceptSource(source, submitted_token, geometry_epoch);
     }
 
@@ -609,13 +563,11 @@ const PublicationState = struct {
             if (samePublicationSource(prior, source)) return .none;
             if (cursorPresentationChanged(prior, source)) return .full;
             if (colorPresentationChanged(prior, source)) return .full;
-            if (graphicsPublicationChanged(prior, source)) return .full;
             if (damage_kind == .partial and !prior_matches_submitted) return .full;
             return damage_kind;
         }
         if (cursorPresentationChanged(prior, source)) return .full;
         if (colorPresentationChanged(prior, source)) return .full;
-        if (graphicsPublicationChanged(prior, source)) return .full;
         if (snapshot.cols != prior_snapshot.cols or snapshot.rows != prior_snapshot.rows) return .full;
         if (snapshot.is_alternate_screen != prior_snapshot.is_alternate_screen) return .full;
         if (snapshot.scroll_row != prior_snapshot.scroll_row) return .full;
@@ -644,12 +596,8 @@ const PublicationState = struct {
             .is_alternate_screen = false,
             .cells = slot.cells,
             .cursor = std.mem.zeroes(surface_types.CursorInfo),
-            .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+            .colors = std.mem.zeroes(vt_publication.RenderColorState),
             .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-            .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
-            .graphics_images = &.{},
-            .graphics_placements = &.{},
-            .graphics_payload_bytes = &.{},
             .cursor_phase_visible = true,
             .dirty_rows = slot.dirty_rows,
             .dirty_cols_start = slot.dirty_cols_start,
@@ -686,10 +634,6 @@ const PublicationState = struct {
         const cursor = source.cursor;
         const colors = source.colors;
         const selected = source.selection;
-        const graphics = source.graphics;
-        const graphics_images = source.graphics_images;
-        const graphics_placements = source.graphics_placements;
-        const graphics_payload_bytes = source.graphics_payload_bytes;
         const cursor_phase_visible = source.cursor_phase_visible;
         source.* = self.retainedSource(source.cols, source.rows);
         source.history_count = history_count;
@@ -700,78 +644,9 @@ const PublicationState = struct {
         source.cursor = cursor;
         source.colors = colors;
         source.selection = selected;
-        source.graphics = graphics;
-        source.graphics_images = graphics_images;
-        source.graphics_placements = graphics_placements;
-        source.graphics_payload_bytes = graphics_payload_bytes;
         source.cursor_phase_visible = cursor_phase_visible;
     }
 };
-
-fn validateGraphicsSource(
-    publication_is_alternate_screen: bool,
-    meta: abi.FfiVtGraphicsMeta,
-    images: []const abi.FfiVtGraphicsDecodedImage,
-    placements: []const abi.FfiVtGraphicsPlacement,
-    payload_bytes: []const u8,
-) !void {
-    if (meta.is_alternate_screen > 1) return error.InvalidGraphicsMetadata;
-    if ((meta.is_alternate_screen != 0) != publication_is_alternate_screen) return error.InvalidGraphicsMetadata;
-    if (meta.image_count != images.len) return error.InvalidGraphicsMetadata;
-    if (meta.placement_count != placements.len) return error.InvalidGraphicsMetadata;
-    try validateGraphicsReferences(images, placements);
-    try validateGraphicsPayloadSource(images, payload_bytes);
-}
-
-fn validateGraphicsReferences(
-    images: []const abi.FfiVtGraphicsDecodedImage,
-    placements: []const abi.FfiVtGraphicsPlacement,
-) !void {
-    for (images) |image| {
-        if (image.image_ref_id == 0) return error.InvalidGraphicsMetadata;
-    }
-    for (placements) |placement| {
-        if (!graphicsImageExists(images, placement.image_id)) return error.InvalidGraphicsMetadata;
-    }
-}
-
-fn graphicsImageExists(images: []const abi.FfiVtGraphicsDecodedImage, image_id: u32) bool {
-    for (images) |image| {
-        if (image.image_id == image_id) return true;
-    }
-    return false;
-}
-
-fn validateGraphicsPayloadSource(
-    images: []const abi.FfiVtGraphicsDecodedImage,
-    payload_bytes: []const u8,
-) !void {
-    const total = try totalGraphicsPayloadLen(images);
-    if (total != payload_bytes.len) return error.InvalidGraphicsPayload;
-}
-
-fn totalGraphicsPayloadLen(images: []const abi.FfiVtGraphicsDecodedImage) !usize {
-    var total: u64 = 0;
-    for (images) |image| {
-        const payload_len = try decodedGraphicsPayloadLen(image);
-        total = std.math.add(u64, total, payload_len) catch return error.InvalidGraphicsPayload;
-    }
-    return std.math.cast(usize, total) orelse return error.InvalidGraphicsPayload;
-}
-
-fn decodedGraphicsPayloadLen(image: abi.FfiVtGraphicsDecodedImage) !u64 {
-    if (image.width == 0) return error.InvalidGraphicsPayload;
-    if (image.height == 0) return error.InvalidGraphicsPayload;
-    const channels: u64 = switch (image.format) {
-        24 => 3,
-        32 => 4,
-        else => return error.InvalidGraphicsPayload,
-    };
-    const pixels = std.math.mul(u64, image.width, image.height) catch return error.InvalidGraphicsPayload;
-    const expected = std.math.mul(u64, pixels, channels) catch return error.InvalidGraphicsPayload;
-    if (image.payload_len != expected) return error.InvalidGraphicsPayload;
-    return expected;
-}
 
 pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
     if (source.cols == 0) return error.InvalidSurfaceSource;
@@ -779,13 +654,6 @@ pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
     const cell_count = slotCellCountChecked(source.cols, source.rows) catch return error.InvalidSurfaceSource;
     if (source.cells.len != cell_count) return error.InvalidSurfaceSource;
     try validateDirtySource(source.rows, source.cols, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
-    try validateGraphicsSource(
-        source.is_alternate_screen,
-        source.graphics,
-        source.graphics_images,
-        source.graphics_placements,
-        source.graphics_payload_bytes,
-    );
 }
 
 fn validateDirtySource(
@@ -846,10 +714,6 @@ fn colorPresentationChanged(prior: PublicationSource, current: PublicationSource
     return !std.mem.eql(u8, std.mem.asBytes(&prior.colors), std.mem.asBytes(&current.colors));
 }
 
-fn graphicsPublicationChanged(prior: PublicationSource, current: PublicationSource) bool {
-    return !std.mem.eql(u8, std.mem.asBytes(&prior.graphics), std.mem.asBytes(&current.graphics));
-}
-
 fn setSourceCursorBlinkVisible(source: *PublicationSource, visible: bool) bool {
     if (!source.cursor.blink or source.cursor_phase_visible == visible) return false;
     source.cursor_phase_visible = visible;
@@ -887,10 +751,6 @@ fn samePublicationSource(a: PublicationSource, b: PublicationSource) bool {
         a.cursor.shape == b.cursor.shape and
         a.cursor.blink == b.cursor.blink and
         std.mem.eql(u8, std.mem.asBytes(&a.colors), std.mem.asBytes(&b.colors)) and
-        std.mem.eql(u8, std.mem.asBytes(&a.graphics), std.mem.asBytes(&b.graphics)) and
-        std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_images), std.mem.sliceAsBytes(b.graphics_images)) and
-        std.mem.eql(u8, std.mem.sliceAsBytes(a.graphics_placements), std.mem.sliceAsBytes(b.graphics_placements)) and
-        std.mem.eql(u8, a.graphics_payload_bytes, b.graphics_payload_bytes) and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.cells), std.mem.sliceAsBytes(b.cells)) and
         std.mem.eql(u8, a.dirty_rows, b.dirty_rows) and
         std.mem.eql(u16, a.dirty_cols_start, b.dirty_cols_start) and
@@ -939,11 +799,6 @@ fn testSnapshot(
         .snapshot_seq = snapshot_seq,
         .dirty_epoch = snapshot_seq,
         .is_alternate_screen = false,
-        .graphics_publication_seq = 0,
-        .graphics_dirty_generation = 0,
-        .graphics_image_count = 0,
-        .graphics_placement_count = 0,
-        .graphics_is_alternate_screen = false,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
         .dirty_cols_end = dirty_cols_end,
@@ -993,7 +848,7 @@ pub const Flow = struct {
         return try self.publication_state.reserveSourceSlot(cols, rows);
     }
 
-    pub fn commitDecodedPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
+    pub fn commitPublishSlot(self: *Flow, meta: ReservedSourceMeta) !VtPublishResult {
         std.debug.assert(meta.snapshot_seq != 0);
         return try self.publication_state.commitReservedSource(meta, self.nextSourceDirtyEpoch(), self.submittedToken(), self.geometry_epoch);
     }
@@ -1129,8 +984,8 @@ pub const Flow = struct {
 
 fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !PublicationSource {
     const cell_count: u32 = @as(u32, snapshot.cols) * @as(u32, snapshot.rows);
-    const cells = try allocator.alloc(abi.FfiVtCell, @intCast(cell_count));
-    @memset(cells, std.mem.zeroes(abi.FfiVtCell));
+    const cells = try allocator.alloc(vt_publication.Cell, @intCast(cell_count));
+    @memset(cells, std.mem.zeroes(vt_publication.Cell));
     const dirty_rows = try allocator.alloc(u8, snapshot.rows);
     errdefer allocator.free(dirty_rows);
     @memset(dirty_rows, 0);
@@ -1162,16 +1017,8 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
         .is_alternate_screen = snapshot.is_alternate_screen,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .colors = std.mem.zeroes(vt_publication.RenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{
-            .image_count = snapshot.graphics_image_count,
-            .placement_count = snapshot.graphics_placement_count,
-            .is_alternate_screen = if (snapshot.graphics_is_alternate_screen) 1 else 0,
-            .publication_seq = snapshot.graphics_publication_seq,
-            .dirty_generation = snapshot.graphics_dirty_generation,
-        },
-        .graphics_payload_bytes = &.{},
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -1180,8 +1027,8 @@ fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !P
 }
 
 fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !PublicationSource {
-    const cells = try allocator.alloc(abi.FfiVtCell, 1);
-    cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    const cells = try allocator.alloc(vt_publication.Cell, 1);
+    cells[0] = std.mem.zeroes(vt_publication.Cell);
     cells[0].codepoint = codepoint;
     const dirty_rows = try allocator.alloc(u8, 1);
     dirty_rows[0] = 1;
@@ -1199,10 +1046,8 @@ fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u
         .is_alternate_screen = false,
         .cells = cells,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .colors = std.mem.zeroes(vt_publication.RenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
-        .graphics_payload_bytes = &.{},
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -1413,10 +1258,10 @@ test "cursor movement republishes clean later vt snapshot" {
     _ = flow.acceptSnapshot(testSnapshot(2, 1, 0, 2, &dirty, &dirty_start, &dirty_end));
     _ = flow.prepare() orelse return error.TestUnexpectedResult;
 
-    const clean_cells = try std.heap.c_allocator.alloc(abi.FfiVtCell, 2);
-    clean_cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    const clean_cells = try std.heap.c_allocator.alloc(vt_publication.Cell, 2);
+    clean_cells[0] = std.mem.zeroes(vt_publication.Cell);
     clean_cells[0].codepoint = 'A';
-    clean_cells[1] = std.mem.zeroes(abi.FfiVtCell);
+    clean_cells[1] = std.mem.zeroes(vt_publication.Cell);
     clean_cells[1].codepoint = 'B';
     const clean_dirty_rows = try std.heap.c_allocator.dupe(u8, &[_]u8{0});
     const clean_dirty_start = try std.heap.c_allocator.dupe(u16, &[_]u16{0});
@@ -1431,10 +1276,8 @@ test "cursor movement republishes clean later vt snapshot" {
         .is_alternate_screen = false,
         .cells = clean_cells,
         .cursor = .{ .visible = true, .row = 0, .col = 1, .shape = .beam, .blink = false },
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .colors = std.mem.zeroes(vt_publication.RenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
-        .graphics_payload_bytes = &.{},
         .cursor_phase_visible = true,
         .dirty_rows = clean_dirty_rows,
         .dirty_cols_start = clean_dirty_start,
@@ -1497,166 +1340,6 @@ test "color state change republishes clean later vt snapshot" {
     const published = flow.acceptSource(second);
     try std.testing.expect(published.published);
     try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
-}
-
-test "graphics publication change republishes clean later vt snapshot" {
-    var flow = Flow.init(std.heap.c_allocator);
-    defer flow.deinit();
-    _ = try flow.syncGeometry(.{
-        .render_px = .{ .width = 8, .height = 16 },
-        .grid_px = .{ .width = 8, .height = 16 },
-        .cell_px = .{ .width = 8, .height = 16 },
-    });
-
-    var first = try ownedTestSource(std.heap.c_allocator, 2, 'A');
-    first.graphics.publication_seq = 1;
-    first.graphics.dirty_generation = 1;
-    first.graphics.image_count = 1;
-    try std.testing.expect(flow.acceptSource(first).published);
-    _ = flow.prepare() orelse return error.TestUnexpectedResult;
-
-    var second = try ownedTestSource(std.heap.c_allocator, 3, 'A');
-    second.dirty_rows[0] = 0;
-    second.graphics.publication_seq = 2;
-    second.graphics.dirty_generation = 2;
-    second.graphics.image_count = 1;
-    const published = flow.acceptSource(second);
-    try std.testing.expect(published.published);
-    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
-}
-
-test "graphics screen identity change republishes same snapshot" {
-    var flow = Flow.init(std.heap.c_allocator);
-    defer flow.deinit();
-    _ = try flow.syncGeometry(.{
-        .render_px = .{ .width = 8, .height = 16 },
-        .grid_px = .{ .width = 8, .height = 16 },
-        .cell_px = .{ .width = 8, .height = 16 },
-    });
-
-    var first = try ownedTestSource(std.heap.c_allocator, 2, 'A');
-    first.graphics.is_alternate_screen = 0;
-    try std.testing.expect(flow.acceptSource(first).published);
-    _ = flow.prepare() orelse return error.TestUnexpectedResult;
-
-    var second = try ownedTestSource(std.heap.c_allocator, 2, 'A');
-    second.dirty_rows[0] = 0;
-    second.graphics.is_alternate_screen = 1;
-    const published = flow.acceptSource(second);
-    try std.testing.expect(published.published);
-    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
-}
-
-test "graphics publication change replaces retained copied item metadata" {
-    var flow = Flow.init(std.heap.c_allocator);
-    defer flow.deinit();
-    _ = try flow.syncGeometry(.{
-        .render_px = .{ .width = 8, .height = 16 },
-        .grid_px = .{ .width = 8, .height = 16 },
-        .cell_px = .{ .width = 8, .height = 16 },
-    });
-
-    var first = try ownedTestSource(std.heap.c_allocator, 2, 'A');
-    first.graphics.publication_seq = 1;
-    first.graphics.dirty_generation = 1;
-    first.graphics.image_count = 1;
-    first.graphics.placement_count = 1;
-    first.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsDecodedImage, &.{.{
-        .image_id = 7,
-        .image_ref_id = 70,
-        .image_number = 1,
-        .format = 24,
-        .width = 2,
-        .height = 1,
-        .payload_len = 6,
-    }});
-    first.graphics_payload_bytes = try std.heap.c_allocator.dupe(u8, "AAAA");
-    first.graphics_placements = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsPlacement, &.{.{
-        .image_id = 7,
-        .placement_id = 4,
-        .z_index = 0,
-        .anchor = .{ .kind = 1, .value = 1 },
-        .anchor_col = 2,
-        .source_x = 0,
-        .source_y = 0,
-        .source_width = 2,
-        .source_height = 1,
-        .cell_x_offset = 0,
-        .cell_y_offset = 0,
-        .columns = 4,
-        .rows = 2,
-        .dest_left_cell_px = 3,
-        .dest_top_cell_px = 5,
-        .dest_right_cell_px = 35,
-        .dest_bottom_cell_px = 37,
-        .dest_grid_columns = 4,
-        .dest_grid_rows = 2,
-        .effective_columns = 4,
-        .effective_rows = 2,
-    }});
-    try std.testing.expect(flow.acceptSource(first).published);
-    _ = flow.prepare() orelse return error.TestUnexpectedResult;
-
-    var second = try ownedTestSource(std.heap.c_allocator, 3, 'A');
-    second.dirty_rows[0] = 0;
-    second.dirty_cols_start[0] = 0;
-    second.dirty_cols_end[0] = 0;
-    second.graphics.publication_seq = 2;
-    second.graphics.dirty_generation = 2;
-    second.graphics.image_count = 1;
-    second.graphics.placement_count = 1;
-    second.graphics_images = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsDecodedImage, &.{.{
-        .image_id = 8,
-        .image_ref_id = 80,
-        .image_number = 2,
-        .format = 24,
-        .width = 3,
-        .height = 1,
-        .payload_len = 8,
-    }});
-    second.graphics_payload_bytes = try std.heap.c_allocator.dupe(u8, "BBBBBBBB");
-    second.graphics_placements = try std.heap.c_allocator.dupe(abi.FfiVtGraphicsPlacement, &.{.{
-        .image_id = 8,
-        .placement_id = 5,
-        .z_index = 1,
-        .anchor = .{ .kind = 1, .value = 2 },
-        .anchor_col = 3,
-        .source_x = 1,
-        .source_y = 0,
-        .source_width = 3,
-        .source_height = 1,
-        .cell_x_offset = 1,
-        .cell_y_offset = 0,
-        .columns = 5,
-        .rows = 2,
-        .dest_left_cell_px = 1,
-        .dest_top_cell_px = 2,
-        .dest_right_cell_px = 41,
-        .dest_bottom_cell_px = 34,
-        .dest_grid_columns = 5,
-        .dest_grid_rows = 2,
-        .effective_columns = 5,
-        .effective_rows = 2,
-    }});
-
-    const published = flow.acceptSource(second);
-    try std.testing.expect(published.published);
-    try std.testing.expectEqual(pipeline.DamageKind.full, published.damage_kind);
-
-    const request = flow.prepare() orelse return error.TestUnexpectedResult;
-    const prepare = try flow.consumePrepare(request.token);
-    try std.testing.expectEqual(@as(u64, 2), prepare.state.graphics.publication_seq);
-    try std.testing.expectEqual(@as(usize, 1), prepare.state.graphics_images.len);
-    try std.testing.expectEqual(@as(usize, 1), prepare.state.graphics_placements.len);
-    try std.testing.expectEqual(@as(u32, 8), prepare.state.graphics_images[0].image_id);
-    try std.testing.expectEqual(@as(u32, 5), prepare.state.graphics_placements[0].placement_id);
-    try std.testing.expectEqual(@as(u32, 1), prepare.state.graphics_placements[0].dest_left_cell_px);
-    try std.testing.expectEqual(@as(u32, 2), prepare.state.graphics_placements[0].dest_top_cell_px);
-    try std.testing.expectEqual(@as(u32, 41), prepare.state.graphics_placements[0].dest_right_cell_px);
-    try std.testing.expectEqual(@as(u32, 34), prepare.state.graphics_placements[0].dest_bottom_cell_px);
-    try std.testing.expectEqual(@as(u32, 5), prepare.state.graphics_placements[0].dest_grid_columns);
-    try std.testing.expectEqual(@as(u32, 2), prepare.state.graphics_placements[0].dest_grid_rows);
-    try std.testing.expectEqualStrings("BBBBBBBB", prepare.state.graphics_payload_bytes);
 }
 
 test "flow coalesces snapshots into latest prepare request" {
@@ -1825,22 +1508,20 @@ test "flow can reserve a new publish slot after submitting retained source" {
     });
 
     const first = try flow.reservePublishSlot(1, 1);
-    first.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    first.cells[0] = std.mem.zeroes(vt_publication.Cell);
     first.cells[0].codepoint = 'A';
     first.dirty_rows[0] = 1;
     first.dirty_cols_start[0] = 0;
     first.dirty_cols_end[0] = 0;
 
-    const published = try flow.commitDecodedPublishSlot(.{
+    const published = try flow.commitPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .colors = std.mem.zeroes(vt_publication.RenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
-        .graphics_payload_bytes = &.{},
     });
     try std.testing.expect(published.published);
 
@@ -1848,242 +1529,6 @@ test "flow can reserve a new publish slot after submitting retained source" {
     flow.acceptSubmitted(.{ .token = request.token });
 
     _ = try flow.reservePublishSlot(1, 1);
-}
-
-test "flow commit publish slot copies graphics item metadata" {
-    var flow = Flow.init(std.heap.c_allocator);
-    defer flow.deinit();
-    _ = try flow.syncGeometry(.{
-        .render_px = .{ .width = 1, .height = 1 },
-        .grid_px = .{ .width = 1, .height = 1 },
-        .cell_px = .{ .width = 1, .height = 1 },
-    });
-
-    const slot = try flow.reservePublishSlot(1, 1);
-    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
-    slot.cells[0].codepoint = 'A';
-    slot.dirty_rows[0] = 1;
-    slot.dirty_cols_start[0] = 0;
-    slot.dirty_cols_end[0] = 0;
-
-    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
-        .image_id = 7,
-        .image_ref_id = 70,
-        .image_number = 9,
-        .format = 24,
-        .width = 2,
-        .height = 1,
-        .payload_len = 6,
-    }};
-    const placements = [_]abi.FfiVtGraphicsPlacement{.{
-        .image_id = 7,
-        .placement_id = 4,
-        .z_index = 0,
-        .anchor = .{ .kind = 1, .value = 1 },
-        .anchor_col = 2,
-        .source_x = 0,
-        .source_y = 0,
-        .source_width = 2,
-        .source_height = 1,
-        .cell_x_offset = 0,
-        .cell_y_offset = 0,
-        .columns = 4,
-        .rows = 2,
-        .dest_left_cell_px = 3,
-        .dest_top_cell_px = 4,
-        .dest_right_cell_px = 35,
-        .dest_bottom_cell_px = 36,
-        .dest_grid_columns = 4,
-        .dest_grid_rows = 2,
-        .effective_columns = 4,
-        .effective_rows = 2,
-    }};
-    const published = try flow.commitDecodedPublishSlot(.{
-        .history_count = 5,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{ .image_count = 1, .placement_count = 1, .is_alternate_screen = 0, .publication_seq = 3, .dirty_generation = 5 },
-        .graphics_images = images[0..],
-        .graphics_placements = placements[0..],
-        .graphics_payload_bytes = &.{ 1, 2, 3, 4, 5, 6 },
-    });
-    try std.testing.expect(published.published);
-
-    const request = flow.prepare() orelse return error.TestUnexpectedResult;
-    const prepare = try flow.consumePrepare(request.token);
-    try std.testing.expectEqual(@as(u64, 5), prepare.state.history_count);
-    try std.testing.expectEqual(@as(usize, 1), prepare.state.graphics_images.len);
-    try std.testing.expectEqual(@as(usize, 1), prepare.state.graphics_placements.len);
-    try std.testing.expectEqual(@as(u32, 7), prepare.state.graphics_images[0].image_id);
-    try std.testing.expectEqual(@as(u32, 4), prepare.state.graphics_placements[0].placement_id);
-    try std.testing.expectEqual(@as(u32, 3), prepare.state.graphics_placements[0].dest_left_cell_px);
-    try std.testing.expectEqual(@as(u32, 4), prepare.state.graphics_placements[0].dest_top_cell_px);
-    try std.testing.expectEqual(@as(u32, 35), prepare.state.graphics_placements[0].dest_right_cell_px);
-    try std.testing.expectEqual(@as(u32, 36), prepare.state.graphics_placements[0].dest_bottom_cell_px);
-    try std.testing.expectEqual(@as(u32, 4), prepare.state.graphics_placements[0].dest_grid_columns);
-    try std.testing.expectEqual(@as(u32, 2), prepare.state.graphics_placements[0].dest_grid_rows);
-    try std.testing.expectEqual(@as(u64, 3), prepare.state.graphics.publication_seq);
-    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6 }, prepare.state.graphics_payload_bytes);
-}
-
-test "flow commit publish slot validates graphics payload byte size" {
-    var flow = Flow.init(std.heap.c_allocator);
-    defer flow.deinit();
-    _ = try flow.syncGeometry(.{
-        .render_px = .{ .width = 1, .height = 1 },
-        .grid_px = .{ .width = 1, .height = 1 },
-        .cell_px = .{ .width = 1, .height = 1 },
-    });
-
-    const slot = try flow.reservePublishSlot(1, 1);
-    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
-    slot.cells[0].codepoint = 'A';
-    slot.dirty_rows[0] = 1;
-    slot.dirty_cols_start[0] = 0;
-    slot.dirty_cols_end[0] = 0;
-
-    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
-        .image_id = 1,
-        .image_ref_id = 10,
-        .image_number = 0,
-        .format = 24,
-        .width = 1,
-        .height = 1,
-        .payload_len = 4,
-    }};
-
-    try std.testing.expectError(error.InvalidGraphicsPayload, flow.commitDecodedPublishSlot(.{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{ .image_count = 1, .placement_count = 0, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_images = images[0..],
-        .graphics_payload_bytes = "ABC",
-    }));
-}
-
-test "flow decoded graphics commit validates exact raw payload bytes" {
-    try expectDecodedGraphicsPayloadError(24, 3, &.{ 1, 2 });
-    try expectDecodedGraphicsPayloadError(24, 3, &.{ 1, 2, 3, 4 });
-    try expectDecodedGraphicsPayloadError(100, 4, &.{ 1, 2, 3, 4 });
-    try expectDecodedGraphicsGeometryError(0, 1);
-    try expectDecodedGraphicsGeometryError(1, 0);
-}
-
-fn expectDecodedGraphicsGeometryError(width: u32, height: u32) !void {
-    try expectDecodedGraphicsCommitError(.{
-        .format = 24,
-        .width = width,
-        .height = height,
-        .payload_len = 0,
-        .payload = &.{},
-    });
-}
-
-fn expectDecodedGraphicsPayloadError(format: u16, payload_len: u64, payload: []const u8) !void {
-    try expectDecodedGraphicsCommitError(.{
-        .format = format,
-        .width = 1,
-        .height = 1,
-        .payload_len = payload_len,
-        .payload = payload,
-    });
-}
-
-fn expectDecodedGraphicsCommitError(options: struct {
-    format: u16,
-    width: u32,
-    height: u32,
-    payload_len: u64,
-    payload: []const u8,
-}) !void {
-    var flow = Flow.init(std.heap.c_allocator);
-    defer flow.deinit();
-    _ = try flow.syncGeometry(.{
-        .render_px = .{ .width = 1, .height = 1 },
-        .grid_px = .{ .width = 1, .height = 1 },
-        .cell_px = .{ .width = 1, .height = 1 },
-    });
-
-    const slot = try flow.reservePublishSlot(1, 1);
-    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
-    slot.cells[0].codepoint = 'A';
-    slot.dirty_rows[0] = 1;
-    slot.dirty_cols_start[0] = 0;
-    slot.dirty_cols_end[0] = 0;
-
-    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
-        .image_id = 1,
-        .image_ref_id = 10,
-        .image_number = 0,
-        .format = options.format,
-        .width = options.width,
-        .height = options.height,
-        .payload_len = options.payload_len,
-    }};
-    try std.testing.expectError(error.InvalidGraphicsPayload, flow.commitDecodedPublishSlot(.{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{ .image_count = 1, .placement_count = 0, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_images = images[0..],
-        .graphics_placements = &.{},
-        .graphics_payload_bytes = options.payload,
-    }));
-}
-
-test "flow commit publish slot validates graphics metadata counts" {
-    var flow = Flow.init(std.heap.c_allocator);
-    defer flow.deinit();
-    _ = try flow.syncGeometry(.{
-        .render_px = .{ .width = 1, .height = 1 },
-        .grid_px = .{ .width = 1, .height = 1 },
-        .cell_px = .{ .width = 1, .height = 1 },
-    });
-
-    const slot = try flow.reservePublishSlot(1, 1);
-    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
-    slot.cells[0].codepoint = 'A';
-    slot.dirty_rows[0] = 1;
-    slot.dirty_cols_start[0] = 0;
-    slot.dirty_cols_end[0] = 0;
-
-    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
-        .image_id = 1,
-        .image_ref_id = 10,
-        .image_number = 0,
-        .format = 24,
-        .width = 1,
-        .height = 1,
-        .payload_len = 0,
-    }};
-    const placements = [_]abi.FfiVtGraphicsPlacement{std.mem.zeroes(abi.FfiVtGraphicsPlacement)};
-
-    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitDecodedPublishSlot(.{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{ .image_count = 0, .placement_count = 1, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_images = images[0..],
-        .graphics_placements = placements[0..],
-        .graphics_payload_bytes = &.{},
-    }));
 }
 
 test "flow commit publish slot rejects dirty row byte outside boolean domain" {
@@ -2096,22 +1541,20 @@ test "flow commit publish slot rejects dirty row byte outside boolean domain" {
     });
 
     const slot = try flow.reservePublishSlot(1, 1);
-    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[0] = std.mem.zeroes(vt_publication.Cell);
     slot.cells[0].codepoint = 'A';
     slot.dirty_rows[0] = 2;
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 0;
 
-    try std.testing.expectError(error.InvalidSurfaceSource, flow.commitDecodedPublishSlot(.{
+    try std.testing.expectError(error.InvalidSurfaceSource, flow.commitPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .colors = std.mem.zeroes(vt_publication.RenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
-        .graphics_payload_bytes = &.{},
     }));
 }
 
@@ -2125,13 +1568,13 @@ test "flow commit publish slot accepts dirty row span sentinel without dirty col
     });
 
     const slot = try flow.reservePublishSlot(2, 2);
-    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[0] = std.mem.zeroes(vt_publication.Cell);
     slot.cells[0].codepoint = 'A';
-    slot.cells[1] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[1] = std.mem.zeroes(vt_publication.Cell);
     slot.cells[1].codepoint = 'B';
-    slot.cells[2] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[2] = std.mem.zeroes(vt_publication.Cell);
     slot.cells[2].codepoint = 'C';
-    slot.cells[3] = std.mem.zeroes(abi.FfiVtCell);
+    slot.cells[3] = std.mem.zeroes(vt_publication.Cell);
     slot.cells[3].codepoint = 'D';
     slot.dirty_rows[0] = 1;
     slot.dirty_rows[1] = 1;
@@ -2140,16 +1583,14 @@ test "flow commit publish slot accepts dirty row span sentinel without dirty col
     slot.dirty_cols_start[1] = 2;
     slot.dirty_cols_end[1] = 0;
 
-    const published = try flow.commitDecodedPublishSlot(.{
+    const published = try flow.commitPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = true,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .colors = std.mem.zeroes(vt_publication.RenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{ .image_count = 0, .placement_count = 0, .is_alternate_screen = 1, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_payload_bytes = &.{},
     });
     try std.testing.expect(published.published);
 }
@@ -2205,7 +1646,7 @@ test "flow commit publish slot canonicalizes clean dirty metadata" {
     });
 
     const slot = try flow.reservePublishSlot(3, 2);
-    for (slot.cells) |*cell| cell.* = std.mem.zeroes(abi.FfiVtCell);
+    for (slot.cells) |*cell| cell.* = std.mem.zeroes(vt_publication.Cell);
     slot.dirty_rows[0] = 1;
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 1;
@@ -2213,16 +1654,14 @@ test "flow commit publish slot canonicalizes clean dirty metadata" {
     slot.dirty_cols_start[1] = 2;
     slot.dirty_cols_end[1] = 1;
 
-    const published = try flow.commitDecodedPublishSlot(.{
+    const published = try flow.commitPublishSlot(.{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = 13,
         .is_alternate_screen = false,
         .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .colors = std.mem.zeroes(vt_publication.RenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
-        .graphics_payload_bytes = &.{},
     });
     try std.testing.expect(published.published);
     try std.testing.expectEqual(@as(u16, 0), slot.dirty_cols_start[1]);
@@ -2241,89 +1680,6 @@ test "flow boundary rejects invalid dirty metadata before canonicalization" {
     try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSourceBoundary(source));
     try std.testing.expectEqual(@as(u16, 3), source.dirty_cols_start[0]);
     try std.testing.expectEqual(@as(u16, 1), source.dirty_cols_end[0]);
-}
-
-test "flow commit publish slot rejects graphics placement without image" {
-    var flow = Flow.init(std.heap.c_allocator);
-    defer flow.deinit();
-    _ = try flow.syncGeometry(.{
-        .render_px = .{ .width = 1, .height = 1 },
-        .grid_px = .{ .width = 1, .height = 1 },
-        .cell_px = .{ .width = 1, .height = 1 },
-    });
-
-    const slot = try flow.reservePublishSlot(1, 1);
-    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
-    slot.cells[0].codepoint = 'A';
-    slot.dirty_rows[0] = 1;
-    slot.dirty_cols_start[0] = 0;
-    slot.dirty_cols_end[0] = 0;
-
-    const placements = [_]abi.FfiVtGraphicsPlacement{.{
-        .image_id = 99,
-        .placement_id = 1,
-        .z_index = 0,
-        .anchor = .{ .kind = 1, .value = 0 },
-        .anchor_col = 0,
-        .source_x = 0,
-        .source_y = 0,
-        .source_width = 1,
-        .source_height = 1,
-        .cell_x_offset = 0,
-        .cell_y_offset = 0,
-        .columns = 1,
-        .rows = 1,
-        .dest_left_cell_px = 0,
-        .dest_top_cell_px = 0,
-        .dest_right_cell_px = 1,
-        .dest_bottom_cell_px = 1,
-        .dest_grid_columns = 1,
-        .dest_grid_rows = 1,
-        .effective_columns = 1,
-        .effective_rows = 1,
-    }};
-
-    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitDecodedPublishSlot(.{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{ .image_count = 0, .placement_count = 1, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_placements = placements[0..],
-        .graphics_payload_bytes = &.{},
-    }));
-}
-
-test "flow commit publish slot rejects graphics screen mismatch" {
-    var flow = Flow.init(std.heap.c_allocator);
-    defer flow.deinit();
-    _ = try flow.syncGeometry(.{
-        .render_px = .{ .width = 1, .height = 1 },
-        .grid_px = .{ .width = 1, .height = 1 },
-        .cell_px = .{ .width = 1, .height = 1 },
-    });
-
-    const slot = try flow.reservePublishSlot(1, 1);
-    slot.cells[0] = std.mem.zeroes(abi.FfiVtCell);
-    slot.cells[0].codepoint = 'A';
-    slot.dirty_rows[0] = 1;
-    slot.dirty_cols_start[0] = 0;
-    slot.dirty_cols_end[0] = 0;
-
-    try std.testing.expectError(error.InvalidGraphicsMetadata, flow.commitDecodedPublishSlot(.{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(surface_types.CursorInfo),
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{ .image_count = 0, .placement_count = 0, .is_alternate_screen = 1, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_payload_bytes = &.{},
-    }));
 }
 
 test "flow keeps latest source when publish A then B before prepare" {

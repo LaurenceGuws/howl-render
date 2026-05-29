@@ -1,7 +1,7 @@
 const std = @import("std");
-const abi = @import("ffi_types.zig");
-const prepared_surface_ffi = @import("frame/prepared_surface_ffi.zig");
-const surface_text_ffi = @import("frame/surface_text_ffi.zig");
+const abi = @import("ffi.zig");
+const prepared_surface_api = abi;
+const surface_text_ffi = abi;
 
 const c = @cImport({
     @cInclude("howl_render.h");
@@ -16,10 +16,6 @@ comptime {
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceInfo) == @sizeOf(c.HowlRenderPreparedSurfaceInfo));
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceBuffer) == @sizeOf(c.HowlRenderPreparedSurfaceBuffer));
     std.debug.assert(@sizeOf(abi.FfiPreparedSurfaceDiagnostics) == @sizeOf(c.HowlRenderPreparedSurfaceDiagnostics));
-    std.debug.assert(@sizeOf(abi.FfiVtGraphicsDecodedImage) == @sizeOf(c.HowlVtGraphicsDecodedImage));
-    std.debug.assert(@sizeOf(abi.FfiVtGraphicsDecodedImageSpan) == @sizeOf(c.HowlRenderVtGraphicsDecodedImageSpan));
-    std.debug.assert(@sizeOf(abi.FfiPublishDecodedGraphicsSlotCommit) == @sizeOf(c.HowlRenderPublishDecodedGraphicsSlotCommit));
-
     std.debug.assert(@intFromEnum(abi.HowlRenderCallStatus.ok) == c.HOWL_RENDER_CALL_OK);
     std.debug.assert(@intFromEnum(abi.HowlRenderCallStatus.missing_handle) == c.HOWL_RENDER_CALL_MISSING_HANDLE);
     std.debug.assert(@intFromEnum(abi.HowlRenderCallStatus.invalid_argument) == c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
@@ -46,21 +42,21 @@ test "render abi missing handles report shipped contract" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, surface_text_ffi.pendingState(null, &pending));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, pending.status);
 
-    prepared_surface_ffi.release(null);
+    prepared_surface_api.release(null);
 
     var info = std.mem.zeroes(abi.FfiPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface_ffi.describe(null, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface_api.describe(null, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, info.status);
 
     var buffer = std.mem.zeroes(abi.FfiPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface_ffi.buffer(null, &buffer));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface_api.buffer(null, &buffer));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, buffer.status);
     try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
     try std.testing.expect(buffer.rgba_pixels.ptr == null);
     try std.testing.expectEqual(@as(u64, 0), buffer.uploads_committed);
 
     var diagnostics = std.mem.zeroes(abi.FfiPreparedSurfaceDiagnostics);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface_ffi.diagnostics(null, &diagnostics));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface_api.diagnostics(null, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, diagnostics.status);
     try std.testing.expectEqual(@as(u64, 0), diagnostics.missing_glyphs);
 }
@@ -90,9 +86,38 @@ test "render abi lifecycle exports geometry and layout contract" {
     try std.testing.expect(geometry.geometry_epoch != 0);
 }
 
-test "render decoded graphics commit abi accepts raw rgb and rgba" {
-    try expectDecodedGraphicsPreparedImageRef(24, &.{ 1, 2, 3 });
-    try expectDecodedGraphicsPreparedImageRef(32, &.{ 1, 2, 3, 4 });
+test "render abi publish slot translates vt cell ABI storage" {
+    const handle = surface_text_ffi.init(.{ .surface_px = .{ .width = 256, .height = 128 }, .font_size_px = 8 });
+    defer surface_text_ffi.deinit(handle);
+    try std.testing.expect(handle != null);
+
+    const geometry = surface_text_ffi.syncGeometry(handle, .{ .render_px = .{ .width = 256, .height = 128 }, .grid_px = .{ .width = 256, .height = 128 } });
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, geometry.status);
+
+    var slot = std.mem.zeroes(abi.FfiPublishSlot);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, surface_text_ffi.reservePublishSlot(handle, 2, 2, &slot));
+    try std.testing.expectEqual(@as(usize, 4), slot.cells.len);
+    for (slot.cells.ptr[0..slot.cells.len], 0..) |*cell, index| {
+        cell.* = testCell();
+        cell.codepoint = @intCast('a' + index);
+        cell.bg_color = .{ .kind = 2, .value = 0x112233 };
+        cell.underline_style = 4;
+    }
+    @memcpy(slot.dirty_rows.ptr[0..slot.dirty_rows.len], &[_]u8{ 1, 1 });
+    @memcpy(slot.dirty_cols_start.ptr[0..slot.dirty_cols_start.len], &[_]u16{ 0, 0 });
+    @memcpy(slot.dirty_cols_end.ptr[0..slot.dirty_cols_end.len], &[_]u16{ 1, 1 });
+
+    const publish = surface_text_ffi.commitPublishSlot(handle, .{
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 9,
+        .is_alternate_screen = 0,
+        .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
+        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+    });
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
+    try std.testing.expectEqual(@as(u64, 9), publish.snapshot_seq);
 }
 
 test "render abi prepare and submit seams report initial idle contract" {
@@ -122,7 +147,7 @@ test "render abi invalid prepared frames are rejected at prepared seams" {
     try std.testing.expect(handle != null);
 
     const prepared_handle = try createPreparedHandle(handle);
-    defer prepared_surface_ffi.release(prepared_handle);
+    defer prepared_surface_api.release(prepared_handle);
 
     var zero_snapshot = validFullPreparedFrame();
     zero_snapshot.snapshot_seq = 0;
@@ -205,18 +230,18 @@ test "render abi live prepared handle describes buffer and diagnostics" {
     const prepared_handle = try createPreparedHandle(handle);
 
     var info = std.mem.zeroes(abi.FfiPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface_ffi.describe(prepared_handle, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface_api.describe(prepared_handle, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, info.status);
 
     var buffer = std.mem.zeroes(abi.FfiPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface_ffi.buffer(prepared_handle, &buffer));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface_api.buffer(prepared_handle, &buffer));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, buffer.status);
     try std.testing.expect(buffer.rgba_pixels.ptr != null);
     try std.testing.expect(buffer.rgba_pixels.len > 0);
     try std.testing.expectEqual(@as(u64, 1), buffer.uploads_committed);
 
     var diagnostics = std.mem.zeroes(abi.FfiPreparedSurfaceDiagnostics);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface_ffi.diagnostics(prepared_handle, &diagnostics));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface_api.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, diagnostics.status);
 }
 
@@ -225,20 +250,20 @@ test "render abi released prepared handle rejects describe buffer and diagnostic
     defer surface_text_ffi.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    prepared_surface_ffi.release(prepared_handle);
+    prepared_surface_api.release(prepared_handle);
 
     var info = std.mem.zeroes(abi.FfiPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_ffi.describe(prepared_handle, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_api.describe(prepared_handle, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, info.status);
 
     var buffer = std.mem.zeroes(abi.FfiPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_ffi.buffer(prepared_handle, &buffer));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_api.buffer(prepared_handle, &buffer));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, buffer.status);
     try std.testing.expect(buffer.rgba_pixels.ptr == null);
     try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
 
     var diagnostics = std.mem.zeroes(abi.FfiPreparedSurfaceDiagnostics);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_ffi.diagnostics(prepared_handle, &diagnostics));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_api.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, diagnostics.status);
 }
 
@@ -247,8 +272,8 @@ test "render abi prepared handle release is idempotent" {
     defer surface_text_ffi.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    prepared_surface_ffi.release(prepared_handle);
-    prepared_surface_ffi.release(prepared_handle);
+    prepared_surface_api.release(prepared_handle);
+    prepared_surface_api.release(prepared_handle);
 }
 
 test "render abi publish after release rejects invalid argument" {
@@ -256,7 +281,7 @@ test "render abi publish after release rejects invalid argument" {
     defer surface_text_ffi.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    prepared_surface_ffi.release(prepared_handle);
+    prepared_surface_api.release(prepared_handle);
 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, surface_text_ffi.publishPreparedHandle(handle, prepared_handle));
 }
@@ -267,7 +292,7 @@ test "render abi take submit after releasing published handle fails without rele
     const prepared_handle = try createPreparedHandle(handle);
 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, surface_text_ffi.publishPreparedHandle(handle, prepared_handle));
-    prepared_surface_ffi.release(prepared_handle);
+    prepared_surface_api.release(prepared_handle);
 
     var submit_handle: abi.PreparedSurfaceHandle = prepared_handle;
     try std.testing.expectEqual(abi.HowlRenderSubmitDecisionStatus.failed, surface_text_ffi.takeSubmitHandle(handle, &submit_handle));
@@ -280,7 +305,7 @@ test "render abi direct submit after release fails" {
     const prepared_handle = try createPreparedHandle(handle);
     const frame = try preparedFrameFromHandle(prepared_handle);
 
-    prepared_surface_ffi.release(prepared_handle);
+    prepared_surface_api.release(prepared_handle);
 
     var feedback = std.mem.zeroes(abi.FfiSurfaceFeedback);
     const execution = validExecutionInput();
@@ -356,17 +381,17 @@ test "render abi consumed prepared handle rejects describe buffer and diagnostic
     try std.testing.expectEqual(abi.HowlRenderSubmitStatus.rendered, surface_text_ffi.submit(handle, prepared_handle, frame, &execution, null));
 
     var info = std.mem.zeroes(abi.FfiPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_ffi.describe(prepared_handle, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_api.describe(prepared_handle, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, info.status);
 
     var buffer = std.mem.zeroes(abi.FfiPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_ffi.buffer(prepared_handle, &buffer));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_api.buffer(prepared_handle, &buffer));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, buffer.status);
     try std.testing.expect(buffer.rgba_pixels.ptr == null);
     try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
 
     var diagnostics = std.mem.zeroes(abi.FfiPreparedSurfaceDiagnostics);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_ffi.diagnostics(prepared_handle, &diagnostics));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface_api.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, diagnostics.status);
 }
 
@@ -478,61 +503,6 @@ fn createPreparedHandleWithSnapshot(handle: abi.SurfaceTextHandle, snapshot_seq:
     return prepared_handle;
 }
 
-fn expectDecodedGraphicsPreparedImageRef(format: u16, payload: []const u8) !void {
-    const handle = surface_text_ffi.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer surface_text_ffi.deinit(handle);
-    try std.testing.expect(handle != null);
-
-    const sync = surface_text_ffi.syncGeometry(handle, .{
-        .render_px = .{ .width = 16, .height = 16 },
-        .grid_px = .{ .width = 16, .height = 16 },
-    });
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, sync.status);
-
-    var slot = std.mem.zeroes(abi.FfiPublishSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, surface_text_ffi.reservePublishSlot(handle, 1, 1, &slot));
-    slot.cells.ptr[0] = testCell();
-    slot.dirty_rows.ptr[0] = 1;
-    slot.dirty_cols_start.ptr[0] = 0;
-    slot.dirty_cols_end.ptr[0] = 0;
-
-    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
-        .image_id = 7,
-        .image_ref_id = 70,
-        .image_number = 0,
-        .format = format,
-        .width = 1,
-        .height = 1,
-        .payload_len = payload.len,
-    }};
-    var placement = std.mem.zeroes(abi.FfiVtGraphicsPlacement);
-    placement.image_id = 7;
-    placement.anchor = .{ .kind = 1, .value = 0 };
-    placement.source_width = 1;
-    placement.source_height = 1;
-    placement.dest_right_cell_px = 16;
-    placement.dest_bottom_cell_px = 16;
-    const placements = [_]abi.FfiVtGraphicsPlacement{placement};
-    const published = surface_text_ffi.commitPublishDecodedGraphicsSlot(handle, .{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = 0,
-        .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
-        .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = .{ .image_count = 1, .placement_count = 1, .is_alternate_screen = 0, .publication_seq = 1, .dirty_generation = 1 },
-        .graphics_images = .{ .ptr = images[0..].ptr, .len = images.len },
-        .graphics_placements = .{ .ptr = placements[0..].ptr, .len = placements.len },
-        .graphics_payload_bytes = .{ .ptr = payload.ptr, .len = payload.len },
-    });
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, published.status);
-
-    var request = std.mem.zeroes(abi.FfiPrepareRequest);
-    try std.testing.expectEqual(abi.HowlRenderPrepareStatus.ready, surface_text_ffi.takePrepareRequest(handle, &request));
-    try std.testing.expectEqual(@as(u64, 1), request.snapshot_seq);
-}
-
 fn createTestSurfaceTextHandle() !abi.SurfaceTextHandle {
     const owner = @import("frame/surface_text.zig").SurfaceTextOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
     return @ptrCast(owner);
@@ -540,7 +510,7 @@ fn createTestSurfaceTextHandle() !abi.SurfaceTextHandle {
 
 fn preparedFrameFromHandle(prepared_handle: abi.PreparedSurfaceHandle) !abi.FfiPreparedFrame {
     var info = std.mem.zeroes(abi.FfiPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface_ffi.describe(prepared_handle, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface_api.describe(prepared_handle, &info));
     return .{
         .snapshot_seq = info.snapshot_seq,
         .dirty_epoch = info.dirty_epoch,
@@ -584,7 +554,7 @@ fn nextPrepareRequest(handle: abi.SurfaceTextHandle, snapshot_seq: u64) !abi.Ffi
     slot.dirty_cols_start.ptr[0] = dirty_cols_start[0];
     slot.dirty_cols_end.ptr[0] = dirty_cols_end[0];
 
-    const publish = surface_text_ffi.commitPublishDecodedGraphicsSlot(handle, .{
+    const publish = surface_text_ffi.commitPublishSlot(handle, .{
         .history_count = 0,
         .scroll_row = 0,
         .snapshot_seq = snapshot_seq,
@@ -592,10 +562,6 @@ fn nextPrepareRequest(handle: abi.SurfaceTextHandle, snapshot_seq: u64) !abi.Ffi
         .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
         .colors = std.mem.zeroes(abi.FfiVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .graphics = std.mem.zeroes(abi.FfiVtGraphicsMeta),
-        .graphics_images = .{ .ptr = null, .len = 0 },
-        .graphics_placements = .{ .ptr = null, .len = 0 },
-        .graphics_payload_bytes = .{ .ptr = null, .len = 0 },
     });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
 

@@ -67,51 +67,6 @@ pub const PrepareLayout = struct {
     cell_px: CellSize,
 };
 
-pub const PreparedGraphicsLayer = enum(u8) {
-    below_bg,
-    below_text,
-    above_text,
-};
-
-pub const PreparedGraphicsImageRef = struct {
-    image_id: u32,
-    image_ref_id: u32 = 0,
-    width: u32,
-    height: u32,
-    format: u16,
-    raster_index: u32,
-};
-
-pub const PreparedGraphicsPlacement = struct {
-    image_index: u32,
-    render_order_key: u64 = 0,
-    z_index: i32,
-    layer: PreparedGraphicsLayer,
-    dest_x_px: i32,
-    dest_y_px: i32,
-    dest_width_px: u32,
-    dest_height_px: u32,
-    src_x_px: u32,
-    src_y_px: u32,
-    src_width_px: u32,
-    src_height_px: u32,
-};
-
-pub const PreparedGraphics = struct {
-    publication_seq: u64 = 0,
-    images: []PreparedGraphicsImageRef = &.{},
-    placements: []PreparedGraphicsPlacement = &.{},
-    below_bg_count: u32 = 0,
-    below_text_count: u32 = 0,
-    above_text_count: u32 = 0,
-
-    pub fn deinit(self: *PreparedGraphics, allocator: std.mem.Allocator) void {
-        if (self.images.len > 0) allocator.free(self.images);
-        if (self.placements.len > 0) allocator.free(self.placements);
-        self.* = .{};
-    }
-};
-
 pub const FillRect = struct {
     x: i32,
     y: i32,
@@ -291,13 +246,11 @@ pub const PreparedSurface = struct {
     render_px: PixelSize,
     cell_px: CellSize,
     grid: GridSize,
-    graphics: PreparedGraphics = .{},
     text_frame: text.OwnedPreparedTextFrame,
     resolve: text_pipeline.ResolveObservability = .{},
     prepare_metrics: PrepareMetrics = .{},
 
     pub fn deinit(self: *PreparedSurface) void {
-        self.graphics.deinit(self.allocator);
         self.text_frame.deinit();
         self.* = undefined;
     }

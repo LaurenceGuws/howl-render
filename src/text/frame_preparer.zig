@@ -773,8 +773,8 @@ test "text frame preparer sizes cluster scratch for multi codepoint cell inputs"
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const cells = [_]contract.CellInput{
-        .{ .codepoint = 0x10EEEE, .combining_len = 3, .combining = .{ 0x0305, 0x030D, 0x030E }, .fg = white, .bg = black },
-        .{ .codepoint = 0x10EEEE, .combining_len = 3, .combining = .{ 0x0310, 0x0312, 0x033D }, .fg = white, .bg = black },
+        .{ .codepoint = 'x', .combining_len = 3, .combining = .{ 0x0305, 0x030D, 0x030E }, .fg = white, .bg = black },
+        .{ .codepoint = 'y', .combining_len = 3, .combining = .{ 0x0310, 0x0312, 0x033D }, .fg = white, .bg = black },
     };
     var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();

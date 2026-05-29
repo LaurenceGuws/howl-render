@@ -1,11 +1,34 @@
 const std = @import("std");
-const abi = @import("../ffi_types.zig");
 const pipeline = @import("pipeline.zig");
 const surface = @import("surface.zig");
 const surface_buffer = @import("surface_buffer.zig");
 const surface_text = @import("surface_text.zig");
 const text = @import("../text/text.zig");
 const contract = @import("../text/contract.zig");
+
+pub const PreparedSurfaceHandle = ?*anyopaque;
+
+pub const PreparedInfo = struct {
+    snapshot_seq: u64,
+    dirty_epoch: u64,
+    geometry_epoch: u64,
+    required_base_seq: u64,
+    render_px: surface.PixelSize,
+    cell_px: surface.CellSize,
+    grid: surface.GridSize,
+    prepare_metrics: surface.RenderMetrics,
+    damage_kind: u8,
+};
+
+pub const PreparedBuffer = struct {
+    rgba_pixels: []u8,
+    uploads_required: u64,
+};
+
+pub const PreparedDiagnostics = struct {
+    missing_glyphs: u64,
+    resolve_metrics: surface.RenderMetrics,
+};
 
 pub const Owner = struct {
     pub const State = enum { prepared, published, submit_ready, released, consumed };
@@ -17,15 +40,15 @@ pub const Owner = struct {
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
-    render_px: abi.FfiPixelSize,
-    cell_px: abi.FfiCellSize,
-    grid: abi.FfiGridSize,
-    prepare_metrics: abi.FfiSurfaceMetrics,
+    render_px: surface.PixelSize,
+    cell_px: surface.CellSize,
+    grid: surface.GridSize,
+    prepare_metrics: surface.RenderMetrics,
     damage_kind: u8,
     rgba_pixels: []u8 = &.{},
     uploads_required: u64,
     missing_glyphs: u64,
-    resolve_metrics: abi.FfiSurfaceMetrics,
+    resolve_metrics: surface.RenderMetrics,
 
     pub const SubmitResult = union(enum) {
         rendered: surface.RenderSurfaceFeedback,
@@ -45,7 +68,7 @@ pub const Owner = struct {
         return owner;
     }
 
-    pub fn fromHandle(handle: abi.PreparedSurfaceHandle) ?*Owner {
+    pub fn fromHandle(handle: PreparedSurfaceHandle) ?*Owner {
         const owned = handle orelse return null;
         return @ptrCast(@alignCast(owned));
     }
@@ -85,9 +108,8 @@ pub const Owner = struct {
         return true;
     }
 
-    pub fn info(self: *Owner) abi.FfiPreparedSurfaceInfo {
+    pub fn info(self: *Owner) PreparedInfo {
         return .{
-            .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
             .snapshot_seq = self.snapshot_seq,
             .dirty_epoch = self.dirty_epoch,
             .geometry_epoch = self.geometry_epoch,
@@ -100,20 +122,15 @@ pub const Owner = struct {
         };
     }
 
-    pub fn buffer(self: *Owner) abi.FfiPreparedSurfaceBuffer {
+    pub fn buffer(self: *Owner) PreparedBuffer {
         return .{
-            .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
-            .rgba_pixels = byteSpan(self.rgba_pixels),
-            // The ABI field name is shipped. At prepare time this is the upload
-            // count the host must realize before submit can truthfully report it
-            // as committed work.
-            .uploads_committed = self.uploads_required,
+            .rgba_pixels = self.rgba_pixels,
+            .uploads_required = self.uploads_required,
         };
     }
 
-    pub fn diagnostics(self: *Owner) abi.FfiPreparedSurfaceDiagnostics {
+    pub fn diagnostics(self: *Owner) PreparedDiagnostics {
         return .{
-            .status = @intFromEnum(abi.HowlRenderCallStatus.ok),
             .missing_glyphs = self.missing_glyphs,
             .resolve_metrics = self.resolve_metrics,
         };
@@ -147,7 +164,7 @@ pub const Owner = struct {
         const feedback = session_owner.session.submitSurface(&self.prepared, execution) catch {
             return .failed;
         };
-        session_owner.retainSurfaceImage(
+        session_owner.retainSurfacePixels(
             &self.rgba_pixels,
             self.prepared.render_px.width,
             self.prepared.render_px.height,
@@ -221,7 +238,7 @@ fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: surface.Prepa
     };
 }
 
-fn preparedMetricsOut(value: surface.PreparedSurface) abi.FfiSurfaceMetrics {
+fn preparedMetricsOut(value: surface.PreparedSurface) surface.RenderMetrics {
     const scene = value.text_frame.scene.scene;
     const clear_fills = count64(scene.clear_draws);
     const background_fills = count64(scene.background_draws);
@@ -248,7 +265,7 @@ fn preparedMetricsOut(value: surface.PreparedSurface) abi.FfiSurfaceMetrics {
     };
 }
 
-fn resolveMetricsOut(value: surface.PreparedSurface) abi.FfiSurfaceMetrics {
+fn resolveMetricsOut(value: surface.PreparedSurface) surface.RenderMetrics {
     return .{
         .sync_us = 0,
         .copy_us = 0,
@@ -276,10 +293,6 @@ fn freeOwnedBytes(allocator: std.mem.Allocator, items: *[]u8) void {
     items.* = &.{};
 }
 
-fn byteSpan(items: []u8) abi.FfiByteSpan {
-    return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
-}
-
 fn count64(items: anytype) u64 {
     std.debug.assert(items.len <= std.math.maxInt(u64));
     return @intCast(items.len);
@@ -295,7 +308,7 @@ fn samePreparedFrame(a: pipeline.PreparedFrame, b: pipeline.PreparedFrame) bool 
 }
 
 fn executionMatchesPrepared(
-    render_px: abi.FfiPixelSize,
+    render_px: surface.PixelSize,
     uploads_required: u64,
     execution: surface_text.SurfaceText.RenderSurfaceExecutionInput,
 ) bool {
@@ -535,8 +548,8 @@ test "owner exports prepared metrics and required upload count truth" {
 
     const buffer = owner.buffer();
     try std.testing.expectEqual(@as(usize, 4), buffer.rgba_pixels.len);
-    try std.testing.expect(buffer.rgba_pixels.ptr != null);
-    try std.testing.expectEqual(@as(u64, 3), buffer.uploads_committed);
+    try std.testing.expectEqual(&rgba_pixels[0], &buffer.rgba_pixels[0]);
+    try std.testing.expectEqual(@as(u64, 3), buffer.uploads_required);
 
     const diagnostics = owner.diagnostics();
     try std.testing.expectEqual(@as(u64, 2), diagnostics.missing_glyphs);
@@ -545,7 +558,7 @@ test "owner exports prepared metrics and required upload count truth" {
 }
 
 test "owner validates realized uploads and host surface dimensions before submit" {
-    const render_px = abi.FfiPixelSize{ .width = 11, .height = 12 };
+    const render_px = surface.PixelSize{ .width = 11, .height = 12 };
     const uploads_required: u64 = 3;
 
     try std.testing.expect(executionMatchesPrepared(render_px, uploads_required, .{
