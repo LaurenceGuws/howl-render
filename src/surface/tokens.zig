@@ -39,30 +39,30 @@ pub const RenderRequest = struct {
     token: SnapshotToken,
     allow_retained_reuse: bool = true,
 
-    pub fn mustPrepareFull(self: RenderRequest, retained: ?SubmittedFrame) bool {
+    pub fn mustPrepareFull(self: RenderRequest, retained: ?SubmittedSurfaceToken) bool {
         if (!self.allow_retained_reuse or !self.token.requiresRetainedBase()) return self.token.damage_kind == .full;
         const submitted = retained orelse return true;
-        return validatePreparedFrame(.{
+        return validatePreparedSurfaceToken(.{
             .token = self.token,
             .required_base_seq = self.token.damage_base_seq,
         }, submitted) != .valid;
     }
 };
 
-pub const PreparedFrame = struct {
+pub const PreparedSurfaceToken = struct {
     token: SnapshotToken,
     required_base_seq: u64 = 0,
 
-    pub fn requiresRetainedBase(self: PreparedFrame) bool {
+    pub fn requiresRetainedBase(self: PreparedSurfaceToken) bool {
         return self.token.requiresRetainedBase();
     }
 };
 
-pub fn PreparedFrameWith(comptime Payload: type) type {
+pub fn PreparedSurfaceTokenWith(comptime Payload: type) type {
     return struct {
         const Self = @This();
 
-        header: PreparedFrame,
+        header: PreparedSurfaceToken,
         payload: Payload,
 
         pub fn token(self: Self) SnapshotToken {
@@ -73,13 +73,13 @@ pub fn PreparedFrameWith(comptime Payload: type) type {
             return self.header.requiresRetainedBase();
         }
 
-        pub fn validateAgainst(self: Self, submitted: SubmittedFrame) SubmitValidation {
-            return validatePreparedFrame(self.header, submitted);
+        pub fn validateAgainst(self: Self, submitted: SubmittedSurfaceToken) SubmitValidation {
+            return validatePreparedSurfaceToken(self.header, submitted);
         }
     };
 }
 
-pub const SubmittedFrame = struct {
+pub const SubmittedSurfaceToken = struct {
     token: SnapshotToken,
     atlas_epoch: u64 = 0,
     surface_epoch: u64 = 0,
@@ -92,7 +92,7 @@ pub const SubmitValidation = enum {
     stale_retained_base,
 };
 
-pub fn validatePreparedFrame(prepared: PreparedFrame, submitted: SubmittedFrame) SubmitValidation {
+pub fn validatePreparedSurfaceToken(prepared: PreparedSurfaceToken, submitted: SubmittedSurfaceToken) SubmitValidation {
     if (!prepared.requiresRetainedBase()) return .valid;
     if (prepared.token.geometry_epoch != submitted.token.geometry_epoch) return .stale_geometry;
     if (prepared.required_base_seq != submitted.token.snapshot_seq) return .stale_retained_base;
@@ -100,7 +100,7 @@ pub fn validatePreparedFrame(prepared: PreparedFrame, submitted: SubmittedFrame)
 }
 
 pub const RenderResult = union(enum) {
-    presentable: SubmittedFrame,
+    presentable: SubmittedSurfaceToken,
     stale: SnapshotToken,
     needs_full_prepare: FullPrepareReason,
     surface_lost: SurfaceLostReason,
@@ -163,44 +163,44 @@ test "snapshot token classifies retained-base damage" {
     try std.testing.expect(partial.isNewerThan(full));
 }
 
-test "prepared partial frame validates retained target base" {
-    const submitted = SubmittedFrame{
+test "prepared partial surface token validates retained target base" {
+    const submitted = SubmittedSurfaceToken{
         .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 3, .damage_base_seq = 0, .damage_kind = .full },
     };
-    const prepared = PreparedFrame{
+    const prepared = PreparedSurfaceToken{
         .token = .{ .snapshot_seq = 11, .dirty_epoch = 11, .geometry_epoch = 3, .damage_base_seq = 10, .damage_kind = .partial },
         .required_base_seq = 10,
     };
 
-    try std.testing.expectEqual(SubmitValidation.valid, validatePreparedFrame(prepared, submitted));
+    try std.testing.expectEqual(SubmitValidation.valid, validatePreparedSurfaceToken(prepared, submitted));
 }
 
-test "prepared partial frame rejects stale retained base state" {
-    const submitted = SubmittedFrame{
+test "prepared partial surface token rejects stale retained base state" {
+    const submitted = SubmittedSurfaceToken{
         .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 3, .damage_base_seq = 0, .damage_kind = .full },
     };
 
-    try std.testing.expectEqual(SubmitValidation.stale_retained_base, validatePreparedFrame(.{
+    try std.testing.expectEqual(SubmitValidation.stale_retained_base, validatePreparedSurfaceToken(.{
         .token = .{ .snapshot_seq = 12, .dirty_epoch = 12, .geometry_epoch = 3, .damage_base_seq = 11, .damage_kind = .partial },
         .required_base_seq = 11,
     }, submitted));
 }
 
-test "prepared full frame validates across geometry change" {
-    const submitted = SubmittedFrame{
+test "prepared full surface token validates across geometry change" {
+    const submitted = SubmittedSurfaceToken{
         .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     };
-    const prepared = PreparedFrame{
+    const prepared = PreparedSurfaceToken{
         .token = .{ .snapshot_seq = 11, .dirty_epoch = 11, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
     };
 
-    try std.testing.expectEqual(SubmitValidation.valid, validatePreparedFrame(prepared, submitted));
+    try std.testing.expectEqual(SubmitValidation.valid, validatePreparedSurfaceToken(prepared, submitted));
 }
 
-test "prepared frame payload keeps validation in the header" {
+test "prepared surface token payload keeps validation in the header" {
     const Payload = struct { scene_id: u32 };
-    const Prepared = PreparedFrameWith(Payload);
-    const submitted = SubmittedFrame{
+    const Prepared = PreparedSurfaceTokenWith(Payload);
+    const submitted = SubmittedSurfaceToken{
         .token = .{ .snapshot_seq = 4, .dirty_epoch = 4, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
     };
     const prepared = Prepared{

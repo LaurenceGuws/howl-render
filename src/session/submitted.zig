@@ -14,20 +14,20 @@ pub fn lockMutex(mutex: *ThreadMutex) void {
 }
 
 pub const SubmitDecision = union(enum) {
-    submit: tokens.PreparedFrame,
+    submit: tokens.PreparedSurfaceToken,
     stale: tokens.SnapshotToken,
     needs_full_prepare: tokens.FullPrepareReason,
     idle,
 };
 
 pub const Submitted = struct {
-    const SubmitMailbox = tokens.LatestMailbox(tokens.PreparedFrame);
+    const SubmitMailbox = tokens.LatestMailbox(tokens.PreparedSurfaceToken);
 
     mutex: ThreadMutex = .{},
     submit_mailbox: SubmitMailbox = .{},
-    submitted_frame: ?tokens.SubmittedFrame = null,
+    submitted_token: ?tokens.SubmittedSurfaceToken = null,
 
-    pub fn publishPrepared(self: *Submitted, prepared: tokens.PreparedFrame) void {
+    pub fn publishPrepared(self: *Submitted, prepared: tokens.PreparedSurfaceToken) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         self.submit_mailbox.publish(prepared);
@@ -54,22 +54,22 @@ pub const Submitted = struct {
 
     pub fn validatePrepared(
         self: *const Submitted,
-        prepared: tokens.PreparedFrame,
+        prepared: tokens.PreparedSurfaceToken,
     ) tokens.SubmitValidation {
         const submitted_owner: *Submitted = @constCast(self);
         lockMutex(&submitted_owner.mutex);
         defer submitted_owner.mutex.unlock();
-        const submitted = self.submitted_frame orelse {
+        const submitted = self.submitted_token orelse {
             return if (prepared.requiresRetainedBase()) .missing_retained_base else .valid;
         };
-        return tokens.validatePreparedFrame(prepared, submitted);
+        return tokens.validatePreparedSurfaceToken(prepared, submitted);
     }
 
-    pub fn acceptSubmitted(self: *Submitted, frame: tokens.SubmittedFrame) void {
+    pub fn acceptSubmitted(self: *Submitted, submitted: tokens.SubmittedSurfaceToken) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        std.debug.assert(frame.token.snapshot_seq != 0);
-        self.submitted_frame = frame;
+        std.debug.assert(submitted.token.snapshot_seq != 0);
+        self.submitted_token = submitted;
     }
 
     pub fn pendingState(self: *const Submitted) struct { submit_pending: bool } {
@@ -82,7 +82,7 @@ pub const Submitted = struct {
     pub fn submittedToken(self: *Submitted) ?tokens.SnapshotToken {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        return if (self.submitted_frame) |frame| frame.token else null;
+        return if (self.submitted_token) |submitted| submitted.token else null;
     }
 
     pub fn prepareTokenForRetainedState(
@@ -145,20 +145,20 @@ test "submitted owner validates submit candidates before GPU mutation" {
 
 test "submitted owner keeps submitted identity as retained base only" {
     var submitted = Submitted{};
-    const frame = tokens.SubmittedFrame{
+    const token = tokens.SubmittedSurfaceToken{
         .token = .{ .snapshot_seq = 7, .dirty_epoch = 9, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
         .atlas_epoch = 11,
         .surface_epoch = 13,
     };
 
-    submitted.acceptSubmitted(frame);
+    submitted.acceptSubmitted(token);
 
-    try std.testing.expect(submitted.submitted_frame != null);
-    try std.testing.expectEqual(frame.token.snapshot_seq, submitted.submitted_frame.?.token.snapshot_seq);
-    try std.testing.expectEqual(frame.token.dirty_epoch, submitted.submitted_frame.?.token.dirty_epoch);
-    try std.testing.expectEqual(frame.token.geometry_epoch, submitted.submitted_frame.?.token.geometry_epoch);
-    try std.testing.expectEqual(frame.atlas_epoch, submitted.submitted_frame.?.atlas_epoch);
-    try std.testing.expectEqual(frame.surface_epoch, submitted.submitted_frame.?.surface_epoch);
+    try std.testing.expect(submitted.submitted_token != null);
+    try std.testing.expectEqual(token.token.snapshot_seq, submitted.submitted_token.?.token.snapshot_seq);
+    try std.testing.expectEqual(token.token.dirty_epoch, submitted.submitted_token.?.token.dirty_epoch);
+    try std.testing.expectEqual(token.token.geometry_epoch, submitted.submitted_token.?.token.geometry_epoch);
+    try std.testing.expectEqual(token.atlas_epoch, submitted.submitted_token.?.atlas_epoch);
+    try std.testing.expectEqual(token.surface_epoch, submitted.submitted_token.?.surface_epoch);
 }
 
 test "submitted owner reports stale submit when newer snapshot already won" {

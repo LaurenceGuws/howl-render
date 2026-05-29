@@ -100,7 +100,7 @@ pub const SurfaceText = struct {
         self.text_state.deinit();
     }
 
-    pub fn deriveFrameLayout(
+    pub fn deriveLayout(
         self: *SurfaceText,
         config: SurfaceTextConfig,
         render_px: geometry_contract.PixelSize,
@@ -487,7 +487,7 @@ pub const SurfaceTextOwner = struct {
         std.debug.assert(prepared.damageKind() == .partial);
         // Queue validation already proved that partial prepares must compose
         // against the last submitted full pixels from this render owner.
-        std.debug.assert(self.retained_surface_snapshot_seq == prepared.pipelineFrame().required_base_seq);
+        std.debug.assert(self.retained_surface_snapshot_seq == prepared.preparedSurfaceToken().required_base_seq);
         std.debug.assert(self.retained_surface_width == prepared.render_px.width);
         std.debug.assert(self.retained_surface_height == prepared.render_px.height);
         const pixels_len: u64 = @as(u64, prepared.render_px.width) * @as(u64, prepared.render_px.height) * 4;
@@ -601,7 +601,7 @@ pub const SurfaceTextOwner = struct {
         return self.prepare_requests.active.?.request;
     }
 
-    pub fn publishPrepared(self: *SurfaceTextOwner, prepared: tokens.PreparedFrame) void {
+    pub fn publishPrepared(self: *SurfaceTextOwner, prepared: tokens.PreparedSurfaceToken) void {
         self.submitted.publishPrepared(prepared);
     }
 
@@ -617,13 +617,13 @@ pub const SurfaceTextOwner = struct {
         return decision;
     }
 
-    pub fn acceptSubmitted(self: *SurfaceTextOwner, frame: tokens.SubmittedFrame) void {
-        if (frame.token.geometry_epoch != self.geometry.geometry_epoch) {
+    pub fn acceptSubmitted(self: *SurfaceTextOwner, submitted: tokens.SubmittedSurfaceToken) void {
+        if (submitted.token.geometry_epoch != self.geometry.geometry_epoch) {
             _ = self.prepare_requests.requestFullPrepare(session_submitted.Submitted.forceFull);
             return;
         }
-        self.prepare_requests.retirePendingAtOrBefore(frame.token);
-        self.submitted.acceptSubmitted(frame);
+        self.prepare_requests.retirePendingAtOrBefore(submitted.token);
+        self.submitted.acceptSubmitted(submitted);
     }
 
     pub fn pendingState(self: *const SurfaceTextOwner) source_prepare.PendingState {
@@ -770,7 +770,7 @@ test "surface text owner keeps source and submitted owners separate" {
 
     try std.testing.expect(owner.source_slot.reserved == null);
     try std.testing.expect(owner.prepare_requests.pending == null);
-    try std.testing.expect(owner.submitted.submitted_frame == null);
+    try std.testing.expect(owner.submitted.submitted_token == null);
 }
 
 test "ft hb retained capacities cap shape run cache slots" {

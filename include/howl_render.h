@@ -124,7 +124,7 @@ typedef struct {
   int status;
   HowlRenderCellSize cell_px;
   HowlRenderGridSize grid;
-} HowlRenderFrameLayoutResult;
+} HowlRenderLayoutResult;
 
 typedef struct {
   uint8_t continuation;
@@ -227,7 +227,7 @@ typedef struct {
   uint8_t damage_kind;
   uint8_t reserved0;
   uint16_t reserved1;
-} HowlRenderPreparedFrame;
+} HowlRenderPreparedSurfaceToken;
 
 typedef struct {
   int32_t status;
@@ -337,7 +337,7 @@ typedef struct {
   uint16_t reserved0;
 } HowlRenderSurfaceTextConfig;
 
-HowlRenderFrameLayoutResult howl_render_surface_text_derive_frame_layout(HowlRenderSurfaceTextHandle handle, HowlRenderPixelSize render_px, HowlRenderPixelSize grid_px);
+HowlRenderLayoutResult howl_render_surface_text_derive_layout(HowlRenderSurfaceTextHandle handle, HowlRenderPixelSize render_px, HowlRenderPixelSize grid_px);
 
 HowlRenderSurfaceTextHandle howl_render_surface_text_init(HowlRenderSurfaceTextConfig config);
 void howl_render_surface_text_deinit(HowlRenderSurfaceTextHandle handle);
@@ -352,11 +352,11 @@ HowlRenderVtPublishResult howl_render_surface_text_commit_publish_slot(HowlRende
 HowlRenderVtPublishResult howl_render_surface_text_reject_publish_slot(HowlRenderSurfaceTextHandle handle, uint64_t snapshot_seq);
 void howl_render_surface_text_cancel_publish_slot(HowlRenderSurfaceTextHandle handle);
 HowlRenderPrepareStatus howl_render_surface_text_take_prepare_request(HowlRenderSurfaceTextHandle handle, HowlRenderPrepareRequest *prepare_request_out);
-int howl_render_surface_text_publish_prepared(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
+int howl_render_surface_text_publish_prepared(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedSurfaceToken prepared_token);
 int howl_render_surface_text_publish_prepared_handle(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedSurfaceHandle prepared_surface_handle);
-HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_decision(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame *prepared_frame_out);
+HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_decision(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedSurfaceToken *prepared_token_out);
 HowlRenderSubmitDecisionStatus howl_render_surface_text_take_submit_handle(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedSurfaceHandle *prepared_surface_handle_out);
-int howl_render_surface_text_accept_submitted(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedFrame prepared_frame);
+int howl_render_surface_text_accept_submitted(HowlRenderSurfaceTextHandle handle, HowlRenderPreparedSurfaceToken prepared_token);
 int howl_render_surface_text_pending_state(HowlRenderSurfaceTextHandle handle, HowlRenderPendingState *pending_out);
 
 /* Owned prepared-surface ABI target. */
@@ -365,7 +365,7 @@ void howl_render_prepared_surface_release(HowlRenderPreparedSurfaceHandle prepar
 int howl_render_prepared_surface_describe(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceInfo *info_out);
 int howl_render_prepared_surface_buffer(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceBuffer *buffer_out);
 int howl_render_prepared_surface_diagnostics(HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceDiagnostics *diagnostics_out);
-HowlRenderSubmitStatus howl_render_surface_text_submit(HowlRenderSurfaceTextHandle surface_text_handle, HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedFrame prepared_frame, const HowlRenderSubmitExecution *execution_in, HowlRenderSubmitResult *result_out);
+HowlRenderSubmitStatus howl_render_surface_text_submit(HowlRenderSurfaceTextHandle surface_text_handle, HowlRenderPreparedSurfaceHandle prepared_surface_handle, HowlRenderPreparedSurfaceToken prepared_token, const HowlRenderSubmitExecution *execution_in, HowlRenderSubmitResult *result_out);
 HowlRenderSubmitStatus howl_render_surface_text_submit_handle(HowlRenderSurfaceTextHandle surface_text_handle, HowlRenderPreparedSurfaceHandle prepared_surface_handle, const HowlRenderSubmitExecution *execution_in, HowlRenderSubmitResult *result_out);
 
 #ifdef __cplusplus

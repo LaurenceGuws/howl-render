@@ -108,7 +108,7 @@ pub const TextFramePreparer = struct {
         var sparse = try cluster.buildSparseCellsWithDamageScratch(self.allocator, &self.cluster_scratch, cells, grid_metrics, options.scene.damage);
         timings.sparse_us = elapsedUs(sparse_start_ns);
         errdefer sparse.deinit();
-        return self.preparePreparedFrame(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings);
+        return self.preparePreparedTextFrame(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings);
     }
 
     pub fn prepareCellTextInputsWithSessionOptions(self: *TextFramePreparer, inputs: []const cluster.CellTextInput, grid_metrics: contract.GridMetrics, session: font_session.FontSession, options: PrepareOptions) !OwnedPreparedTextFrame {
@@ -124,10 +124,10 @@ pub const TextFramePreparer = struct {
         errdefer text_cache.deinit();
         var renderable = try cluster.buildRenderableCellsFromInputs(self.allocator, inputs, text_cache.view());
         errdefer renderable.deinit();
-        return self.preparePreparedFrame(text_cache, renderable, grid_metrics, session, options, .{});
+        return self.preparePreparedTextFrame(text_cache, renderable, grid_metrics, session, options, .{});
     }
 
-    fn preparePreparedFrame(
+    fn preparePreparedTextFrame(
         self: *TextFramePreparer,
         text_cache: cluster.OwnedLineTextCache,
         renderable: cluster.OwnedRenderableCells,

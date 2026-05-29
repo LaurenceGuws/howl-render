@@ -7,7 +7,7 @@ const surface_geometry = @import("surface_geometry.zig");
 const surface_text = @import("surface_text.zig");
 
 comptime {
-    @export(&surface_geometry.deriveFrameLayout, .{ .name = "howl_render_surface_text_derive_frame_layout" });
+    @export(&surface_geometry.deriveLayout, .{ .name = "howl_render_surface_text_derive_layout" });
     @export(&surface_text.init, .{ .name = "howl_render_surface_text_init" });
     @export(&surface_text.deinit, .{ .name = "howl_render_surface_text_deinit" });
     @export(&surface_text.isValidFont, .{ .name = "howl_render_surface_text_is_valid_font" });

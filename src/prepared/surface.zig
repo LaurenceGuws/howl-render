@@ -41,7 +41,7 @@ pub const PreparedSurface = struct {
         return .partial;
     }
 
-    pub fn pipelineFrame(self: *const PreparedSurface) tokens.PreparedFrame {
+    pub fn preparedSurfaceToken(self: *const PreparedSurface) tokens.PreparedSurfaceToken {
         const damage_kind = self.damageKind();
         const damage_base_seq = if (damage_kind == .partial)
             self.request.token.damage_base_seq

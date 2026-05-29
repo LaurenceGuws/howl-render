@@ -138,9 +138,9 @@ pub const Owner = struct {
         };
     }
 
-    pub fn pipelineFrame(self: *const Owner) tokens.PreparedFrame {
+    pub fn preparedSurfaceToken(self: *const Owner) tokens.PreparedSurfaceToken {
         std.debug.assert(self.isLive());
-        return self.prepared.pipelineFrame();
+        return self.prepared.preparedSurfaceToken();
     }
 
     pub fn belongsToSession(self: *const Owner, session_owner: *surface_text.SurfaceTextOwner) bool {
@@ -179,12 +179,12 @@ pub const Owner = struct {
     pub fn submit(
         self: *Owner,
         session_owner: *surface_text.SurfaceTextOwner,
-        prepared_frame: tokens.PreparedFrame,
+        prepared_token: tokens.PreparedSurfaceToken,
         execution: surface_text.SurfaceText.SubmitExecution,
     ) SubmitResult {
         if (self.state != .prepared) return .failed;
         if (!self.belongsToSession(session_owner)) return .failed;
-        if (!samePreparedFrame(self.prepared.pipelineFrame(), prepared_frame)) {
+        if (!samePreparedSurfaceToken(self.prepared.preparedSurfaceToken(), prepared_token)) {
             return .needs_prepare;
         }
         return self.performSubmit(session_owner, execution);
@@ -228,7 +228,7 @@ fn ownerBase(session_owner: *surface_text.SurfaceTextOwner, value: prepared_surf
         .snapshot_seq = value.request.token.snapshot_seq,
         .dirty_epoch = value.request.token.dirty_epoch,
         .geometry_epoch = value.geometry_epoch,
-        .required_base_seq = value.pipelineFrame().required_base_seq,
+        .required_base_seq = value.preparedSurfaceToken().required_base_seq,
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
         .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
@@ -300,7 +300,7 @@ fn count64(items: anytype) u64 {
     return @intCast(items.len);
 }
 
-fn samePreparedFrame(a: tokens.PreparedFrame, b: tokens.PreparedFrame) bool {
+fn samePreparedSurfaceToken(a: tokens.PreparedSurfaceToken, b: tokens.PreparedSurfaceToken) bool {
     return a.token.snapshot_seq == b.token.snapshot_seq and
         a.token.dirty_epoch == b.token.dirty_epoch and
         a.token.geometry_epoch == b.token.geometry_epoch and
@@ -530,7 +530,7 @@ test "owner exports prepared metrics and required upload count truth" {
 
     owner.prepare_metrics = preparedMetricsOut(owner.prepared);
     owner.resolve_metrics = resolveMetricsOut(owner.prepared);
-    owner.required_base_seq = owner.prepared.pipelineFrame().required_base_seq;
+    owner.required_base_seq = owner.prepared.preparedSurfaceToken().required_base_seq;
     owner.damage_kind = @intFromEnum(owner.prepared.damageKind());
 
     const info = owner.info();

@@ -68,7 +68,7 @@ test "render ffi lifecycle exports geometry and layout contract" {
     defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
-    const layout = surface_geometry.deriveFrameLayout(handle, .{ .width = 32, .height = 32 }, .{ .width = 32, .height = 32 });
+    const layout = surface_geometry.deriveLayout(handle, .{ .width = 32, .height = 32 }, .{ .width = 32, .height = 32 });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, layout.status);
     try std.testing.expect(layout.cell_px.width > 0);
     try std.testing.expect(layout.cell_px.height > 0);
@@ -163,20 +163,20 @@ test "render ffi prepare and submit seams report initial idle contract" {
     var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
     try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_IDLE, prepare_request.takePrepareRequest(handle, &request));
 
-    var prepared = std.mem.zeroes(c.HowlRenderPreparedFrame);
+    var prepared = std.mem.zeroes(c.HowlRenderPreparedSurfaceToken);
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_IDLE, submission.takeSubmitDecision(handle, &prepared));
 }
 
-test "render ffi valid prepared frames are accepted by publish prepared" {
+test "render ffi valid prepared surface tokens are accepted by publish prepared" {
     const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
     defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPrepared(handle, validFullPreparedFrame()));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPrepared(handle, validPartialPreparedFrame()));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPrepared(handle, validFullPreparedSurfaceToken()));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, submission.publishPrepared(handle, validPartialPreparedSurfaceToken()));
 }
 
-test "render ffi invalid prepared frames are rejected at prepared seams" {
+test "render ffi invalid prepared surface tokens are rejected at prepared seams" {
     const handle = surface_text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
     defer surface_text.deinit(handle);
     try std.testing.expect(handle != null);
@@ -184,45 +184,45 @@ test "render ffi invalid prepared frames are rejected at prepared seams" {
     const prepared_handle = try createPreparedHandle(handle);
     defer prepared_surface.release(prepared_handle);
 
-    var zero_snapshot = validFullPreparedFrame();
+    var zero_snapshot = validFullPreparedSurfaceToken();
     zero_snapshot.snapshot_seq = 0;
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, zero_snapshot);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, zero_snapshot);
 
-    var zero_dirty = validFullPreparedFrame();
+    var zero_dirty = validFullPreparedSurfaceToken();
     zero_dirty.dirty_epoch = 0;
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, zero_dirty);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, zero_dirty);
 
-    var zero_geometry = validFullPreparedFrame();
+    var zero_geometry = validFullPreparedSurfaceToken();
     zero_geometry.geometry_epoch = 0;
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, zero_geometry);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, zero_geometry);
 
-    var none_kind = validFullPreparedFrame();
+    var none_kind = validFullPreparedSurfaceToken();
     none_kind.damage_kind = damageNone();
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, none_kind);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, none_kind);
 
-    var unknown_kind = validFullPreparedFrame();
+    var unknown_kind = validFullPreparedSurfaceToken();
     unknown_kind.damage_kind = 2;
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, unknown_kind);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, unknown_kind);
 
-    var full_nonzero_damage_base = validFullPreparedFrame();
+    var full_nonzero_damage_base = validFullPreparedSurfaceToken();
     full_nonzero_damage_base.damage_base_seq = 1;
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, full_nonzero_damage_base);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, full_nonzero_damage_base);
 
-    var full_nonzero_required_base = validFullPreparedFrame();
+    var full_nonzero_required_base = validFullPreparedSurfaceToken();
     full_nonzero_required_base.required_base_seq = 1;
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, full_nonzero_required_base);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, full_nonzero_required_base);
 
-    var partial_zero_damage_base = validPartialPreparedFrame();
+    var partial_zero_damage_base = validPartialPreparedSurfaceToken();
     partial_zero_damage_base.damage_base_seq = 0;
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, partial_zero_damage_base);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, partial_zero_damage_base);
 
-    var partial_zero_required_base = validPartialPreparedFrame();
+    var partial_zero_required_base = validPartialPreparedSurfaceToken();
     partial_zero_required_base.required_base_seq = 0;
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, partial_zero_required_base);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, partial_zero_required_base);
 
-    var partial_mismatched_required_base = validPartialPreparedFrame();
+    var partial_mismatched_required_base = validPartialPreparedSurfaceToken();
     partial_mismatched_required_base.required_base_seq = partial_mismatched_required_base.damage_base_seq + 1;
-    try expectInvalidPreparedFrameRejected(handle, prepared_handle, partial_mismatched_required_base);
+    try expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, partial_mismatched_required_base);
 }
 
 test "render ffi invalid prepare requests fail and leave output handle null" {
@@ -338,13 +338,13 @@ test "render ffi direct submit after release fails" {
     const handle = try createTestSurfaceTextHandle();
     defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
-    const frame = try preparedFrameFromHandle(prepared_handle);
+    const token = try preparedSurfaceTokenFromHandle(prepared_handle);
 
     prepared_surface.release(prepared_handle);
 
     var result = std.mem.zeroes(c.HowlRenderSubmitResult);
     const execution = validExecutionInput();
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, &result));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, token, &execution, &result));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_FAILED, result.status);
 }
 
@@ -352,69 +352,69 @@ test "render ffi successful direct submit consumes handle once" {
     const handle = try createTestSurfaceTextHandle();
     defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
-    const frame = try preparedFrameFromHandle(prepared_handle);
+    const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     const execution = validExecutionInput();
     var result = std.mem.zeroes(c.HowlRenderSubmitResult);
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, &result));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, token, &execution, &result));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, result.status);
     try std.testing.expectEqual(execution.host_surface.host_surface_id, result.host_surface.host_surface_id);
     try std.testing.expectEqual(execution.host_surface.width, result.host_surface.width);
     try std.testing.expectEqual(execution.host_surface.height, result.host_surface.height);
     try std.testing.expectEqual(execution.uploads_committed, result.metrics.uploads);
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, token, &execution, null));
 }
 
 test "render ffi direct submit rejects wrong upload count without consuming handle" {
     const handle = try createTestSurfaceTextHandle();
     defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
-    const frame = try preparedFrameFromHandle(prepared_handle);
+    const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     var execution = validExecutionInput();
     execution.uploads_committed = 0;
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, token, &execution, null));
 
     execution.uploads_committed = 1;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, token, &execution, null));
 }
 
 test "render ffi direct submit rejects wrong surface width without consuming handle" {
     const handle = try createTestSurfaceTextHandle();
     defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
-    const frame = try preparedFrameFromHandle(prepared_handle);
+    const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     var execution = validExecutionInput();
     execution.host_surface.width += 1;
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, token, &execution, null));
 
     execution.host_surface.width -= 1;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, token, &execution, null));
 }
 
 test "render ffi direct submit rejects wrong surface height without consuming handle" {
     const handle = try createTestSurfaceTextHandle();
     defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
-    const frame = try preparedFrameFromHandle(prepared_handle);
+    const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     var execution = validExecutionInput();
     execution.host_surface.height += 1;
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, token, &execution, null));
 
     execution.host_surface.height -= 1;
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, token, &execution, null));
 }
 
 test "render ffi consumed prepared handle rejects describe buffer and diagnostics" {
     const handle = try createTestSurfaceTextHandle();
     defer surface_text.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
-    const frame = try preparedFrameFromHandle(prepared_handle);
+    const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     const execution = validExecutionInput();
 
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, token, &execution, null));
 
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.describe(prepared_handle, &info));
@@ -470,11 +470,11 @@ test "render ffi cross session prepared handle publish and submit reject" {
     const handle_b = try createTestSurfaceTextHandle();
     defer surface_text.deinit(handle_b);
     const prepared_handle = try createPreparedHandle(handle_a);
-    const frame = try preparedFrameFromHandle(prepared_handle);
+    const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     const execution = validExecutionInput();
 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.publishPreparedHandle(handle_b, prepared_handle));
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle_b, prepared_handle, frame, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle_b, prepared_handle, token, &execution, null));
 }
 
 test "render ffi surface teardown frees outstanding prepared handles" {
@@ -505,7 +505,7 @@ fn validPartialPrepareRequest() c.HowlRenderPrepareRequest {
     };
 }
 
-fn validFullPreparedFrame() c.HowlRenderPreparedFrame {
+fn validFullPreparedSurfaceToken() c.HowlRenderPreparedSurfaceToken {
     return .{
         .snapshot_seq = 1,
         .dirty_epoch = 1,
@@ -516,7 +516,7 @@ fn validFullPreparedFrame() c.HowlRenderPreparedFrame {
     };
 }
 
-fn validPartialPreparedFrame() c.HowlRenderPreparedFrame {
+fn validPartialPreparedSurfaceToken() c.HowlRenderPreparedSurfaceToken {
     return .{
         .snapshot_seq = 2,
         .dirty_epoch = 2,
@@ -556,7 +556,7 @@ fn createTestSurfaceTextHandle() !c.HowlRenderSurfaceTextHandle {
     return @ptrCast(owner);
 }
 
-fn preparedFrameFromHandle(prepared_handle: c.HowlRenderPreparedSurfaceHandle) !c.HowlRenderPreparedFrame {
+fn preparedSurfaceTokenFromHandle(prepared_handle: c.HowlRenderPreparedSurfaceHandle) !c.HowlRenderPreparedSurfaceToken {
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.describe(prepared_handle, &info));
     return .{
@@ -580,7 +580,7 @@ fn validExecutionInput() c.HowlRenderSubmitExecution {
 fn nextPrepareRequest(handle: c.HowlRenderSurfaceTextHandle, snapshot_seq: u64) !c.HowlRenderPrepareRequest {
     const render_px = c.HowlRenderPixelSize{ .width = 16, .height = 16 };
     const grid_px = c.HowlRenderPixelSize{ .width = 16, .height = 16 };
-    const layout = surface_geometry.deriveFrameLayout(handle, render_px, grid_px);
+    const layout = surface_geometry.deriveLayout(handle, render_px, grid_px);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, layout.status);
 
     const sync = surface_geometry.syncGeometry(handle, .{
@@ -643,7 +643,7 @@ fn damageFull() u8 {
     return @intCast(c.HOWL_RENDER_DAMAGE_FULL);
 }
 
-fn expectInvalidPreparedFrameRejected(handle: c.HowlRenderSurfaceTextHandle, prepared_handle: c.HowlRenderPreparedSurfaceHandle, prepared: c.HowlRenderPreparedFrame) !void {
+fn expectInvalidPreparedSurfaceTokenRejected(handle: c.HowlRenderSurfaceTextHandle, prepared_handle: c.HowlRenderPreparedSurfaceHandle, prepared: c.HowlRenderPreparedSurfaceToken) !void {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.publishPrepared(handle, prepared));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.acceptSubmitted(handle, prepared));
 

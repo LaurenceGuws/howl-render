@@ -80,7 +80,7 @@ fn seedSurfacePixels(pixels: []u8, base_pixels: ?[]const u8) void {
         clearSurfacePixels(pixels);
         return;
     };
-    // Partial prepared frames are realized here against the render-owned
+    // Partial prepared surfaces are realized here against the render-owned
     // retained base. Hosts only ever consume one complete prepared surface.
     std.debug.assert(base.len == pixels.len);
     @memcpy(pixels, base);
