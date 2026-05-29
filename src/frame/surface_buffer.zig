@@ -632,7 +632,6 @@ test "compose inserts graphics bands at existing composition boundaries" {
     defer allocator.free(placements);
     placements[0] = .{
         .image_index = 0,
-        .placement_ordinal = 0,
         .z_index = std.math.minInt(i32),
         .layer = .below_bg,
         .dest_x_px = 0,
@@ -646,7 +645,6 @@ test "compose inserts graphics bands at existing composition boundaries" {
     };
     placements[1] = .{
         .image_index = 0,
-        .placement_ordinal = 1,
         .z_index = -1,
         .layer = .below_text,
         .dest_x_px = 0,
@@ -660,7 +658,6 @@ test "compose inserts graphics bands at existing composition boundaries" {
     };
     placements[2] = .{
         .image_index = 0,
-        .placement_ordinal = 2,
         .z_index = 0,
         .layer = .above_text,
         .dest_x_px = 0,
@@ -747,8 +744,6 @@ test "compose draws below-text graphics through normal path with cursor last" {
             .images = try allocator.dupe(surface.PreparedGraphicsImageRef, &.{.{ .image_id = 7, .image_ref_id = 70, .width = 2, .height = 1, .format = 32, .raster_index = 0 }}),
             .placements = try allocator.dupe(surface.PreparedGraphicsPlacement, &.{.{
                 .image_index = 0,
-                .placement_id = 9,
-                .placement_ordinal = 0,
                 .z_index = -1,
                 .layer = .below_text,
                 .dest_x_px = 0,

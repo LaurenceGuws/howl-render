@@ -299,7 +299,6 @@ pub const FfiVtGraphicsPlacement = extern struct {
     dest_grid_rows: u32,
     effective_columns: u32,
     effective_rows: u32,
-    flags: u32 = 0,
     render_order_key: u64 = 0,
 };
 
@@ -478,7 +477,6 @@ comptime {
     std.debug.assert(@sizeOf(FfiVtCursor) == 8);
     std.debug.assert(@sizeOf(FfiVtGraphicsDecodedImage) == 32);
     std.debug.assert(@offsetOf(FfiVtGraphicsDecodedImage, "payload_len") == 24);
-    std.debug.assert(@sizeOf(FfiVtGraphicsPlacement) == 104);
-    std.debug.assert(@offsetOf(FfiVtGraphicsPlacement, "flags") == 88);
-    std.debug.assert(@offsetOf(FfiVtGraphicsPlacement, "render_order_key") == 96);
+    std.debug.assert(@sizeOf(FfiVtGraphicsPlacement) == 96);
+    std.debug.assert(@offsetOf(FfiVtGraphicsPlacement, "render_order_key") == 88);
 }

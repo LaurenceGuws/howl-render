@@ -84,9 +84,7 @@ pub const PreparedGraphicsImageRef = struct {
 
 pub const PreparedGraphicsPlacement = struct {
     image_index: u32,
-    placement_id: u32 = 0,
     render_order_key: u64 = 0,
-    placement_ordinal: u32,
     z_index: i32,
     layer: PreparedGraphicsLayer,
     dest_x_px: i32,

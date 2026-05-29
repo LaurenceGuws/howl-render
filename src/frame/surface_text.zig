@@ -619,7 +619,6 @@ test "prepareSurfaceGraphics wires prepared graphics into surface prepare contra
     source.graphics_payload_bytes = try std.testing.allocator.dupe(u8, &.{ 'A', 'B', 'C' });
     var placement0 = std.mem.zeroes(abi.FfiVtGraphicsPlacement);
     placement0.image_id = 5;
-    placement0.placement_id = 1;
     placement0.z_index = 2;
     placement0.anchor = .{ .kind = 1, .value = 0 };
     placement0.source_width = 1;
@@ -627,7 +626,6 @@ test "prepareSurfaceGraphics wires prepared graphics into surface prepare contra
     placement0.dest_right_cell_px = 20;
     placement0.dest_bottom_cell_px = 20;
     var placement1 = placement0;
-    placement1.placement_id = 2;
     placement1.z_index = -1;
     source.graphics_placements = try std.testing.allocator.dupe(abi.FfiVtGraphicsPlacement, &.{ placement0, placement1 });
 

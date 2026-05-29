@@ -507,7 +507,6 @@ fn expectDecodedGraphicsPreparedImageRef(format: u16, payload: []const u8) !void
     }};
     var placement = std.mem.zeroes(abi.FfiVtGraphicsPlacement);
     placement.image_id = 7;
-    placement.placement_id = 1;
     placement.anchor = .{ .kind = 1, .value = 0 };
     placement.source_width = 1;
     placement.source_height = 1;

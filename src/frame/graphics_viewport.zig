@@ -37,7 +37,7 @@ pub fn prepareGraphics(
     var below_text_count: u32 = 0;
     var above_text_count: u32 = 0;
 
-    for (placements, 0..) |placement, placement_index| {
+    for (placements) |placement| {
         const viewport_rect = resolvePlacementViewport(viewport, layout.grid_px, layout.cell_px, placement) orelse continue;
         const clipped = viewport_rect.clip_top_origin orelse continue;
         const image = findImage(images, placement.image_id) orelse continue;
@@ -53,9 +53,7 @@ pub fn prepareGraphics(
         }
         try prepared_placements.append(allocator, .{
             .image_index = image_index,
-            .placement_id = placement.placement_id,
             .render_order_key = placement.render_order_key,
-            .placement_ordinal = std.math.cast(u32, placement_index) orelse return error.OutOfMemory,
             .z_index = placement.z_index,
             .layer = layer,
             .dest_x_px = dest.x,
@@ -310,8 +308,7 @@ fn placementLess(
     if (a_image != b_image) return a_image < b_image;
 
     if (a.render_order_key != b.render_order_key) return a.render_order_key < b.render_order_key;
-
-    return a.placement_ordinal < b.placement_ordinal;
+    return false;
 }
 
 fn testPlacement() abi.FfiVtGraphicsPlacement {
@@ -390,7 +387,6 @@ test "graphics viewport prepares visible placement" {
     }};
     var placement = testPlacement();
     placement.image_id = 7;
-    placement.placement_id = 4;
     placement.anchor = .{ .kind = 1, .value = 1 };
     placement.anchor_col = 2;
     placement.source_width = 64;
@@ -442,7 +438,6 @@ test "graphics viewport adjusts source rect after clipping" {
     }};
     var placement = testPlacement();
     placement.image_id = 9;
-    placement.placement_id = 1;
     placement.anchor = .{ .kind = 2, .value = 1 };
     placement.source_x = 10;
     placement.source_y = 5;
@@ -490,7 +485,6 @@ test "graphics viewport rejects fully off-screen placement" {
     }};
     var placement = testPlacement();
     placement.image_id = 3;
-    placement.placement_id = 2;
     placement.anchor = .{ .kind = 3, .value = 0 };
     placement.source_width = 16;
     placement.source_height = 16;
@@ -523,7 +517,6 @@ test "graphics viewport classifies kitty z bands and stable ordering" {
     };
     var placement0 = testPlacement();
     placement0.image_id = 9;
-    placement0.placement_id = 1;
     placement0.z_index = 1;
     placement0.anchor = .{ .kind = 1, .value = 0 };
     placement0.source_width = 16;
@@ -531,14 +524,11 @@ test "graphics viewport classifies kitty z bands and stable ordering" {
     placement0.dest_right_cell_px = 16;
     placement0.dest_bottom_cell_px = 16;
     var placement1 = placement0;
-    placement1.placement_id = 2;
     placement1.z_index = std.math.minInt(i32) / 2 - 1;
     var placement2 = placement0;
     placement2.image_id = 4;
-    placement2.placement_id = 3;
     placement2.z_index = -1;
-    var placement3 = placement2;
-    placement3.placement_id = 4;
+    const placement3 = placement2;
     const placements = [_]abi.FfiVtGraphicsPlacement{ placement0, placement1, placement2, placement3 };
 
     var prepared = try prepareGraphics(
@@ -562,8 +552,6 @@ test "graphics viewport classifies kitty z bands and stable ordering" {
     try std.testing.expectEqual(surface.PreparedGraphicsLayer.below_text, prepared.placements[1].layer);
     try std.testing.expectEqual(surface.PreparedGraphicsLayer.below_text, prepared.placements[2].layer);
     try std.testing.expectEqual(surface.PreparedGraphicsLayer.above_text, prepared.placements[3].layer);
-    try std.testing.expectEqual(@as(u32, 2), prepared.placements[1].placement_ordinal);
-    try std.testing.expectEqual(@as(u32, 3), prepared.placements[2].placement_ordinal);
 }
 
 test "graphics viewport sorts same z and image by render order key" {
@@ -578,7 +566,6 @@ test "graphics viewport sorts same z and image by render order key" {
     }};
     var later = testPlacement();
     later.image_id = 7;
-    later.placement_id = 1;
     later.render_order_key = 30;
     later.anchor = .{ .kind = 1, .value = 0 };
     later.source_width = 16;
@@ -586,7 +573,6 @@ test "graphics viewport sorts same z and image by render order key" {
     later.dest_right_cell_px = 16;
     later.dest_bottom_cell_px = 16;
     var earlier = later;
-    earlier.placement_id = 99;
     earlier.render_order_key = 20;
     const placements = [_]abi.FfiVtGraphicsPlacement{ later, earlier };
 
@@ -607,51 +593,4 @@ test "graphics viewport sorts same z and image by render order key" {
     try std.testing.expectEqual(@as(u32, 0), prepared.below_bg_count);
     try std.testing.expectEqual(@as(u32, 0), prepared.below_text_count);
     try std.testing.expectEqual(@as(u32, 2), prepared.above_text_count);
-    try std.testing.expectEqual(@as(u32, 99), prepared.placements[0].placement_id);
-    try std.testing.expectEqual(@as(u32, 1), prepared.placements[0].placement_ordinal);
-    try std.testing.expectEqual(@as(u32, 1), prepared.placements[1].placement_id);
-}
-
-test "graphics viewport falls back to ordinal for equal render order keys" {
-    const images = [_]abi.FfiVtGraphicsDecodedImage{.{
-        .image_id = 7,
-        .image_ref_id = 70,
-        .format = 24,
-        .width = 16,
-        .height = 16,
-        .payload_len = 0,
-        .image_number = 0,
-    }};
-    var first = testPlacement();
-    first.image_id = 7;
-    first.placement_id = 99;
-    first.render_order_key = 20;
-    first.anchor = .{ .kind = 1, .value = 0 };
-    first.source_width = 16;
-    first.source_height = 16;
-    first.dest_right_cell_px = 16;
-    first.dest_bottom_cell_px = 16;
-    var second = first;
-    second.placement_id = 1;
-    const placements = [_]abi.FfiVtGraphicsPlacement{ first, second };
-
-    var prepared = try prepareGraphics(
-        std.testing.allocator,
-        .{
-            .render_px = .{ .width = 32, .height = 32 },
-            .grid_px = .{ .width = 32, .height = 32 },
-            .cell_px = .{ .width = 16, .height = 16 },
-        },
-        .{ .rows = 2, .history_count = 0, .scroll_row = 0, .is_alternate_screen = false },
-        1,
-        images[0..],
-        placements[0..],
-    );
-    defer prepared.deinit(std.testing.allocator);
-
-    try std.testing.expectEqual(@as(u32, 2), prepared.above_text_count);
-    try std.testing.expectEqual(@as(u32, 99), prepared.placements[0].placement_id);
-    try std.testing.expectEqual(@as(u32, 0), prepared.placements[0].placement_ordinal);
-    try std.testing.expectEqual(@as(u32, 1), prepared.placements[1].placement_id);
-    try std.testing.expectEqual(@as(u32, 1), prepared.placements[1].placement_ordinal);
 }
