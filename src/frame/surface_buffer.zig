@@ -710,7 +710,7 @@ test "compose inserts graphics bands at existing composition boundaries" {
     );
 }
 
-test "compose draws generated placeholder placement through normal below-text path with cursor last" {
+test "compose draws below-text graphics through normal path with cursor last" {
     const allocator = std.testing.allocator;
 
     var session = surface_text.SurfaceText.init(allocator);

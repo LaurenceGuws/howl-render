@@ -19,8 +19,6 @@ pub const HowlRenderCallStatus = enum(c_int) {
     failed = -3,
 };
 
-pub const HOWL_VT_GRAPHICS_PLACEMENT_GENERATED_PLACEHOLDER: u32 = 1;
-
 pub const HowlRenderPrepareStatus = enum(c_int) {
     idle = 0,
     ready = 1,
