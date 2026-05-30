@@ -1,10 +1,10 @@
 const std = @import("std");
-const c = @import("ffi.zig").c;
-const handle_owner = @import("handle.zig");
-const source_cell = @import("source/cell.zig");
-const source_slot = @import("source/slot.zig");
-const source_vt = @import("source/vt.zig");
-const tokens = @import("surface/tokens.zig");
+const c = @import("../ffi.zig").c;
+const handle_owner = @import("../handle.zig");
+const source_cell = @import("../source/cell.zig");
+const source_slot = @import("../source/slot.zig");
+const source_vt = @import("../source/vt.zig");
+const tokens = @import("../surface/tokens.zig");
 
 comptime {
     assertVtCellLayout();

@@ -10,7 +10,7 @@ const prepared_surface = @import("../prepared_surface.zig");
 const submission = @import("../submission.zig");
 const surface_geometry = @import("../ffi/surface_geometry.zig");
 const text_session = @import("../ffi/text_session.zig");
-const vt_surface = @import("../vt_surface.zig");
+const vt_surface = @import("../ffi/vt_surface.zig");
 const work_state = @import("../ffi/work_state.zig");
 
 const c = ffi_root.c;
