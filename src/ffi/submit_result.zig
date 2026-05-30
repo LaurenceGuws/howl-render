@@ -1,7 +1,7 @@
 const std = @import("std");
-const c = @import("ffi.zig").c;
-const prepared_submit_result = @import("prepared/submit_result.zig");
-const text_session = @import("session/text.zig");
+const c = @import("../ffi.zig").c;
+const prepared_submit_result = @import("../prepared/submit_result.zig");
+const text_session = @import("../session/text.zig");
 
 pub fn metricsOut(value: prepared_submit_result.Metrics) c.HowlRenderMetrics {
     return .{
