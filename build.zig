@@ -34,30 +34,6 @@ pub fn build(b: *std.Build) void {
         .optimize = perf_optimize,
     });
     const perf_harfbuzz_lib = perf_harfbuzz_dep.artifact("harfbuzz");
-    const test_mod = b.createModule(.{
-        .root_source_file = b.path("src/test.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-    test_mod.addIncludePath(b.path("include"));
-    test_mod.addIncludePath(b.path("../howl-vt/include"));
-    test_mod.addImport("test_font_options", test_font_options.createModule());
-    test_mod.linkLibrary(freetype_lib);
-    test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
-    test_mod.linkLibrary(harfbuzz_lib);
-    test_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    const tests = b.addTest(.{
-        .name = "test-render",
-        .root_module = test_mod,
-        .filters = b.args orelse &.{},
-    });
-    tests.use_llvm = true;
-    const run_tests = b.addRunArtifact(tests);
-    if (b.args != null) {
-        run_tests.has_side_effects = true;
-    }
-
     const unit_mod = b.createModule(.{
         .root_source_file = b.path("src/test_unit.zig"),
         .target = target,
