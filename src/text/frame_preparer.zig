@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const contract = @import("contract.zig");
 const direct_normal = @import("direct_normal.zig");
 const direct_scene = @import("direct_scene.zig");
-const pipeline = @import("pipeline.zig");
+const prepare_counters = @import("prepare_counters.zig");
 const atlas_cache = @import("raster/cache.zig");
 const cluster = @import("shape/cluster.zig");
 const font_resolver = @import("font/resolver.zig");
@@ -41,7 +41,7 @@ fn elapsedUs(start_ns: u64) u64 {
 
 pub const TextFramePreparer = struct {
     allocator: std.mem.Allocator,
-    counters: pipeline.TextPrepareCounters = .{},
+    counters: prepare_counters.TextPrepareCounters = .{},
     atlas: atlas_cache.OwnedAtlasCache,
     shaper: shape_run.Shaper,
     sprite_rasterizer: rasterizer.Rasterizer,
@@ -214,7 +214,7 @@ pub const TextFramePreparer = struct {
         final_prepared.direct.outputs_owned = false;
 
         final_prepared.lane_report.assertValid();
-        var counters = pipeline.TextPrepareCounters{
+        var counters = prepare_counters.TextPrepareCounters{
             .cell_texts = final_prepared.lane_report.visible_cells,
             .clusters = final_prepared.lane_report.normal_clusters + final_prepared.lane_report.complex_clusters,
             .resolved_runs = @intCast(final_prepared.runs.?.runs.len),
@@ -434,7 +434,10 @@ pub const OwnedPreparedTextFrame = struct {
     }
 };
 
-fn applyCounters(total: *pipeline.TextPrepareCounters, delta: pipeline.TextPrepareCounters) void {
+fn applyCounters(
+    total: *prepare_counters.TextPrepareCounters,
+    delta: prepare_counters.TextPrepareCounters,
+) void {
     total.cell_texts += delta.cell_texts;
     total.clusters += delta.clusters;
     total.resolved_runs += delta.resolved_runs;

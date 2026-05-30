@@ -5,7 +5,7 @@ const contract = @import("contract.zig");
 const direct_scene = @import("direct_scene.zig");
 const font_session = @import("font/session.zig");
 const lane = @import("classify/lane.zig");
-const pipeline = @import("pipeline.zig");
+const prepare_counters = @import("prepare_counters.zig");
 const provider = @import("font/provider.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
@@ -113,7 +113,11 @@ pub fn prepare(
     return try finishScene(driver, damage, lane_report);
 }
 
-pub fn counters(scratch: *const Scratch, lane_report: lane.LaneReport, direct: Product) pipeline.TextPrepareCounters {
+pub fn counters(
+    scratch: *const Scratch,
+    lane_report: lane.LaneReport,
+    direct: Product,
+) prepare_counters.TextPrepareCounters {
     return .{
         .cell_texts = lane_report.visible_cells,
         .clusters = lane_report.normal_clusters,
