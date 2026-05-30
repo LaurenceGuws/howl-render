@@ -1,5 +1,11 @@
 const std = @import("std");
-pub const Rgba8 = @import("../surface/rgba.zig").Rgba8;
+
+pub const Rgba8 = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+};
 
 pub const UnderlineStyle = enum {
     straight,
