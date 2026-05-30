@@ -5,7 +5,7 @@ test {
     _ = @import("unit.zig");
 }
 const ffi_root = @import("../ffi.zig");
-const prepare_request = @import("../prepare_request.zig");
+const prepare_request = @import("../ffi/prepare_request.zig");
 const prepared_surface = @import("../prepared_surface.zig");
 const submission = @import("../submission.zig");
 const surface_geometry = @import("../surface_geometry.zig");

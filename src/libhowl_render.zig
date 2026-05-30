@@ -2,7 +2,7 @@ const text_session = @import("text_session.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const vt_surface = @import("vt_surface.zig");
 const prepared_surface = @import("prepared_surface.zig");
-const prepare_request = @import("prepare_request.zig");
+const prepare_request = @import("ffi/prepare_request.zig");
 const submission = @import("submission.zig");
 const work_state = @import("work_state.zig");
 
