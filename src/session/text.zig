@@ -1,6 +1,6 @@
 const std = @import("std");
 const geometry_mod = @import("../render/grid_geometry.zig");
-const input = @import("../surface/input.zig");
+const input = @import("../source/text_input.zig");
 const tokens = @import("../render/tokens.zig");
 const prepared_owner = @import("../prepared/owner.zig");
 const prepared_submit = @import("../prepared/submit.zig");
