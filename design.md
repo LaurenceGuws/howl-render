@@ -19,8 +19,9 @@ It consumes render-owned source snapshots derived from VT truth, derives geometr
 
 ## Owners
 
-- `src/ffi.zig` translates the C ABI only.
-- `src/text_session.zig` and `src/session/text.zig` compose one render text session behind the C handle.
+- `src/ffi.zig` imports `include/howl_render.h` only.
+- `src/ffi/` contains C ABI translators grouped by ABI noun.
+- `src/session/text.zig` composes one render text session behind the C handle.
 - `src/session/submitted.zig` owns submitted/retired token state.
 - `src/source/` owns render source snapshots, source cells, dirty metadata, publication slots, and prepare requests.
 - `src/prepared/` owns prepared surface output and submit result contracts.
