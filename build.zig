@@ -105,11 +105,12 @@ pub fn build(b: *std.Build) void {
     const test_unit_build_step = b.step("test:unit:build", "Build render unit tests");
     const test_abi_step = b.step("test:abi", "Run shipped render ABI contract tests");
     const test_abi_build_step = b.step("test:abi:build", "Build shipped render ABI contract tests");
-    test_build_step.dependOn(&tests.step);
     test_unit_build_step.dependOn(&unit_tests.step);
     test_unit_step.dependOn(&run_unit_tests.step);
     test_abi_build_step.dependOn(&abi_tests.step);
     test_abi_step.dependOn(&run_abi_tests.step);
+    test_build_step.dependOn(test_unit_build_step);
+    test_build_step.dependOn(test_abi_build_step);
     test_step.dependOn(test_unit_step);
     test_step.dependOn(test_abi_step);
 
