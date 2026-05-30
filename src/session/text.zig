@@ -14,6 +14,7 @@ const prepared_surface = @import("../prepared/surface.zig");
 const prepared_submit_result = @import("../prepared/submit_result.zig");
 const session_submitted = @import("submitted.zig");
 const contract = @import("../text/contract.zig");
+const font_resolve = @import("../text/font/resolve.zig");
 const text_pipeline = @import("../text/pipeline.zig");
 const text = @import("../text/text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
@@ -141,7 +142,7 @@ pub const TextSession = struct {
         errdefer self.mutex.unlock();
         try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
         const text_input = input.publicationSourceToTextSceneInputBorrowed(self.cell_input_scratch, prepare.state, prepare.request.token.damage_kind == .full);
-        var resolve: text_pipeline.ResolveObservability = .{};
+        var resolve: font_resolve.ResolveObservability = .{};
         const preparer = try self.ensureTextPreparer(&context);
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
         errdefer prepared.deinit();
@@ -191,7 +192,7 @@ pub const TextSession = struct {
         prepare: PrepareInput,
         grid: contract.GridMetrics,
         prepared: text.OwnedPreparedTextFrame,
-        resolve: text_pipeline.ResolveObservability,
+        resolve: font_resolve.ResolveObservability,
     ) prepared_surface.PreparedSurface {
         return .{
             .allocator = allocator,
@@ -256,7 +257,7 @@ pub const TextSession = struct {
         };
     }
 
-    fn fontSession(context: *TextContext, faces: []text.FontSession.FontFaceRecord, active_resolve: ?*text_pipeline.ResolveObservability) text.FontSession.FontSession {
+    fn fontSession(context: *TextContext, faces: []text.FontSession.FontFaceRecord, active_resolve: ?*font_resolve.ResolveObservability) text.FontSession.FontSession {
         context.session.text_state.active_resolve = active_resolve;
         var len: text_support.FallbackFontCount = 0;
         if (count32(faces) > text_support.fallbackFontLen(len)) {

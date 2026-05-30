@@ -1,6 +1,6 @@
 const std = @import("std");
 const contract = @import("../contract.zig");
-const pipeline = @import("../pipeline.zig");
+const font_resolve = @import("resolve.zig");
 const font_session = @import("session.zig");
 const symbol_map = @import("../classify/symbol_map.zig");
 
@@ -267,7 +267,7 @@ pub fn missing(req: ResolveCellRequest, reason: contract.MissingGlyphReason) Res
     } };
 }
 
-pub fn stageForRoute(route: contract.SpecialSpriteRoute) pipeline.ResolveStage {
+pub fn stageForRoute(route: contract.SpecialSpriteRoute) font_resolve.ResolveStage {
     return switch (route) {
         .blank => .blank,
         .box, .block, .braille, .powerline, .legacy_computing => .sprite_route,

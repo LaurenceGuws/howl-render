@@ -1,5 +1,5 @@
 const tokens = @import("../surface/tokens.zig");
-const text_pipeline = @import("../text/pipeline.zig");
+const font_resolve = @import("../text/font/resolve.zig");
 
 pub const HostSurface = struct {
     host_surface_id: u64,
@@ -30,7 +30,7 @@ pub const Metrics = struct {
 pub const SubmitResult = struct {
     damage_kind: tokens.DamageKind,
     uploads_committed: u64,
-    resolve: text_pipeline.ResolveObservability,
+    resolve: font_resolve.ResolveObservability,
     host_surface: HostSurface,
     metrics: Metrics,
     render_us: u64,

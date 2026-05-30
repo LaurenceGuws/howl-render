@@ -1,62 +1,5 @@
-
 const std = @import("std");
 const contract = @import("contract.zig");
-
-pub const ResolveStage = enum(u5) {
-    blank,
-    style_policy,
-    codepoint_override,
-    sprite_route,
-    symbol_map,
-    loaded_exact_match,
-    regular_style_retry,
-    configured_fallback,
-    discovery_fallback,
-    emoji_fallback,
-    regular_any_presentation,
-    missing_glyph,
-};
-
-pub const ResolveRequest = struct {
-    codepoint: u32,
-    style: contract.FontStyle,
-    presentation: contract.TextPresentation,
-    text_id: ?contract.CellTextId = null,
-};
-
-pub const ResolveHit = struct {
-    stage: ResolveStage,
-    face_id: u32,
-    glyph_id: u32,
-};
-
-pub const ResolveMiss = struct {
-    stage: ResolveStage,
-    missing: contract.MissingGlyph,
-};
-
-pub const ResolveResult = union(enum) {
-    hit: ResolveHit,
-    miss: ResolveMiss,
-};
-
-pub const ResolveCounters = struct {
-    missing_glyphs: u64 = 0,
-    fallback_hits: u64 = 0,
-    fallback_misses: u64 = 0,
-    shaped_clusters: u64 = 0,
-    resolved_runs: u64 = 0,
-    sprite_routes: u64 = 0,
-    face_checks: u64 = 0,
-    face_cache_hits: u64 = 0,
-    shape_requests: u64 = 0,
-    shape_cache_hits: u64 = 0,
-};
-
-pub const ResolveObservability = struct {
-    counters: ResolveCounters = .{},
-    stage: ResolveStage = .style_policy,
-};
 
 pub const TextPrepareCounters = struct {
     cell_texts: u64 = 0,
@@ -151,7 +94,6 @@ pub const RasterizeOutput = struct {
 
 pub const ShapeClustersFn = *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, req: ShapeRequest) anyerror!ShapeOutput;
 pub const RasterizeGlyphFn = *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, req: RasterizeRequest) anyerror!RasterizeOutput;
-pub const ResolveFallbackFaceFn = *const fn (ctx: *anyopaque, req: ResolveRequest) ResolveResult;
 
 pub const ShapeClustersOp = struct {
     ctx: *anyopaque,
@@ -168,15 +110,6 @@ pub const RasterizeGlyphOp = struct {
 
     pub fn rasterize(self: RasterizeGlyphOp, allocator: std.mem.Allocator, req: RasterizeRequest) anyerror!RasterizeOutput {
         return self.call(self.ctx, allocator, req);
-    }
-};
-
-pub const ResolveFallbackFaceOp = struct {
-    ctx: *anyopaque,
-    call: ResolveFallbackFaceFn,
-
-    pub fn resolve(self: ResolveFallbackFaceOp, req: ResolveRequest) ResolveResult {
-        return self.call(self.ctx, req);
     }
 };
 
@@ -231,16 +164,6 @@ test "text pipeline ops dispatch and own output buffers" {
                 .alpha_mask = alpha,
             };
         }
-
-        fn resolve(ctx: *anyopaque, req: ResolveRequest) ResolveResult {
-            const self: *@This() = @ptrCast(@alignCast(ctx));
-            self.hits += 1;
-            return .{ .hit = .{
-                .stage = if (req.style == .regular) .loaded_exact_match else .regular_style_retry,
-                .face_id = 42,
-                .glyph_id = req.codepoint,
-            } };
-        }
     };
 
     const count32 = struct {
@@ -253,7 +176,6 @@ test "text pipeline ops dispatch and own output buffers" {
     var stub = Stub{};
     const shape_op = ShapeClustersOp{ .ctx = &stub, .call = Stub.shape };
     const raster_op = RasterizeGlyphOp{ .ctx = &stub, .call = Stub.rasterize };
-    const resolve_op = ResolveFallbackFaceOp{ .ctx = &stub, .call = Stub.resolve };
 
     const req = ShapeRequest{
         .clusters = &.{.{ .grapheme_utf8 = "A", .first_cp = 'A' }},
@@ -285,18 +207,5 @@ test "text pipeline ops dispatch and own output buffers" {
     try std.testing.expectEqual(@as(u32, 8 * 16), count32.of(raster.alpha_mask));
     try std.testing.expectEqual(@as(u8, 0x7f), raster.alpha_mask[0]);
 
-    const resolved = resolve_op.resolve(.{
-        .codepoint = 'A',
-        .style = .bold,
-        .presentation = .any,
-    });
-    switch (resolved) {
-        .hit => |hit| {
-            try std.testing.expectEqual(.regular_style_retry, hit.stage);
-            try std.testing.expectEqual(@as(u32, 42), hit.face_id);
-        },
-        .miss => return error.UnexpectedResolveMiss,
-    }
-
-    try std.testing.expectEqual(@as(u8, 3), stub.hits);
+    try std.testing.expectEqual(@as(u8, 2), stub.hits);
 }

@@ -4,7 +4,7 @@ const test_font_options = @import("test_font_options");
 const contract = @import("../../contract.zig");
 const text_session = @import("../../../session/text.zig");
 const text_mod = @import("../../text.zig");
-const text_pipeline = @import("../../pipeline.zig");
+const font_resolve = @import("../resolve.zig");
 const geometry_contract = @import("../../../render/geometry_contract.zig");
 const text_cache = @import("cache.zig");
 const c_api = @import("c_api.zig");
@@ -38,9 +38,9 @@ pub const State = struct {
     font_analysis_mutex: ThreadMutex = .{},
     fallback_faces: [max_fallback_fonts]?FtFace = [_]?FtFace{null} ** max_fallback_fonts,
     fallback_hb_fonts: [max_fallback_fonts]?HbFont = [_]?HbFont{null} ** max_fallback_fonts,
-    resolve_counters: text_pipeline.ResolveCounters = .{},
-    resolve_stage: text_pipeline.ResolveStage = .style_policy,
-    active_resolve: ?*text_pipeline.ResolveObservability = null,
+    resolve_counters: font_resolve.ResolveCounters = .{},
+    resolve_stage: font_resolve.ResolveStage = .style_policy,
+    active_resolve: ?*font_resolve.ResolveObservability = null,
     face_text_cache: text_cache.FaceTextCache,
     shape_run_cache: text_cache.ShapeRunCache,
     glyph_cell_cache: text_cache.GlyphCellCache,

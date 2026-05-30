@@ -1,7 +1,7 @@
 const std = @import("std");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const tokens = @import("../surface/tokens.zig");
-const text_pipeline = @import("../text/pipeline.zig");
+const font_resolve = @import("../text/font/resolve.zig");
 const text = @import("../text/text.zig");
 
 pub const PrepareMetrics = struct {
@@ -28,7 +28,7 @@ pub const PreparedSurface = struct {
     cell_px: geometry_contract.CellSize,
     grid: geometry_contract.GridSize,
     text_frame: text.OwnedPreparedTextFrame,
-    resolve: text_pipeline.ResolveObservability = .{},
+    resolve: font_resolve.ResolveObservability = .{},
     prepare_metrics: PrepareMetrics = .{},
 
     pub fn deinit(self: *PreparedSurface) void {
