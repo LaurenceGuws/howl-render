@@ -1,5 +1,5 @@
 const text = @import("../text/text.zig");
-const tokens = @import("../surface/tokens.zig");
+const tokens = @import("../render/tokens.zig");
 
 pub fn markRendered(atlas: *text.AtlasCache.OwnedAtlasCache, outputs: []const text.Rasterizer.RasterSpriteOutput) void {
     for (outputs) |output| {

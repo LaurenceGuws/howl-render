@@ -1,5 +1,5 @@
 const std = @import("std");
-const tokens = @import("../surface/tokens.zig");
+const tokens = @import("../render/tokens.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const source_vt = @import("vt.zig");
 const source_damage = @import("damage.zig");

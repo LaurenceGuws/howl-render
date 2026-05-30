@@ -1,5 +1,5 @@
 const std = @import("std");
-const tokens = @import("../surface/tokens.zig");
+const tokens = @import("../render/tokens.zig");
 const source_vt = @import("vt.zig");
 
 pub fn validateDirtySource(

@@ -3,7 +3,7 @@ const c = @import("../ffi.zig").c;
 const handle_owner = @import("handle.zig");
 const prepared_owner = @import("../prepared/owner.zig");
 const submit_result = @import("submit_result.zig");
-const tokens = @import("../surface/tokens.zig");
+const tokens = @import("../render/tokens.zig");
 
 pub fn publishPrepared(
     value: c.HowlRenderTextSessionHandle,

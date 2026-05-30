@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @import("../ffi.zig").c;
 const handle_owner = @import("handle.zig");
-const tokens = @import("../surface/tokens.zig");
+const tokens = @import("../render/tokens.zig");
 
 pub fn takePrepareRequest(
     value: c.HowlRenderTextSessionHandle,

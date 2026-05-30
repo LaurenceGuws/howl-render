@@ -1,6 +1,6 @@
 const std = @import("std");
 const geometry_contract = @import("../render/geometry_contract.zig");
-const tokens = @import("../surface/tokens.zig");
+const tokens = @import("../render/tokens.zig");
 const font_resolve = @import("../text/font/resolve.zig");
 const text = @import("../text/text.zig");
 

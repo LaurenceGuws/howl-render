@@ -1,5 +1,5 @@
 const std = @import("std");
-const tokens = @import("../surface/tokens.zig");
+const tokens = @import("../render/tokens.zig");
 const source_cell = @import("cell.zig");
 const source_damage = @import("damage.zig");
 const source_slot = @import("slot.zig");
