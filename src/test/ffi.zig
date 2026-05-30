@@ -11,7 +11,7 @@ const submission = @import("../submission.zig");
 const surface_geometry = @import("../surface_geometry.zig");
 const text_session = @import("../text_session.zig");
 const vt_surface = @import("../vt_surface.zig");
-const work_state = @import("../work_state.zig");
+const work_state = @import("../ffi/work_state.zig");
 
 const c = ffi_root.c;
 const RenderVtSurfaceSlot = @field(c, "Howl" ++ "RenderVtSurfaceSlot");

@@ -4,7 +4,7 @@ const vt_surface = @import("vt_surface.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const prepare_request = @import("ffi/prepare_request.zig");
 const submission = @import("submission.zig");
-const work_state = @import("work_state.zig");
+const work_state = @import("ffi/work_state.zig");
 
 comptime {
     @export(&text_session.init, .{ .name = "howl_render_text_session_init" });

@@ -1,6 +1,6 @@
-const c = @import("ffi.zig").c;
-const handle_owner = @import("handle.zig");
-const session_text = @import("session/text.zig");
+const c = @import("../ffi.zig").c;
+const handle_owner = @import("../handle.zig");
+const session_text = @import("../session/text.zig");
 
 pub fn workState(
     value: c.HowlRenderTextSessionHandle,
