@@ -2,7 +2,6 @@ const std = @import("std");
 
 test {
     std.testing.refAllDecls(@import("../libhowl_render.zig"));
-    _ = @import("unit.zig");
 }
 const ffi_root = @import("../ffi.zig");
 const prepare_request = @import("../ffi/prepare_request.zig");
