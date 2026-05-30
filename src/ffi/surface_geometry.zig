@@ -1,5 +1,5 @@
 const c = @import("../ffi.zig").c;
-const handle_owner = @import("../handle.zig");
+const handle_owner = @import("handle.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 
 pub fn deriveLayout(

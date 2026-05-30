@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @import("../ffi.zig").c;
-const handle_owner = @import("../handle.zig");
+const handle_owner = @import("handle.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const text_session = @import("../session/text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
