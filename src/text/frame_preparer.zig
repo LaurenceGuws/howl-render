@@ -11,6 +11,7 @@ const font_session = @import("font/session.zig");
 const ft_hb_provider = @import("font/ft_hb/provider.zig");
 const grouping = @import("shape/grouping.zig");
 const provider = @import("font/provider.zig");
+const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
 const shape_run = @import("shape/run.zig");
@@ -45,7 +46,7 @@ pub const TextFramePreparer = struct {
     shaper: shape_run.Shaper,
     sprite_rasterizer: rasterizer.Rasterizer,
     glyph_lookup: provider.LookupGlyphOp,
-    glyph_raster: pipeline.RasterizeGlyphOp,
+    glyph_raster: raster_operation.RasterizeGlyphOp,
     cluster_scratch: cluster.RetainedScratch = .{},
     direct_normal: direct_normal.Scratch = .{},
     resolver_scratch: font_resolver.RetainedScratch = .{},

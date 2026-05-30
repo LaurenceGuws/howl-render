@@ -68,32 +68,7 @@ pub const ShapeOutput = struct {
     }
 };
 
-pub const RasterizeRequest = struct {
-    face_id: u32,
-    glyph_id: u32,
-    atlas_key: u64,
-    cell_metrics: contract.CellMetrics,
-    cell_span: u8 = 1,
-    sprite_key: ?contract.SpriteKey = null,
-};
-
-pub const RasterizeOutput = struct {
-    allocator: std.mem.Allocator,
-    width_px: u16,
-    height_px: u16,
-    bearing_x_px: i16,
-    bearing_y_px: i16,
-    advance_px: f32,
-    alpha_mask: []u8,
-
-    pub fn deinit(self: *RasterizeOutput) void {
-        self.allocator.free(self.alpha_mask);
-        self.* = undefined;
-    }
-};
-
 pub const ShapeClustersFn = *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, req: ShapeRequest) anyerror!ShapeOutput;
-pub const RasterizeGlyphFn = *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, req: RasterizeRequest) anyerror!RasterizeOutput;
 
 pub const ShapeClustersOp = struct {
     ctx: *anyopaque,
@@ -104,16 +79,7 @@ pub const ShapeClustersOp = struct {
     }
 };
 
-pub const RasterizeGlyphOp = struct {
-    ctx: *anyopaque,
-    call: RasterizeGlyphFn,
-
-    pub fn rasterize(self: RasterizeGlyphOp, allocator: std.mem.Allocator, req: RasterizeRequest) anyerror!RasterizeOutput {
-        return self.call(self.ctx, allocator, req);
-    }
-};
-
-test "text pipeline ops dispatch and own output buffers" {
+test "shape clusters op dispatches and owns output buffers" {
     const allocator = std.testing.allocator;
 
     const Stub = struct {
@@ -146,24 +112,6 @@ test "text pipeline ops dispatch and own output buffers" {
                 .missing = try gpa.alloc(contract.MissingGlyph, 0),
             };
         }
-
-        fn rasterize(ctx: *anyopaque, gpa: std.mem.Allocator, req: RasterizeRequest) anyerror!RasterizeOutput {
-            const self: *@This() = @ptrCast(@alignCast(ctx));
-            self.hits += 1;
-
-            const area: u32 = @as(u32, req.cell_metrics.cell_w_px) * @as(u32, req.cell_metrics.cell_h_px);
-            const alpha = try gpa.alloc(u8, @intCast(area));
-            @memset(alpha, 0x7f);
-            return .{
-                .allocator = gpa,
-                .width_px = req.cell_metrics.cell_w_px,
-                .height_px = req.cell_metrics.cell_h_px,
-                .bearing_x_px = 0,
-                .bearing_y_px = 0,
-                .advance_px = @floatFromInt(req.cell_metrics.cell_w_px),
-                .alpha_mask = alpha,
-            };
-        }
     };
 
     const count32 = struct {
@@ -175,7 +123,6 @@ test "text pipeline ops dispatch and own output buffers" {
 
     var stub = Stub{};
     const shape_op = ShapeClustersOp{ .ctx = &stub, .call = Stub.shape };
-    const raster_op = RasterizeGlyphOp{ .ctx = &stub, .call = Stub.rasterize };
 
     const req = ShapeRequest{
         .clusters = &.{.{ .grapheme_utf8 = "A", .first_cp = 'A' }},
@@ -197,15 +144,5 @@ test "text pipeline ops dispatch and own output buffers" {
     try std.testing.expectEqual(@as(u32, 1), count32.of(shaped.glyphs));
     try std.testing.expectEqual(@as(u32, 'A'), shaped.glyphs[0].glyph_id);
 
-    var raster = try raster_op.rasterize(allocator, .{
-        .face_id = 7,
-        .glyph_id = shaped.glyphs[0].glyph_id,
-        .atlas_key = shaped.glyphs[0].atlas_key,
-        .cell_metrics = req.cell_metrics,
-    });
-    defer raster.deinit();
-    try std.testing.expectEqual(@as(u32, 8 * 16), count32.of(raster.alpha_mask));
-    try std.testing.expectEqual(@as(u8, 0x7f), raster.alpha_mask[0]);
-
-    try std.testing.expectEqual(@as(u8, 2), stub.hits);
+    try std.testing.expectEqual(@as(u8, 1), stub.hits);
 }

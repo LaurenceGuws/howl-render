@@ -1,8 +1,7 @@
-
 const std = @import("std");
 const contract = @import("../contract.zig");
-const pipeline = @import("../pipeline.zig");
 const font_session = @import("session.zig");
+const raster_operation = @import("../raster/operation.zig");
 const rasterizer = @import("../raster/rasterizer.zig");
 const shape_run = @import("../shape/run.zig");
 
@@ -27,7 +26,7 @@ pub const TextProvider = struct {
     shaper: shape_run.Shaper = shape_run.defaultShaper(),
     rasterizer: rasterizer.Rasterizer = rasterizer.defaultRasterizer(),
     glyph_lookup: LookupGlyphOp = defaultLookupGlyph(),
-    glyph_raster: pipeline.RasterizeGlyphOp = defaultGlyphRaster(),
+    glyph_raster: raster_operation.RasterizeGlyphOp = defaultGlyphRaster(),
 
     pub fn applyToSession(self: TextProvider, session: font_session.FontSession) font_session.FontSession {
         var next = session;
@@ -44,7 +43,7 @@ pub fn defaultLookupGlyph() LookupGlyphOp {
     return .{ .ctx = undefined, .lookup_glyph = defaultLookupGlyphThunk };
 }
 
-pub fn defaultGlyphRaster() pipeline.RasterizeGlyphOp {
+pub fn defaultGlyphRaster() raster_operation.RasterizeGlyphOp {
     return .{ .ctx = undefined, .call = defaultGlyphRasterThunk };
 }
 
@@ -56,7 +55,7 @@ fn defaultLookupGlyphThunk(_: *anyopaque, face_id: contract.FontFaceId, codepoin
     };
 }
 
-fn defaultGlyphRasterThunk(_: *anyopaque, allocator: std.mem.Allocator, req: pipeline.RasterizeRequest) anyerror!pipeline.RasterizeOutput {
+fn defaultGlyphRasterThunk(_: *anyopaque, allocator: std.mem.Allocator, req: raster_operation.RasterizeRequest) anyerror!raster_operation.RasterizeOutput {
     const width = @as(u16, @intCast(@as(u32, @max(req.cell_span, 1)) * @as(u32, @max(req.cell_metrics.cell_w_px, 1))));
     const height = @max(req.cell_metrics.cell_h_px, 1);
     const area = @as(u32, width) * @as(u32, height);

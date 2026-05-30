@@ -7,6 +7,7 @@ const font_session = @import("font/session.zig");
 const lane = @import("classify/lane.zig");
 const pipeline = @import("pipeline.zig");
 const provider = @import("font/provider.zig");
+const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
 const sprite_key = @import("raster/key.zig");
@@ -47,7 +48,7 @@ pub const Scratch = struct {
     clear_draws: std.ArrayListUnmanaged(contract.TextClearDraw) = .{ .items = &.{}, .capacity = 0 },
     decoration_draws: std.ArrayListUnmanaged(contract.TextDecorationDraw) = .{ .items = &.{}, .capacity = 0 },
     cursor_draws: std.ArrayListUnmanaged(contract.TextCursorDraw) = .{ .items = &.{}, .capacity = 0 },
-    raster_reqs: std.ArrayListUnmanaged(pipeline.RasterizeRequest) = .{ .items = &.{}, .capacity = 0 },
+    raster_reqs: std.ArrayListUnmanaged(raster_operation.RasterizeRequest) = .{ .items = &.{}, .capacity = 0 },
 
     pub fn deinit(self: *Scratch, allocator: std.mem.Allocator) void {
         self.raster_reqs.deinit(allocator);
@@ -86,7 +87,7 @@ pub const Driver = struct {
     allocator: std.mem.Allocator,
     atlas: *atlas_cache.OwnedAtlasCache,
     glyph_lookup: provider.LookupGlyphOp,
-    glyph_raster: pipeline.RasterizeGlyphOp,
+    glyph_raster: raster_operation.RasterizeGlyphOp,
     scratch: *Scratch,
 };
 

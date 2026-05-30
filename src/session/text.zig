@@ -15,10 +15,10 @@ const prepared_submit_result = @import("../prepared/submit_result.zig");
 const session_submitted = @import("submitted.zig");
 const contract = @import("../text/contract.zig");
 const font_resolve = @import("../text/font/resolve.zig");
-const text_pipeline = @import("../text/pipeline.zig");
 const text = @import("../text/text.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
 const text_glyph_raster = @import("../text/font/ft_hb/glyph_raster.zig");
+const text_raster_operation = @import("../text/raster/operation.zig");
 
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
 const ft_hb_face_text_cache_entry_cap: u32 = 4096;
@@ -298,7 +298,7 @@ pub const TextSession = struct {
         return text_support.providerLookupGlyph(TextContext, ctx, face_id, codepoint, cell_metrics);
     }
 
-    fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: text_pipeline.RasterizeRequest) anyerror!text_pipeline.RasterizeOutput {
+    fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: text_raster_operation.RasterizeRequest) anyerror!text_raster_operation.RasterizeOutput {
         const context: *TextContext = @ptrCast(@alignCast(ctx));
         const width = @as(u16, @intCast(@as(u32, @max(req.cell_span, 1)) * @as(u32, @max(req.cell_metrics.cell_w_px, 1))));
         const height = @max(req.cell_metrics.cell_h_px, 1);

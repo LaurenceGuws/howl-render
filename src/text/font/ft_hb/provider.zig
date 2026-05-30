@@ -1,7 +1,7 @@
 const provider = @import("../provider.zig");
 const font_session = @import("../session.zig");
 const contract = @import("../../contract.zig");
-const pipeline = @import("../../pipeline.zig");
+const raster_operation = @import("../../raster/operation.zig");
 const rasterizer = @import("../../raster/rasterizer.zig");
 const shape_run = @import("../../shape/run.zig");
 
@@ -11,7 +11,7 @@ pub const FtHbSource = struct {
     shaper: shape_run.Shaper = shape_run.defaultShaper(),
     rasterizer: rasterizer.Rasterizer = rasterizer.defaultRasterizer(),
     glyph_lookup: provider.LookupGlyphOp = provider.defaultLookupGlyph(),
-    glyph_raster: pipeline.RasterizeGlyphOp = provider.defaultGlyphRaster(),
+    glyph_raster: raster_operation.RasterizeGlyphOp = provider.defaultGlyphRaster(),
 
     pub fn textProvider(self: *FtHbSource) provider.TextProvider {
         return .{
