@@ -1,5 +1,5 @@
 const c = @import("../ffi.zig").c;
-const prepared_owner = @import("../surface/prepared_owner.zig");
+const prepared_owner = @import("../prepared/owner.zig");
 const text_session = @import("../session/text.zig");
 
 pub fn textSessionOwner(handle: c.HowlRenderTextSessionHandle) ?*text_session.TextSessionOwner {

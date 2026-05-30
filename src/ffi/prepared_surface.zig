@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @import("../ffi.zig").c;
 const handle_owner = @import("handle.zig");
-const prepared_owner = @import("../surface/prepared_owner.zig");
+const prepared_owner = @import("../prepared/owner.zig");
 const prepare_request_boundary = @import("prepare_request.zig");
 const submit_result = @import("submit_result.zig");
 
