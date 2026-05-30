@@ -3,7 +3,7 @@ const tokens = @import("tokens.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_surface = @import("../prepared/surface.zig");
 const prepared_submit_result = @import("../prepared/submit_result.zig");
-const surface_buffer = @import("buffer.zig");
+const prepared_buffer = @import("../prepared/buffer.zig");
 const text_session = @import("../session/text.zig");
 const text = @import("../text/text.zig");
 const contract = @import("../text/contract.zig");
@@ -212,7 +212,7 @@ pub const Owner = struct {
             .full => null,
             else => unreachable,
         };
-        self.rgba_pixels = try surface_buffer.compose(
+        self.rgba_pixels = try prepared_buffer.compose(
             self.session_owner.allocator,
             base_pixels,
             &self.session_owner.session,

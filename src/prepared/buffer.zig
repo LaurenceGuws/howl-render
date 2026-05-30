@@ -1,5 +1,5 @@
 const std = @import("std");
-const prepared_surface = @import("../prepared/surface.zig");
+const prepared_surface = @import("surface.zig");
 const text_session = @import("../session/text.zig");
 const contract = @import("../text/contract.zig");
 const text = @import("../text/text.zig");
