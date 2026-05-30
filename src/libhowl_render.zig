@@ -1,4 +1,4 @@
-const text_session = @import("text_session.zig");
+const text_session = @import("ffi/text_session.zig");
 const surface_geometry = @import("ffi/surface_geometry.zig");
 const vt_surface = @import("vt_surface.zig");
 const prepared_surface = @import("prepared_surface.zig");
