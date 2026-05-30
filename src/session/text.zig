@@ -1,5 +1,5 @@
 const std = @import("std");
-const geometry_mod = @import("../surface/geometry.zig");
+const geometry_mod = @import("../render/grid_geometry.zig");
 const input = @import("../surface/input.zig");
 const tokens = @import("../surface/tokens.zig");
 const prepared_owner = @import("../prepared/owner.zig");
