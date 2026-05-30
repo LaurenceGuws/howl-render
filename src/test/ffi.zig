@@ -6,7 +6,7 @@ test {
 }
 const ffi_root = @import("../ffi.zig");
 const prepare_request = @import("../ffi/prepare_request.zig");
-const prepared_surface = @import("../prepared_surface.zig");
+const prepared_surface = @import("../ffi/prepared_surface.zig");
 const submission = @import("../submission.zig");
 const surface_geometry = @import("../ffi/surface_geometry.zig");
 const text_session = @import("../ffi/text_session.zig");
