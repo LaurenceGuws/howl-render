@@ -50,6 +50,11 @@ test "render ffi missing handles report shipped contract" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface.diagnostics(null, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, diagnostics.status);
     try std.testing.expectEqual(@as(u64, 0), diagnostics.missing_glyphs);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_OK,
+        diagnostics.protocol_v0_emit_status,
+    );
+    try std.testing.expectEqual(@as(u32, 0), diagnostics.reserved0);
 }
 
 test "render ffi invalid arguments report shipped contract" {
@@ -60,6 +65,45 @@ test "render ffi invalid arguments report shipped contract" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, text_session.setFontSize(handle, 0));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, text_session.setFontPath(handle, null, 1));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, vt_surface.reserveVtSurfaceSlot(handle, 0, 1, null));
+}
+
+test "render ffi protocol v0 emit status values are stable" {
+    try std.testing.expectEqual(@as(i32, 0), c.HOWL_RENDER_V0_EMIT_OK);
+    try std.testing.expectEqual(@as(i32, 1), c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 2), c.HOWL_RENDER_V0_EMIT_CREATE_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 3), c.HOWL_RENDER_V0_EMIT_DAMAGE_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 4), c.HOWL_RENDER_V0_EMIT_RETIRE_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 5), c.HOWL_RENDER_V0_EMIT_RESOURCE_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 6), c.HOWL_RENDER_V0_EMIT_UPLOAD_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 7), c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 8), c.HOWL_RENDER_V0_EMIT_INVALID_PREPARED_SPRITE);
+    try std.testing.expectEqual(@as(i32, 9), c.HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE);
+    try std.testing.expectEqual(@as(i32, 10), c.HOWL_RENDER_V0_EMIT_ALLOCATION_FAILED);
+}
+
+test "render ffi prepared diagnostics layout is stable" {
+    try std.testing.expectEqual(@as(usize, 8), @alignOf(c.HowlRenderPreparedSurfaceDiagnostics));
+    try std.testing.expectEqual(@as(usize, 160), @sizeOf(c.HowlRenderPreparedSurfaceDiagnostics));
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        @offsetOf(c.HowlRenderPreparedSurfaceDiagnostics, "status"),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 8),
+        @offsetOf(c.HowlRenderPreparedSurfaceDiagnostics, "missing_glyphs"),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 16),
+        @offsetOf(c.HowlRenderPreparedSurfaceDiagnostics, "resolve_metrics"),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 152),
+        @offsetOf(c.HowlRenderPreparedSurfaceDiagnostics, "protocol_v0_emit_status"),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 156),
+        @offsetOf(c.HowlRenderPreparedSurfaceDiagnostics, "reserved0"),
+    );
 }
 
 test "render ffi lifecycle exports geometry and layout contract" {
@@ -277,6 +321,11 @@ test "render ffi live prepared handle describes buffer and diagnostics" {
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, diagnostics.status);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_OK,
+        diagnostics.protocol_v0_emit_status,
+    );
+    try std.testing.expectEqual(@as(u32, 0), diagnostics.reserved0);
 }
 
 test "render ffi released prepared handle rejects describe buffer and diagnostics" {
@@ -299,6 +348,11 @@ test "render ffi released prepared handle rejects describe buffer and diagnostic
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, diagnostics.status);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_OK,
+        diagnostics.protocol_v0_emit_status,
+    );
+    try std.testing.expectEqual(@as(u32, 0), diagnostics.reserved0);
 }
 
 test "render ffi prepared protocol v0 rejects missing handle" {

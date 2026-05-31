@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const c = @import("../ffi.zig").c;
 const tokens = @import("../render/tokens.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_surface = @import("surface.zig");
@@ -32,6 +33,7 @@ pub const PreparedBuffer = struct {
 pub const PreparedDiagnostics = struct {
     missing_glyphs: u64,
     resolve_metrics: prepared_submit_result.Metrics,
+    protocol_v0_emit_status: i32,
 };
 
 pub const Owner = struct {
@@ -55,6 +57,7 @@ pub const Owner = struct {
     uploads_required: u64,
     missing_glyphs: u64,
     resolve_metrics: prepared_submit_result.Metrics,
+    protocol_v0_emit_status: i32 = c.HOWL_RENDER_V0_EMIT_OK,
 
     pub const SubmitResult = union(enum) {
         rendered: prepared_submit_result.SubmitResult,
@@ -72,8 +75,13 @@ pub const Owner = struct {
         value.* = emptyPreparedSurface(prepared_allocator);
         errdefer owner.destroy();
         try owner.copySurfaceBuffer();
-        owner.emitV0Payload() catch {};
         try session_owner.registerPreparedHandle(owner);
+        owner.emitV0Payload() catch |err| {
+            owner.protocol_v0_emit_status = switch (err) {
+                error.OutOfMemory => c.HOWL_RENDER_V0_EMIT_ALLOCATION_FAILED,
+                else => protocolV0EmitStatus(@errorCast(err)),
+            };
+        };
         return owner;
     }
 
@@ -159,6 +167,7 @@ pub const Owner = struct {
         return .{
             .missing_glyphs = self.missing_glyphs,
             .resolve_metrics = self.resolve_metrics,
+            .protocol_v0_emit_status = self.protocol_v0_emit_status,
         };
     }
 
@@ -281,6 +290,21 @@ fn ownerBase(session_owner: *text_session.TextSessionOwner, value: prepared_surf
         .uploads_required = value.text_frame.raster_plan.outputs.len,
         .missing_glyphs = value.text_frame.scene.scene.missing.len,
         .resolve_metrics = resolveMetricsOut(value),
+        .protocol_v0_emit_status = c.HOWL_RENDER_V0_EMIT_OK,
+    };
+}
+
+fn protocolV0EmitStatus(err: protocol_v0_emit.Error) i32 {
+    return switch (err) {
+        error.CommandBoundOverflow => c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
+        error.CreateBoundOverflow => c.HOWL_RENDER_V0_EMIT_CREATE_BOUND_OVERFLOW,
+        error.DamageBoundOverflow => c.HOWL_RENDER_V0_EMIT_DAMAGE_BOUND_OVERFLOW,
+        error.RetireBoundOverflow => c.HOWL_RENDER_V0_EMIT_RETIRE_BOUND_OVERFLOW,
+        error.ResourceBoundOverflow => c.HOWL_RENDER_V0_EMIT_RESOURCE_BOUND_OVERFLOW,
+        error.UploadBoundOverflow => c.HOWL_RENDER_V0_EMIT_UPLOAD_BOUND_OVERFLOW,
+        error.UploadBytesOverflow => c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW,
+        error.InvalidPreparedSprite => c.HOWL_RENDER_V0_EMIT_INVALID_PREPARED_SPRITE,
+        error.MissingPreparedSprite => c.HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE,
     };
 }
 
@@ -567,6 +591,7 @@ test "owner exports prepared metrics and required upload count truth" {
             .fallback_misses = 0,
             .missing_glyphs = 2,
         },
+        .protocol_v0_emit_status = c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW,
     };
 
     owner.prepared = .{
@@ -636,6 +661,49 @@ test "owner exports prepared metrics and required upload count truth" {
     try std.testing.expectEqual(@as(u64, 2), diagnostics.missing_glyphs);
     try std.testing.expectEqual(@as(u64, 5), diagnostics.resolve_metrics.face_checks);
     try std.testing.expectEqual(@as(u64, 2), diagnostics.resolve_metrics.missing_glyphs);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW,
+        diagnostics.protocol_v0_emit_status,
+    );
+}
+
+test "owner maps every protocol v0 emit error to diagnostics status" {
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
+        protocolV0EmitStatus(error.CommandBoundOverflow),
+    );
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_CREATE_BOUND_OVERFLOW,
+        protocolV0EmitStatus(error.CreateBoundOverflow),
+    );
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_DAMAGE_BOUND_OVERFLOW,
+        protocolV0EmitStatus(error.DamageBoundOverflow),
+    );
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_RETIRE_BOUND_OVERFLOW,
+        protocolV0EmitStatus(error.RetireBoundOverflow),
+    );
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_RESOURCE_BOUND_OVERFLOW,
+        protocolV0EmitStatus(error.ResourceBoundOverflow),
+    );
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_UPLOAD_BOUND_OVERFLOW,
+        protocolV0EmitStatus(error.UploadBoundOverflow),
+    );
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW,
+        protocolV0EmitStatus(error.UploadBytesOverflow),
+    );
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_INVALID_PREPARED_SPRITE,
+        protocolV0EmitStatus(error.InvalidPreparedSprite),
+    );
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE,
+        protocolV0EmitStatus(error.MissingPreparedSprite),
+    );
 }
 
 test "owner validates realized uploads and host surface dimensions before submit" {

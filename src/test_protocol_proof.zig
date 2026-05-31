@@ -718,6 +718,10 @@ test "protocol v0 prepared owner keeps rgba when v0 emission overflows" {
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
 
     try std.testing.expect(owner.protocolV0Frame() == null);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
+        owner.diagnostics().protocol_v0_emit_status,
+    );
     try std.testing.expect(owner.rgba_pixels.len > 0);
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
@@ -734,8 +738,61 @@ test "protocol v0 prepared owner overflow still consumes prepare surface once" {
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
 
     try std.testing.expect(owner.protocolV0Frame() == null);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
+        owner.diagnostics().protocol_v0_emit_status,
+    );
     try std.testing.expectEqual(@as(u64, 0), prepared.request.token.snapshot_seq);
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
+}
+
+test "protocol v0 prepared owner allocation failure remains diagnostic only" {
+    var probe_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    {
+        var session_owner = text_session.TextSessionOwner.create(
+            probe_allocator_state.allocator(),
+            .{ .surface_px = .{ .width = 1, .height = 1 } },
+        ) orelse return error.OutOfMemory;
+        defer session_owner.destroy();
+        const background = [_]contract.TextBackgroundDraw{
+            backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255)),
+        };
+        var prepared = preparedSurface(.{
+            .background_draws = &background,
+            .width_px = 1,
+            .height_px = 1,
+        });
+        const owner = try prepared_owner.Owner.create(session_owner, &prepared);
+        owner.release();
+    }
+
+    var fail_index: usize = 0;
+    while (fail_index < probe_allocator_state.alloc_index) : (fail_index += 1) {
+        var failing_allocator_state = std.testing.FailingAllocator.init(
+            std.testing.allocator,
+            .{ .fail_index = fail_index },
+        );
+        var session_owner = text_session.TextSessionOwner.create(
+            failing_allocator_state.allocator(),
+            .{ .surface_px = .{ .width = 1, .height = 1 } },
+        ) orelse continue;
+        defer session_owner.destroy();
+        const background = [_]contract.TextBackgroundDraw{
+            backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255)),
+        };
+        var prepared = preparedSurface(.{
+            .background_draws = &background,
+            .width_px = 1,
+            .height_px = 1,
+        });
+        const owner = prepared_owner.Owner.create(session_owner, &prepared) catch continue;
+        if (owner.diagnostics().protocol_v0_emit_status !=
+            c.HOWL_RENDER_V0_EMIT_ALLOCATION_FAILED) continue;
+        try std.testing.expect(owner.protocolV0Frame() == null);
+        try std.testing.expect(owner.rgba_pixels.len > 0);
+        return;
+    }
+    return error.MissingAllocationFailureCase;
 }
 
 fn expectPreparedEmissionEqualsCompose(

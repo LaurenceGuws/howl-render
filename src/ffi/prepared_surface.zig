@@ -147,6 +147,8 @@ pub fn preparedDiagnosticsOut(
         .status = c.HOWL_RENDER_CALL_OK,
         .missing_glyphs = value.missing_glyphs,
         .resolve_metrics = submit_result.metricsOut(value.resolve_metrics),
+        .protocol_v0_emit_status = value.protocol_v0_emit_status,
+        .reserved0 = 0,
     };
 }
 
@@ -155,6 +157,8 @@ pub fn diagnosticsFailure(status: c_int) c.HowlRenderPreparedSurfaceDiagnostics 
         .status = status,
         .missing_glyphs = 0,
         .resolve_metrics = std.mem.zeroes(c.HowlRenderMetrics),
+        .protocol_v0_emit_status = c.HOWL_RENDER_V0_EMIT_OK,
+        .reserved0 = 0,
     };
 }
 

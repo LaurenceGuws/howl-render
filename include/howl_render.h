@@ -52,6 +52,20 @@ typedef enum {
 } HowlRenderCallStatus;
 
 typedef enum {
+    HOWL_RENDER_V0_EMIT_OK = 0,
+    HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW = 1,
+    HOWL_RENDER_V0_EMIT_CREATE_BOUND_OVERFLOW = 2,
+    HOWL_RENDER_V0_EMIT_DAMAGE_BOUND_OVERFLOW = 3,
+    HOWL_RENDER_V0_EMIT_RETIRE_BOUND_OVERFLOW = 4,
+    HOWL_RENDER_V0_EMIT_RESOURCE_BOUND_OVERFLOW = 5,
+    HOWL_RENDER_V0_EMIT_UPLOAD_BOUND_OVERFLOW = 6,
+    HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW = 7,
+    HOWL_RENDER_V0_EMIT_INVALID_PREPARED_SPRITE = 8,
+    HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE = 9,
+    HOWL_RENDER_V0_EMIT_ALLOCATION_FAILED = 10,
+} HowlRenderV0EmitStatus;
+
+typedef enum {
     HOWL_RENDER_PREPARE_IDLE = 0,
     HOWL_RENDER_PREPARE_READY = 1,
     HOWL_RENDER_PREPARE_FAILED = -3,
@@ -510,6 +524,8 @@ typedef struct {
     int32_t status;
     uint64_t missing_glyphs;
     HowlRenderMetrics resolve_metrics;
+    int32_t protocol_v0_emit_status;
+    uint32_t reserved0;
 } HowlRenderPreparedSurfaceDiagnostics;
 
 typedef struct {
