@@ -460,7 +460,7 @@ test "protocol v0 emitter failure preserves accepted persistent resource state" 
     try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
 }
 
-test "protocol v0 emitter resource capacity failure preserves accepted state" {
+test "protocol v0 emitter resource id exhaustion preserves accepted state" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -487,13 +487,84 @@ test "protocol v0 emitter resource capacity failure preserves accepted state" {
 
     var emitter = protocol_emit.Emitter(.{}).init();
     var resources = protocol_emit.SpriteResourceStore.init();
-    resources.fillForTest(c.HOWL_RENDER_V0_RESOURCES_MAX);
+    resources.value_next = 0;
     try std.testing.expectError(
         error.ResourceBoundOverflow,
         emitter.emitPrepared(&resources, &session, &prepared),
     );
-    try std.testing.expectEqual(@as(u32, c.HOWL_RENDER_V0_RESOURCES_MAX), resources.count);
+    try std.testing.expectEqual(@as(u32, 0), resources.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.frame().creates.count);
+    try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
+}
+
+test "protocol v0 emitter emits transient sprite beyond persistent budget" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    var bytes = [_]u8{255};
+    var draws = [_]contract.TextSpriteDraw{
+        spriteDraw(62, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
+    };
+    var outputs = [_]text.Rasterizer.RasterSpriteOutput{rasterOutput(
+        allocator,
+        62,
+        1,
+        1,
+        .alpha,
+        &bytes,
+        .{},
+    )};
+    const prepared = preparedSurface(.{
+        .sprite_draws = &draws,
+        .raster_outputs = &outputs,
+        .width_px = 1,
+        .height_px = 1,
+    });
+
+    var emitter = protocol_emit.Emitter(.{}).init();
+    var resources = protocol_emit.SpriteResourceStore.init();
+    resources.fillForTest(protocol_emit.persistent_sprite_resources_max);
+    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+    try std.testing.expectEqual(protocol_emit.persistent_sprite_resources_max, resources.count);
+    try std.testing.expectEqual(@as(u32, 1), frame.creates.count);
+    try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
+    try std.testing.expectEqual(@as(u32, 1), frame.commands.count);
+    try std.testing.expectEqual(@as(u32, 1), frame.retires.count);
+    try std.testing.expectEqual(frame.commands.ptr[0].resource.value, frame.retires.ptr[0].resource.value);
+    try std.testing.expectEqual(@as(u64, 1), frame.retires.ptr[0].retire_seq);
+}
+
+test "protocol v0 emitter reports exact transient retire bound" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    var first_bytes = [_]u8{255};
+    var second_bytes = [_]u8{128};
+    var draws = [_]contract.TextSpriteDraw{
+        spriteDraw(63, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
+        spriteDraw(64, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
+    };
+    var outputs = [_]text.Rasterizer.RasterSpriteOutput{
+        rasterOutput(allocator, 63, 1, 1, .alpha, &first_bytes, .{}),
+        rasterOutput(allocator, 64, 1, 1, .alpha, &second_bytes, .{}),
+    };
+    const prepared = preparedSurface(.{
+        .sprite_draws = &draws,
+        .raster_outputs = &outputs,
+        .width_px = 1,
+        .height_px = 1,
+    });
+
+    var emitter = protocol_emit.Emitter(.{ .retires_max = 1 }).init();
+    var resources = protocol_emit.SpriteResourceStore.init();
+    resources.fillForTest(protocol_emit.persistent_sprite_resources_max);
+    try std.testing.expectError(
+        error.RetireBoundOverflow,
+        emitter.emitPrepared(&resources, &session, &prepared),
+    );
+    try std.testing.expectEqual(protocol_emit.persistent_sprite_resources_max, resources.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
 }
 

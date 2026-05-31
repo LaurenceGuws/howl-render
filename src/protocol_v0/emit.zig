@@ -13,7 +13,12 @@ const ResourceId = c.HowlRenderV0ResourceId;
 const Rect = c.HowlRenderV0Rect;
 pub const Frame = c.HowlRenderV0Frame;
 
+pub const persistent_sprite_resources_max: u32 = 384;
 const persistent_sprite_resource_bytes_max: u32 = 64 * 1024;
+
+comptime {
+    std.debug.assert(persistent_sprite_resources_max < c.HOWL_RENDER_V0_RESOURCES_MAX);
+}
 
 pub const Error = error{
     CommandBoundOverflow,
@@ -84,7 +89,9 @@ pub const SpriteResourceStore = struct {
 
     pub const Result = struct {
         resource: ResourceId,
-        created: bool,
+        lifetime: Lifetime,
+
+        pub const Lifetime = enum { reused, persistent, transient };
     };
 
     const Entry = struct {
@@ -148,28 +155,21 @@ pub const SpriteResourceStore = struct {
             };
             std.debug.assert(bytes_end <= self.bytes_count);
             if (!std.mem.eql(u8, self.bytes[entry.bytes_offset..bytes_end], bytes)) continue;
-            return .{ .resource = entry.resource, .created = false };
+            return .{ .resource = entry.resource, .lifetime = .reused };
         }
-        if (self.count >= c.HOWL_RENDER_V0_RESOURCES_MAX) return error.ResourceBoundOverflow;
-        if (self.value_next == 0) return error.ResourceBoundOverflow;
         const bytes_count: u32 = std.math.cast(u32, bytes.len) orelse {
             return error.ResourceBoundOverflow;
         };
+        const resource = try self.nextResource(sprite.color_mode);
+        if (self.count >= persistent_sprite_resources_max) {
+            return .{ .resource = resource, .lifetime = .transient };
+        }
         const bytes_end = std.math.add(u32, self.bytes_count, bytes_count) catch {
             return error.ResourceBoundOverflow;
         };
-        if (bytes_end > persistent_sprite_resource_bytes_max) return error.ResourceBoundOverflow;
-        const resource = ResourceId{
-            .value = self.value_next,
-            .generation = 1,
-            .kind = switch (sprite.color_mode) {
-                .alpha => c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA,
-                .color => c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR,
-            },
-        };
-        self.value_next = std.math.add(u64, self.value_next, 1) catch {
-            return error.ResourceBoundOverflow;
-        };
+        if (bytes_end > persistent_sprite_resource_bytes_max) {
+            return .{ .resource = resource, .lifetime = .transient };
+        }
         self.entries[@intCast(self.count)] = .{
             .key = sprite.key,
             .bytes_hash = bytes_hash,
@@ -183,7 +183,26 @@ pub const SpriteResourceStore = struct {
         @memcpy(self.bytes[self.bytes_count..bytes_end], bytes);
         self.bytes_count = bytes_end;
         self.count += 1;
-        return .{ .resource = resource, .created = true };
+        return .{ .resource = resource, .lifetime = .persistent };
+    }
+
+    fn nextResource(
+        self: *SpriteResourceStore,
+        color_mode: contract.SpriteColorMode,
+    ) Error!ResourceId {
+        if (self.value_next == 0) return error.ResourceBoundOverflow;
+        const resource = ResourceId{
+            .value = self.value_next,
+            .generation = 1,
+            .kind = switch (color_mode) {
+                .alpha => c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA,
+                .color => c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR,
+            },
+        };
+        self.value_next = std.math.add(u64, self.value_next, 1) catch {
+            return error.ResourceBoundOverflow;
+        };
+        return resource;
     }
 };
 
@@ -485,17 +504,20 @@ pub fn Emitter(comptime limits: Limits) type {
                     height_px,
                     self.upload_bytes[upload_range.start..upload_range.end],
                 );
-                if (result.created) {
-                    try self.appendPreparedCreate(result.resource, sprite, width_px, height_px);
-                    try self.appendPreparedUpload(
-                        result.resource,
-                        sprite,
-                        width_px,
-                        height_px,
-                        upload_range,
-                    );
-                } else {
-                    self.upload_bytes_count = upload_range.start;
+                switch (result.lifetime) {
+                    .persistent, .transient => {
+                        try self.appendPreparedCreate(result.resource, sprite, width_px, height_px);
+                        try self.appendPreparedUpload(
+                            result.resource,
+                            sprite,
+                            width_px,
+                            height_px,
+                            upload_range,
+                        );
+                    },
+                    .reused => {
+                        self.upload_bytes_count = upload_range.start;
+                    },
                 }
                 try self.appendCommand(.{
                     .kind = c.HOWL_RENDER_V0_COMMAND_DRAW_SPRITE,
@@ -515,6 +537,9 @@ pub fn Emitter(comptime limits: Limits) type {
                     .resource = result.resource,
                     .glyphs = emptyGlyphs(),
                 });
+                if (result.lifetime == .transient) {
+                    try self.appendRetire(result.resource, self.command_count);
+                }
             }
         }
 
