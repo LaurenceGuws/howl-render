@@ -301,6 +301,109 @@ test "render ffi released prepared handle rejects describe buffer and diagnostic
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, diagnostics.status);
 }
 
+test "render ffi prepared protocol v0 rejects missing handle" {
+    var frame_storage = std.mem.zeroes(c.HowlRenderV0Frame);
+    var frame: ?*const c.HowlRenderV0Frame = &frame_storage;
+
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_MISSING_HANDLE,
+        prepared_surface.protocolV0(null, &frame),
+    );
+    try std.testing.expect(frame == null);
+
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_MISSING_HANDLE,
+        prepared_surface.protocolV0(null, null),
+    );
+}
+
+test "render ffi prepared protocol v0 rejects null output" {
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
+    const prepared_handle = try createPreparedHandle(handle);
+    defer prepared_surface.release(prepared_handle);
+
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_INVALID_ARGUMENT,
+        prepared_surface.protocolV0(prepared_handle, null),
+    );
+}
+
+test "render ffi prepared protocol v0 rejects released handle" {
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
+    const prepared_handle = try createPreparedHandle(handle);
+    prepared_surface.release(prepared_handle);
+
+    var frame_storage = std.mem.zeroes(c.HowlRenderV0Frame);
+    var frame: ?*const c.HowlRenderV0Frame = &frame_storage;
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_INVALID_ARGUMENT,
+        prepared_surface.protocolV0(prepared_handle, &frame),
+    );
+    try std.testing.expect(frame == null);
+}
+
+test "render ffi prepared protocol v0 returns borrowed live frame" {
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
+    const prepared_handle = try createPreparedHandle(handle);
+    defer prepared_surface.release(prepared_handle);
+
+    var frame: ?*const c.HowlRenderV0Frame = null;
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_OK,
+        prepared_surface.protocolV0(prepared_handle, &frame),
+    );
+    const value = frame orelse return error.MissingFrame;
+
+    try std.testing.expectEqual(
+        @as(u32, c.HOWL_RENDER_PROTOCOL_V0_VERSION),
+        value.protocol_version,
+    );
+    try std.testing.expectEqual(@as(u32, 1), value.damage.count);
+    try std.testing.expect(value.damage.ptr != null);
+    try std.testing.expect(value.commands.ptr != null);
+}
+
+test "render ffi prepared protocol v0 does not change prepared lifecycle" {
+    const handle = try createTestTextSessionHandle();
+    defer text_session.deinit(handle);
+    const prepared_handle = try createPreparedHandle(handle);
+
+    var frame_before: ?*const c.HowlRenderV0Frame = null;
+    var frame_after: ?*const c.HowlRenderV0Frame = null;
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_OK,
+        prepared_surface.protocolV0(prepared_handle, &frame_before),
+    );
+    var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_OK,
+        prepared_surface.describe(prepared_handle, &info),
+    );
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_OK,
+        prepared_surface.protocolV0(prepared_handle, &frame_after),
+    );
+    try std.testing.expectEqual(frame_before, frame_after);
+
+    const token = try preparedSurfaceTokenFromHandle(prepared_handle);
+    const execution = validExecutionInput();
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_SUBMIT_RENDERED,
+        submission.submit(handle, prepared_handle, token, &execution, null),
+    );
+
+    var frame_storage = std.mem.zeroes(c.HowlRenderV0Frame);
+    var frame_consumed: ?*const c.HowlRenderV0Frame = &frame_storage;
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_INVALID_ARGUMENT,
+        prepared_surface.protocolV0(prepared_handle, &frame_consumed),
+    );
+    try std.testing.expect(frame_consumed == null);
+}
+
 test "render ffi prepared handle release is idempotent" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);

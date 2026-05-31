@@ -138,10 +138,14 @@ pub const Owner = struct {
         };
     }
 
-    pub fn protocolV0FrameForTest(self: *const Owner) *const protocol_v0_emit.Frame {
-        comptime std.debug.assert(builtin.is_test);
+    pub fn protocolV0Frame(self: *const Owner) *const protocol_v0_emit.Frame {
         std.debug.assert(self.isLive());
         return self.v0_payload.frame();
+    }
+
+    pub fn protocolV0FrameForTest(self: *const Owner) *const protocol_v0_emit.Frame {
+        comptime std.debug.assert(builtin.is_test);
+        return self.protocolV0Frame();
     }
 
     pub fn protocolV0FrameStorageEmptyForTest(self: *const Owner) bool {

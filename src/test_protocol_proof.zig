@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const c = @import("ffi.zig").c;
+const ffi_prepared_surface = @import("ffi/prepared_surface.zig");
 const prepared_buffer = @import("prepared/buffer.zig");
 const prepared_owner = @import("prepared/owner.zig");
 const prepared_surface = @import("prepared/surface.zig");
@@ -226,6 +227,37 @@ test "protocol v0 prepared owner frame equals owner rgba oracle" {
         upload_bytes_ptr,
         owner.protocolV0FrameForTest().uploads.ptr[0].bytes_ptr,
     );
+    try std.testing.expectEqualSlices(u8, owner.rgba_pixels, realized);
+}
+
+test "protocol v0 prepared ffi borrowed frame realizes owner rgba oracle" {
+    const allocator = std.testing.allocator;
+    const session_owner = text_session.TextSessionOwner.create(
+        allocator,
+        .{ .surface_px = .{ .width = 2, .height = 1 } },
+    ) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    const background = [_]contract.TextBackgroundDraw{
+        backgroundDraw(0, 0, 2, 1, rgba(1, 2, 3, 255)),
+    };
+    var prepared = preparedSurface(.{
+        .background_draws = &background,
+        .width_px = 2,
+        .height_px = 1,
+    });
+    const owner = try prepared_owner.Owner.create(session_owner, &prepared);
+
+    var frame: ?*const c.HowlRenderV0Frame = null;
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_OK,
+        ffi_prepared_surface.protocolV0(@ptrCast(owner), &frame),
+    );
+    const value = frame orelse return error.MissingFrame;
+
+    const realized = try allocator.alloc(u8, owner.rgba_pixels.len);
+    defer allocator.free(realized);
+    try protocol_realize.realize(value, realized, null);
     try std.testing.expectEqualSlices(u8, owner.rgba_pixels, realized);
 }
 

@@ -61,6 +61,21 @@ pub fn buffer(
     return c.HOWL_RENDER_CALL_OK;
 }
 
+pub fn protocolV0(
+    prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
+    frame_out: ?*?*const c.HowlRenderV0Frame,
+) callconv(.c) c_int {
+    const out = frame_out;
+    if (out) |value| value.* = null;
+    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
+        return c.HOWL_RENDER_CALL_MISSING_HANDLE;
+    };
+    const value = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!owner.isLive()) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    value.* = owner.protocolV0Frame();
+    return c.HOWL_RENDER_CALL_OK;
+}
+
 pub fn diagnostics(
     prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
     diagnostics_out: ?*c.HowlRenderPreparedSurfaceDiagnostics,

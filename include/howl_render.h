@@ -636,6 +636,10 @@ int howl_render_prepared_surface_buffer(
     HowlRenderPreparedSurfaceHandle prepared_surface_handle,
     HowlRenderPreparedSurfaceBuffer *buffer_out
 );
+int howl_render_prepared_surface_protocol_v0(
+    HowlRenderPreparedSurfaceHandle prepared_surface_handle,
+    const HowlRenderV0Frame **frame_out
+);
 int howl_render_prepared_surface_diagnostics(
     HowlRenderPreparedSurfaceHandle prepared_surface_handle,
     HowlRenderPreparedSurfaceDiagnostics *diagnostics_out
