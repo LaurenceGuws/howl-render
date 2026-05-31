@@ -14,6 +14,165 @@ const Frame = c.HowlRenderV0Frame;
 const glyph_atlas_width_px = 1024;
 const glyph_atlas_height_px = 1024;
 
+pub const ResourceStore = struct {
+    entries: [c.HOWL_RENDER_V0_RESOURCES_MAX]Entry = undefined,
+    bytes: [c.HOWL_RENDER_V0_UPLOAD_BYTES_MAX]u8 = undefined,
+    count: u32 = 0,
+    bytes_count: u32 = 0,
+
+    const Entry = struct {
+        resource: ResourceId,
+        width_px: u32,
+        height_px: u32,
+        format: u32,
+        upload_rect: c.HowlRenderV0Rect = .{ .x_px = 0, .y_px = 0, .width_px = 0, .height_px = 0 },
+        upload_offset: u32 = 0,
+        upload_count: u32 = 0,
+        stride_bytes: u32 = 0,
+        uploaded: bool = false,
+        retired: bool = false,
+    };
+
+    pub fn init() ResourceStore {
+        return .{};
+    }
+
+    fn commitFrame(self: *ResourceStore, frame: *const Frame) void {
+        for (spanSlice(Create, frame.creates.ptr, frame.creates.count)) |create_value| {
+            self.create(create_value);
+        }
+        for (spanSlice(Upload, frame.uploads.ptr, frame.uploads.count)) |upload_value| {
+            self.upload(upload_value);
+        }
+        for (spanSlice(Retire, frame.retires.ptr, frame.retires.count)) |retire_value| {
+            self.retire(retire_value.resource);
+        }
+    }
+
+    fn validateFrameTransition(self: *const ResourceStore, frame: *const Frame) Error!void {
+        try validateSpan(
+            frame.creates.ptr,
+            frame.creates.count,
+            frame.creates.count_max,
+            c.HOWL_RENDER_V0_CREATES_MAX,
+        );
+        try validateSpan(
+            frame.uploads.ptr,
+            frame.uploads.count,
+            frame.uploads.count_max,
+            c.HOWL_RENDER_V0_UPLOADS_MAX,
+        );
+        try validateSpan(
+            frame.retires.ptr,
+            frame.retires.count,
+            frame.retires.count_max,
+            c.HOWL_RENDER_V0_RETIRES_MAX,
+        );
+        const creates = spanSlice(Create, frame.creates.ptr, frame.creates.count);
+        const uploads = spanSlice(Upload, frame.uploads.ptr, frame.uploads.count);
+        const retires = spanSlice(Retire, frame.retires.ptr, frame.retires.count);
+
+        const resource_count = std.math.add(u32, self.count, frame.creates.count) catch {
+            return error.InvalidResource;
+        };
+        if (resource_count > c.HOWL_RENDER_V0_RESOURCES_MAX) return error.InvalidResource;
+        for (creates, 0..) |create_value, create_index| {
+            if (self.hasValue(create_value.resource.value)) return error.InvalidResource;
+            for (creates[create_index + 1 ..]) |next| {
+                if (create_value.resource.value == next.resource.value) return error.InvalidResource;
+            }
+        }
+
+        var bytes_count = self.bytes_count;
+        for (uploads) |upload_value| {
+            if (upload_value.bytes_ptr == null) return error.InvalidUpload;
+            if (!self.hasResourceOrCreate(creates, upload_value.resource)) {
+                return error.MissingResource;
+            }
+            bytes_count = std.math.add(u32, bytes_count, upload_value.bytes_count) catch {
+                return error.InvalidUpload;
+            };
+            if (bytes_count > c.HOWL_RENDER_V0_UPLOAD_BYTES_MAX) return error.InvalidUpload;
+        }
+
+        for (retires, 0..) |retire_value, retire_index| {
+            if (!self.hasResourceOrCreate(creates, retire_value.resource)) {
+                return error.MissingResource;
+            }
+            for (retires[retire_index + 1 ..]) |next| {
+                if (sameResource(retire_value.resource, next.resource)) return error.InvalidResource;
+            }
+        }
+    }
+
+    fn hasResourceOrCreate(
+        self: *const ResourceStore,
+        creates: []const Create,
+        resource: ResourceId,
+    ) bool {
+        if (self.find(resource)) |entry| return !entry.retired;
+        for (creates) |create_value| {
+            if (sameResource(create_value.resource, resource)) return true;
+        }
+        return false;
+    }
+
+    fn hasValue(self: *const ResourceStore, value: u64) bool {
+        for (self.entries[0..@intCast(self.count)]) |entry| {
+            if (entry.resource.value == value) return true;
+        }
+        return false;
+    }
+
+    fn create(self: *ResourceStore, create_value: Create) void {
+        std.debug.assert(self.findIndex(create_value.resource) == null);
+        std.debug.assert(!self.hasValue(create_value.resource.value));
+        std.debug.assert(self.count < c.HOWL_RENDER_V0_RESOURCES_MAX);
+        self.entries[@intCast(self.count)] = .{
+            .resource = create_value.resource,
+            .width_px = create_value.width_px,
+            .height_px = create_value.height_px,
+            .format = create_value.format,
+        };
+        self.count += 1;
+    }
+
+    fn upload(self: *ResourceStore, upload_value: Upload) void {
+        const index = self.findIndex(upload_value.resource) orelse unreachable;
+        std.debug.assert(!self.entries[index].retired);
+        const next_bytes_count = std.math.add(u32, self.bytes_count, upload_value.bytes_count) catch {
+            unreachable;
+        };
+        std.debug.assert(next_bytes_count <= c.HOWL_RENDER_V0_UPLOAD_BYTES_MAX);
+        const bytes_ptr = upload_value.bytes_ptr orelse unreachable;
+        @memcpy(self.bytes[self.bytes_count..next_bytes_count], bytes_ptr[0..upload_value.bytes_count]);
+        self.entries[index].upload_rect = upload_value.rect;
+        self.entries[index].upload_offset = self.bytes_count;
+        self.entries[index].upload_count = upload_value.bytes_count;
+        self.entries[index].stride_bytes = upload_value.stride_bytes;
+        self.entries[index].uploaded = true;
+        self.bytes_count = next_bytes_count;
+    }
+
+    fn retire(self: *ResourceStore, resource: ResourceId) void {
+        const index = self.findIndex(resource) orelse unreachable;
+        std.debug.assert(!self.entries[index].retired);
+        self.entries[index].retired = true;
+    }
+
+    fn find(self: *const ResourceStore, resource: ResourceId) ?Entry {
+        const index = self.findIndex(resource) orelse return null;
+        return self.entries[index];
+    }
+
+    fn findIndex(self: *const ResourceStore, resource: ResourceId) ?usize {
+        for (self.entries[0..@intCast(self.count)], 0..) |entry, index| {
+            if (sameResource(entry.resource, resource)) return index;
+        }
+        return null;
+    }
+};
+
 pub const Error = error{
     InvalidDamage,
     InvalidPixels,
@@ -32,12 +191,39 @@ pub const Error = error{
 };
 
 pub fn realize(frame: *const Frame, pixels: []u8, base_pixels: ?[]const u8) Error!void {
+    try realizeWithStore(frame, pixels, base_pixels, null);
+}
+
+pub fn realizeRetained(
+    frame: *const Frame,
+    pixels: []u8,
+    base_pixels: ?[]const u8,
+    store: *ResourceStore,
+) Error!void {
+    try realizeWithStore(frame, pixels, base_pixels, store);
+}
+
+fn realizeWithStore(
+    frame: *const Frame,
+    pixels: []u8,
+    base_pixels: ?[]const u8,
+    store: ?*ResourceStore,
+) Error!void {
     const pixels_len = try pixelsLen(frame.render_px);
     if (pixels.len != pixels_len) return error.InvalidPixels;
-    try validateFrame(frame);
-
     if (base_pixels) |base| {
         if (base.len != pixels.len) return error.InvalidPixels;
+    }
+
+    if (store) |retained| {
+        try retained.validateFrameTransition(frame);
+        try validateFrame(frame, retained);
+        retained.commitFrame(frame);
+    } else {
+        try validateFrame(frame, null);
+    }
+
+    if (base_pixels) |base| {
         @memcpy(pixels, base);
     } else {
         clearSurfacePixels(pixels);
@@ -50,23 +236,23 @@ pub fn realize(frame: *const Frame, pixels: []u8, base_pixels: ?[]const u8) Erro
             c.HOWL_RENDER_V0_COMMAND_FILL_RECT,
             => try drawSolidRect(pixels, frame.render_px, command.rect, command.color_rgba),
             c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN => {
-                try drawGlyphRun(pixels, frame, command, command_index_u32);
+                try drawGlyphRun(pixels, frame, command, command_index_u32, store);
             },
             c.HOWL_RENDER_V0_COMMAND_DRAW_SPRITE => {
-                try drawSprite(pixels, frame, command, command_index_u32);
+                try drawSprite(pixels, frame, command, command_index_u32, store);
             },
             else => return error.UnknownCommandKind,
         }
     }
 }
 
-fn validateFrame(frame: *const Frame) Error!void {
+fn validateFrame(frame: *const Frame, store: ?*const ResourceStore) Error!void {
     if (frame.protocol_version != c.HOWL_RENDER_PROTOCOL_V0_VERSION) return error.InvalidDamage;
     try validateDamageSpan(frame);
     try validateCreateSpan(frame);
-    try validateRetireSpan(frame);
-    try validateUploadSpan(frame);
-    try validateCommandSpan(frame);
+    try validateRetireSpan(frame, store);
+    try validateUploadSpan(frame, store);
+    try validateCommandSpan(frame, store);
 }
 
 fn validateDamageSpan(frame: *const Frame) Error!void {
@@ -123,7 +309,7 @@ fn validateCreateSpan(frame: *const Frame) Error!void {
     }
 }
 
-fn validateRetireSpan(frame: *const Frame) Error!void {
+fn validateRetireSpan(frame: *const Frame, store: ?*const ResourceStore) Error!void {
     try validateSpan(
         frame.retires.ptr,
         frame.retires.count,
@@ -141,17 +327,21 @@ fn validateRetireSpan(frame: *const Frame) Error!void {
         }
     }
     for (retires) |retire| {
-        const create = try findCreateChecked(frame, retire.resource);
+        const create = try findCreateChecked(frame, store, retire.resource);
         if (retire.retire_seq > frame.commands.count) return error.RetiredResource;
-        if (create.create_seq < retire.retire_seq) {
-            // The resource exists for at least one command-boundary interval.
+        if (create) |same_frame_create| {
+            if (same_frame_create.create_seq < retire.retire_seq) {
+                // The resource exists for at least one command-boundary interval.
+            } else {
+                return error.RetiredResource;
+            }
         } else {
-            return error.RetiredResource;
+            // The resource exists for at least one command-boundary interval.
         }
     }
 }
 
-fn validateUploadSpan(frame: *const Frame) Error!void {
+fn validateUploadSpan(frame: *const Frame, store: ?*const ResourceStore) Error!void {
     try validateSpan(
         frame.uploads.ptr,
         frame.uploads.count,
@@ -164,7 +354,7 @@ fn validateUploadSpan(frame: *const Frame) Error!void {
 
     var bytes_sum: u32 = 0;
     for (spanSlice(Upload, frame.uploads.ptr, frame.uploads.count)) |upload| {
-        try validateUpload(frame, upload);
+        try validateUpload(frame, store, upload);
         bytes_sum = std.math.add(u32, bytes_sum, upload.bytes_count) catch {
             return error.InvalidSpan;
         };
@@ -173,7 +363,7 @@ fn validateUploadSpan(frame: *const Frame) Error!void {
     if (frame.uploads.bytes_count_total != bytes_sum) return error.InvalidSpan;
 }
 
-fn validateUpload(frame: *const Frame, upload: Upload) Error!void {
+fn validateUpload(frame: *const Frame, store: ?*const ResourceStore, upload: Upload) Error!void {
     try validateResourceKind(upload.resource.kind);
     try validateUploadFormat(upload.format);
     if (upload.upload_seq > frame.commands.count) return error.InvalidUpload;
@@ -184,11 +374,15 @@ fn validateUpload(frame: *const Frame, upload: Upload) Error!void {
         if (upload.rect.x_px != 0) return error.InvalidUpload;
         if (upload.rect.y_px != 0) return error.InvalidUpload;
     }
-    const create = try findCreateChecked(frame, upload.resource);
-    if (create.create_seq <= upload.upload_seq) {
-        // The upload becomes visible only after the resource exists.
+    const create = try findCreateChecked(frame, store, upload.resource);
+    if (create) |same_frame_create| {
+        if (same_frame_create.create_seq <= upload.upload_seq) {
+            // The upload becomes visible only after the resource exists.
+        } else {
+            return error.InvalidUpload;
+        }
     } else {
-        return error.InvalidUpload;
+        // Earlier-frame retained resources already exist before command boundary 0.
     }
     if (retireForResource(frame, upload.resource)) |retire| {
         if (upload.upload_seq < retire.retire_seq) {
@@ -201,14 +395,15 @@ fn validateUpload(frame: *const Frame, upload: Upload) Error!void {
     if (upload.rect.width_px == 0) return error.InvalidUpload;
     if (upload.rect.height_px == 0) return error.InvalidUpload;
     if (upload.bytes_ptr == null) return error.InvalidUpload;
-    if (!rectFitsResource(upload.rect, create.width_px, create.height_px)) {
+    const facts = try resourceDimensions(frame, store, upload.resource);
+    if (!rectFitsResource(upload.rect, facts.width_px, facts.height_px)) {
         return error.InvalidUpload;
     }
     const bytes_min = try uploadBytesMin(upload.rect, upload.format, upload.stride_bytes);
     if (upload.bytes_count < bytes_min) return error.InvalidUpload;
 }
 
-fn validateCommandSpan(frame: *const Frame) Error!void {
+fn validateCommandSpan(frame: *const Frame, store: ?*const ResourceStore) Error!void {
     try validateSpan(
         frame.commands.ptr,
         frame.commands.count,
@@ -228,10 +423,10 @@ fn validateCommandSpan(frame: *const Frame) Error!void {
             c.HOWL_RENDER_V0_COMMAND_FILL_RECT,
             => try validateFillCommand(command),
             c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN => {
-                try validateGlyphRunCommand(frame, command, command_index_u32);
+                try validateGlyphRunCommand(frame, store, command, command_index_u32);
             },
             c.HOWL_RENDER_V0_COMMAND_DRAW_SPRITE => {
-                try validateSpriteCommand(frame, command, command_index_u32);
+                try validateSpriteCommand(frame, store, command, command_index_u32);
             },
             else => return error.UnknownCommandKind,
         }
@@ -245,7 +440,12 @@ fn validateFillCommand(command: Command) Error!void {
     if (!resourceIsZero(command.resource)) return error.InvalidResource;
 }
 
-fn validateSpriteCommand(frame: *const Frame, command: Command, command_index: u32) Error!void {
+fn validateSpriteCommand(
+    frame: *const Frame,
+    store: ?*const ResourceStore,
+    command: Command,
+    command_index: u32,
+) Error!void {
     if (command.rect.width_px == 0) return error.InvalidDamage;
     if (command.rect.height_px == 0) return error.InvalidDamage;
     if (command.glyphs.count != 0) return error.InvalidDamage;
@@ -258,11 +458,16 @@ fn validateSpriteCommand(frame: *const Frame, command: Command, command_index: u
         if (isGlyphAtlas(command.resource.kind)) return error.InvalidResource;
         return error.InvalidResource;
     }
-    try validateResourceVisibleAtCommand(frame, command.resource, command_index);
-    _ = try findSpriteUploadVisible(frame, command, command_index);
+    try validateResourceVisibleAtCommand(frame, store, command.resource, command_index);
+    _ = try findSpriteUploadVisible(frame, store, command, command_index);
 }
 
-fn validateGlyphRunCommand(frame: *const Frame, command: Command, command_index: u32) Error!void {
+fn validateGlyphRunCommand(
+    frame: *const Frame,
+    store: ?*const ResourceStore,
+    command: Command,
+    command_index: u32,
+) Error!void {
     if (command.rect.x_px != 0) return error.InvalidDamage;
     if (command.rect.y_px != 0) return error.InvalidDamage;
     if (command.rect.width_px != 0) return error.InvalidDamage;
@@ -271,11 +476,16 @@ fn validateGlyphRunCommand(frame: *const Frame, command: Command, command_index:
     if (!resourceIsZero(command.resource)) return error.InvalidResource;
     if (command.glyphs.count == 0) return error.UnsupportedGlyphRun;
     for (spanSlice(GlyphRef, command.glyphs.ptr, command.glyphs.count)) |glyph| {
-        try validateGlyphRef(frame, glyph, command_index);
+        try validateGlyphRef(frame, store, glyph, command_index);
     }
 }
 
-fn validateGlyphRef(frame: *const Frame, glyph: GlyphRef, command_index: u32) Error!void {
+fn validateGlyphRef(
+    frame: *const Frame,
+    store: ?*const ResourceStore,
+    glyph: GlyphRef,
+    command_index: u32,
+) Error!void {
     try validateResourceKind(glyph.atlas_resource.kind);
     if (glyph.atlas_resource.kind == c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_COLOR) {
         return error.UnsupportedGlyphAtlas;
@@ -283,7 +493,7 @@ fn validateGlyphRef(frame: *const Frame, glyph: GlyphRef, command_index: u32) Er
     if (glyph.atlas_resource.kind != c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_ALPHA) {
         return error.InvalidResource;
     }
-    try validateResourceVisibleAtCommand(frame, glyph.atlas_resource, command_index);
+    try validateResourceVisibleAtCommand(frame, store, glyph.atlas_resource, command_index);
     if (unpackRgba(glyph.color_rgba).a == 0) return error.InvalidDamage;
     if (glyph.atlas_rect.width_px == 0) return error.InvalidDamage;
     if (glyph.atlas_rect.height_px == 0) return error.InvalidDamage;
@@ -293,12 +503,20 @@ fn validateGlyphRef(frame: *const Frame, glyph: GlyphRef, command_index: u32) Er
     if (!destinationOverlaps(frame.render_px, glyph.x_px, glyph.y_px, glyph.atlas_rect)) {
         return error.InvalidDamage;
     }
-    _ = findGlyphUploadVisible(frame, glyph, command_index) orelse return error.MissingResource;
+    _ = findGlyphUploadVisible(frame, store, glyph, command_index) orelse {
+        return error.MissingResource;
+    };
 }
 
-fn drawGlyphRun(pixels: []u8, frame: *const Frame, command: Command, command_index: u32) Error!void {
+fn drawGlyphRun(
+    pixels: []u8,
+    frame: *const Frame,
+    command: Command,
+    command_index: u32,
+    store: ?*const ResourceStore,
+) Error!void {
     for (spanSlice(GlyphRef, command.glyphs.ptr, command.glyphs.count)) |glyph| {
-        const upload = findGlyphUploadVisible(frame, glyph, command_index) orelse {
+        const upload = findGlyphUploadVisible(frame, store, glyph, command_index) orelse {
             return error.MissingResource;
         };
         const bytes_ptr = upload.bytes_ptr orelse return error.InvalidUpload;
@@ -342,8 +560,14 @@ fn drawGlyphPixel(
     blendPixel(pixels, dst_index, rgba.r, rgba.g, rgba.b, out_alpha);
 }
 
-fn drawSprite(pixels: []u8, frame: *const Frame, command: Command, command_index: u32) Error!void {
-    const upload = try findSpriteUploadVisible(frame, command, command_index);
+fn drawSprite(
+    pixels: []u8,
+    frame: *const Frame,
+    command: Command,
+    command_index: u32,
+    store: ?*const ResourceStore,
+) Error!void {
+    const upload = try findSpriteUploadVisible(frame, store, command, command_index);
     const bytes_ptr = upload.bytes_ptr orelse return error.InvalidUpload;
     var yy: u16 = 0;
     while (yy < command.rect.height_px) : (yy += 1) {
@@ -491,24 +715,64 @@ fn findCreate(frame: *const Frame, resource: ResourceId) ?Create {
     return null;
 }
 
-fn findCreateChecked(frame: *const Frame, resource: ResourceId) Error!Create {
+fn findCreateChecked(
+    frame: *const Frame,
+    store: ?*const ResourceStore,
+    resource: ResourceId,
+) Error!?Create {
     for (spanSlice(Create, frame.creates.ptr, frame.creates.count)) |create| {
         if (sameResource(create.resource, resource)) return create;
         if (create.resource.value == resource.value) return error.WrongResourceGeneration;
+    }
+    if (store) |retained| {
+        if (retained.find(resource)) |entry| {
+            if (entry.retired) return error.RetiredResource;
+            return null;
+        }
+        for (retained.entries[0..@intCast(retained.count)]) |entry| {
+            if (entry.resource.value == resource.value) return error.WrongResourceGeneration;
+        }
+    }
+    return error.MissingResource;
+}
+
+const ResourceDimensions = struct {
+    width_px: u32,
+    height_px: u32,
+};
+
+fn resourceDimensions(
+    frame: *const Frame,
+    store: ?*const ResourceStore,
+    resource: ResourceId,
+) Error!ResourceDimensions {
+    if (findCreate(frame, resource)) |create| {
+        return .{ .width_px = create.width_px, .height_px = create.height_px };
+    }
+    if (store) |retained| {
+        if (retained.find(resource)) |entry| {
+            if (entry.retired) return error.RetiredResource;
+            return .{ .width_px = entry.width_px, .height_px = entry.height_px };
+        }
     }
     return error.MissingResource;
 }
 
 fn validateResourceVisibleAtCommand(
     frame: *const Frame,
+    store: ?*const ResourceStore,
     resource: ResourceId,
     command_index: u32,
 ) Error!void {
-    const create = try findCreateChecked(frame, resource);
-    if (create.create_seq <= command_index) {
-        // Same-frame create is visible at command indexes at or after create_seq.
+    const create = try findCreateChecked(frame, store, resource);
+    if (create) |same_frame_create| {
+        if (same_frame_create.create_seq <= command_index) {
+            // Same-frame create is visible at command indexes at or after create_seq.
+        } else {
+            return error.MissingResource;
+        }
     } else {
-        return error.MissingResource;
+        // Earlier-frame retained resources are visible at command boundary 0.
     }
     if (retireForResource(frame, resource)) |retire| {
         if (command_index < retire.retire_seq) {
@@ -519,17 +783,42 @@ fn validateResourceVisibleAtCommand(
     }
 }
 
-fn findUploadVisible(frame: *const Frame, resource: ResourceId, command_index: u32) ?Upload {
+fn findUploadVisible(
+    frame: *const Frame,
+    store: ?*const ResourceStore,
+    resource: ResourceId,
+    command_index: u32,
+) ?Upload {
     for (spanSlice(Upload, frame.uploads.ptr, frame.uploads.count)) |upload| {
         if (!sameResource(upload.resource, resource)) continue;
         if (upload.upload_seq > command_index) continue;
         return upload;
     }
+    if (store) |retained| {
+        if (retained.find(resource)) |entry| {
+            if (entry.retired) return null;
+            if (!entry.uploaded) return null;
+            return .{
+                .resource = entry.resource,
+                .rect = entry.upload_rect,
+                .bytes_ptr = &retained.bytes[entry.upload_offset],
+                .bytes_count = entry.upload_count,
+                .stride_bytes = entry.stride_bytes,
+                .format = entry.format,
+                .upload_seq = 0,
+            };
+        }
+    }
     return null;
 }
 
-fn findSpriteUploadVisible(frame: *const Frame, command: Command, command_index: u32) Error!Upload {
-    const upload = findUploadVisible(frame, command.resource, command_index) orelse {
+fn findSpriteUploadVisible(
+    frame: *const Frame,
+    store: ?*const ResourceStore,
+    command: Command,
+    command_index: u32,
+) Error!Upload {
+    const upload = findUploadVisible(frame, store, command.resource, command_index) orelse {
         return error.MissingResource;
     };
     try validateSpriteUploadCoverage(upload, command.rect);
@@ -574,12 +863,25 @@ fn validateSpriteUploadCoverage(upload: Upload, command_rect: c.HowlRenderV0Rect
     }
 }
 
-fn findGlyphUploadVisible(frame: *const Frame, glyph: GlyphRef, command_index: u32) ?Upload {
+fn findGlyphUploadVisible(
+    frame: *const Frame,
+    store: ?*const ResourceStore,
+    glyph: GlyphRef,
+    command_index: u32,
+) ?Upload {
     for (spanSlice(Upload, frame.uploads.ptr, frame.uploads.count)) |upload| {
         if (!sameResource(upload.resource, glyph.atlas_resource)) continue;
         if (upload.upload_seq > command_index) continue;
         if (upload.format != c.HOWL_RENDER_V0_UPLOAD_ALPHA8) continue;
         if (!rectContains(upload.rect, glyph.atlas_rect)) continue;
+        return upload;
+    }
+    if (store) |retained| {
+        const upload = findUploadVisible(frame, retained, glyph.atlas_resource, command_index) orelse {
+            return null;
+        };
+        if (upload.format != c.HOWL_RENDER_V0_UPLOAD_ALPHA8) return null;
+        if (!rectContains(upload.rect, glyph.atlas_rect)) return null;
         return upload;
     }
     return null;
@@ -1343,6 +1645,49 @@ test "protocol v0 realizer rejects sprite command outside visible upload before 
     frame.commands = commandSpan(&commands);
     try std.testing.expectError(error.InvalidUpload, realize(&frame, &pixels, &base));
     try std.testing.expectEqualSlices(u8, &pixels_before, &pixels);
+}
+
+test "protocol v0 retained realizer rejects invalid frame without store mutation" {
+    const accepted = spriteAlphaResource(200, 1);
+    var accepted_creates = [_]Create{createResource(accepted, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
+    var accepted_bytes = [_]u8{255};
+    var accepted_uploads = [_]Upload{uploadResource(accepted, makeRect(0, 0, 1, 1), &accepted_bytes, 1)};
+    var accepted_commands = [_]Command{spriteCommand(accepted, makeRect(0, 0, 1, 1), 0xffffffff)};
+    var accepted_frame = testFrame(1, 1);
+    accepted_frame.creates = createSpan(&accepted_creates);
+    accepted_frame.uploads = uploadSpan(&accepted_uploads, accepted_bytes.len);
+    accepted_frame.commands = commandSpan(&accepted_commands);
+
+    var store = ResourceStore.init();
+    var pixels: [4]u8 = undefined;
+    try realizeRetained(&accepted_frame, &pixels, null, &store);
+    try std.testing.expectEqual(@as(u32, 1), store.count);
+
+    const rejected = spriteAlphaResource(201, 1);
+    var rejected_creates = [_]Create{createResource(rejected, 2, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
+    var rejected_bytes = [_]u8{255};
+    var rejected_uploads = [_]Upload{uploadResource(rejected, makeRect(0, 0, 1, 1), &rejected_bytes, 1)};
+    var rejected_commands = [_]Command{spriteCommand(rejected, makeRect(0, 0, 2, 1), 0xffffffff)};
+    var rejected_frame = testFrame(2, 1);
+    rejected_frame.creates = createSpan(&rejected_creates);
+    rejected_frame.uploads = uploadSpan(&rejected_uploads, rejected_bytes.len);
+    rejected_frame.commands = commandSpan(&rejected_commands);
+
+    var rejected_pixels: [8]u8 = undefined;
+    try std.testing.expectError(
+        error.InvalidUpload,
+        realizeRetained(&rejected_frame, &rejected_pixels, null, &store),
+    );
+    try std.testing.expectEqual(@as(u32, 1), store.count);
+    try std.testing.expect(store.find(rejected) == null);
+
+    var later_commands = [_]Command{spriteCommand(rejected, makeRect(0, 0, 1, 1), 0xffffffff)};
+    var later_frame = testFrame(1, 1);
+    later_frame.commands = commandSpan(&later_commands);
+    try std.testing.expectError(
+        error.MissingResource,
+        realizeRetained(&later_frame, &pixels, null, &store),
+    );
 }
 
 test "protocol v0 realizer rejects sprite use after same frame retire" {

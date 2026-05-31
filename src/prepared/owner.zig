@@ -251,7 +251,11 @@ pub const Owner = struct {
     }
 
     fn emitV0Payload(self: *Owner) !void {
-        _ = try self.v0_payload.emitPrepared(&self.session_owner.session, &self.prepared);
+        _ = try self.v0_payload.emitPrepared(
+            &self.session_owner.protocol_v0_sprite_resources,
+            &self.session_owner.session,
+            &self.prepared,
+        );
     }
 };
 

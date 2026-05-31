@@ -13,6 +13,7 @@ const source_prepare = @import("../source/prepare_request.zig");
 const prepared_surface = @import("../prepared/surface.zig");
 const prepared_submit_result = @import("../prepared/submit_result.zig");
 const session_submitted = @import("submitted.zig");
+const protocol_v0_emit = @import("../protocol_v0/emit.zig");
 const contract = @import("../text/contract.zig");
 const font_resolve = @import("../text/font/resolve.zig");
 const text = @import("../text/text.zig");
@@ -357,6 +358,7 @@ pub const TextSessionOwner = struct {
     retained_surface_width: u16 = 0,
     retained_surface_height: u16 = 0,
     retained_surface_snapshot_seq: u64 = 0,
+    protocol_v0_sprite_resources: protocol_v0_emit.SpriteResourceStore = .init(),
 
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };
 
