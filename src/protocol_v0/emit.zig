@@ -1,7 +1,12 @@
 const std = @import("std");
 
 const c = @import("../ffi.zig").c;
+const contract = @import("../text/contract.zig");
+const geometry_contract = @import("../render/geometry_contract.zig");
+const prepared_surface = @import("../prepared/surface.zig");
 const realize = @import("realize.zig");
+const text = @import("../text/text.zig");
+const text_session = @import("../session/text.zig");
 
 const ResourceId = c.HowlRenderV0ResourceId;
 const Rect = c.HowlRenderV0Rect;
@@ -14,6 +19,8 @@ pub const Error = error{
     RetireBoundOverflow,
     UploadBoundOverflow,
     UploadBytesOverflow,
+    InvalidPreparedSprite,
+    MissingPreparedSprite,
 };
 
 pub const Limits = struct {
@@ -52,6 +59,15 @@ pub const Sprite = struct {
 pub const ColorMode = enum {
     alpha,
     color,
+};
+
+const PreparedSprite = struct {
+    pixels: []const u8,
+    width_px: u16,
+    height_px: u16,
+    stride_bytes: u32,
+    color_mode: contract.SpriteColorMode,
+    visual_bounds: text.Rasterizer.SpriteBounds,
 };
 
 pub const Fixture = struct {
@@ -114,6 +130,24 @@ pub fn Emitter(comptime limits: Limits) type {
             return &self.frame_storage;
         }
 
+        pub fn emitPrepared(
+            self: *Self,
+            session: *text_session.TextSession,
+            prepared: *const prepared_surface.PreparedSurface,
+        ) Error!*const Frame {
+            var next = self.*;
+            next.resetPrepared(prepared);
+            try next.appendFullDamage(pixelSizeOut(prepared.render_px));
+            try next.appendPreparedClears(prepared.text_frame.scene.scene.clear_draws);
+            try next.appendPreparedBackgrounds(prepared.text_frame.scene.scene.background_draws);
+            try next.appendPreparedDecorations(prepared.text_frame.scene.scene.decoration_draws);
+            try next.appendPreparedSprites(session, prepared);
+            try next.appendPreparedCursors(prepared.text_frame.scene.scene.cursor_draws);
+            self.* = next;
+            self.publishFrame();
+            return &self.frame_storage;
+        }
+
         fn reset(self: *Self, fixture: *const Fixture) void {
             self.damage_count = 0;
             self.create_count = 0;
@@ -126,6 +160,25 @@ pub fn Emitter(comptime limits: Limits) type {
             self.frame_storage.render_px = fixture.render_px;
             self.frame_storage.cell_px = fixture.cell_px;
             self.frame_storage.grid = fixture.grid;
+        }
+
+        fn resetPrepared(self: *Self, prepared: *const prepared_surface.PreparedSurface) void {
+            self.damage_count = 0;
+            self.create_count = 0;
+            self.upload_count = 0;
+            self.command_count = 0;
+            self.retire_count = 0;
+            self.upload_bytes_count = 0;
+            self.frame_storage = emptyFrame();
+            self.frame_storage.token = .{
+                .snapshot_seq = prepared.request.token.snapshot_seq,
+                .frame_seq = prepared.request.token.dirty_epoch,
+                .geometry_epoch = prepared.geometry_epoch,
+                .resource_epoch = 0,
+            };
+            self.frame_storage.render_px = pixelSizeOut(prepared.render_px);
+            self.frame_storage.cell_px = cellSizeOut(prepared.cell_px);
+            self.frame_storage.grid = gridSizeOut(prepared.grid);
         }
 
         fn appendFullDamage(self: *Self, render_px: c.HowlRenderPixelSize) Error!void {
@@ -156,6 +209,87 @@ pub fn Emitter(comptime limits: Limits) type {
             });
         }
 
+        fn appendPreparedClears(
+            self: *Self,
+            draws: []const contract.TextClearDraw,
+        ) Error!void {
+            for (draws) |draw| try self.appendPreparedFillCommand(
+                draw.x_px,
+                draw.y_px,
+                draw.width_px,
+                draw.height_px,
+                draw.color,
+                c.HOWL_RENDER_V0_COMMAND_CLEAR_RECT,
+            );
+        }
+
+        fn appendPreparedBackgrounds(
+            self: *Self,
+            draws: []const contract.TextBackgroundDraw,
+        ) Error!void {
+            for (draws) |draw| try self.appendPreparedFillCommand(
+                draw.x_px,
+                draw.y_px,
+                draw.width_px,
+                draw.height_px,
+                draw.color,
+                c.HOWL_RENDER_V0_COMMAND_FILL_RECT,
+            );
+        }
+
+        fn appendPreparedDecorations(
+            self: *Self,
+            draws: []const contract.TextDecorationDraw,
+        ) Error!void {
+            for (draws) |draw| try self.appendPreparedFillCommand(
+                draw.x_px,
+                draw.y_px,
+                draw.width_px,
+                draw.height_px,
+                draw.color,
+                c.HOWL_RENDER_V0_COMMAND_FILL_RECT,
+            );
+        }
+
+        fn appendPreparedCursors(
+            self: *Self,
+            draws: []const contract.TextCursorDraw,
+        ) Error!void {
+            for (draws) |draw| try self.appendPreparedFillCommand(
+                draw.x_px,
+                draw.y_px,
+                draw.width_px,
+                draw.height_px,
+                draw.color,
+                c.HOWL_RENDER_V0_COMMAND_FILL_RECT,
+            );
+        }
+
+        fn appendPreparedFillCommand(
+            self: *Self,
+            x_px: i32,
+            y_px: i32,
+            width_px: u16,
+            height_px: u16,
+            color: contract.Rgba8,
+            kind: u8,
+        ) Error!void {
+            try self.appendCommand(.{
+                .kind = kind,
+                .reserved0 = 0,
+                .reserved1 = 0,
+                .rect = .{
+                    .x_px = x_px,
+                    .y_px = y_px,
+                    .width_px = width_px,
+                    .height_px = height_px,
+                },
+                .color_rgba = packRgba(color),
+                .resource = zeroResource(),
+                .glyphs = emptyGlyphs(),
+            });
+        }
+
         fn appendSprites(self: *Self, sprites: []const Sprite) Error!void {
             for (sprites, 0..) |sprite, sprite_index| {
                 const resource = spriteResource(sprite, @intCast(sprite_index + 1));
@@ -174,6 +308,52 @@ pub fn Emitter(comptime limits: Limits) type {
             }
         }
 
+        fn appendPreparedSprites(
+            self: *Self,
+            session: *text_session.TextSession,
+            prepared: *const prepared_surface.PreparedSurface,
+        ) Error!void {
+            for (prepared.text_frame.scene.scene.sprite_draws, 0..) |draw, sprite_index| {
+                const sprite = lookupPreparedSprite(
+                    session,
+                    prepared,
+                    draw.sprite.key,
+                ) catch |err| {
+                    return switch (err) {
+                        error.MissingSprite => error.MissingPreparedSprite,
+                    };
+                };
+                const bounds = visualBoundsForDraw(sprite.visual_bounds, draw);
+                const width_px = @min(draw.width_px, bounds.width_px);
+                const height_px = @min(draw.height_px, bounds.height_px);
+                if (width_px == 0) return error.InvalidPreparedSprite;
+                if (height_px == 0) return error.InvalidPreparedSprite;
+
+                const resource = preparedSpriteResource(sprite, @intCast(sprite_index + 1));
+                try self.appendPreparedCreate(resource, sprite, width_px, height_px);
+                try self.appendPreparedUpload(resource, sprite, bounds, width_px, height_px);
+                try self.appendCommand(.{
+                    .kind = c.HOWL_RENDER_V0_COMMAND_DRAW_SPRITE,
+                    .reserved0 = 0,
+                    .reserved1 = 0,
+                    .rect = .{
+                        .x_px = std.math.add(i32, draw.x_px, @intCast(bounds.x_px)) catch {
+                            return error.InvalidPreparedSprite;
+                        },
+                        .y_px = std.math.add(i32, draw.y_px, @intCast(bounds.y_px)) catch {
+                            return error.InvalidPreparedSprite;
+                        },
+                        .width_px = width_px,
+                        .height_px = height_px,
+                    },
+                    .color_rgba = if (sprite.color_mode == .alpha) packRgba(draw.color) else 0,
+                    .resource = resource,
+                    .glyphs = emptyGlyphs(),
+                });
+                try self.appendRetire(resource, self.command_count);
+            }
+        }
+
         fn appendCreate(self: *Self, resource: ResourceId, sprite: Sprite) Error!void {
             if (self.create_count >= limits.creates_max) return error.CreateBoundOverflow;
             self.creates[self.create_count] = .{
@@ -181,6 +361,24 @@ pub fn Emitter(comptime limits: Limits) type {
                 .width_px = sprite.width_px,
                 .height_px = sprite.height_px,
                 .format = uploadFormat(sprite.color_mode),
+                .create_seq = 0,
+            };
+            self.create_count += 1;
+        }
+
+        fn appendPreparedCreate(
+            self: *Self,
+            resource: ResourceId,
+            sprite: PreparedSprite,
+            width_px: u16,
+            height_px: u16,
+        ) Error!void {
+            if (self.create_count >= limits.creates_max) return error.CreateBoundOverflow;
+            self.creates[self.create_count] = .{
+                .resource = resource,
+                .width_px = width_px,
+                .height_px = height_px,
+                .format = uploadFormatForPrepared(sprite.color_mode),
                 .create_seq = 0,
             };
             self.create_count += 1;
@@ -208,6 +406,48 @@ pub fn Emitter(comptime limits: Limits) type {
                 .bytes_count = bytes_count,
                 .stride_bytes = sprite.stride_bytes,
                 .format = uploadFormat(sprite.color_mode),
+                .upload_seq = 0,
+            };
+            self.upload_byte_offsets[self.upload_count] = self.upload_bytes_count;
+            self.upload_bytes_count = next_bytes_count;
+            self.upload_count += 1;
+        }
+
+        fn appendPreparedUpload(
+            self: *Self,
+            resource: ResourceId,
+            sprite: PreparedSprite,
+            bounds: text.Rasterizer.SpriteBounds,
+            width_px: u16,
+            height_px: u16,
+        ) Error!void {
+            if (self.upload_count >= limits.uploads_max) return error.UploadBoundOverflow;
+            const bytes_per_pixel = bytesPerPixelForPrepared(sprite.color_mode);
+            const upload_stride = std.math.mul(u32, width_px, bytes_per_pixel) catch {
+                return error.UploadBytesOverflow;
+            };
+            const bytes_count = std.math.mul(u32, upload_stride, height_px) catch {
+                return error.UploadBytesOverflow;
+            };
+            const next_bytes_count = std.math.add(u32, self.upload_bytes_count, bytes_count) catch {
+                return error.UploadBytesOverflow;
+            };
+            if (next_bytes_count > limits.upload_bytes_max) return error.UploadBytesOverflow;
+            try copyPreparedSpriteBytes(
+                self.upload_bytes[self.upload_bytes_count..next_bytes_count],
+                upload_stride,
+                sprite,
+                bounds,
+                width_px,
+                height_px,
+            );
+            self.uploads[self.upload_count] = .{
+                .resource = resource,
+                .rect = .{ .x_px = 0, .y_px = 0, .width_px = width_px, .height_px = height_px },
+                .bytes_ptr = &self.upload_bytes[self.upload_bytes_count],
+                .bytes_count = bytes_count,
+                .stride_bytes = upload_stride,
+                .format = uploadFormatForPrepared(sprite.color_mode),
                 .upload_seq = 0,
             };
             self.upload_byte_offsets[self.upload_count] = self.upload_bytes_count;
@@ -309,6 +549,17 @@ fn spriteResource(sprite: Sprite, value: u64) ResourceId {
     };
 }
 
+fn preparedSpriteResource(sprite: PreparedSprite, value: u64) ResourceId {
+    return .{
+        .value = value,
+        .generation = 1,
+        .kind = switch (sprite.color_mode) {
+            .alpha => c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA,
+            .color => c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR,
+        },
+    };
+}
+
 fn uploadFormat(color_mode: ColorMode) u32 {
     return switch (color_mode) {
         .alpha => c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
@@ -316,8 +567,156 @@ fn uploadFormat(color_mode: ColorMode) u32 {
     };
 }
 
+fn uploadFormatForPrepared(color_mode: contract.SpriteColorMode) u32 {
+    return switch (color_mode) {
+        .alpha => c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
+        .color => c.HOWL_RENDER_V0_UPLOAD_RGBA8,
+    };
+}
+
+fn bytesPerPixelForPrepared(color_mode: contract.SpriteColorMode) u32 {
+    return switch (color_mode) {
+        .alpha => 1,
+        .color => 4,
+    };
+}
+
+fn packRgba(color: contract.Rgba8) u32 {
+    return (@as(u32, color.r) << 24) |
+        (@as(u32, color.g) << 16) |
+        (@as(u32, color.b) << 8) |
+        @as(u32, color.a);
+}
+
+fn pixelSizeOut(size: geometry_contract.PixelSize) c.HowlRenderPixelSize {
+    return .{ .width = size.width, .height = size.height };
+}
+
+fn cellSizeOut(size: geometry_contract.CellSize) c.HowlRenderCellSize {
+    return .{ .width = size.width, .height = size.height };
+}
+
+fn gridSizeOut(size: geometry_contract.GridSize) c.HowlRenderGridSize {
+    return .{ .cols = size.cols, .rows = size.rows };
+}
+
+fn lookupPreparedSprite(
+    session: *text_session.TextSession,
+    prepared: *const prepared_surface.PreparedSurface,
+    sprite_key: contract.SpriteKey,
+) error{MissingSprite}!PreparedSprite {
+    for (prepared.text_frame.raster_plan.outputs) |output| {
+        if (output.key.value != sprite_key.value) continue;
+        return .{
+            .pixels = output.pixels,
+            .width_px = output.width_px,
+            .height_px = output.height_px,
+            .stride_bytes = packedStrideForOutput(output),
+            .color_mode = output.color_mode,
+            .visual_bounds = output.visualBounds(),
+        };
+    }
+    const cached = session.atlasRaster(sprite_key) orelse return error.MissingSprite;
+    return .{
+        .pixels = cached.pixels,
+        .width_px = cached.width_px,
+        .height_px = cached.height_px,
+        .stride_bytes = switch (cached.color_mode) {
+            .alpha => cached.width_px,
+            .color => @as(u32, cached.width_px) * 4,
+        },
+        .color_mode = cached.color_mode,
+        .visual_bounds = cached.visual_bounds,
+    };
+}
+
+fn packedStrideForOutput(output: text.Rasterizer.RasterSpriteOutput) u32 {
+    return @as(u32, output.width_px) * bytesPerPixelForPrepared(output.color_mode);
+}
+
+fn visualBoundsForDraw(
+    bounds: text.Rasterizer.SpriteBounds,
+    draw: contract.TextSpriteDraw,
+) text.Rasterizer.SpriteBounds {
+    if (bounds.width_px != 0) {
+        if (bounds.height_px != 0) return bounds;
+    }
+    return .{ .x_px = 0, .y_px = 0, .width_px = draw.width_px, .height_px = draw.height_px };
+}
+
+fn copyPreparedSpriteBytes(
+    target: []u8,
+    target_stride: u32,
+    sprite: PreparedSprite,
+    bounds: text.Rasterizer.SpriteBounds,
+    width_px: u16,
+    height_px: u16,
+) Error!void {
+    const bytes_per_pixel = bytesPerPixelForPrepared(sprite.color_mode);
+    const source_right = std.math.add(u32, bounds.x_px, width_px) catch {
+        return error.InvalidPreparedSprite;
+    };
+    const source_bottom = std.math.add(u32, bounds.y_px, height_px) catch {
+        return error.InvalidPreparedSprite;
+    };
+    if (source_right > sprite.width_px) return error.InvalidPreparedSprite;
+    if (source_bottom > sprite.height_px) return error.InvalidPreparedSprite;
+    const row_bytes = std.math.mul(u32, width_px, bytes_per_pixel) catch {
+        return error.UploadBytesOverflow;
+    };
+    std.debug.assert(row_bytes <= target_stride);
+    var yy: u16 = 0;
+    while (yy < height_px) : (yy += 1) {
+        const source_y = std.math.add(u32, bounds.y_px, yy) catch {
+            return error.InvalidPreparedSprite;
+        };
+        if (source_y >= sprite.height_px) return error.InvalidPreparedSprite;
+        const source_x_bytes = std.math.mul(u32, bounds.x_px, bytes_per_pixel) catch {
+            return error.InvalidPreparedSprite;
+        };
+        const source_row = std.math.mul(u32, source_y, sprite.stride_bytes) catch {
+            return error.InvalidPreparedSprite;
+        };
+        const source_start = std.math.add(u32, source_row, source_x_bytes) catch {
+            return error.InvalidPreparedSprite;
+        };
+        const source_end = std.math.add(u32, source_start, row_bytes) catch {
+            return error.InvalidPreparedSprite;
+        };
+        if (source_end > sprite.pixels.len) return error.InvalidPreparedSprite;
+        const target_start = std.math.mul(u32, yy, target_stride) catch {
+            return error.UploadBytesOverflow;
+        };
+        const target_end = std.math.add(u32, target_start, row_bytes) catch {
+            return error.UploadBytesOverflow;
+        };
+        if (target_end > target.len) return error.UploadBytesOverflow;
+        @memcpy(target[target_start..target_end], sprite.pixels[source_start..source_end]);
+    }
+}
+
 fn rect(x_px: i32, y_px: i32, width_px: u16, height_px: u16) Rect {
     return .{ .x_px = x_px, .y_px = y_px, .width_px = width_px, .height_px = height_px };
+}
+
+fn spriteFixture(
+    sprite_rect: Rect,
+    color_rgba: u32,
+    bytes: []const u8,
+    width_px: u16,
+    height_px: u16,
+    stride_bytes: u32,
+    color_mode: ColorMode,
+) Sprite {
+    return .{
+        .rect = sprite_rect,
+        .color_rgba = color_rgba,
+        .bytes = bytes,
+        .width_px = width_px,
+        .height_px = height_px,
+        .stride_bytes = stride_bytes,
+        .color_mode = color_mode,
+    };
 }
 
 fn realizeFixture(comptime limits: Limits, fixture: Fixture, pixels: []u8) !void {
@@ -345,7 +744,13 @@ test "protocol v0 emitter realizes fill pass order equal to oracle" {
 }
 
 test "protocol v0 emitter realizes alpha sprite equal to oracle" {
-    const limits = Limits{ .creates_max = 1, .uploads_max = 1, .commands_max = 1, .retires_max = 1, .upload_bytes_max = 2 };
+    const limits = Limits{
+        .creates_max = 1,
+        .uploads_max = 1,
+        .commands_max = 1,
+        .retires_max = 1,
+        .upload_bytes_max = 2,
+    };
     const sprite_bytes = [_]u8{ 255, 128 };
     const sprites = [_]Sprite{.{
         .rect = rect(0, 0, 2, 1),
@@ -366,7 +771,13 @@ test "protocol v0 emitter realizes alpha sprite equal to oracle" {
 }
 
 test "protocol v0 emitter realizes color sprite equal to oracle" {
-    const limits = Limits{ .creates_max = 1, .uploads_max = 1, .commands_max = 1, .retires_max = 1, .upload_bytes_max = 4 };
+    const limits = Limits{
+        .creates_max = 1,
+        .uploads_max = 1,
+        .commands_max = 1,
+        .retires_max = 1,
+        .upload_bytes_max = 4,
+    };
     const sprite_bytes = [_]u8{ 0, 255, 0, 128 };
     const sprites = [_]Sprite{.{
         .rect = rect(0, 0, 1, 1),
@@ -387,7 +798,13 @@ test "protocol v0 emitter realizes color sprite equal to oracle" {
 }
 
 test "protocol v0 emitter emits sprite retires after final use" {
-    const limits = Limits{ .creates_max = 1, .uploads_max = 1, .commands_max = 1, .retires_max = 1, .upload_bytes_max = 1 };
+    const limits = Limits{
+        .creates_max = 1,
+        .uploads_max = 1,
+        .commands_max = 1,
+        .retires_max = 1,
+        .upload_bytes_max = 1,
+    };
     const sprite_bytes = [_]u8{255};
     const sprites = [_]Sprite{.{
         .rect = rect(0, 0, 1, 1),
@@ -425,11 +842,17 @@ test "protocol v0 emitter rejects command bound overflow" {
 }
 
 test "protocol v0 emitter rejects upload bound overflow" {
-    const limits = Limits{ .creates_max = 2, .uploads_max = 1, .commands_max = 2, .retires_max = 2, .upload_bytes_max = 2 };
+    const limits = Limits{
+        .creates_max = 2,
+        .uploads_max = 1,
+        .commands_max = 2,
+        .retires_max = 2,
+        .upload_bytes_max = 2,
+    };
     const one = [_]u8{255};
     const sprites = [_]Sprite{
-        .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
-        .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
+        spriteFixture(rect(0, 0, 1, 1), 0xffffffff, &one, 1, 1, 1, .alpha),
+        spriteFixture(rect(0, 0, 1, 1), 0xffffffff, &one, 1, 1, 1, .alpha),
     };
     var emitter = Emitter(limits).init();
     try std.testing.expectError(error.UploadBoundOverflow, emitter.emit(&.{
@@ -439,11 +862,17 @@ test "protocol v0 emitter rejects upload bound overflow" {
 }
 
 test "protocol v0 emitter rejects retire bound overflow" {
-    const limits = Limits{ .creates_max = 2, .uploads_max = 2, .commands_max = 2, .retires_max = 1, .upload_bytes_max = 2 };
+    const limits = Limits{
+        .creates_max = 2,
+        .uploads_max = 2,
+        .commands_max = 2,
+        .retires_max = 1,
+        .upload_bytes_max = 2,
+    };
     const one = [_]u8{255};
     const sprites = [_]Sprite{
-        .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
-        .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
+        spriteFixture(rect(0, 0, 1, 1), 0xffffffff, &one, 1, 1, 1, .alpha),
+        spriteFixture(rect(0, 0, 1, 1), 0xffffffff, &one, 1, 1, 1, .alpha),
     };
     var emitter = Emitter(limits).init();
     try std.testing.expectError(error.RetireBoundOverflow, emitter.emit(&.{
@@ -453,7 +882,13 @@ test "protocol v0 emitter rejects retire bound overflow" {
 }
 
 test "protocol v0 emitter rejects upload byte total overflow" {
-    const limits = Limits{ .creates_max = 1, .uploads_max = 1, .commands_max = 1, .retires_max = 1, .upload_bytes_max = 1 };
+    const limits = Limits{
+        .creates_max = 1,
+        .uploads_max = 1,
+        .commands_max = 1,
+        .retires_max = 1,
+        .upload_bytes_max = 1,
+    };
     const two = [_]u8{ 255, 255 };
     const sprites = [_]Sprite{.{
         .rect = rect(0, 0, 2, 1),
