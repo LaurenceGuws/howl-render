@@ -152,6 +152,19 @@ fn assertConstants() void {
     std.debug.assert(c.HOWL_RENDER_V0_CREATES_MAX == 256);
     std.debug.assert(c.HOWL_RENDER_V0_RETIRES_MAX == 256);
     std.debug.assert(c.HOWL_RENDER_V0_HOST_ACKS_MAX == 256);
+    std.debug.assert(c.HOWL_RENDER_V0_DAMAGE_RECT == 1);
+    std.debug.assert(c.HOWL_RENDER_V0_DAMAGE_FULL == 2);
+    std.debug.assert(c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_ALPHA == 1);
+    std.debug.assert(c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_COLOR == 2);
+    std.debug.assert(c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA == 3);
+    std.debug.assert(c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR == 4);
+    std.debug.assert(c.HOWL_RENDER_V0_RESOURCE_FALLBACK_RGBA == 5);
+    std.debug.assert(c.HOWL_RENDER_V0_UPLOAD_ALPHA8 == 1);
+    std.debug.assert(c.HOWL_RENDER_V0_UPLOAD_RGBA8 == 2);
+    std.debug.assert(c.HOWL_RENDER_V0_COMMAND_CLEAR_RECT == 1);
+    std.debug.assert(c.HOWL_RENDER_V0_COMMAND_FILL_RECT == 2);
+    std.debug.assert(c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN == 3);
+    std.debug.assert(c.HOWL_RENDER_V0_COMMAND_DRAW_SPRITE == 4);
 }
 
 fn assertLayoutAll() void {
@@ -332,4 +345,8 @@ fn assertLayout(comptime Mirror: type, comptime Abi: type) void {
 
 fn assertOffset(comptime Mirror: type, comptime Abi: type, comptime field: []const u8) void {
     std.debug.assert(@offsetOf(Mirror, field) == @offsetOf(Abi, field));
+}
+
+test {
+    _ = @import("../protocol_v0/realize.zig");
 }

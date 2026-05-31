@@ -38,7 +38,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/test_unit.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
+    unit_mod.addIncludePath(b.path("include"));
+    unit_mod.addIncludePath(b.path("../howl-vt/include"));
     const unit_tests = b.addTest(.{
         .name = "test-unit",
         .root_module = unit_mod,
