@@ -394,7 +394,7 @@ pub fn Emitter(comptime limits: Limits) type {
             color: contract.Rgba8,
             kind: u8,
         ) Error!void {
-            try self.appendCommand(.{
+            const command = c.HowlRenderV0Command{
                 .kind = kind,
                 .reserved0 = 0,
                 .reserved1 = 0,
@@ -407,7 +407,30 @@ pub fn Emitter(comptime limits: Limits) type {
                 .color_rgba = packRgba(color),
                 .resource = zeroResource(),
                 .glyphs = emptyGlyphs(),
-            });
+            };
+            if (self.tryMergePreparedFillCommand(command)) return;
+            try self.appendCommand(command);
+        }
+
+        fn tryMergePreparedFillCommand(self: *Self, command: c.HowlRenderV0Command) bool {
+            if (self.command_count == 0) return false;
+            const prior = &self.commands[self.command_count - 1];
+            if (prior.kind != command.kind) return false;
+            if (prior.color_rgba != command.color_rgba) return false;
+            if (prior.rect.y_px != command.rect.y_px) return false;
+            if (prior.rect.height_px != command.rect.height_px) return false;
+            if (prior.resource.value != 0 or command.resource.value != 0) return false;
+            if (prior.glyphs.count != 0 or command.glyphs.count != 0) return false;
+            const prior_end = std.math.add(i32, prior.rect.x_px, prior.rect.width_px) catch {
+                return false;
+            };
+            if (prior_end != command.rect.x_px) return false;
+            const merged_width = std.math.add(u32, prior.rect.width_px, command.rect.width_px) catch {
+                return false;
+            };
+            if (merged_width > std.math.maxInt(u16)) return false;
+            prior.rect.width_px = @intCast(merged_width);
+            return true;
         }
 
         fn appendSprites(self: *Self, sprites: []const Sprite) Error!void {

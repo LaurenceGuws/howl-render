@@ -43,6 +43,71 @@ test "protocol v0 emitter realizes prepared fill frame equal to full rgba oracle
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
+test "protocol v0 emitter coalesces adjacent prepared fill commands" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const color = rgba(10, 20, 30, 255);
+    const background = [_]contract.TextBackgroundDraw{
+        backgroundDraw(0, 0, 1, 1, color),
+        backgroundDraw(1, 0, 2, 1, color),
+        backgroundDraw(3, 0, 1, 1, color),
+    };
+    const prepared = preparedSurface(.{
+        .background_draws = &background,
+        .width_px = 4,
+        .height_px = 1,
+    });
+
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = protocol_emit.SpriteResourceStore.init();
+    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 1), frame.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, frame.commands.ptr[0].kind);
+    try std.testing.expectEqual(@as(i32, 0), frame.commands.ptr[0].rect.x_px);
+    try std.testing.expectEqual(@as(i32, 0), frame.commands.ptr[0].rect.y_px);
+    try std.testing.expectEqual(@as(u16, 4), frame.commands.ptr[0].rect.width_px);
+    try std.testing.expectEqual(@as(u16, 1), frame.commands.ptr[0].rect.height_px);
+    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+}
+
+test "protocol v0 emitter does not coalesce distinct prepared fills" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const background = [_]contract.TextBackgroundDraw{
+        backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255)),
+        backgroundDraw(1, 0, 1, 1, rgba(4, 5, 6, 255)),
+        backgroundDraw(3, 0, 1, 1, rgba(4, 5, 6, 255)),
+        backgroundDraw(4, 1, 1, 1, rgba(4, 5, 6, 255)),
+    };
+    const decoration = [_]contract.TextDecorationDraw{
+        decorationDraw(0, 0, 1, 1, rgba(4, 5, 6, 255)),
+    };
+    const prepared = preparedSurface(.{
+        .background_draws = &background,
+        .decoration_draws = &decoration,
+        .width_px = 5,
+        .height_px = 2,
+    });
+
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = protocol_emit.SpriteResourceStore.init();
+    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 5), frame.commands.count);
+    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+}
+
 test "protocol v0 emitter realizes prepared alpha sprite frame equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
@@ -630,7 +695,7 @@ test "protocol v0 prepared owner releases v0 payload with handle" {
     try std.testing.expect(owner.rgba_pixels.len == 0);
 }
 
-test "protocol v0 prepared owner create fails closed when v0 emission fails" {
+test "protocol v0 prepared owner keeps rgba when v0 emission overflows" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -650,14 +715,14 @@ test "protocol v0 prepared owner create fails closed when v0 emission fails" {
         .height_px = 1,
     });
 
-    try std.testing.expectError(
-        error.CommandBoundOverflow,
-        prepared_owner.Owner.create(session_owner, &prepared),
-    );
-    try std.testing.expectEqual(@as(usize, 0), session_owner.prepared_handles.items.len);
+    const owner = try prepared_owner.Owner.create(session_owner, &prepared);
+
+    try std.testing.expect(owner.protocolV0Frame() == null);
+    try std.testing.expect(owner.rgba_pixels.len > 0);
+    try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
 
-test "protocol v0 prepared owner create failure consumes prepare handle surface once" {
+test "protocol v0 prepared owner overflow still consumes prepare surface once" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -666,8 +731,11 @@ test "protocol v0 prepared owner create failure consumes prepare handle surface 
     defer session_owner.destroy();
 
     var prepared = try ownedCommandOverflowPreparedSurface(allocator);
-    try expectCreateFailureConsumesPrepared(session_owner, &prepared);
-    try std.testing.expectEqual(@as(usize, 0), session_owner.prepared_handles.items.len);
+    const owner = try prepared_owner.Owner.create(session_owner, &prepared);
+
+    try std.testing.expect(owner.protocolV0Frame() == null);
+    try std.testing.expectEqual(@as(u64, 0), prepared.request.token.snapshot_seq);
+    try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
 
 fn expectPreparedEmissionEqualsCompose(
@@ -680,22 +748,14 @@ fn expectPreparedEmissionEqualsCompose(
     defer allocator.free(oracle);
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
-    var emitter = protocol_emit.Emitter(.{}).init();
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
     var resources = protocol_emit.SpriteResourceStore.init();
     const frame = try emitter.emitPrepared(&resources, session, prepared);
     try protocol_realize.realize(frame, realized, base_pixels);
     try std.testing.expectEqualSlices(u8, oracle, realized);
-}
-
-fn expectCreateFailureConsumesPrepared(
-    session_owner: *text_session.TextSessionOwner,
-    prepared: *prepared_surface.PreparedSurface,
-) !void {
-    errdefer prepared.deinit();
-    try std.testing.expectError(
-        error.CommandBoundOverflow,
-        prepared_owner.Owner.create(session_owner, prepared),
-    );
 }
 
 fn ownedCommandOverflowPreparedSurface(

@@ -72,7 +72,7 @@ pub fn protocolV0(
     };
     const value = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!owner.isLive()) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    value.* = owner.protocolV0Frame();
+    value.* = owner.protocolV0Frame() orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     return c.HOWL_RENDER_CALL_OK;
 }
 

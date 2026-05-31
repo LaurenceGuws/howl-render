@@ -41,6 +41,7 @@ pub const Owner = struct {
     session_owner: *text_session.TextSessionOwner,
     prepared: prepared_surface.PreparedSurface,
     v0_payload: V0Payload = V0Payload.init(),
+    v0_payload_valid: bool = false,
     state: State = .prepared,
     snapshot_seq: u64,
     dirty_epoch: u64,
@@ -72,7 +73,7 @@ pub const Owner = struct {
         value.* = emptyPreparedSurface(prepared_allocator);
         errdefer owner.destroy();
         try owner.copySurfaceBuffer();
-        try owner.emitV0Payload();
+        owner.emitV0Payload() catch {};
         try session_owner.registerPreparedHandle(owner);
         return owner;
     }
@@ -138,14 +139,15 @@ pub const Owner = struct {
         };
     }
 
-    pub fn protocolV0Frame(self: *const Owner) *const protocol_v0_emit.Frame {
+    pub fn protocolV0Frame(self: *const Owner) ?*const protocol_v0_emit.Frame {
         std.debug.assert(self.isLive());
+        if (!self.v0_payload_valid) return null;
         return self.v0_payload.frame();
     }
 
     pub fn protocolV0FrameForTest(self: *const Owner) *const protocol_v0_emit.Frame {
         comptime std.debug.assert(builtin.is_test);
-        return self.protocolV0Frame();
+        return self.protocolV0Frame().?;
     }
 
     pub fn protocolV0FrameStorageEmptyForTest(self: *const Owner) bool {
@@ -233,6 +235,7 @@ pub const Owner = struct {
         }
         self.prepared.deinit();
         self.v0_payload = V0Payload.init();
+        self.v0_payload_valid = false;
         freeOwnedBytes(self.session_owner.allocator, &self.rgba_pixels);
     }
 
@@ -256,6 +259,7 @@ pub const Owner = struct {
             &self.session_owner.session,
             &self.prepared,
         );
+        self.v0_payload_valid = true;
     }
 };
 
