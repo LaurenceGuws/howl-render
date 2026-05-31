@@ -37,13 +37,16 @@ pub const ResourceStore = struct {
         return .{};
     }
 
-    fn commitFrame(self: *ResourceStore, frame: *const Frame) void {
+    fn commitFrameResources(self: *ResourceStore, frame: *const Frame) void {
         for (spanSlice(Create, frame.creates.ptr, frame.creates.count)) |create_value| {
             self.create(create_value);
         }
         for (spanSlice(Upload, frame.uploads.ptr, frame.uploads.count)) |upload_value| {
             self.upload(upload_value);
         }
+    }
+
+    fn commitFrameRetires(self: *ResourceStore, frame: *const Frame) void {
         for (spanSlice(Retire, frame.retires.ptr, frame.retires.count)) |retire_value| {
             self.retire(retire_value.resource);
         }
@@ -218,7 +221,6 @@ fn realizeWithStore(
     if (store) |retained| {
         try retained.validateFrameTransition(frame);
         try validateFrame(frame, retained);
-        retained.commitFrame(frame);
     } else {
         try validateFrame(frame, null);
     }
@@ -243,6 +245,11 @@ fn realizeWithStore(
             },
             else => return error.UnknownCommandKind,
         }
+    }
+
+    if (store) |retained| {
+        retained.commitFrameResources(frame);
+        retained.commitFrameRetires(frame);
     }
 }
 
@@ -353,7 +360,10 @@ fn validateUploadSpan(frame: *const Frame, store: ?*const ResourceStore) Error!v
     }
 
     var bytes_sum: u32 = 0;
-    for (spanSlice(Upload, frame.uploads.ptr, frame.uploads.count)) |upload| {
+    var previous_upload_seq: u32 = 0;
+    for (spanSlice(Upload, frame.uploads.ptr, frame.uploads.count), 0..) |upload, upload_index| {
+        if (upload_index > 0 and upload.upload_seq < previous_upload_seq) return error.InvalidUpload;
+        previous_upload_seq = upload.upload_seq;
         try validateUpload(frame, store, upload);
         bytes_sum = std.math.add(u32, bytes_sum, upload.bytes_count) catch {
             return error.InvalidSpan;
@@ -789,11 +799,16 @@ fn findUploadVisible(
     resource: ResourceId,
     command_index: u32,
 ) ?Upload {
+    var selected: ?Upload = null;
     for (spanSlice(Upload, frame.uploads.ptr, frame.uploads.count)) |upload| {
         if (!sameResource(upload.resource, resource)) continue;
         if (upload.upload_seq > command_index) continue;
-        return upload;
+        if (selected) |current| {
+            if (upload.upload_seq < current.upload_seq) continue;
+        }
+        selected = upload;
     }
+    if (selected) |upload| return upload;
     if (store) |retained| {
         if (retained.find(resource)) |entry| {
             if (entry.retired) return null;
@@ -869,13 +884,18 @@ fn findGlyphUploadVisible(
     glyph: GlyphRef,
     command_index: u32,
 ) ?Upload {
+    var selected: ?Upload = null;
     for (spanSlice(Upload, frame.uploads.ptr, frame.uploads.count)) |upload| {
         if (!sameResource(upload.resource, glyph.atlas_resource)) continue;
         if (upload.upload_seq > command_index) continue;
         if (upload.format != c.HOWL_RENDER_V0_UPLOAD_ALPHA8) continue;
         if (!rectContains(upload.rect, glyph.atlas_rect)) continue;
-        return upload;
+        if (selected) |current| {
+            if (upload.upload_seq < current.upload_seq) continue;
+        }
+        selected = upload;
     }
+    if (selected) |upload| return upload;
     if (store) |retained| {
         const upload = findUploadVisible(frame, retained, glyph.atlas_resource, command_index) orelse {
             return null;
@@ -1703,6 +1723,97 @@ test "protocol v0 realizer rejects sprite use after same frame retire" {
     frame.commands = commandSpan(&commands);
     frame.retires = retireSpan(&retires);
     try expectReject(&frame, error.RetiredResource);
+}
+
+test "protocol v0 retained realizer accepts existing sprite use before same frame retire" {
+    const resource = spriteAlphaResource(97, 1);
+    var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
+    var bytes = [_]u8{255};
+    var uploads = [_]Upload{uploadResource(resource, makeRect(0, 0, 1, 1), &bytes, 1)};
+    var init_frame = testFrame(1, 1);
+    init_frame.creates = createSpan(&creates);
+    init_frame.uploads = uploadSpan(&uploads, bytes.len);
+
+    var store = ResourceStore.init();
+    var pixels: [4]u8 = undefined;
+    try realizeRetained(&init_frame, &pixels, null, &store);
+    try std.testing.expect(!store.find(resource).?.retired);
+
+    var commands = [_]Command{spriteCommand(resource, makeRect(0, 0, 1, 1), 0xffffffff)};
+    var retires = [_]Retire{.{ .resource = resource, .retire_seq = 1 }};
+    var retire_frame = testFrame(1, 1);
+    retire_frame.commands = commandSpan(&commands);
+    retire_frame.retires = retireSpan(&retires);
+    try realizeRetained(&retire_frame, &pixels, null, &store);
+    try expectPixel(&pixels, 0, .{ .r = 255, .g = 255, .b = 255, .a = 255 });
+    try std.testing.expect(store.find(resource).?.retired);
+}
+
+test "protocol v0 retained realizer uses old upload before future upload" {
+    const resource = spriteAlphaResource(99, 1);
+    var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
+    var old_bytes = [_]u8{64};
+    var init_uploads = [_]Upload{uploadResource(resource, makeRect(0, 0, 1, 1), &old_bytes, 1)};
+    var init_frame = testFrame(1, 1);
+    init_frame.creates = createSpan(&creates);
+    init_frame.uploads = uploadSpan(&init_uploads, old_bytes.len);
+
+    var store = ResourceStore.init();
+    var pixels: [4]u8 = undefined;
+    try realizeRetained(&init_frame, &pixels, null, &store);
+
+    var new_bytes = [_]u8{255};
+    var future_uploads = [_]Upload{uploadResource(resource, makeRect(0, 0, 1, 1), &new_bytes, 1)};
+    future_uploads[0].upload_seq = 1;
+    var commands = [_]Command{spriteCommand(resource, makeRect(0, 0, 1, 1), 0xffffffff)};
+    var frame = testFrame(1, 1);
+    frame.uploads = uploadSpan(&future_uploads, new_bytes.len);
+    frame.commands = commandSpan(&commands);
+    try realizeRetained(&frame, &pixels, null, &store);
+    try expectPixel(&pixels, 0, .{ .r = 64, .g = 64, .b = 64, .a = 255 });
+}
+
+test "protocol v0 realizer uses latest visible same frame upload" {
+    const resource = spriteAlphaResource(100, 1);
+    var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
+    var old_bytes = [_]u8{64};
+    var new_bytes = [_]u8{255};
+    var uploads = [_]Upload{
+        uploadResource(resource, makeRect(0, 0, 1, 1), &old_bytes, 1),
+        uploadResource(resource, makeRect(0, 0, 1, 1), &new_bytes, 1),
+    };
+    uploads[0].upload_seq = 0;
+    uploads[1].upload_seq = 1;
+    var commands = [_]Command{
+        fillCommand(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0),
+        spriteCommand(resource, makeRect(0, 0, 1, 1), 0xffffffff),
+    };
+    var frame = testFrame(1, 1);
+    frame.creates = createSpan(&creates);
+    frame.uploads = uploadSpan(&uploads, old_bytes.len + new_bytes.len);
+    frame.commands = commandSpan(&commands);
+    var pixels: [4]u8 = undefined;
+
+    try realize(&frame, &pixels, null);
+    try expectPixel(&pixels, 0, .{ .r = 255, .g = 255, .b = 255, .a = 255 });
+}
+
+test "protocol v0 rejects out of order upload sequence" {
+    const resource = spriteAlphaResource(101, 1);
+    var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
+    var first_bytes = [_]u8{64};
+    var second_bytes = [_]u8{255};
+    var uploads = [_]Upload{
+        uploadResource(resource, makeRect(0, 0, 1, 1), &first_bytes, 1),
+        uploadResource(resource, makeRect(0, 0, 1, 1), &second_bytes, 1),
+    };
+    uploads[0].upload_seq = 1;
+    uploads[1].upload_seq = 0;
+    var frame = testFrame(1, 1);
+    frame.creates = createSpan(&creates);
+    frame.uploads = uploadSpan(&uploads, first_bytes.len + second_bytes.len);
+
+    try expectReject(&frame, error.InvalidUpload);
 }
 
 test "protocol v0 realizer rejects retire before final sprite use" {
