@@ -40,8 +40,7 @@ pub const Owner = struct {
 
     session_owner: *text_session.TextSessionOwner,
     prepared: prepared_surface.PreparedSurface,
-    v0_payload: V0Payload = V0Payload.init(),
-    v0_payload_valid: bool = false,
+    v0_payload: ?*V0Payload = null,
     state: State = .prepared,
     snapshot_seq: u64,
     dirty_epoch: u64,
@@ -141,8 +140,8 @@ pub const Owner = struct {
 
     pub fn protocolV0Frame(self: *const Owner) ?*const protocol_v0_emit.Frame {
         std.debug.assert(self.isLive());
-        if (!self.v0_payload_valid) return null;
-        return self.v0_payload.frame();
+        const payload = self.v0_payload orelse return null;
+        return payload.frame();
     }
 
     pub fn protocolV0FrameForTest(self: *const Owner) *const protocol_v0_emit.Frame {
@@ -153,13 +152,7 @@ pub const Owner = struct {
     pub fn protocolV0FrameStorageEmptyForTest(self: *const Owner) bool {
         comptime std.debug.assert(builtin.is_test);
         std.debug.assert(!self.isLive());
-        const frame = self.v0_payload.frame();
-        if (frame.damage.count != 0) return false;
-        if (frame.creates.count != 0) return false;
-        if (frame.uploads.count != 0) return false;
-        if (frame.commands.count != 0) return false;
-        if (frame.retires.count != 0) return false;
-        return true;
+        return self.v0_payload == null;
     }
 
     pub fn diagnostics(self: *Owner) PreparedDiagnostics {
@@ -234,8 +227,7 @@ pub const Owner = struct {
             .prepared, .published, .submit_ready => {},
         }
         self.prepared.deinit();
-        self.v0_payload = V0Payload.init();
-        self.v0_payload_valid = false;
+        self.freeV0Payload();
         freeOwnedBytes(self.session_owner.allocator, &self.rgba_pixels);
     }
 
@@ -254,12 +246,22 @@ pub const Owner = struct {
     }
 
     fn emitV0Payload(self: *Owner) !void {
-        _ = try self.v0_payload.emitPrepared(
+        std.debug.assert(self.v0_payload == null);
+        const payload = try self.session_owner.allocator.create(V0Payload);
+        payload.* = .{};
+        errdefer self.session_owner.allocator.destroy(payload);
+        _ = try payload.emitPrepared(
             &self.session_owner.protocol_v0_sprite_resources,
             &self.session_owner.session,
             &self.prepared,
         );
-        self.v0_payload_valid = true;
+        self.v0_payload = payload;
+    }
+
+    fn freeV0Payload(self: *Owner) void {
+        const payload = self.v0_payload orelse return;
+        self.v0_payload = null;
+        self.session_owner.allocator.destroy(payload);
     }
 };
 
