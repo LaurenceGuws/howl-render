@@ -1,6 +1,8 @@
 const std = @import("std");
 
+const c = @import("ffi.zig").c;
 const prepared_buffer = @import("prepared/buffer.zig");
+const prepared_owner = @import("prepared/owner.zig");
 const prepared_surface = @import("prepared/surface.zig");
 const protocol_emit = @import("protocol_v0/emit.zig");
 const protocol_realize = @import("protocol_v0/realize.zig");
@@ -29,7 +31,7 @@ test "protocol v0 emitter realizes prepared fill frame equal to full rgba oracle
     const cursor = [_]contract.TextCursorDraw{
         cursorDraw(0, 0, 2, 1, rgba(0, 0, 255, 128)),
     };
-    var prepared = preparedSurface(.{
+    const prepared = preparedSurface(.{
         .clear_draws = &clear,
         .background_draws = &background,
         .decoration_draws = &decoration,
@@ -58,7 +60,7 @@ test "protocol v0 emitter realizes prepared alpha sprite frame equal to full rgb
         &sprite_bytes,
         .{},
     )};
-    var prepared = preparedSurface(.{
+    const prepared = preparedSurface(.{
         .sprite_draws = &sprite_draws,
         .raster_outputs = &raster_outputs,
         .width_px = 2,
@@ -85,7 +87,7 @@ test "protocol v0 emitter realizes prepared color sprite frame equal to full rgb
         &sprite_bytes,
         .{},
     )};
-    var prepared = preparedSurface(.{
+    const prepared = preparedSurface(.{
         .sprite_draws = &sprite_draws,
         .raster_outputs = &raster_outputs,
         .width_px = 1,
@@ -115,7 +117,7 @@ test "protocol v0 emitter realizes prepared sprite visual bounds equal to full r
         &sprite_bytes,
         .{ .x_px = 1, .y_px = 0, .width_px = 1, .height_px = 2 },
     )};
-    var prepared = preparedSurface(.{
+    const prepared = preparedSurface(.{
         .sprite_draws = &sprite_draws,
         .raster_outputs = &raster_outputs,
         .width_px = 3,
@@ -174,13 +176,160 @@ test "protocol v0 emitter realizes partial prepared frame equal to full rgba ora
     const background = [_]contract.TextBackgroundDraw{
         backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255)),
     };
-    var prepared = preparedSurface(.{
+    const prepared = preparedSurface(.{
         .background_draws = &background,
         .width_px = 2,
         .height_px = 1,
         .full_redraw = false,
     });
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, &base);
+}
+
+test "protocol v0 prepared owner frame equals owner rgba oracle" {
+    const allocator = std.testing.allocator;
+    const session_owner = text_session.TextSessionOwner.create(
+        allocator,
+        .{ .surface_px = .{ .width = 2, .height = 1 } },
+    ) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    var sprite_bytes = [_]u8{ 255, 128 };
+    var sprite_draws = [_]contract.TextSpriteDraw{
+        spriteDraw(21, 0, 0, 2, 1, rgba(255, 0, 0, 128)),
+    };
+    var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{rasterOutput(
+        allocator,
+        21,
+        2,
+        1,
+        .alpha,
+        &sprite_bytes,
+        .{},
+    )};
+    var prepared = preparedSurface(.{
+        .sprite_draws = &sprite_draws,
+        .raster_outputs = &raster_outputs,
+        .width_px = 2,
+        .height_px = 1,
+    });
+
+    const owner = try prepared_owner.Owner.create(session_owner, &prepared);
+    const frame = owner.protocolV0FrameForTest();
+    try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
+    try std.testing.expect(frame.uploads.ptr[0].bytes_ptr != null);
+    const upload_bytes_ptr = frame.uploads.ptr[0].bytes_ptr;
+
+    const realized = try allocator.alloc(u8, owner.rgba_pixels.len);
+    defer allocator.free(realized);
+    try protocol_realize.realize(frame, realized, null);
+    try std.testing.expectEqual(
+        upload_bytes_ptr,
+        owner.protocolV0FrameForTest().uploads.ptr[0].bytes_ptr,
+    );
+    try std.testing.expectEqualSlices(u8, owner.rgba_pixels, realized);
+}
+
+test "protocol v0 prepared owner partial frame equals retained-base rgba oracle" {
+    const allocator = std.testing.allocator;
+    const session_owner = text_session.TextSessionOwner.create(
+        allocator,
+        .{ .surface_px = .{ .width = 2, .height = 1 } },
+    ) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    const base = try allocator.dupe(u8, &[_]u8{
+        1, 2, 3, 255,
+        4, 5, 6, 255,
+    });
+    var retained_base = base;
+    session_owner.retainSurfacePixels(&retained_base, 2, 1, 1);
+    try std.testing.expect(retained_base.len == 0);
+
+    const background = [_]contract.TextBackgroundDraw{
+        backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255)),
+    };
+    var prepared = preparedSurface(.{
+        .background_draws = &background,
+        .width_px = 2,
+        .height_px = 1,
+        .full_redraw = false,
+    });
+
+    const owner = try prepared_owner.Owner.create(session_owner, &prepared);
+    const realized = try allocator.alloc(u8, owner.rgba_pixels.len);
+    defer allocator.free(realized);
+    try protocol_realize.realize(
+        owner.protocolV0FrameForTest(),
+        realized,
+        session_owner.retained_surface_pixels,
+    );
+    try std.testing.expectEqualSlices(u8, owner.rgba_pixels, realized);
+}
+
+test "protocol v0 prepared owner releases v0 payload with handle" {
+    const allocator = std.testing.allocator;
+    const session_owner = text_session.TextSessionOwner.create(
+        allocator,
+        .{ .surface_px = .{ .width = 1, .height = 1 } },
+    ) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    const background = [_]contract.TextBackgroundDraw{
+        backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255)),
+    };
+    var prepared = preparedSurface(.{
+        .background_draws = &background,
+        .width_px = 1,
+        .height_px = 1,
+    });
+
+    const owner = try prepared_owner.Owner.create(session_owner, &prepared);
+    try std.testing.expectEqual(@as(u32, 1), owner.protocolV0FrameForTest().commands.count);
+
+    owner.release();
+
+    try std.testing.expect(owner.protocolV0FrameStorageEmptyForTest());
+    try std.testing.expect(owner.rgba_pixels.len == 0);
+}
+
+test "protocol v0 prepared owner create fails closed when v0 emission fails" {
+    const allocator = std.testing.allocator;
+    const session_owner = text_session.TextSessionOwner.create(
+        allocator,
+        .{ .surface_px = .{ .width = 1, .height = 1 } },
+    ) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    const draws_len: usize = c.HOWL_RENDER_V0_COMMANDS_MAX + 1;
+    const background_draws = try allocator.alloc(contract.TextBackgroundDraw, draws_len);
+    defer allocator.free(background_draws);
+    for (background_draws) |*draw| {
+        draw.* = backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255));
+    }
+    var prepared = preparedSurface(.{
+        .background_draws = background_draws,
+        .width_px = 1,
+        .height_px = 1,
+    });
+
+    try std.testing.expectError(
+        error.CommandBoundOverflow,
+        prepared_owner.Owner.create(session_owner, &prepared),
+    );
+    try std.testing.expectEqual(@as(usize, 0), session_owner.prepared_handles.items.len);
+}
+
+test "protocol v0 prepared owner create failure consumes prepare handle surface once" {
+    const allocator = std.testing.allocator;
+    const session_owner = text_session.TextSessionOwner.create(
+        allocator,
+        .{ .surface_px = .{ .width = 1, .height = 1 } },
+    ) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    var prepared = try ownedCommandOverflowPreparedSurface(allocator);
+    try expectCreateFailureConsumesPrepared(session_owner, &prepared);
+    try std.testing.expectEqual(@as(usize, 0), session_owner.prepared_handles.items.len);
 }
 
 fn expectPreparedEmissionEqualsCompose(
@@ -197,6 +346,58 @@ fn expectPreparedEmissionEqualsCompose(
     const frame = try emitter.emitPrepared(session, prepared);
     try protocol_realize.realize(frame, realized, base_pixels);
     try std.testing.expectEqualSlices(u8, oracle, realized);
+}
+
+fn expectCreateFailureConsumesPrepared(
+    session_owner: *text_session.TextSessionOwner,
+    prepared: *prepared_surface.PreparedSurface,
+) !void {
+    errdefer prepared.deinit();
+    try std.testing.expectError(
+        error.CommandBoundOverflow,
+        prepared_owner.Owner.create(session_owner, prepared),
+    );
+}
+
+fn ownedCommandOverflowPreparedSurface(
+    allocator: std.mem.Allocator,
+) !prepared_surface.PreparedSurface {
+    const draws_len: usize = c.HOWL_RENDER_V0_COMMANDS_MAX + 1;
+    const background_draws = try allocator.alloc(contract.TextBackgroundDraw, draws_len);
+    for (background_draws) |*draw| {
+        draw.* = backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255));
+    }
+    return .{
+        .allocator = allocator,
+        .request = .{ .token = .{
+            .snapshot_seq = 1,
+            .dirty_epoch = 1,
+            .geometry_epoch = 1,
+            .damage_base_seq = 0,
+            .damage_kind = .full,
+        } },
+        .geometry_epoch = 1,
+        .render_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 1, .rows = 1 },
+        .text_frame = .{
+            .scene = .{
+                .allocator = allocator,
+                .owned = true,
+                .scene = .{
+                    .clear_draws = &.{},
+                    .background_draws = background_draws,
+                    .sprite_draws = &.{},
+                    .decoration_draws = &.{},
+                    .cursor_draws = &.{},
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = true,
+                },
+            },
+            .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+        },
+    };
 }
 
 const PreparedOptions = struct {

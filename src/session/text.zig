@@ -447,7 +447,7 @@ pub const TextSessionOwner = struct {
             .state = consume.state,
         });
         errdefer prepared.deinit();
-        return prepared_owner.Owner.create(self, prepared);
+        return prepared_owner.Owner.create(self, &prepared);
     }
 
     pub fn registerPreparedHandle(self: *TextSessionOwner, prepared: *prepared_owner.Owner) !void {

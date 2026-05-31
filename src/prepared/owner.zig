@@ -1,9 +1,11 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const tokens = @import("../render/tokens.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_surface = @import("surface.zig");
 const prepared_submit_result = @import("submit_result.zig");
 const prepared_buffer = @import("buffer.zig");
+const protocol_v0_emit = @import("../protocol_v0/emit.zig");
 const text_session = @import("../session/text.zig");
 const text = @import("../text/text.zig");
 const contract = @import("../text/contract.zig");
@@ -34,9 +36,11 @@ pub const PreparedDiagnostics = struct {
 
 pub const Owner = struct {
     pub const State = enum { prepared, published, submit_ready, released, consumed };
+    const V0Payload = protocol_v0_emit.Emitter(.{});
 
     session_owner: *text_session.TextSessionOwner,
     prepared: prepared_surface.PreparedSurface,
+    v0_payload: V0Payload = V0Payload.init(),
     state: State = .prepared,
     snapshot_seq: u64,
     dirty_epoch: u64,
@@ -60,12 +64,15 @@ pub const Owner = struct {
 
     pub fn create(
         session_owner: *text_session.TextSessionOwner,
-        value: prepared_surface.PreparedSurface,
+        value: *prepared_surface.PreparedSurface,
     ) !*Owner {
         var owner = try session_owner.allocator.create(Owner);
-        owner.* = ownerBase(session_owner, value);
+        const prepared_allocator = value.allocator;
+        owner.* = ownerBase(session_owner, value.*);
+        value.* = emptyPreparedSurface(prepared_allocator);
         errdefer owner.destroy();
         try owner.copySurfaceBuffer();
+        try owner.emitV0Payload();
         try session_owner.registerPreparedHandle(owner);
         return owner;
     }
@@ -129,6 +136,24 @@ pub const Owner = struct {
             .rgba_pixels = self.rgba_pixels,
             .uploads_required = self.uploads_required,
         };
+    }
+
+    pub fn protocolV0FrameForTest(self: *const Owner) *const protocol_v0_emit.Frame {
+        comptime std.debug.assert(builtin.is_test);
+        std.debug.assert(self.isLive());
+        return self.v0_payload.frame();
+    }
+
+    pub fn protocolV0FrameStorageEmptyForTest(self: *const Owner) bool {
+        comptime std.debug.assert(builtin.is_test);
+        std.debug.assert(!self.isLive());
+        const frame = self.v0_payload.frame();
+        if (frame.damage.count != 0) return false;
+        if (frame.creates.count != 0) return false;
+        if (frame.uploads.count != 0) return false;
+        if (frame.commands.count != 0) return false;
+        if (frame.retires.count != 0) return false;
+        return true;
     }
 
     pub fn diagnostics(self: *Owner) PreparedDiagnostics {
@@ -203,6 +228,7 @@ pub const Owner = struct {
             .prepared, .published, .submit_ready => {},
         }
         self.prepared.deinit();
+        self.v0_payload = V0Payload.init();
         freeOwnedBytes(self.session_owner.allocator, &self.rgba_pixels);
     }
 
@@ -218,6 +244,10 @@ pub const Owner = struct {
             &self.session_owner.session,
             &self.prepared,
         );
+    }
+
+    fn emitV0Payload(self: *Owner) !void {
+        _ = try self.v0_payload.emitPrepared(&self.session_owner.session, &self.prepared);
     }
 };
 
@@ -237,6 +267,40 @@ fn ownerBase(session_owner: *text_session.TextSessionOwner, value: prepared_surf
         .uploads_required = value.text_frame.raster_plan.outputs.len,
         .missing_glyphs = value.text_frame.scene.scene.missing.len,
         .resolve_metrics = resolveMetricsOut(value),
+    };
+}
+
+fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedSurface {
+    return .{
+        .allocator = allocator,
+        .request = .{ .token = .{
+            .snapshot_seq = 0,
+            .dirty_epoch = 0,
+            .geometry_epoch = 0,
+            .damage_base_seq = 0,
+            .damage_kind = .full,
+        } },
+        .geometry_epoch = 0,
+        .render_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 1, .rows = 1 },
+        .text_frame = .{
+            .scene = .{
+                .allocator = allocator,
+                .owned = false,
+                .scene = .{
+                    .clear_draws = &.{},
+                    .background_draws = &.{},
+                    .sprite_draws = &.{},
+                    .decoration_draws = &.{},
+                    .cursor_draws = &.{},
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = true,
+                },
+            },
+            .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
+        },
     };
 }
 
@@ -361,7 +425,8 @@ test "create returns missing-sprite without double free" {
         },
     };
 
-    try std.testing.expectError(error.MissingSprite, Owner.create(session_owner, prepared));
+    var owned_prepared = prepared;
+    try std.testing.expectError(error.MissingSprite, Owner.create(session_owner, &owned_prepared));
 }
 
 test "owner exports prepared metrics and required upload count truth" {

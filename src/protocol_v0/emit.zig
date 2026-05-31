@@ -10,7 +10,7 @@ const text_session = @import("../session/text.zig");
 
 const ResourceId = c.HowlRenderV0ResourceId;
 const Rect = c.HowlRenderV0Rect;
-const Frame = c.HowlRenderV0Frame;
+pub const Frame = c.HowlRenderV0Frame;
 
 pub const Error = error{
     CommandBoundOverflow,
