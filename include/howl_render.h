@@ -16,6 +16,20 @@ typedef HowlRenderPreparedSurfaceObject *HowlRenderPreparedSurfaceHandle;
 
 #define HOWL_RENDER_MAX_FALLBACK_FONTS 24
 
+#define HOWL_RENDER_PROTOCOL_V0_VERSION 0
+#define HOWL_RENDER_V0_FRAMES_IN_FLIGHT_MAX 2
+#define HOWL_RENDER_V0_SNAPSHOTS_IN_FLIGHT_MAX 2
+#define HOWL_RENDER_V0_DAMAGE_ITEMS_MAX 1024
+#define HOWL_RENDER_V0_UPLOADS_MAX 256
+#define HOWL_RENDER_V0_COMMANDS_MAX 8192
+#define HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX 256
+#define HOWL_RENDER_V0_UPLOAD_BYTES_MAX 8388608
+#define HOWL_RENDER_V0_ATLAS_PAGES_MAX 64
+#define HOWL_RENDER_V0_RESOURCES_MAX 4096
+#define HOWL_RENDER_V0_CREATES_MAX 256
+#define HOWL_RENDER_V0_RETIRES_MAX 256
+#define HOWL_RENDER_V0_HOST_ACKS_MAX 256
+
 typedef enum {
     HOWL_RENDER_CALL_OK = 0,
     HOWL_RENDER_CALL_MISSING_HANDLE = -1,
@@ -139,6 +153,138 @@ typedef struct {
     HowlRenderPixelSize render_px;
     HowlRenderPixelSize grid_px;
 } HowlRenderGeometry;
+
+typedef struct HowlRenderV0Token {
+    uint64_t snapshot_seq;
+    uint64_t frame_seq;
+    uint64_t geometry_epoch;
+    uint64_t resource_epoch;
+} HowlRenderV0Token;
+
+typedef struct HowlRenderV0Rect {
+    int32_t x_px;
+    int32_t y_px;
+    uint16_t width_px;
+    uint16_t height_px;
+} HowlRenderV0Rect;
+
+typedef struct HowlRenderV0DamageItem {
+    uint8_t kind;
+    uint8_t reserved0;
+    uint16_t reserved1;
+    HowlRenderV0Rect rect;
+} HowlRenderV0DamageItem;
+
+typedef struct HowlRenderV0DamageSpan {
+    const HowlRenderV0DamageItem *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderV0DamageSpan;
+
+typedef struct HowlRenderV0ResourceId {
+    uint64_t value;
+    uint32_t generation;
+    uint32_t kind;
+} HowlRenderV0ResourceId;
+
+typedef struct HowlRenderV0Upload {
+    HowlRenderV0ResourceId resource;
+    HowlRenderV0Rect rect;
+    const uint8_t *bytes_ptr;
+    uint32_t bytes_count;
+    uint32_t stride_bytes;
+    uint32_t format;
+    uint32_t upload_seq;
+} HowlRenderV0Upload;
+
+typedef struct HowlRenderV0UploadSpan {
+    const HowlRenderV0Upload *ptr;
+    uint32_t count;
+    uint32_t count_max;
+    uint32_t bytes_count_total;
+    uint32_t bytes_count_max;
+} HowlRenderV0UploadSpan;
+
+typedef struct HowlRenderV0Create {
+    HowlRenderV0ResourceId resource;
+    uint32_t width_px;
+    uint32_t height_px;
+    uint32_t format;
+    uint64_t create_seq;
+} HowlRenderV0Create;
+
+typedef struct HowlRenderV0CreateSpan {
+    const HowlRenderV0Create *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderV0CreateSpan;
+
+typedef struct HowlRenderV0GlyphRef {
+    HowlRenderV0ResourceId atlas_resource;
+    HowlRenderV0Rect atlas_rect;
+    int32_t x_px;
+    int32_t y_px;
+    uint32_t glyph_id;
+    uint32_t color_rgba;
+} HowlRenderV0GlyphRef;
+
+typedef struct HowlRenderV0GlyphRunSpan {
+    const HowlRenderV0GlyphRef *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderV0GlyphRunSpan;
+
+typedef struct HowlRenderV0Command {
+    uint8_t kind;
+    uint8_t reserved0;
+    uint16_t reserved1;
+    HowlRenderV0Rect rect;
+    uint32_t color_rgba;
+    HowlRenderV0ResourceId resource;
+    HowlRenderV0GlyphRunSpan glyphs;
+} HowlRenderV0Command;
+
+typedef struct HowlRenderV0CommandSpan {
+    const HowlRenderV0Command *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderV0CommandSpan;
+
+typedef struct HowlRenderV0Retire {
+    HowlRenderV0ResourceId resource;
+    uint64_t retire_seq;
+} HowlRenderV0Retire;
+
+typedef struct HowlRenderV0RetireSpan {
+    const HowlRenderV0Retire *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderV0RetireSpan;
+
+typedef struct HowlRenderV0HostAck {
+    HowlRenderV0ResourceId resource;
+    uint64_t ack_seq;
+} HowlRenderV0HostAck;
+
+typedef struct HowlRenderV0HostAckSpan {
+    const HowlRenderV0HostAck *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderV0HostAckSpan;
+
+typedef struct HowlRenderV0Frame {
+    uint32_t protocol_version;
+    uint32_t reserved0;
+    HowlRenderV0Token token;
+    HowlRenderPixelSize render_px;
+    HowlRenderCellSize cell_px;
+    HowlRenderGridSize grid;
+    HowlRenderV0DamageSpan damage;
+    HowlRenderV0CreateSpan creates;
+    HowlRenderV0UploadSpan uploads;
+    HowlRenderV0CommandSpan commands;
+    HowlRenderV0RetireSpan retires;
+} HowlRenderV0Frame;
 
 typedef struct {
     int32_t status;

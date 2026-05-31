@@ -5,8 +5,10 @@ const prepared_surface = @import("ffi/prepared_surface.zig");
 const prepare_request = @import("ffi/prepare_request.zig");
 const submission = @import("ffi/submission.zig");
 const work_state = @import("ffi/work_state.zig");
+const protocol_v0 = @import("ffi/protocol_v0.zig");
 
 comptime {
+    _ = protocol_v0;
     @export(&text_session.init, .{ .name = "howl_render_text_session_init" });
     @export(&text_session.deinit, .{ .name = "howl_render_text_session_deinit" });
     @export(&text_session.setFontSize, .{ .name = "howl_render_text_session_set_font_size_px" });
