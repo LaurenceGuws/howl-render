@@ -11,10 +11,13 @@ const text_session = @import("../session/text.zig");
 
 const ResourceId = c.HowlRenderV0ResourceId;
 const Rect = c.HowlRenderV0Rect;
+const GlyphRef = c.HowlRenderV0GlyphRef;
 pub const Frame = c.HowlRenderV0Frame;
 
 pub const persistent_sprite_resources_max: u32 = 384;
 const persistent_sprite_resource_bytes_max: u32 = 64 * 1024;
+const glyph_atlas_width_px: u16 = 1024;
+const glyph_atlas_height_px: u16 = 1024;
 
 comptime {
     std.debug.assert(persistent_sprite_resources_max < c.HOWL_RENDER_V0_RESOURCES_MAX);
@@ -86,12 +89,25 @@ pub const SpriteResourceStore = struct {
     count: u32 = 0,
     bytes_count: u32 = 0,
     value_next: u64 = 1,
+    atlas_resource: ResourceId = zeroResource(),
+    atlas_entries: [persistent_sprite_resources_max]AtlasEntry = undefined,
+    atlas_count: u32 = 0,
+    atlas_next_x: u16 = 0,
+    atlas_next_y: u16 = 0,
+    atlas_row_height: u16 = 0,
 
     pub const Result = struct {
         resource: ResourceId,
         lifetime: Lifetime,
 
         pub const Lifetime = enum { reused, persistent, transient };
+    };
+
+    pub const AtlasResult = struct {
+        resource: ResourceId,
+        rect: Rect,
+        created: bool,
+        uploaded: bool,
     };
 
     const Entry = struct {
@@ -103,6 +119,14 @@ pub const SpriteResourceStore = struct {
         width_px: u16,
         height_px: u16,
         format: u32,
+    };
+
+    const AtlasEntry = struct {
+        key: contract.SpriteKey,
+        bytes_hash: u64,
+        width_px: u16,
+        height_px: u16,
+        rect: Rect,
     };
 
     pub fn init() SpriteResourceStore {
@@ -186,6 +210,83 @@ pub const SpriteResourceStore = struct {
         return .{ .resource = resource, .lifetime = .persistent };
     }
 
+    fn atlasRegionFor(
+        self: *SpriteResourceStore,
+        sprite: PreparedSprite,
+        width_px: u16,
+        height_px: u16,
+        bytes: []const u8,
+    ) Error!AtlasResult {
+        std.debug.assert(sprite.color_mode == .alpha);
+        const bytes_hash = hashSpriteBytes(sprite, width_px, height_px, bytes);
+        for (self.atlas_entries[0..@intCast(self.atlas_count)]) |entry| {
+            if (entry.key.value != sprite.key.value) continue;
+            if (entry.bytes_hash != bytes_hash) continue;
+            if (entry.width_px != width_px) continue;
+            if (entry.height_px != height_px) continue;
+            return .{ .resource = self.atlas_resource, .rect = entry.rect, .created = false, .uploaded = false };
+        }
+        const had_resource = !resourceIsZero(self.atlas_resource);
+        const resource = try self.ensureAtlasResource();
+        const rect_value = try self.reserveAtlasRect(width_px, height_px);
+        if (self.atlas_count >= persistent_sprite_resources_max) return error.ResourceBoundOverflow;
+        self.atlas_entries[@intCast(self.atlas_count)] = .{
+            .key = sprite.key,
+            .bytes_hash = bytes_hash,
+            .width_px = width_px,
+            .height_px = height_px,
+            .rect = rect_value,
+        };
+        self.atlas_count += 1;
+        return .{ .resource = resource, .rect = rect_value, .created = !had_resource, .uploaded = true };
+    }
+
+    fn ensureAtlasResource(self: *SpriteResourceStore) Error!ResourceId {
+        if (!resourceIsZero(self.atlas_resource)) return self.atlas_resource;
+        if (self.value_next == 0) return error.ResourceBoundOverflow;
+        self.atlas_resource = .{
+            .value = self.value_next,
+            .generation = 1,
+            .kind = c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_ALPHA,
+        };
+        self.value_next = std.math.add(u64, self.value_next, 1) catch {
+            return error.ResourceBoundOverflow;
+        };
+        return self.atlas_resource;
+    }
+
+    fn reserveAtlasRect(self: *SpriteResourceStore, width_px: u16, height_px: u16) Error!Rect {
+        if (width_px == 0) return error.InvalidPreparedSprite;
+        if (height_px == 0) return error.InvalidPreparedSprite;
+        if (width_px > glyph_atlas_width_px) return error.ResourceBoundOverflow;
+        if (height_px > glyph_atlas_height_px) return error.ResourceBoundOverflow;
+        const next_x = std.math.add(u16, self.atlas_next_x, width_px) catch {
+            return error.ResourceBoundOverflow;
+        };
+        if (next_x > glyph_atlas_width_px) {
+            self.atlas_next_x = 0;
+            self.atlas_next_y = std.math.add(u16, self.atlas_next_y, self.atlas_row_height) catch {
+                return error.ResourceBoundOverflow;
+            };
+            self.atlas_row_height = 0;
+        }
+        const bottom = std.math.add(u16, self.atlas_next_y, height_px) catch {
+            return error.ResourceBoundOverflow;
+        };
+        if (bottom > glyph_atlas_height_px) return error.ResourceBoundOverflow;
+        const rect_value = Rect{
+            .x_px = @intCast(self.atlas_next_x),
+            .y_px = @intCast(self.atlas_next_y),
+            .width_px = width_px,
+            .height_px = height_px,
+        };
+        self.atlas_next_x = std.math.add(u16, self.atlas_next_x, width_px) catch {
+            return error.ResourceBoundOverflow;
+        };
+        self.atlas_row_height = @max(self.atlas_row_height, height_px);
+        return rect_value;
+    }
+
     fn nextResource(
         self: *SpriteResourceStore,
         color_mode: contract.SpriteColorMode,
@@ -232,12 +333,14 @@ pub fn Emitter(comptime limits: Limits) type {
         uploads: [limits.uploads_max]c.HowlRenderV0Upload = undefined,
         upload_byte_offsets: [limits.uploads_max]u32 = undefined,
         commands: [limits.commands_max]c.HowlRenderV0Command = undefined,
+        glyphs: [limits.commands_max]GlyphRef = undefined,
         retires: [limits.retires_max]c.HowlRenderV0Retire = undefined,
         upload_bytes: [limits.upload_bytes_max]u8 = undefined,
         damage_count: u32 = 0,
         create_count: u32 = 0,
         upload_count: u32 = 0,
         command_count: u32 = 0,
+        glyph_count: u32 = 0,
         retire_count: u32 = 0,
         upload_bytes_count: u32 = 0,
         frame_storage: Frame = emptyFrame(),
@@ -292,6 +395,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.create_count = 0;
             self.upload_count = 0;
             self.command_count = 0;
+            self.glyph_count = 0;
             self.retire_count = 0;
             self.upload_bytes_count = 0;
             self.frame_storage = emptyFrame();
@@ -306,6 +410,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.create_count = 0;
             self.upload_count = 0;
             self.command_count = 0;
+            self.glyph_count = 0;
             self.retire_count = 0;
             self.upload_bytes_count = 0;
             self.frame_storage = emptyFrame();
@@ -498,6 +603,33 @@ pub fn Emitter(comptime limits: Limits) type {
                     width_px,
                     height_px,
                 );
+                if (sprite.color_mode == .alpha) {
+                    const atlas = try resources.atlasRegionFor(
+                        sprite,
+                        width_px,
+                        height_px,
+                        self.upload_bytes[upload_range.start..upload_range.end],
+                    );
+                    if (atlas.created) try self.appendGlyphAtlasCreate(atlas.resource);
+                    if (atlas.uploaded) try self.appendPreparedAtlasUpload(
+                        atlas.resource,
+                        atlas.rect,
+                        upload_range,
+                    ) else self.upload_bytes_count = upload_range.start;
+                    try self.appendGlyphRef(.{
+                        .atlas_resource = atlas.resource,
+                        .atlas_rect = atlas.rect,
+                        .x_px = std.math.add(i32, draw.x_px, @intCast(bounds.x_px)) catch {
+                            return error.InvalidPreparedSprite;
+                        },
+                        .y_px = std.math.add(i32, draw.y_px, @intCast(bounds.y_px)) catch {
+                            return error.InvalidPreparedSprite;
+                        },
+                        .glyph_id = @intCast(draw.sprite.key.value & 0xffffffff),
+                        .color_rgba = packRgba(draw.color),
+                    });
+                    continue;
+                }
                 const result = try resources.resourceFor(
                     sprite,
                     width_px,
@@ -573,6 +705,18 @@ pub fn Emitter(comptime limits: Limits) type {
             self.create_count += 1;
         }
 
+        fn appendGlyphAtlasCreate(self: *Self, resource: ResourceId) Error!void {
+            if (self.create_count >= limits.creates_max) return error.CreateBoundOverflow;
+            self.creates[self.create_count] = .{
+                .resource = resource,
+                .width_px = glyph_atlas_width_px,
+                .height_px = glyph_atlas_height_px,
+                .format = c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
+                .create_seq = 0,
+            };
+            self.create_count += 1;
+        }
+
         fn appendUpload(self: *Self, resource: ResourceId, sprite: Sprite) Error!void {
             if (self.upload_count >= limits.uploads_max) return error.UploadBoundOverflow;
             const bytes_count: u32 = std.math.cast(u32, sprite.bytes.len) orelse {
@@ -633,6 +777,28 @@ pub fn Emitter(comptime limits: Limits) type {
             self.upload_count += 1;
         }
 
+        fn appendPreparedAtlasUpload(
+            self: *Self,
+            resource: ResourceId,
+            atlas_rect: Rect,
+            upload_range: ByteRange,
+        ) Error!void {
+            if (self.upload_count >= limits.uploads_max) return error.UploadBoundOverflow;
+            const bytes_count = upload_range.end - upload_range.start;
+            std.debug.assert(upload_range.end == self.upload_bytes_count);
+            self.uploads[self.upload_count] = .{
+                .resource = resource,
+                .rect = atlas_rect,
+                .bytes_ptr = &self.upload_bytes[upload_range.start],
+                .bytes_count = bytes_count,
+                .stride_bytes = atlas_rect.width_px,
+                .format = c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
+                .upload_seq = 0,
+            };
+            self.upload_byte_offsets[self.upload_count] = upload_range.start;
+            self.upload_count += 1;
+        }
+
         fn stagePreparedUploadBytes(
             self: *Self,
             sprite: PreparedSprite,
@@ -668,6 +834,26 @@ pub fn Emitter(comptime limits: Limits) type {
             if (self.command_count >= limits.commands_max) return error.CommandBoundOverflow;
             self.commands[self.command_count] = command;
             self.command_count += 1;
+        }
+
+        fn appendGlyphRef(self: *Self, glyph: GlyphRef) Error!void {
+            if (self.glyph_count >= limits.commands_max) return error.CommandBoundOverflow;
+            const start = self.glyph_count;
+            self.glyphs[@intCast(self.glyph_count)] = glyph;
+            self.glyph_count += 1;
+            try self.appendCommand(.{
+                .kind = c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN,
+                .reserved0 = 0,
+                .reserved1 = 0,
+                .rect = .{ .x_px = 0, .y_px = 0, .width_px = 0, .height_px = 0 },
+                .color_rgba = 0,
+                .resource = zeroResource(),
+                .glyphs = .{
+                    .ptr = &self.glyphs[@intCast(start)],
+                    .count = 1,
+                    .count_max = c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX,
+                },
+            });
         }
 
         fn appendRetire(self: *Self, resource: ResourceId, retire_seq: u32) Error!void {
@@ -745,6 +931,10 @@ fn emptyGlyphs() c.HowlRenderV0GlyphRunSpan {
 
 fn zeroResource() ResourceId {
     return .{ .value = 0, .generation = 0, .kind = 0 };
+}
+
+fn resourceIsZero(resource: ResourceId) bool {
+    return resource.value == 0 and resource.generation == 0 and resource.kind == 0;
 }
 
 fn spriteResource(sprite: Sprite, value: u64) ResourceId {

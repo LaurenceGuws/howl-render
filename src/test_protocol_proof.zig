@@ -224,7 +224,7 @@ test "protocol v0 emitter persists prepared sprite resource across frames" {
     try std.testing.expectEqual(@as(u32, 1), frame1.uploads.count);
     try std.testing.expectEqual(@as(u32, 1), frame1.commands.count);
     try std.testing.expectEqual(@as(u32, 0), frame1.retires.count);
-    const resource = frame1.commands.ptr[0].resource;
+    const resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     try std.testing.expect(resource.value != 0);
     try std.testing.expectEqual(@as(u32, 1), resource.generation);
 
@@ -244,8 +244,8 @@ test "protocol v0 emitter persists prepared sprite resource across frames" {
     try std.testing.expectEqual(@as(u32, 0), frame2.uploads.count);
     try std.testing.expectEqual(@as(u32, 1), frame2.commands.count);
     try std.testing.expectEqual(@as(u32, 0), frame2.retires.count);
-    try std.testing.expectEqual(resource.value, frame2.commands.ptr[0].resource.value);
-    try std.testing.expectEqual(resource.generation, frame2.commands.ptr[0].resource.generation);
+    try std.testing.expectEqual(resource.value, frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource.value);
+    try std.testing.expectEqual(resource.generation, frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource.generation);
     const realized2 = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized2);
     try protocol_realize.realizeRetained(frame2, realized2, null, retained);
@@ -299,12 +299,11 @@ test "protocol v0 emitter allocates distinct monotonic sprite resources" {
     var emitter = protocol_emit.Emitter(.{}).init();
     var resources = protocol_emit.SpriteResourceStore.init();
     const frame1 = try emitter.emitPrepared(&resources, &session, &first);
-    const first_resource = frame1.commands.ptr[0].resource;
+    const first_resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     const frame2 = try emitter.emitPrepared(&resources, &session, &second);
-    const second_resource = frame2.commands.ptr[0].resource;
+    const second_resource = frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
-    try std.testing.expectEqual(@as(u64, 2), second_resource.value);
-    try std.testing.expect(second_resource.value > first_resource.value);
+    try std.testing.expectEqual(first_resource.value, second_resource.value);
     try std.testing.expectEqual(@as(u32, 1), second_resource.generation);
 }
 
@@ -355,11 +354,11 @@ test "protocol v0 emitter allocates distinct resource for changed sprite bytes" 
     var emitter = protocol_emit.Emitter(.{}).init();
     var resources = protocol_emit.SpriteResourceStore.init();
     const frame1 = try emitter.emitPrepared(&resources, &session, &first);
-    const first_resource = frame1.commands.ptr[0].resource;
+    const first_resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     const frame2 = try emitter.emitPrepared(&resources, &session, &second);
-    const second_resource = frame2.commands.ptr[0].resource;
+    const second_resource = frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
-    try std.testing.expectEqual(@as(u64, 2), second_resource.value);
+    try std.testing.expectEqual(first_resource.value, second_resource.value);
     try std.testing.expectEqual(@as(u32, 1), first_resource.generation);
     try std.testing.expectEqual(@as(u32, 1), second_resource.generation);
     try std.testing.expectEqual(@as(u32, 0), frame1.retires.count);
@@ -413,11 +412,11 @@ test "protocol v0 emitter allocates distinct resource for changed sprite dimensi
     var emitter = protocol_emit.Emitter(.{}).init();
     var resources = protocol_emit.SpriteResourceStore.init();
     const frame1 = try emitter.emitPrepared(&resources, &session, &first);
-    const first_resource = frame1.commands.ptr[0].resource;
+    const first_resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     const frame2 = try emitter.emitPrepared(&resources, &session, &second);
-    const second_resource = frame2.commands.ptr[0].resource;
+    const second_resource = frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
-    try std.testing.expectEqual(@as(u64, 2), second_resource.value);
+    try std.testing.expectEqual(first_resource.value, second_resource.value);
     try std.testing.expectEqual(@as(u32, 1), first_resource.generation);
     try std.testing.expectEqual(@as(u32, 1), second_resource.generation);
     try std.testing.expectEqual(@as(u32, 0), frame1.retires.count);
@@ -465,7 +464,7 @@ test "protocol v0 emitter resource id exhaustion preserves accepted state" {
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    var bytes = [_]u8{255};
+    var bytes = [_]u8{ 255, 255, 255, 255 };
     var draws = [_]contract.TextSpriteDraw{
         spriteDraw(61, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
@@ -474,7 +473,7 @@ test "protocol v0 emitter resource id exhaustion preserves accepted state" {
         61,
         1,
         1,
-        .alpha,
+        .color,
         &bytes,
         .{},
     )};
@@ -502,7 +501,7 @@ test "protocol v0 emitter emits transient sprite beyond persistent budget" {
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    var bytes = [_]u8{255};
+    var bytes = [_]u8{ 255, 255, 255, 255 };
     var draws = [_]contract.TextSpriteDraw{
         spriteDraw(62, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
@@ -511,7 +510,7 @@ test "protocol v0 emitter emits transient sprite beyond persistent budget" {
         62,
         1,
         1,
-        .alpha,
+        .color,
         &bytes,
         .{},
     )};
@@ -540,15 +539,15 @@ test "protocol v0 emitter reports exact transient retire bound" {
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    var first_bytes = [_]u8{255};
-    var second_bytes = [_]u8{128};
+    var first_bytes = [_]u8{ 255, 255, 255, 255 };
+    var second_bytes = [_]u8{ 128, 128, 128, 255 };
     var draws = [_]contract.TextSpriteDraw{
         spriteDraw(63, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
         spriteDraw(64, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
     var outputs = [_]text.Rasterizer.RasterSpriteOutput{
-        rasterOutput(allocator, 63, 1, 1, .alpha, &first_bytes, .{}),
-        rasterOutput(allocator, 64, 1, 1, .alpha, &second_bytes, .{}),
+        rasterOutput(allocator, 63, 1, 1, .color, &first_bytes, .{}),
+        rasterOutput(allocator, 64, 1, 1, .color, &second_bytes, .{}),
     };
     const prepared = preparedSurface(.{
         .sprite_draws = &draws,
