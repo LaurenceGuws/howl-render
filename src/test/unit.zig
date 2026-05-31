@@ -4,6 +4,7 @@ const geometry_contract = @import("../render/geometry_contract.zig");
 
 test {
     _ = @import("../protocol_v0/realize.zig");
+    _ = @import("../protocol_v0/emit.zig");
 }
 
 test "render frame pixel geometry clamps to drawable size" {
