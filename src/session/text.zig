@@ -75,12 +75,9 @@ pub const TextSession = struct {
     };
 
     pub const SurfaceLayout = geometry_contract.SurfaceLayout;
-    pub const PreparedTimings = prepared_surface.PrepareMetrics;
     pub const DamageKind = enum { partial, scroll, full };
     pub const SubmitExecution = struct {
         host_surface: prepared_submit_result.HostSurface,
-        uploads_committed: u64,
-        render_us: u64,
     };
     pub const PrepareInput = struct {
         config: TextSessionConfig,
@@ -158,23 +155,10 @@ pub const TextSession = struct {
         prepared_submit.markRendered(&self.text_preparer.?.atlas, prepared.text_frame.raster_plan.outputs);
         const submitted = prepared_submit_result.SubmitResult{
             .damage_kind = prepared_submit.damageKind(prepared),
-            .uploads_committed = execution.uploads_committed,
-            .resolve = prepared.resolve,
             .host_surface = execution.host_surface,
-            .metrics = undefined,
-            .render_us = execution.render_us,
         };
-        var final = submitted;
-        final.metrics = prepared_submit.metrics(
-            prepared_submit_result.Metrics,
-            prepared.prepare_metrics,
-            prepared,
-            final.uploads_committed,
-            final.resolve.counters,
-            final.render_us,
-        );
         self.mutex.unlock();
-        return final;
+        return submitted;
     }
 
     pub fn atlasRaster(self: *TextSession, key: contract.SpriteKey) ?text.AtlasCache.StoredRaster {
@@ -200,7 +184,6 @@ pub const TextSession = struct {
             .grid = .{ .cols = grid.cols, .rows = grid.rows },
             .text_frame = prepared,
             .resolve = resolve,
-            .prepare_metrics = prepareMetrics(prepared.timings),
         };
     }
 
@@ -319,26 +302,6 @@ pub const TextSession = struct {
             .bearing_y_px = 0,
             .advance_px = text_support.providerGlyphAdvance(context, .{ .value = req.face_id }, req.glyph_id, req.cell_metrics),
             .alpha_mask = alpha,
-        };
-    }
-
-    fn prepareMetrics(timings: text.PrepareTimings) prepared_surface.PrepareMetrics {
-        const total = timings.input_us + timings.sparse_us + timings.clusters_us + timings.resolve_us +
-            timings.shape_us + timings.group_us + timings.scene_us + timings.raster_us + timings.atlas_us;
-        return .{
-            .sync_us = timings.input_us,
-            .copy_us = timings.sparse_us + timings.clusters_us,
-            .us = total,
-            .surface_us = total,
-            .input_us = timings.input_us,
-            .sparse_us = timings.sparse_us,
-            .clusters_us = timings.clusters_us,
-            .resolve_us = timings.resolve_us,
-            .shape_us = timings.shape_us,
-            .group_us = timings.group_us,
-            .scene_us = timings.scene_us,
-            .raster_us = timings.raster_us,
-            .atlas_us = timings.atlas_us,
         };
     }
 };

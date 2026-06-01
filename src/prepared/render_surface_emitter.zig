@@ -16,7 +16,7 @@ const GlyphRef = c.HowlRenderGlyphRef;
 pub const Surface = c.HowlRenderSurface;
 
 pub const persistent_sprite_resources_max: u32 = 384;
-pub const alpha_atlas_entries_max: u32 = 1024;
+pub const alpha_atlas_entries_max: u32 = c.HOWL_RENDER_SURFACE_COMMANDS_MAX;
 const persistent_sprite_resource_bytes_max: u32 = 64 * 1024;
 // Glyph refs are data-plane payload; commands are control-plane payload.
 const glyph_refs_max: u32 = 32 * 1024;
@@ -373,6 +373,7 @@ pub fn Emitter(comptime limits: Limits) type {
             var next_resources = resources.*;
             next.resetPrepared(prepared);
             try next.appendFullDamage(pixelSizeOut(prepared.render_px));
+            try next.appendPreparedFullRedrawClear(prepared);
             try next.appendPreparedClears(prepared.text_frame.scene.scene.clear_draws);
             try next.appendPreparedBackgrounds(prepared.text_frame.scene.scene.background_draws);
             try next.appendPreparedDecorations(prepared.text_frame.scene.scene.decoration_draws);
@@ -435,6 +436,24 @@ pub fn Emitter(comptime limits: Limits) type {
             self.damage_count += 1;
         }
 
+        fn appendPreparedFullRedrawClear(self: *Self, prepared: *const prepared_surface.PreparedSurface) Error!void {
+            if (prepared.damageKind() != .full) return;
+            try self.appendCommand(.{
+                .kind = c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT,
+                .reserved0 = 0,
+                .reserved1 = 0,
+                .rect = .{
+                    .x_px = 0,
+                    .y_px = 0,
+                    .width_px = prepared.render_px.width,
+                    .height_px = prepared.render_px.height,
+                },
+                .color_rgba = packRgba(.{ .r = 0, .g = 0, .b = 0, .a = 255 }),
+                .resource = zeroResource(),
+                .glyphs = emptyGlyphs(),
+            });
+        }
+
         fn appendFillPass(self: *Self, fills: []const Fill, kind: u8) Error!void {
             for (fills) |fill| try self.appendCommand(.{
                 .kind = kind,
@@ -492,22 +511,35 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         fn appendPreparedFillCommand(self: *Self, x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: contract.Rgba8, kind: u8) Error!void {
+            if (width_px == 0) return;
+            if (height_px == 0) return;
+            const clipped = clippedFillRect(self.surface_storage.render_px, x_px, y_px, width_px, height_px) orelse return;
             const command = c.HowlRenderSurfaceCommand{
                 .kind = kind,
                 .reserved0 = 0,
                 .reserved1 = 0,
-                .rect = .{
-                    .x_px = x_px,
-                    .y_px = y_px,
-                    .width_px = width_px,
-                    .height_px = height_px,
-                },
+                .rect = clipped,
                 .color_rgba = packRgba(color),
                 .resource = zeroResource(),
                 .glyphs = emptyGlyphs(),
             };
             if (self.tryMergePreparedFillCommand(command)) return;
             try self.appendCommand(command);
+        }
+
+        fn clippedFillRect(render_px: c.HowlRenderPixelSize, x_px: i32, y_px: i32, width_px: u16, height_px: u16) ?Rect {
+            const x0 = @max(x_px, 0);
+            const y0 = @max(y_px, 0);
+            const x1 = @min(std.math.add(i32, x_px, width_px) catch return null, @as(i32, render_px.width));
+            const y1 = @min(std.math.add(i32, y_px, height_px) catch return null, @as(i32, render_px.height));
+            if (x1 <= x0) return null;
+            if (y1 <= y0) return null;
+            return .{
+                .x_px = x0,
+                .y_px = y0,
+                .width_px = @intCast(x1 - x0),
+                .height_px = @intCast(y1 - y0),
+            };
         }
 
         fn tryMergePreparedFillCommand(self: *Self, command: c.HowlRenderSurfaceCommand) bool {
@@ -1418,6 +1450,121 @@ test "render surface surface emitter realizes prepared fill surface equal to ful
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
+test "render surface surface emitter emits full prepared surface clear before fills" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const background = [_]contract.TextBackgroundDraw{
+        backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255)),
+    };
+    const prepared = preparedSurface(.{
+        .background_draws = &background,
+        .width_px = 2,
+        .height_px = 1,
+    });
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try allocator.create(PreparedEmitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[0].rect.x_px);
+    try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[0].rect.y_px);
+    try std.testing.expectEqual(@as(u16, 2), surface.commands.ptr[0].rect.width_px);
+    try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[0].rect.height_px);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+}
+
+test "render surface surface emitter keeps partial prepared surface patch shaped" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const background = [_]contract.TextBackgroundDraw{
+        backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255)),
+    };
+    const prepared = preparedSurface(.{
+        .background_draws = &background,
+        .width_px = 2,
+        .height_px = 1,
+        .full_redraw = false,
+    });
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try allocator.create(PreparedEmitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[0].kind);
+}
+
+test "render surface surface emitter skips zero area prepared fills" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const background = [_]contract.TextBackgroundDraw{
+        backgroundDraw(0, 0, 0, 1, rgba(255, 0, 0, 255)),
+        backgroundDraw(0, 0, 1, 0, rgba(0, 255, 0, 255)),
+        backgroundDraw(0, 0, 1, 1, rgba(0, 0, 255, 255)),
+    };
+    const prepared = preparedSurface(.{
+        .background_draws = &background,
+        .width_px = 1,
+        .height_px = 1,
+    });
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try allocator.create(PreparedEmitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[1].rect.width_px);
+    try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[1].rect.height_px);
+}
+
+test "render surface surface emitter clips prepared fills to surface" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const background = [_]contract.TextBackgroundDraw{
+        backgroundDraw(-1, 0, 2, 1, rgba(255, 0, 0, 255)),
+        backgroundDraw(1, 0, 2, 1, rgba(0, 255, 0, 255)),
+    };
+    const prepared = preparedSurface(.{
+        .background_draws = &background,
+        .width_px = 2,
+        .height_px = 1,
+    });
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try allocator.create(PreparedEmitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 3), surface.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[1].rect.x_px);
+    try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[1].rect.width_px);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[2].kind);
+    try std.testing.expectEqual(@as(i32, 1), surface.commands.ptr[2].rect.x_px);
+    try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[2].rect.width_px);
+    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+}
+
 test "render surface surface emitter coalesces adjacent prepared fill commands" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
@@ -1442,12 +1589,12 @@ test "render surface surface emitter coalesces adjacent prepared fill commands" 
     var resources = SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
-    try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[0].kind);
-    try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[0].rect.x_px);
-    try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[0].rect.y_px);
-    try std.testing.expectEqual(@as(u16, 4), surface.commands.ptr[0].rect.width_px);
-    try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[0].rect.height_px);
+    try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[1].rect.x_px);
+    try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[1].rect.y_px);
+    try std.testing.expectEqual(@as(u16, 4), surface.commands.ptr[1].rect.width_px);
+    try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[1].rect.height_px);
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
@@ -1479,7 +1626,7 @@ test "render surface surface emitter does not coalesce distinct prepared fills" 
     var resources = SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
-    try std.testing.expectEqual(@as(u32, 5), surface.commands.count);
+    try std.testing.expectEqual(@as(u32, 6), surface.commands.count);
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
@@ -1536,16 +1683,16 @@ test "render surface surface emitter batches prepared alpha sprite glyph command
         .height_px = 1,
     });
 
-    const PreparedEmitter = Emitter(.{ .commands_max = 1, .glyph_refs_max = 2 });
+    const PreparedEmitter = Emitter(.{ .commands_max = 2, .glyph_refs_max = 2 });
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
-    try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[0].kind);
-    try std.testing.expectEqual(@as(u32, 2), surface.commands.ptr[0].glyphs.count);
+    try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(@as(u32, 2), surface.commands.ptr[1].glyphs.count);
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
@@ -1590,12 +1737,12 @@ test "render surface surface emitter emits over command bound alpha draws with b
         glyphs_max,
         c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX,
     ) catch unreachable;
-    try std.testing.expectEqual(commands_expected, surface.commands.count);
+    try std.testing.expectEqual(commands_expected + 1, surface.commands.count);
     try std.testing.expect(surface.commands.count < c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
     try std.testing.expectEqual(
         @as(u32, c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX),
-        surface.commands.ptr[0].glyphs.count,
+        surface.commands.ptr[1].glyphs.count,
     );
     try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
 }
@@ -1675,10 +1822,49 @@ test "render surface surface emitter emits more than old alpha atlas entry cap" 
 
         const surface = try emitter.emitPrepared(&resources, &session, &prepared);
         try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
-        try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
-        try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[0].kind);
+        try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
+        try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
     }
     try std.testing.expectEqual(persistent_sprite_resources_max + 1, resources.atlas_count);
+}
+
+test "render surface surface emitter emits more than old alpha atlas hard cap" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const old_alpha_atlas_entries_max: u32 = 1024;
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try allocator.create(PreparedEmitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = SpriteResourceStore.init();
+    var index: u32 = 0;
+    while (index <= old_alpha_atlas_entries_max) : (index += 1) {
+        var sprite_bytes = [_]u8{@intCast((index % 251) + 1)};
+        var sprite_draws = [_]contract.TextSpriteDraw{
+            spriteDraw(20_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
+        };
+        var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{rasterOutput(
+            allocator,
+            20_000 + index,
+            1,
+            1,
+            .alpha,
+            &sprite_bytes,
+            .{},
+        )};
+        const prepared = preparedSurface(.{
+            .sprite_draws = &sprite_draws,
+            .raster_outputs = &raster_outputs,
+            .width_px = 1,
+            .height_px = 1,
+        });
+
+        const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+        try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
+    }
+    try std.testing.expectEqual(old_alpha_atlas_entries_max + 1, resources.atlas_count);
 }
 
 test "render surface surface emitter realizes prepared color sprite surface equal to full rgba oracle" {
@@ -1771,9 +1957,9 @@ test "render surface surface emitter persists prepared sprite resource across su
     const surface1 = try emitter.emitPrepared(&resources, &session, &prepared);
     try std.testing.expectEqual(@as(u32, 1), surface1.creates.count);
     try std.testing.expectEqual(@as(u32, 1), surface1.uploads.count);
-    try std.testing.expectEqual(@as(u32, 1), surface1.commands.count);
+    try std.testing.expectEqual(@as(u32, 2), surface1.commands.count);
     try std.testing.expectEqual(@as(u32, 0), surface1.retires.count);
-    const resource = surface1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     try std.testing.expect(resource.value != 0);
     try std.testing.expectEqual(@as(u32, 1), resource.generation);
 
@@ -1791,10 +1977,10 @@ test "render surface surface emitter persists prepared sprite resource across su
     const surface2 = try emitter.emitPrepared(&resources, &session, &prepared);
     try std.testing.expectEqual(@as(u32, 0), surface2.creates.count);
     try std.testing.expectEqual(@as(u32, 0), surface2.uploads.count);
-    try std.testing.expectEqual(@as(u32, 1), surface2.commands.count);
+    try std.testing.expectEqual(@as(u32, 2), surface2.commands.count);
     try std.testing.expectEqual(@as(u32, 0), surface2.retires.count);
-    try std.testing.expectEqual(resource.value, surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource.value);
-    try std.testing.expectEqual(resource.generation, surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource.generation);
+    try std.testing.expectEqual(resource.value, surface2.commands.ptr[1].glyphs.ptr[0].atlas_resource.value);
+    try std.testing.expectEqual(resource.generation, surface2.commands.ptr[1].glyphs.ptr[0].atlas_resource.generation);
     const realized2 = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized2);
     try realize.realizeRetained(surface2, realized2, null, retained);
@@ -1851,9 +2037,9 @@ test "render surface surface emitter allocates distinct monotonic sprite resourc
     emitter.* = .{};
     var resources = SpriteResourceStore.init();
     const surface1 = try emitter.emitPrepared(&resources, &session, &first);
-    const first_resource = surface1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const first_resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     const surface2 = try emitter.emitPrepared(&resources, &session, &second);
-    const second_resource = surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const second_resource = surface2.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
     try std.testing.expectEqual(first_resource.value, second_resource.value);
     try std.testing.expectEqual(@as(u32, 1), second_resource.generation);
@@ -1909,9 +2095,9 @@ test "render surface surface emitter allocates distinct resource for changed spr
     emitter.* = .{};
     var resources = SpriteResourceStore.init();
     const surface1 = try emitter.emitPrepared(&resources, &session, &first);
-    const first_resource = surface1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const first_resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     const surface2 = try emitter.emitPrepared(&resources, &session, &second);
-    const second_resource = surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const second_resource = surface2.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
     try std.testing.expectEqual(first_resource.value, second_resource.value);
     try std.testing.expectEqual(@as(u32, 1), first_resource.generation);
@@ -1970,9 +2156,9 @@ test "render surface surface emitter allocates distinct resource for changed spr
     emitter.* = .{};
     var resources = SpriteResourceStore.init();
     const surface1 = try emitter.emitPrepared(&resources, &session, &first);
-    const first_resource = surface1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const first_resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     const surface2 = try emitter.emitPrepared(&resources, &session, &second);
-    const second_resource = surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const second_resource = surface2.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
     try std.testing.expectEqual(first_resource.value, second_resource.value);
     try std.testing.expectEqual(@as(u32, 1), first_resource.generation);
@@ -2096,10 +2282,10 @@ test "render surface surface emitter emits transient sprite beyond persistent bu
     try std.testing.expectEqual(persistent_sprite_resources_max, resources.count);
     try std.testing.expectEqual(@as(u32, 1), surface.creates.count);
     try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
-    try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
+    try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
     try std.testing.expectEqual(@as(u32, 1), surface.retires.count);
-    try std.testing.expectEqual(surface.commands.ptr[0].resource.value, surface.retires.ptr[0].resource.value);
-    try std.testing.expectEqual(@as(u64, 1), surface.retires.ptr[0].retire_seq);
+    try std.testing.expectEqual(surface.commands.ptr[1].resource.value, surface.retires.ptr[0].resource.value);
+    try std.testing.expectEqual(@as(u64, 2), surface.retires.ptr[0].retire_seq);
 }
 
 test "render surface surface emitter reports exact transient retire bound" {
@@ -2125,8 +2311,8 @@ test "render surface surface emitter reports exact transient retire bound" {
     });
 
     var emitter = Emitter(.{
-        .commands_max = 2,
-        .glyph_refs_max = 2,
+        .commands_max = 3,
+        .glyph_refs_max = 3,
         .retires_max = 1,
     }).init();
     var resources = SpriteResourceStore.init();

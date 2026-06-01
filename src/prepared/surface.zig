@@ -4,22 +4,6 @@ const tokens = @import("../render/tokens.zig");
 const font_resolve = @import("../text/font/resolve.zig");
 const text = @import("../text/text.zig");
 
-pub const PrepareMetrics = struct {
-    sync_us: u64 = 0,
-    copy_us: u64 = 0,
-    us: u64 = 0,
-    surface_us: u64 = 0,
-    input_us: u64 = 0,
-    sparse_us: u64 = 0,
-    clusters_us: u64 = 0,
-    resolve_us: u64 = 0,
-    shape_us: u64 = 0,
-    group_us: u64 = 0,
-    scene_us: u64 = 0,
-    raster_us: u64 = 0,
-    atlas_us: u64 = 0,
-};
-
 pub const PreparedSurface = struct {
     allocator: std.mem.Allocator,
     request: tokens.RenderRequest,
@@ -29,7 +13,6 @@ pub const PreparedSurface = struct {
     grid: geometry_contract.GridSize,
     text_frame: text.OwnedPreparedTextFrame,
     resolve: font_resolve.ResolveObservability = .{},
-    prepare_metrics: PrepareMetrics = .{},
 
     pub fn deinit(self: *PreparedSurface) void {
         self.text_frame.deinit();

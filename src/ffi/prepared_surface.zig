@@ -1,9 +1,7 @@
-const std = @import("std");
 const c = @import("../ffi.zig").c;
 const handle_owner = @import("handle.zig");
 const prepared_owner = @import("../prepared/owner.zig");
 const prepare_request_boundary = @import("prepare_request.zig");
-const submit_result = @import("submit_result.zig");
 
 pub fn prepareHandle(
     text_session_handle: c.HowlRenderTextSessionHandle,
@@ -52,21 +50,6 @@ pub fn renderSurface(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn diagnostics(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, diagnostics_out: ?*c.HowlRenderPreparedSurfaceDiagnostics) callconv(.c) c_int {
-    const out = diagnostics_out;
-    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
-        if (out) |value| value.* = diagnosticsFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
-        return c.HOWL_RENDER_CALL_MISSING_HANDLE;
-    };
-    const value = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!owner.isLive()) {
-        value.* = diagnosticsFailure(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
-        return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    }
-    value.* = preparedDiagnosticsOut(owner.diagnostics());
-    return c.HOWL_RENDER_CALL_OK;
-}
-
 pub fn preparedInfoOut(value: prepared_owner.PreparedInfo) c.HowlRenderPreparedSurfaceInfo {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
@@ -77,8 +60,8 @@ pub fn preparedInfoOut(value: prepared_owner.PreparedInfo) c.HowlRenderPreparedS
         .render_px = .{ .width = value.render_px.width, .height = value.render_px.height },
         .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
-        .prepare_metrics = submit_result.metricsOut(value.prepare_metrics),
         .damage_kind = value.damage_kind,
+        .render_surface_emit_status = value.render_surface_emit_status,
     };
 }
 
@@ -92,27 +75,7 @@ pub fn infoFailure(status: c_int) c.HowlRenderPreparedSurfaceInfo {
         .render_px = .{ .width = 0, .height = 0 },
         .cell_px = .{ .width = 0, .height = 0 },
         .grid = .{ .cols = 0, .rows = 0 },
-        .prepare_metrics = std.mem.zeroes(c.HowlRenderMetrics),
         .damage_kind = 0,
-    };
-}
-
-pub fn preparedDiagnosticsOut(value: prepared_owner.PreparedDiagnostics) c.HowlRenderPreparedSurfaceDiagnostics {
-    return .{
-        .status = c.HOWL_RENDER_CALL_OK,
-        .missing_glyphs = value.missing_glyphs,
-        .resolve_metrics = submit_result.metricsOut(value.resolve_metrics),
-        .render_surface_emit_status = value.render_surface_emit_status,
-        .reserved0 = 0,
-    };
-}
-
-pub fn diagnosticsFailure(status: c_int) c.HowlRenderPreparedSurfaceDiagnostics {
-    return .{
-        .status = status,
-        .missing_glyphs = 0,
-        .resolve_metrics = std.mem.zeroes(c.HowlRenderMetrics),
         .render_surface_emit_status = c.HOWL_RENDER_SURFACE_EMIT_OK,
-        .reserved0 = 0,
     };
 }

@@ -473,26 +473,6 @@ typedef struct {
 } HowlRenderVtSurfaceCommit;
 
 typedef struct {
-    uint64_t sync_us;
-    uint64_t copy_us;
-    uint64_t render_us;
-    uint64_t glyphs;
-    uint64_t fills;
-    uint64_t clear_fills;
-    uint64_t background_fills;
-    uint64_t decoration_fills;
-    uint64_t cursor_fills;
-    uint64_t uploads;
-    uint64_t face_checks;
-    uint64_t face_cache_hits;
-    uint64_t shape_requests;
-    uint64_t shape_cache_hits;
-    uint64_t fallback_hits;
-    uint64_t fallback_misses;
-    uint64_t missing_glyphs;
-} HowlRenderMetrics;
-
-typedef struct {
     uint64_t host_surface_id;
     uint16_t width;
     uint16_t height;
@@ -507,24 +487,15 @@ typedef struct {
     HowlRenderPixelSize render_px;
     HowlRenderCellSize cell_px;
     HowlRenderGridSize grid;
-    HowlRenderMetrics prepare_metrics;
+    int32_t render_surface_emit_status;
+    uint32_t reserved2;
     uint8_t damage_kind;
     uint8_t reserved0;
     uint16_t reserved1;
 } HowlRenderPreparedSurfaceInfo;
 
 typedef struct {
-    int32_t status;
-    uint64_t missing_glyphs;
-    HowlRenderMetrics resolve_metrics;
-    int32_t render_surface_emit_status;
-    uint32_t reserved0;
-} HowlRenderPreparedSurfaceDiagnostics;
-
-typedef struct {
     HowlRenderHostSurface host_surface;
-    uint64_t uploads_committed;
-    uint64_t render_us;
 } HowlRenderSubmitExecution;
 
 typedef struct {
@@ -533,7 +504,6 @@ typedef struct {
     uint8_t reserved0;
     uint16_t reserved1;
     HowlRenderHostSurface host_surface;
-    HowlRenderMetrics metrics;
 } HowlRenderSubmitResult;
 
 typedef struct {
@@ -645,11 +615,6 @@ int howl_render_prepared_surface_render_surface(
     HowlRenderPreparedSurfaceHandle prepared_surface_handle,
     const HowlRenderSurface **surface_out
 );
-int howl_render_prepared_surface_diagnostics(
-    HowlRenderPreparedSurfaceHandle prepared_surface_handle,
-    HowlRenderPreparedSurfaceDiagnostics *diagnostics_out
-);
-
 #ifdef __cplusplus
 }
 #endif

@@ -35,5 +35,4 @@ comptime {
     @export(&prepared_surface.release, .{ .name = "howl_render_prepared_surface_release" });
     @export(&prepared_surface.describe, .{ .name = "howl_render_prepared_surface_describe" });
     @export(&prepared_surface.renderSurface, .{ .name = "howl_render_prepared_surface_render_surface" });
-    @export(&prepared_surface.diagnostics, .{ .name = "howl_render_prepared_surface_diagnostics" });
 }
