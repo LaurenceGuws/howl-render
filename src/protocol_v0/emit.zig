@@ -17,12 +17,17 @@ pub const Frame = c.HowlRenderV0Frame;
 pub const persistent_sprite_resources_max: u32 = 384;
 pub const alpha_atlas_entries_max: u32 = 1024;
 const persistent_sprite_resource_bytes_max: u32 = 64 * 1024;
+// Glyph refs are data-plane payload; commands are control-plane payload.
+const glyph_refs_max: u32 = 32 * 1024;
 const glyph_atlas_width_px: u16 = 1024;
 const glyph_atlas_height_px: u16 = 1024;
 
 comptime {
     std.debug.assert(persistent_sprite_resources_max < c.HOWL_RENDER_V0_RESOURCES_MAX);
     std.debug.assert(alpha_atlas_entries_max > persistent_sprite_resources_max);
+    std.debug.assert(glyph_refs_max > c.HOWL_RENDER_V0_COMMANDS_MAX);
+    std.debug.assert(glyph_refs_max <=
+        c.HOWL_RENDER_V0_COMMANDS_MAX * c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX);
     std.debug.assert(alpha_atlas_entries_max <=
         @as(u32, glyph_atlas_width_px) * @as(u32, glyph_atlas_height_px));
 }
@@ -44,6 +49,7 @@ pub const Limits = struct {
     creates_max: u32 = c.HOWL_RENDER_V0_CREATES_MAX,
     uploads_max: u32 = c.HOWL_RENDER_V0_UPLOADS_MAX,
     commands_max: u32 = c.HOWL_RENDER_V0_COMMANDS_MAX,
+    glyph_refs_max: u32 = glyph_refs_max,
     retires_max: u32 = c.HOWL_RENDER_V0_RETIRES_MAX,
     upload_bytes_max: u32 = c.HOWL_RENDER_V0_UPLOAD_BYTES_MAX,
 
@@ -52,6 +58,9 @@ pub const Limits = struct {
         std.debug.assert(limits.creates_max <= c.HOWL_RENDER_V0_CREATES_MAX);
         std.debug.assert(limits.uploads_max <= c.HOWL_RENDER_V0_UPLOADS_MAX);
         std.debug.assert(limits.commands_max <= c.HOWL_RENDER_V0_COMMANDS_MAX);
+        std.debug.assert(limits.glyph_refs_max <=
+            c.HOWL_RENDER_V0_COMMANDS_MAX * c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX);
+        std.debug.assert(limits.glyph_refs_max >= limits.commands_max);
         std.debug.assert(limits.retires_max <= c.HOWL_RENDER_V0_RETIRES_MAX);
         std.debug.assert(limits.upload_bytes_max <= c.HOWL_RENDER_V0_UPLOAD_BYTES_MAX);
     }
@@ -337,7 +346,7 @@ pub fn Emitter(comptime limits: Limits) type {
         uploads: [limits.uploads_max]c.HowlRenderV0Upload = undefined,
         upload_byte_offsets: [limits.uploads_max]u32 = undefined,
         commands: [limits.commands_max]c.HowlRenderV0Command = undefined,
-        glyphs: [limits.commands_max]GlyphRef = undefined,
+        glyphs: [limits.glyph_refs_max]GlyphRef = undefined,
         retires: [limits.retires_max]c.HowlRenderV0Retire = undefined,
         upload_bytes: [limits.upload_bytes_max]u8 = undefined,
         damage_count: u32 = 0,
@@ -841,7 +850,24 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         fn appendGlyphRef(self: *Self, glyph: GlyphRef) Error!void {
-            if (self.glyph_count >= limits.commands_max) return error.CommandBoundOverflow;
+            if (self.glyph_count >= limits.glyph_refs_max) return error.CommandBoundOverflow;
+
+            if (self.command_count > 0) {
+                const prior = &self.commands[self.command_count - 1];
+                if (prior.kind == c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN) {
+                    std.debug.assert(prior.glyphs.count > 0);
+                    std.debug.assert(prior.glyphs.count <= c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX);
+                    if (prior.glyphs.count < c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX) {
+                        self.glyphs[@intCast(self.glyph_count)] = glyph;
+                        self.glyph_count += 1;
+                        prior.glyphs.count += 1;
+                        return;
+                    }
+                }
+            }
+
+            if (self.command_count >= limits.commands_max) return error.CommandBoundOverflow;
+
             const start = self.glyph_count;
             self.glyphs[@intCast(self.glyph_count)] = glyph;
             self.glyph_count += 1;
@@ -870,6 +896,20 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         fn publishFrame(self: *Self) void {
+            var glyph_offset: u32 = 0;
+            var command_index: u32 = 0;
+            while (command_index < self.command_count) : (command_index += 1) {
+                const command = &self.commands[command_index];
+                if (command.kind != c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN) continue;
+                std.debug.assert(command.glyphs.count > 0);
+                std.debug.assert(command.glyphs.count <= c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX);
+                std.debug.assert(glyph_offset < self.glyph_count);
+                command.glyphs.ptr = &self.glyphs[@intCast(glyph_offset)];
+                glyph_offset += command.glyphs.count;
+                std.debug.assert(glyph_offset <= self.glyph_count);
+            }
+            std.debug.assert(glyph_offset == self.glyph_count);
+
             var upload_index: u32 = 0;
             while (upload_index < self.upload_count) : (upload_index += 1) {
                 const byte_offset = self.upload_byte_offsets[upload_index];
@@ -1145,6 +1185,22 @@ fn spriteFixture(
     };
 }
 
+fn glyphRefForTest(glyph_id: u32) GlyphRef {
+    comptime std.debug.assert(builtin.is_test);
+    return .{
+        .atlas_resource = .{
+            .value = 1,
+            .generation = 1,
+            .kind = c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_ALPHA,
+        },
+        .atlas_rect = rect(0, 0, 1, 1),
+        .x_px = @intCast(glyph_id),
+        .y_px = 0,
+        .glyph_id = glyph_id,
+        .color_rgba = 0xffffffff,
+    };
+}
+
 fn realizeFixture(comptime limits: Limits, fixture: Fixture, pixels: []u8) !void {
     var emitter = Emitter(limits).init();
     const frame = try emitter.emit(&fixture);
@@ -1152,7 +1208,7 @@ fn realizeFixture(comptime limits: Limits, fixture: Fixture, pixels: []u8) !void
 }
 
 test "protocol v0 emitter realizes fill pass order equal to oracle" {
-    const limits = Limits{ .commands_max = 5 };
+    const limits = Limits{ .commands_max = 5, .glyph_refs_max = 5 };
     const clear = [_]Fill{.{ .rect = rect(0, 0, 2, 1), .color_rgba = 0x000000ff }};
     const background = [_]Fill{.{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xff0000ff }};
     const decoration = [_]Fill{.{ .rect = rect(1, 0, 1, 1), .color_rgba = 0x00ff00ff }};
@@ -1223,6 +1279,46 @@ test "protocol v0 emitter realizes color sprite equal to oracle" {
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
+test "protocol v0 emitter batches two glyph refs into one run command" {
+    var emitter = Emitter(.{ .commands_max = 1, .glyph_refs_max = 2 }).init();
+    try emitter.appendGlyphRef(glyphRefForTest(1));
+    try emitter.appendGlyphRef(glyphRefForTest(2));
+    emitter.publishFrame();
+
+    const frame_value = emitter.frame();
+    try std.testing.expectEqual(@as(u32, 1), frame_value.commands.count);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN,
+        frame_value.commands.ptr[0].kind,
+    );
+    try std.testing.expectEqual(@as(u32, 2), frame_value.commands.ptr[0].glyphs.count);
+    try std.testing.expectEqual(@as(u32, 1), frame_value.commands.ptr[0].glyphs.ptr[0].glyph_id);
+    try std.testing.expectEqual(@as(u32, 2), frame_value.commands.ptr[0].glyphs.ptr[1].glyph_id);
+}
+
+test "protocol v0 emitter starts a second glyph run after run capacity" {
+    const glyphs_max: u32 = c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX + 1;
+    var emitter = Emitter(.{ .commands_max = 2, .glyph_refs_max = glyphs_max }).init();
+    var glyph_index: u32 = 0;
+    while (glyph_index < glyphs_max) : (glyph_index += 1) {
+        try emitter.appendGlyphRef(glyphRefForTest(glyph_index + 1));
+    }
+    emitter.publishFrame();
+
+    const frame_value = emitter.frame();
+    try std.testing.expectEqual(@as(u32, 2), frame_value.commands.count);
+    try std.testing.expectEqual(
+        @as(u32, c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX),
+        frame_value.commands.ptr[0].glyphs.count,
+    );
+    try std.testing.expectEqual(@as(u32, 1), frame_value.commands.ptr[1].glyphs.count);
+    try std.testing.expectEqual(
+        @as(u32, c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX),
+        frame_value.commands.ptr[0].glyphs.ptr[c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX - 1].glyph_id,
+    );
+    try std.testing.expectEqual(glyphs_max, frame_value.commands.ptr[1].glyphs.ptr[0].glyph_id);
+}
+
 test "protocol v0 emitter emits sprite retires after final use" {
     const limits = Limits{
         .creates_max = 1,
@@ -1255,7 +1351,7 @@ test "protocol v0 emitter emits sprite retires after final use" {
 }
 
 test "protocol v0 emitter rejects command bound overflow" {
-    const limits = Limits{ .commands_max = 1 };
+    const limits = Limits{ .commands_max = 1, .glyph_refs_max = 1 };
     const fills = [_]Fill{
         .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff },
         .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff },
@@ -1333,7 +1429,7 @@ test "protocol v0 emitter rejects upload byte total overflow" {
 }
 
 test "protocol v0 emitter leaves oracle path independent after emission failure" {
-    const limits = Limits{ .commands_max = 1 };
+    const limits = Limits{ .commands_max = 1, .glyph_refs_max = 1 };
     const fill = [_]Fill{.{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xff0000ff }};
     const too_many = [_]Fill{
         .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0x00ff00ff },

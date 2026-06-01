@@ -135,12 +135,146 @@ test "protocol v0 emitter realizes prepared alpha sprite frame equal to full rgb
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
+test "protocol v0 emitter batches prepared alpha sprite glyph commands" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    var sprite_bytes = [_]u8{255};
+    var sprite_draws = [_]contract.TextSpriteDraw{
+        spriteDraw(111, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
+        spriteDraw(111, 1, 0, 1, 1, rgba(255, 255, 255, 255)),
+    };
+    var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{rasterOutput(
+        allocator,
+        111,
+        1,
+        1,
+        .alpha,
+        &sprite_bytes,
+        .{},
+    )};
+    const prepared = preparedSurface(.{
+        .sprite_draws = &sprite_draws,
+        .raster_outputs = &raster_outputs,
+        .width_px = 2,
+        .height_px = 1,
+    });
+
+    const Emitter = protocol_emit.Emitter(.{ .commands_max = 1, .glyph_refs_max = 2 });
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = protocol_emit.SpriteResourceStore.init();
+    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 1), frame.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN, frame.commands.ptr[0].kind);
+    try std.testing.expectEqual(@as(u32, 2), frame.commands.ptr[0].glyphs.count);
+    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+}
+
+test "protocol v0 emitter emits over command bound alpha draws with batched glyph runs" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const draws_len: usize = c.HOWL_RENDER_V0_COMMANDS_MAX + 1;
+    const sprite_draws = try allocator.alloc(contract.TextSpriteDraw, draws_len);
+    defer allocator.free(sprite_draws);
+    for (sprite_draws, 0..) |*draw, index| {
+        draw.* = spriteDraw(112, @intCast(index), 0, 1, 1, rgba(255, 255, 255, 255));
+    }
+    var sprite_bytes = [_]u8{255};
+    var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{rasterOutput(
+        allocator,
+        112,
+        1,
+        1,
+        .alpha,
+        &sprite_bytes,
+        .{},
+    )};
+    const prepared = preparedSurface(.{
+        .sprite_draws = sprite_draws,
+        .raster_outputs = &raster_outputs,
+        .width_px = 1,
+        .height_px = 1,
+    });
+
+    const glyphs_max: u32 = c.HOWL_RENDER_V0_COMMANDS_MAX + 1;
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = protocol_emit.SpriteResourceStore.init();
+    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+
+    const commands_expected = std.math.divCeil(
+        u32,
+        glyphs_max,
+        c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX,
+    ) catch unreachable;
+    try std.testing.expectEqual(commands_expected, frame.commands.count);
+    try std.testing.expect(frame.commands.count < c.HOWL_RENDER_V0_COMMANDS_MAX + 1);
+    try std.testing.expectEqual(c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN, frame.commands.ptr[0].kind);
+    try std.testing.expectEqual(
+        @as(u32, c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX),
+        frame.commands.ptr[0].glyphs.count,
+    );
+    try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
+}
+
+test "protocol v0 emitter preserves command overflow after batched glyph runs" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const draws_len: usize = c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX + 1;
+    const sprite_draws = try allocator.alloc(contract.TextSpriteDraw, draws_len);
+    defer allocator.free(sprite_draws);
+    for (sprite_draws, 0..) |*draw, index| {
+        draw.* = spriteDraw(113, @intCast(index), 0, 1, 1, rgba(255, 255, 255, 255));
+    }
+    var sprite_bytes = [_]u8{255};
+    var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{rasterOutput(
+        allocator,
+        113,
+        1,
+        1,
+        .alpha,
+        &sprite_bytes,
+        .{},
+    )};
+    const prepared = preparedSurface(.{
+        .sprite_draws = sprite_draws,
+        .raster_outputs = &raster_outputs,
+        .width_px = 1,
+        .height_px = 1,
+    });
+
+    const Emitter = protocol_emit.Emitter(.{ .commands_max = 1, .glyph_refs_max = draws_len });
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = protocol_emit.SpriteResourceStore.init();
+    try std.testing.expectError(
+        error.CommandBoundOverflow,
+        emitter.emitPrepared(&resources, &session, &prepared),
+    );
+    try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
+    try std.testing.expectEqual(@as(u32, 0), resources.atlas_count);
+}
+
 test "protocol v0 emitter emits more than old alpha atlas entry cap" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    var emitter = protocol_emit.Emitter(.{}).init();
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
     var resources = protocol_emit.SpriteResourceStore.init();
     var index: u32 = 0;
     while (index <= protocol_emit.persistent_sprite_resources_max) : (index += 1) {
@@ -254,7 +388,10 @@ test "protocol v0 emitter persists prepared sprite resource across frames" {
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{}).init();
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
     var resources = protocol_emit.SpriteResourceStore.init();
     const frame1 = try emitter.emitPrepared(&resources, &session, &prepared);
     try std.testing.expectEqual(@as(u32, 1), frame1.creates.count);
@@ -333,7 +470,10 @@ test "protocol v0 emitter allocates distinct monotonic sprite resources" {
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{}).init();
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
     var resources = protocol_emit.SpriteResourceStore.init();
     const frame1 = try emitter.emitPrepared(&resources, &session, &first);
     const first_resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
@@ -388,7 +528,10 @@ test "protocol v0 emitter allocates distinct resource for changed sprite bytes" 
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{}).init();
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
     var resources = protocol_emit.SpriteResourceStore.init();
     const frame1 = try emitter.emitPrepared(&resources, &session, &first);
     const first_resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
@@ -446,7 +589,10 @@ test "protocol v0 emitter allocates distinct resource for changed sprite dimensi
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{}).init();
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
     var resources = protocol_emit.SpriteResourceStore.init();
     const frame1 = try emitter.emitPrepared(&resources, &session, &first);
     const first_resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
@@ -485,7 +631,11 @@ test "protocol v0 emitter failure preserves accepted persistent resource state" 
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{ .upload_bytes_max = 1 }).init();
+    var emitter = protocol_emit.Emitter(.{
+        .commands_max = 1,
+        .glyph_refs_max = 1,
+        .upload_bytes_max = 1,
+    }).init();
     var resources = protocol_emit.SpriteResourceStore.init();
     try std.testing.expectError(
         error.UploadBytesOverflow,
@@ -521,7 +671,10 @@ test "protocol v0 emitter resource id exhaustion preserves accepted state" {
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{}).init();
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
     var resources = protocol_emit.SpriteResourceStore.init();
     resources.value_next = 0;
     try std.testing.expectError(
@@ -558,7 +711,10 @@ test "protocol v0 emitter emits transient sprite beyond persistent budget" {
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{}).init();
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
     var resources = protocol_emit.SpriteResourceStore.init();
     resources.fillForTest(protocol_emit.persistent_sprite_resources_max);
     const frame = try emitter.emitPrepared(&resources, &session, &prepared);
@@ -593,7 +749,11 @@ test "protocol v0 emitter reports exact transient retire bound" {
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{ .retires_max = 1 }).init();
+    var emitter = protocol_emit.Emitter(.{
+        .commands_max = 2,
+        .glyph_refs_max = 2,
+        .retires_max = 1,
+    }).init();
     var resources = protocol_emit.SpriteResourceStore.init();
     resources.fillForTest(protocol_emit.persistent_sprite_resources_max);
     try std.testing.expectError(
@@ -626,7 +786,10 @@ test "protocol v0 emitter rejects missing prepared sprite without mutating accep
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{}).init();
+    const Emitter = protocol_emit.Emitter(.{});
+    const emitter = try allocator.create(Emitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
     var resources = protocol_emit.SpriteResourceStore.init();
     const accepted_frame = try emitter.emitPrepared(&resources, &session, &accepted_prepared);
     try std.testing.expectError(
