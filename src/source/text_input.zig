@@ -295,16 +295,7 @@ fn canMapDirtyOnly(state: anytype) bool {
         count16(state.damage.dirty_cols_end) == rows;
 }
 
-fn mapDirtyCellsOnly(
-    dst: []contract.CellInput,
-    cells: []const source_cell.Cell,
-    grid_cols: u16,
-    grid_rows: u16,
-    dirty_rows: []const bool,
-    dirty_cols_start: []const u16,
-    dirty_cols_end: []const u16,
-    t: FrameTheme,
-) void {
+fn mapDirtyCellsOnly(dst: []contract.CellInput, cells: []const source_cell.Cell, grid_cols: u16, grid_rows: u16, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, t: FrameTheme) void {
     const cols: u16 = @max(grid_cols, 1);
     const rows = grid_rows;
     const cell_len = count32(cells);
@@ -362,34 +353,19 @@ pub const BorrowedFrameTextInput = struct {
 
 pub const BorrowedTextSceneInput = BorrowedFrameTextInput;
 
-pub fn vtStateToTextSceneInput(
-    allocator: std.mem.Allocator,
-    state: anytype,
-) !OwnedTextSceneInput {
+pub fn vtStateToTextSceneInput(allocator: std.mem.Allocator, state: anytype) !OwnedTextSceneInput {
     return vtStateToTextSceneInputWithTheme(allocator, state, default_theme);
 }
 
-pub fn publicationSourceToTextSceneInput(
-    allocator: std.mem.Allocator,
-    source: source_vt.PublicationSource,
-    full_damage: bool,
-) !OwnedTextSceneInput {
+pub fn publicationSourceToTextSceneInput(allocator: std.mem.Allocator, source: source_vt.PublicationSource, full_damage: bool) !OwnedTextSceneInput {
     return publicationSourceToTextSceneInputWithTheme(allocator, source, full_damage, themeFromPublicationColors(source.colors));
 }
 
-pub fn vtStateToFrameTextInput(
-    allocator: std.mem.Allocator,
-    state: anytype,
-) !OwnedFrameTextInput {
+pub fn vtStateToFrameTextInput(allocator: std.mem.Allocator, state: anytype) !OwnedFrameTextInput {
     return vtStateToFrameTextInputWithTheme(allocator, state, default_theme);
 }
 
-pub fn publicationSourceToTextSceneInputWithTheme(
-    allocator: std.mem.Allocator,
-    source: source_vt.PublicationSource,
-    full_damage: bool,
-    t: FrameTheme,
-) !OwnedTextSceneInput {
+pub fn publicationSourceToTextSceneInputWithTheme(allocator: std.mem.Allocator, source: source_vt.PublicationSource, full_damage: bool, t: FrameTheme) !OwnedTextSceneInput {
     const cell_inputs = try allocator.alloc(contract.CellInput, source.cells.len);
     errdefer allocator.free(cell_inputs);
 
@@ -402,20 +378,11 @@ pub fn publicationSourceToTextSceneInputWithTheme(
     };
 }
 
-pub fn publicationSourceToTextSceneInputBorrowed(
-    cell_inputs: []contract.CellInput,
-    source: source_vt.PublicationSource,
-    full_damage: bool,
-) BorrowedTextSceneInput {
+pub fn publicationSourceToTextSceneInputBorrowed(cell_inputs: []contract.CellInput, source: source_vt.PublicationSource, full_damage: bool) BorrowedTextSceneInput {
     return publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, themeFromPublicationColors(source.colors));
 }
 
-pub fn publicationSourceToTextSceneInputBorrowedWithTheme(
-    cell_inputs: []contract.CellInput,
-    source: source_vt.PublicationSource,
-    full_damage: bool,
-    t: FrameTheme,
-) BorrowedTextSceneInput {
+pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contract.CellInput, source: source_vt.PublicationSource, full_damage: bool, t: FrameTheme) BorrowedTextSceneInput {
     std.debug.assert(cell_inputs.len >= source.cells.len);
     const mapped_cells = cell_inputs[0..source.cells.len];
 
@@ -473,19 +440,11 @@ pub fn publicationSourceToTextSceneInputBorrowedWithTheme(
     };
 }
 
-pub fn vtStateToTextSceneInputWithTheme(
-    allocator: std.mem.Allocator,
-    state: anytype,
-    t: FrameTheme,
-) !OwnedTextSceneInput {
+pub fn vtStateToTextSceneInputWithTheme(allocator: std.mem.Allocator, state: anytype, t: FrameTheme) !OwnedTextSceneInput {
     return vtStateToFrameTextInputWithTheme(allocator, state, t);
 }
 
-pub fn vtStateToFrameTextInputWithTheme(
-    allocator: std.mem.Allocator,
-    state: anytype,
-    t: FrameTheme,
-) !OwnedFrameTextInput {
+pub fn vtStateToFrameTextInputWithTheme(allocator: std.mem.Allocator, state: anytype, t: FrameTheme) !OwnedFrameTextInput {
     const cell_inputs = try allocator.alloc(contract.CellInput, state.grid.cells.len);
     errdefer allocator.free(cell_inputs);
 

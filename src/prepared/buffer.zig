@@ -4,12 +4,7 @@ const text_session = @import("../session/text.zig");
 const contract = @import("../text/contract.zig");
 const text = @import("../text/text.zig");
 
-pub fn compose(
-    allocator: std.mem.Allocator,
-    base_pixels: ?[]const u8,
-    session: *text_session.TextSession,
-    prepared: *const prepared_surface.PreparedSurface,
-) ![]u8 {
+pub fn compose(allocator: std.mem.Allocator, base_pixels: ?[]const u8, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) ![]u8 {
     const width = prepared.render_px.width;
     const height = prepared.render_px.height;
     std.debug.assert(width > 0);
@@ -104,12 +99,7 @@ fn clearSurfacePixels(pixels: []u8) void {
     }
 }
 
-fn drawColorSpan(
-    pixels: []u8,
-    width: u16,
-    height: u16,
-    span: anytype,
-) void {
+fn drawColorSpan(pixels: []u8, width: u16, height: u16, span: anytype) void {
     for (span) |draw| {
         drawSolidRect(
             pixels,
@@ -124,12 +114,7 @@ fn drawColorSpan(
     }
 }
 
-fn drawDecorationSpan(
-    pixels: []u8,
-    width: u16,
-    height: u16,
-    span: []const contract.TextDecorationDraw,
-) void {
+fn drawDecorationSpan(pixels: []u8, width: u16, height: u16, span: []const contract.TextDecorationDraw) void {
     for (span) |draw| {
         drawSolidRect(
             pixels,
@@ -144,24 +129,14 @@ fn drawDecorationSpan(
     }
 }
 
-fn drawSprites(
-    pixels: []u8,
-    width: u16,
-    height: u16,
-    session: *text_session.TextSession,
-    prepared: *const prepared_surface.PreparedSurface,
-) !void {
+fn drawSprites(pixels: []u8, width: u16, height: u16, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) !void {
     for (prepared.text_frame.scene.scene.sprite_draws) |draw| {
         const sprite = try lookupSprite(session, prepared, draw.sprite.key);
         drawSpriteInstance(pixels, width, height, draw, sprite);
     }
 }
 
-fn lookupSprite(
-    session: *text_session.TextSession,
-    prepared: *const prepared_surface.PreparedSurface,
-    sprite_key: contract.SpriteKey,
-) !SpriteRaster {
+fn lookupSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: contract.SpriteKey) !SpriteRaster {
     for (prepared.text_frame.raster_plan.outputs) |output| {
         if (output.key.value != sprite_key.value) continue;
         const bounds = output.visualBounds();
@@ -195,13 +170,7 @@ fn packedStrideForOutput(output: text.Rasterizer.RasterSpriteOutput) u16 {
     return @intCast(@as(u32, output.width_px) * @as(u32, channels));
 }
 
-fn drawSpriteInstance(
-    pixels: []u8,
-    width: u16,
-    height: u16,
-    draw: contract.TextSpriteDraw,
-    sprite: SpriteRaster,
-) void {
+fn drawSpriteInstance(pixels: []u8, width: u16, height: u16, draw: contract.TextSpriteDraw, sprite: SpriteRaster) void {
     const bounds = if (sprite.visual_bounds.width_px != 0 and
         sprite.visual_bounds.height_px != 0)
         sprite.visual_bounds
@@ -270,16 +239,7 @@ fn spriteIndex(sprite: SpriteRaster, src_x: u16, src_y: u16) u32 {
     };
 }
 
-fn drawSolidRect(
-    pixels: []u8,
-    width: u16,
-    height: u16,
-    x: i32,
-    y: i32,
-    rect_w: u16,
-    rect_h: u16,
-    color: contract.Rgba8,
-) void {
+fn drawSolidRect(pixels: []u8, width: u16, height: u16, x: i32, y: i32, rect_w: u16, rect_h: u16, color: contract.Rgba8) void {
     var yy: u16 = 0;
     while (yy < rect_h) : (yy += 1) {
         const dst_y = y + @as(i32, yy);
@@ -410,13 +370,7 @@ const ComposeTrace = struct {
     }
 };
 
-fn testPreparedSurface(
-    allocator: std.mem.Allocator,
-    clear_draws: []const contract.TextClearDraw,
-    background_draws: []const contract.TextBackgroundDraw,
-    decoration_draws: []const contract.TextDecorationDraw,
-    cursor_draws: []const contract.TextCursorDraw,
-) prepared_surface.PreparedSurface {
+fn testPreparedSurface(allocator: std.mem.Allocator, clear_draws: []const contract.TextClearDraw, background_draws: []const contract.TextBackgroundDraw, decoration_draws: []const contract.TextDecorationDraw, cursor_draws: []const contract.TextCursorDraw) prepared_surface.PreparedSurface {
     return .{
         .allocator = allocator,
         .request = .{

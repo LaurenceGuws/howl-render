@@ -108,11 +108,7 @@ pub const ResourceStore = struct {
         }
     }
 
-    fn hasResourceOrCreate(
-        self: *const ResourceStore,
-        creates: []const Create,
-        resource: ResourceId,
-    ) bool {
+    fn hasResourceOrCreate(self: *const ResourceStore, creates: []const Create, resource: ResourceId) bool {
         if (self.find(resource)) |entry| return !entry.retired;
         for (creates) |create_value| {
             if (sameResource(create_value.resource, resource)) return true;
@@ -197,21 +193,11 @@ pub fn realize(surface: *const Surface, pixels: []u8, base_pixels: ?[]const u8) 
     try realizeWithStore(surface, pixels, base_pixels, null);
 }
 
-pub fn realizeRetained(
-    surface: *const Surface,
-    pixels: []u8,
-    base_pixels: ?[]const u8,
-    store: *ResourceStore,
-) Error!void {
+pub fn realizeRetained(surface: *const Surface, pixels: []u8, base_pixels: ?[]const u8, store: *ResourceStore) Error!void {
     try realizeWithStore(surface, pixels, base_pixels, store);
 }
 
-fn realizeWithStore(
-    surface: *const Surface,
-    pixels: []u8,
-    base_pixels: ?[]const u8,
-    store: ?*ResourceStore,
-) Error!void {
+fn realizeWithStore(surface: *const Surface, pixels: []u8, base_pixels: ?[]const u8, store: ?*ResourceStore) Error!void {
     const pixels_len = try pixelsLen(surface.render_px);
     if (pixels.len != pixels_len) return error.InvalidPixels;
     if (base_pixels) |base| {
@@ -450,12 +436,7 @@ fn validateFillCommand(command: Command) Error!void {
     if (!resourceIsZero(command.resource)) return error.InvalidResource;
 }
 
-fn validateSpriteCommand(
-    surface: *const Surface,
-    store: ?*const ResourceStore,
-    command: Command,
-    command_index: u32,
-) Error!void {
+fn validateSpriteCommand(surface: *const Surface, store: ?*const ResourceStore, command: Command, command_index: u32) Error!void {
     if (command.rect.width_px == 0) return error.InvalidDamage;
     if (command.rect.height_px == 0) return error.InvalidDamage;
     if (command.glyphs.count != 0) return error.InvalidDamage;
@@ -472,12 +453,7 @@ fn validateSpriteCommand(
     _ = try findSpriteUploadVisible(surface, store, command, command_index);
 }
 
-fn validateGlyphRunCommand(
-    surface: *const Surface,
-    store: ?*const ResourceStore,
-    command: Command,
-    command_index: u32,
-) Error!void {
+fn validateGlyphRunCommand(surface: *const Surface, store: ?*const ResourceStore, command: Command, command_index: u32) Error!void {
     if (command.rect.x_px != 0) return error.InvalidDamage;
     if (command.rect.y_px != 0) return error.InvalidDamage;
     if (command.rect.width_px != 0) return error.InvalidDamage;
@@ -490,12 +466,7 @@ fn validateGlyphRunCommand(
     }
 }
 
-fn validateGlyphRef(
-    surface: *const Surface,
-    store: ?*const ResourceStore,
-    glyph: GlyphRef,
-    command_index: u32,
-) Error!void {
+fn validateGlyphRef(surface: *const Surface, store: ?*const ResourceStore, glyph: GlyphRef, command_index: u32) Error!void {
     try validateResourceKind(glyph.atlas_resource.kind);
     if (glyph.atlas_resource.kind == c.HOWL_RENDER_RESOURCE_GLYPH_ATLAS_COLOR) {
         return error.UnsupportedGlyphAtlas;
@@ -518,13 +489,7 @@ fn validateGlyphRef(
     };
 }
 
-fn drawGlyphRun(
-    pixels: []u8,
-    surface: *const Surface,
-    command: Command,
-    command_index: u32,
-    store: ?*const ResourceStore,
-) Error!void {
+fn drawGlyphRun(pixels: []u8, surface: *const Surface, command: Command, command_index: u32, store: ?*const ResourceStore) Error!void {
     for (spanSlice(GlyphRef, command.glyphs.ptr, command.glyphs.count)) |glyph| {
         const upload = findGlyphUploadVisible(surface, store, glyph, command_index) orelse {
             return error.MissingResource;
@@ -540,15 +505,7 @@ fn drawGlyphRun(
     }
 }
 
-fn drawGlyphPixel(
-    pixels: []u8,
-    surface: *const Surface,
-    glyph: GlyphRef,
-    upload: Upload,
-    bytes_ptr: anytype,
-    xx: u16,
-    yy: u16,
-) Error!void {
+fn drawGlyphPixel(pixels: []u8, surface: *const Surface, glyph: GlyphRef, upload: Upload, bytes_ptr: anytype, xx: u16, yy: u16) Error!void {
     const dst_x = destinationCoordinate(glyph.x_px, xx) orelse return;
     const dst_y = destinationCoordinate(glyph.y_px, yy) orelse return;
     if (dst_x < 0) return;
@@ -570,13 +527,7 @@ fn drawGlyphPixel(
     blendPixel(pixels, dst_index, rgba.r, rgba.g, rgba.b, out_alpha);
 }
 
-fn drawSprite(
-    pixels: []u8,
-    surface: *const Surface,
-    command: Command,
-    command_index: u32,
-    store: ?*const ResourceStore,
-) Error!void {
+fn drawSprite(pixels: []u8, surface: *const Surface, command: Command, command_index: u32, store: ?*const ResourceStore) Error!void {
     const upload = try findSpriteUploadVisible(surface, store, command, command_index);
     const bytes_ptr = upload.bytes_ptr orelse return error.InvalidUpload;
     var yy: u16 = 0;
@@ -588,15 +539,7 @@ fn drawSprite(
     }
 }
 
-fn drawSpritePixel(
-    pixels: []u8,
-    surface: *const Surface,
-    command: Command,
-    upload: Upload,
-    bytes_ptr: anytype,
-    xx: u16,
-    yy: u16,
-) Error!void {
+fn drawSpritePixel(pixels: []u8, surface: *const Surface, command: Command, upload: Upload, bytes_ptr: anytype, xx: u16, yy: u16) Error!void {
     const dst_x = destinationCoordinate(command.rect.x_px, xx) orelse return;
     const dst_y = destinationCoordinate(command.rect.y_px, yy) orelse return;
     if (dst_x < 0) return;
@@ -626,12 +569,7 @@ fn drawSpritePixel(
     }
 }
 
-fn drawSolidRect(
-    pixels: []u8,
-    render_px: c.HowlRenderPixelSize,
-    command_rect: c.HowlRenderSurfaceRect,
-    color_rgba: u32,
-) Error!void {
+fn drawSolidRect(pixels: []u8, render_px: c.HowlRenderPixelSize, command_rect: c.HowlRenderSurfaceRect, color_rgba: u32) Error!void {
     const color = unpackRgba(color_rgba);
     var yy: u16 = 0;
     while (yy < command_rect.height_px) : (yy += 1) {
@@ -723,11 +661,7 @@ fn findCreate(surface: *const Surface, resource: ResourceId) ?Create {
     return null;
 }
 
-fn findCreateChecked(
-    surface: *const Surface,
-    store: ?*const ResourceStore,
-    resource: ResourceId,
-) Error!?Create {
+fn findCreateChecked(surface: *const Surface, store: ?*const ResourceStore, resource: ResourceId) Error!?Create {
     for (spanSlice(Create, surface.creates.ptr, surface.creates.count)) |create| {
         if (sameResource(create.resource, resource)) return create;
         if (create.resource.value == resource.value) return error.WrongResourceGeneration;
@@ -749,11 +683,7 @@ const ResourceDimensions = struct {
     height_px: u32,
 };
 
-fn resourceDimensions(
-    surface: *const Surface,
-    store: ?*const ResourceStore,
-    resource: ResourceId,
-) Error!ResourceDimensions {
+fn resourceDimensions(surface: *const Surface, store: ?*const ResourceStore, resource: ResourceId) Error!ResourceDimensions {
     if (findCreate(surface, resource)) |create| {
         return .{ .width_px = create.width_px, .height_px = create.height_px };
     }
@@ -766,12 +696,7 @@ fn resourceDimensions(
     return error.MissingResource;
 }
 
-fn validateResourceVisibleAtCommand(
-    surface: *const Surface,
-    store: ?*const ResourceStore,
-    resource: ResourceId,
-    command_index: u32,
-) Error!void {
+fn validateResourceVisibleAtCommand(surface: *const Surface, store: ?*const ResourceStore, resource: ResourceId, command_index: u32) Error!void {
     const create = try findCreateChecked(surface, store, resource);
     if (create) |same_surface_create| {
         if (same_surface_create.create_seq <= command_index) {
@@ -791,12 +716,7 @@ fn validateResourceVisibleAtCommand(
     }
 }
 
-fn findUploadVisible(
-    surface: *const Surface,
-    store: ?*const ResourceStore,
-    resource: ResourceId,
-    command_index: u32,
-) ?Upload {
+fn findUploadVisible(surface: *const Surface, store: ?*const ResourceStore, resource: ResourceId, command_index: u32) ?Upload {
     var selected: ?Upload = null;
     for (spanSlice(Upload, surface.uploads.ptr, surface.uploads.count)) |upload| {
         if (!sameResource(upload.resource, resource)) continue;
@@ -825,12 +745,7 @@ fn findUploadVisible(
     return null;
 }
 
-fn findSpriteUploadVisible(
-    surface: *const Surface,
-    store: ?*const ResourceStore,
-    command: Command,
-    command_index: u32,
-) Error!Upload {
+fn findSpriteUploadVisible(surface: *const Surface, store: ?*const ResourceStore, command: Command, command_index: u32) Error!Upload {
     const upload = findUploadVisible(surface, store, command.resource, command_index) orelse {
         return error.MissingResource;
     };
@@ -876,12 +791,7 @@ fn validateSpriteUploadCoverage(upload: Upload, command_rect: c.HowlRenderSurfac
     }
 }
 
-fn findGlyphUploadVisible(
-    surface: *const Surface,
-    store: ?*const ResourceStore,
-    glyph: GlyphRef,
-    command_index: u32,
-) ?Upload {
+fn findGlyphUploadVisible(surface: *const Surface, store: ?*const ResourceStore, glyph: GlyphRef, command_index: u32) ?Upload {
     var selected: ?Upload = null;
     for (spanSlice(Upload, surface.uploads.ptr, surface.uploads.count)) |upload| {
         if (!sameResource(upload.resource, glyph.atlas_resource)) continue;
@@ -958,12 +868,7 @@ fn rectContains(container: c.HowlRenderSurfaceRect, child: c.HowlRenderSurfaceRe
     return child_right <= container_right and child_bottom <= container_bottom;
 }
 
-fn destinationOverlaps(
-    render_px: c.HowlRenderPixelSize,
-    x_px: i32,
-    y_px: i32,
-    rect: c.HowlRenderSurfaceRect,
-) bool {
+fn destinationOverlaps(render_px: c.HowlRenderPixelSize, x_px: i32, y_px: i32, rect: c.HowlRenderSurfaceRect) bool {
     var yy: u16 = 0;
     while (yy < rect.height_px) : (yy += 1) {
         const dst_y = destinationCoordinate(y_px, yy) orelse continue;
@@ -2051,13 +1956,7 @@ fn glyphCommand(glyphs: []const GlyphRef) Command {
     return command;
 }
 
-fn glyphRef(
-    resource: ResourceId,
-    atlas_rect: c.HowlRenderSurfaceRect,
-    x_px: i32,
-    y_px: i32,
-    color_rgba: u32,
-) GlyphRef {
+fn glyphRef(resource: ResourceId, atlas_rect: c.HowlRenderSurfaceRect, x_px: i32, y_px: i32, color_rgba: u32) GlyphRef {
     return .{
         .atlas_resource = resource,
         .atlas_rect = atlas_rect,
@@ -2087,12 +1986,7 @@ fn createGlyphAtlasAlpha(resource: ResourceId) Create {
     );
 }
 
-fn uploadResource(
-    resource: ResourceId,
-    upload_rect: c.HowlRenderSurfaceRect,
-    bytes: []const u8,
-    stride_bytes: u32,
-) Upload {
+fn uploadResource(resource: ResourceId, upload_rect: c.HowlRenderSurfaceRect, bytes: []const u8, stride_bytes: u32) Upload {
     return uploadResourceWithFormat(
         resource,
         upload_rect,
@@ -2102,13 +1996,7 @@ fn uploadResource(
     );
 }
 
-fn uploadResourceWithFormat(
-    resource: ResourceId,
-    upload_rect: c.HowlRenderSurfaceRect,
-    bytes: []const u8,
-    stride_bytes: u32,
-    format: u32,
-) Upload {
+fn uploadResourceWithFormat(resource: ResourceId, upload_rect: c.HowlRenderSurfaceRect, bytes: []const u8, stride_bytes: u32, format: u32) Upload {
     return .{
         .resource = resource,
         .rect = upload_rect,
@@ -2175,23 +2063,14 @@ fn expectRejectWithCreates(creates: []const Create, expected: Error) !void {
     try expectReject(&surface, expected);
 }
 
-fn expectRejectWithCreatesCommands(
-    creates: []const Create,
-    commands: []const Command,
-    expected: Error,
-) !void {
+fn expectRejectWithCreatesCommands(creates: []const Create, commands: []const Command, expected: Error) !void {
     var surface = testSurface(1, 1);
     surface.creates = createSpan(creates);
     surface.commands = commandSpan(commands);
     try expectReject(&surface, expected);
 }
 
-fn expectRejectWithCreatesUploads(
-    creates: []const Create,
-    uploads: []const Upload,
-    bytes_count_total: usize,
-    expected: Error,
-) !void {
+fn expectRejectWithCreatesUploads(creates: []const Create, uploads: []const Upload, bytes_count_total: usize, expected: Error) !void {
     var surface = testSurface(1, 1);
     surface.creates = createSpan(creates);
     surface.uploads = uploadSpan(uploads, bytes_count_total);

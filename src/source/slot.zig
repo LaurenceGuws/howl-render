@@ -26,12 +26,7 @@ pub const RetainedSlot = struct {
         self.* = .{};
     }
 
-    pub fn ensureCapacity(
-        self: *RetainedSlot,
-        allocator: std.mem.Allocator,
-        cols: u16,
-        rows: u16,
-    ) !void {
+    pub fn ensureCapacity(self: *RetainedSlot, allocator: std.mem.Allocator, cols: u16, rows: u16) !void {
         std.debug.assert(cols > 0);
         std.debug.assert(rows > 0);
         if (self.cols_capacity >= cols and self.rows_capacity >= rows) return;
@@ -106,11 +101,7 @@ pub const SourceSlot = struct {
         self.reserved = null;
     }
 
-    pub fn commitReservedSource(
-        self: *SourceSlot,
-        meta: source_vt.ReservedSourceMeta,
-        dirty_epoch: u64,
-    ) !source_vt.PublicationSource {
+    pub fn commitReservedSource(self: *SourceSlot, meta: source_vt.ReservedSourceMeta, dirty_epoch: u64) !source_vt.PublicationSource {
         try source_vt.validateReservedSourceMeta(meta);
         const source = if (self.reserved) |*value| value else return error.MissingVtSurfaceSlot;
         source.scroll_row = meta.scroll_row;

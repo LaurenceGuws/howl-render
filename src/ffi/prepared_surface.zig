@@ -5,11 +5,7 @@ const prepared_owner = @import("../prepared/owner.zig");
 const prepare_request_boundary = @import("prepare_request.zig");
 const submit_result = @import("submit_result.zig");
 
-pub fn prepareHandle(
-    text_session_handle: c.HowlRenderTextSessionHandle,
-    prepare_request: c.HowlRenderPrepareRequest,
-    prepared_handle_out: ?*c.HowlRenderPreparedSurfaceHandle,
-) callconv(.c) c_int {
+pub fn prepareHandle(text_session_handle: c.HowlRenderTextSessionHandle, prepare_request: c.HowlRenderPrepareRequest, prepared_handle_out: ?*c.HowlRenderPreparedSurfaceHandle) callconv(.c) c_int {
     const prepared_out = prepared_handle_out;
     if (prepared_out) |value| value.* = null;
     const owner = handle_owner.textSessionOwner(text_session_handle) orelse return c.HOWL_RENDER_PREPARE_FAILED;
@@ -25,10 +21,7 @@ pub fn release(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle) callc
     owner.release();
 }
 
-pub fn describe(
-    prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
-    info_out: ?*c.HowlRenderPreparedSurfaceInfo,
-) callconv(.c) c_int {
+pub fn describe(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, info_out: ?*c.HowlRenderPreparedSurfaceInfo) callconv(.c) c_int {
     const out = info_out;
     const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
         if (out) |value| value.* = infoFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
@@ -43,10 +36,7 @@ pub fn describe(
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn renderSurface(
-    prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
-    surface_out: ?*?*const c.HowlRenderSurface,
-) callconv(.c) c_int {
+pub fn renderSurface(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, surface_out: ?*?*const c.HowlRenderSurface) callconv(.c) c_int {
     const out = surface_out;
     if (out) |value| value.* = null;
     const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
@@ -58,10 +48,7 @@ pub fn renderSurface(
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn diagnostics(
-    prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
-    diagnostics_out: ?*c.HowlRenderPreparedSurfaceDiagnostics,
-) callconv(.c) c_int {
+pub fn diagnostics(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, diagnostics_out: ?*c.HowlRenderPreparedSurfaceDiagnostics) callconv(.c) c_int {
     const out = diagnostics_out;
     const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
         if (out) |value| value.* = diagnosticsFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
@@ -106,9 +93,7 @@ pub fn infoFailure(status: c_int) c.HowlRenderPreparedSurfaceInfo {
     };
 }
 
-pub fn preparedDiagnosticsOut(
-    value: prepared_owner.PreparedDiagnostics,
-) c.HowlRenderPreparedSurfaceDiagnostics {
+pub fn preparedDiagnosticsOut(value: prepared_owner.PreparedDiagnostics) c.HowlRenderPreparedSurfaceDiagnostics {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .missing_glyphs = value.missing_glyphs,

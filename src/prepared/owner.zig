@@ -64,10 +64,7 @@ pub const Owner = struct {
         failed,
     };
 
-    pub fn create(
-        session_owner: *text_session.TextSessionOwner,
-        value: *prepared_surface.PreparedSurface,
-    ) !*Owner {
+    pub fn create(session_owner: *text_session.TextSessionOwner, value: *prepared_surface.PreparedSurface) !*Owner {
         var owner = try session_owner.allocator.create(Owner);
         const prepared_allocator = value.allocator;
         owner.* = ownerBase(session_owner, value.*);
@@ -177,20 +174,12 @@ pub const Owner = struct {
         return self.session_owner == session_owner;
     }
 
-    pub fn submitOwned(
-        self: *Owner,
-        session_owner: *text_session.TextSessionOwner,
-        execution: text_session.TextSession.SubmitExecution,
-    ) SubmitResult {
+    pub fn submitOwned(self: *Owner, session_owner: *text_session.TextSessionOwner, execution: text_session.TextSession.SubmitExecution) SubmitResult {
         if (self.state != .submit_ready) return .failed;
         return self.performSubmit(session_owner, execution);
     }
 
-    fn performSubmit(
-        self: *Owner,
-        session_owner: *text_session.TextSessionOwner,
-        execution: text_session.TextSession.SubmitExecution,
-    ) SubmitResult {
+    fn performSubmit(self: *Owner, session_owner: *text_session.TextSessionOwner, execution: text_session.TextSession.SubmitExecution) SubmitResult {
         if (!self.belongsToSession(session_owner)) return .failed;
         if (!executionMatchesPrepared(self.render_px, self.uploads_required, execution)) return .failed;
         const result = session_owner.session.submitSurface(&self.prepared, execution) catch {
@@ -200,12 +189,7 @@ pub const Owner = struct {
         return .{ .rendered = result };
     }
 
-    pub fn submit(
-        self: *Owner,
-        session_owner: *text_session.TextSessionOwner,
-        prepared_token: tokens.PreparedSurfaceToken,
-        execution: text_session.TextSession.SubmitExecution,
-    ) SubmitResult {
+    pub fn submit(self: *Owner, session_owner: *text_session.TextSessionOwner, prepared_token: tokens.PreparedSurfaceToken, execution: text_session.TextSession.SubmitExecution) SubmitResult {
         if (self.state != .prepared) return .failed;
         if (!self.belongsToSession(session_owner)) return .failed;
         if (!samePreparedSurfaceToken(self.prepared.preparedSurfaceToken(), prepared_token)) {
@@ -381,11 +365,7 @@ fn samePreparedSurfaceToken(a: tokens.PreparedSurfaceToken, b: tokens.PreparedSu
         a.required_base_seq == b.required_base_seq;
 }
 
-fn executionMatchesPrepared(
-    render_px: geometry_contract.PixelSize,
-    uploads_required: u64,
-    execution: text_session.TextSession.SubmitExecution,
-) bool {
+fn executionMatchesPrepared(render_px: geometry_contract.PixelSize, uploads_required: u64, execution: text_session.TextSession.SubmitExecution) bool {
     if (execution.uploads_committed != uploads_required) return false;
     if (execution.host_surface.width != render_px.width) return false;
     if (execution.host_surface.height != render_px.height) return false;
@@ -905,9 +885,7 @@ test "render surface prepared owner allocation failure remains diagnostic only" 
     }
     return error.MissingAllocationFailureCase;
 }
-fn ownedCommandOverflowPreparedSurface(
-    allocator: std.mem.Allocator,
-) !prepared_surface.PreparedSurface {
+fn ownedCommandOverflowPreparedSurface(allocator: std.mem.Allocator) !prepared_surface.PreparedSurface {
     const draws_len: usize = c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1;
     const background_draws = try allocator.alloc(contract.TextBackgroundDraw, draws_len);
     for (background_draws) |*draw| {
@@ -997,15 +975,7 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     };
 }
 
-fn rasterOutput(
-    allocator: std.mem.Allocator,
-    key: u64,
-    width_px: u16,
-    height_px: u16,
-    color_mode: contract.SpriteColorMode,
-    pixels: []u8,
-    visual_bounds: text.Rasterizer.SpriteBounds,
-) text.Rasterizer.RasterSpriteOutput {
+fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: contract.SpriteColorMode, pixels: []u8, visual_bounds: text.Rasterizer.SpriteBounds) text.Rasterizer.RasterSpriteOutput {
     return .{
         .allocator = allocator,
         .key = .{ .value = key },
@@ -1017,13 +987,7 @@ fn rasterOutput(
     };
 }
 
-fn clearDraw(
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextClearDraw {
+fn clearDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextClearDraw {
     return .{
         .x_px = x,
         .y_px = y,
@@ -1035,13 +999,7 @@ fn clearDraw(
     };
 }
 
-fn backgroundDraw(
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextBackgroundDraw {
+fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextBackgroundDraw {
     return .{
         .x_px = x,
         .y_px = y,
@@ -1053,13 +1011,7 @@ fn backgroundDraw(
     };
 }
 
-fn decorationDraw(
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextDecorationDraw {
+fn decorationDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextDecorationDraw {
     return .{
         .kind = .underline,
         .x_px = x,
@@ -1072,24 +1024,11 @@ fn decorationDraw(
     };
 }
 
-fn cursorDraw(
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextCursorDraw {
+fn cursorDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextCursorDraw {
     return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color };
 }
 
-fn spriteDraw(
-    key: u64,
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextSpriteDraw {
+fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextSpriteDraw {
     return .{
         .sprite = .{ .slot = 0, .key = .{ .value = key } },
         .x_px = x,

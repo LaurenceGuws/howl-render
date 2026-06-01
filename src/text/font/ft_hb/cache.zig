@@ -125,12 +125,7 @@ pub const ShapeRunCache = struct {
         self.used_slots = 0;
     }
 
-    pub fn getOwnedRun(
-        self: *const ShapeRunCache,
-        allocator: std.mem.Allocator,
-        key: ShapeRunKey,
-        run: contract.ResolvedRun,
-    ) !?text_mod.ShapeRun.OwnedShapedRun {
+    pub fn getOwnedRun(self: *const ShapeRunCache, allocator: std.mem.Allocator, key: ShapeRunKey, run: contract.ResolvedRun) !?text_mod.ShapeRun.OwnedShapedRun {
         const slot_index = self.map.get(key) orelse return null;
         const cached = self.slotGlyphs(slot_index);
         const glyphs = try allocator.alloc(contract.GlyphInstance, cached.len);

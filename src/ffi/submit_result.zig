@@ -47,9 +47,7 @@ pub fn failedSubmitResult() c.HowlRenderSubmitResult {
     };
 }
 
-pub fn submitExecutionIn(
-    value: c.HowlRenderSubmitExecution,
-) text_session.TextSession.SubmitExecution {
+pub fn submitExecutionIn(value: c.HowlRenderSubmitExecution) text_session.TextSession.SubmitExecution {
     return .{
         .host_surface = .{
             .host_surface_id = value.host_surface.host_surface_id,

@@ -32,11 +32,7 @@ pub fn setFontSize(value: c.HowlRenderTextSessionHandle, font_size_px: u16) call
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn setFontPath(
-    value: c.HowlRenderTextSessionHandle,
-    ptr: ?[*]const u8,
-    len: usize,
-) callconv(.c) c_int {
+pub fn setFontPath(value: c.HowlRenderTextSessionHandle, ptr: ?[*]const u8, len: usize) callconv(.c) c_int {
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     if (len > 0 and ptr == null) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     owner.setFontPathBytes(if (len == 0 or ptr == null) null else ptr.?[0..len]) catch {
@@ -45,11 +41,7 @@ pub fn setFontPath(
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn setFallbackFontPaths(
-    value: c.HowlRenderTextSessionHandle,
-    ptrs: ?[*]const ?[*]const u8,
-    count: usize,
-) callconv(.c) c_int {
+pub fn setFallbackFontPaths(value: c.HowlRenderTextSessionHandle, ptrs: ?[*]const ?[*]const u8, count: usize) callconv(.c) c_int {
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     if (count > text_support.max_fallback_fonts) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     const path_count = text_support.fallbackFontCount(@intCast(count)) orelse unreachable;

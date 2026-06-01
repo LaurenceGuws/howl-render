@@ -21,13 +21,7 @@ pub const GroupingPolicy = struct {
     suppress_ligature_at_cursor: bool = false,
 };
 
-pub fn groupShapedRunsWithPolicy(
-    allocator: std.mem.Allocator,
-    shaped_runs: []const shape_run.OwnedShapedRun,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
-    policy: GroupingPolicy,
-) !OwnedGlyphGroups {
+pub fn groupShapedRunsWithPolicy(allocator: std.mem.Allocator, shaped_runs: []const shape_run.OwnedShapedRun, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics, policy: GroupingPolicy) !OwnedGlyphGroups {
     var count: u32 = 0;
     for (shaped_runs) |run| {
         const glyph_len = count32(run.glyphs);
@@ -94,12 +88,7 @@ fn groupPlacement(glyphs: []const contract.GlyphInstance, cell_metrics: contract
     return .{ .advance_px = @max(advance_px, min_advance) };
 }
 
-pub fn groupSpriteRoutes(
-    allocator: std.mem.Allocator,
-    routes: []const font_resolver.SpriteRouteHit,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
-) !OwnedGlyphGroups {
+pub fn groupSpriteRoutes(allocator: std.mem.Allocator, routes: []const font_resolver.SpriteRouteHit, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) !OwnedGlyphGroups {
     const groups = try allocator.alloc(contract.GlyphGroup, routes.len);
     errdefer allocator.free(groups);
     for (routes, 0..) |route, idx| {

@@ -79,13 +79,7 @@ pub fn installMergedScene(text_scene: *scene.OwnedTextScene, damage: Damage, mer
     text_scene.scene.missing = merged.missing;
 }
 
-pub fn appendBackgrounds(
-    out: *std.ArrayListUnmanaged(contract.TextBackgroundDraw),
-    cells: []const contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: Damage,
-) void {
+pub fn appendBackgrounds(out: *std.ArrayListUnmanaged(contract.TextBackgroundDraw), cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: Damage) void {
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const cell_len = count32(cells);
     var idx: u32 = 0;
@@ -123,12 +117,7 @@ pub fn appendBackgrounds(
     }
 }
 
-pub fn appendClears(
-    out: *std.ArrayListUnmanaged(contract.TextClearDraw),
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: Damage,
-) void {
+pub fn appendClears(out: *std.ArrayListUnmanaged(contract.TextClearDraw), cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: Damage) void {
     if (damage.full) return;
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const row_count = @min(grid_metrics.rows, count16(damage.dirty_rows));
@@ -161,12 +150,7 @@ fn count32(items: anytype) u32 {
     return @intCast(items.len);
 }
 
-pub fn appendCursor(
-    out: *std.ArrayListUnmanaged(contract.TextCursorDraw),
-    cursor: ?scene.CursorInput,
-    cell_metrics: contract.CellMetrics,
-    damage: Damage,
-) void {
+pub fn appendCursor(out: *std.ArrayListUnmanaged(contract.TextCursorDraw), cursor: ?scene.CursorInput, cell_metrics: contract.CellMetrics, damage: Damage) void {
     const cursor_value = cursor orelse return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
     const base_x: i32 = @as(i32, @intCast(cursor_value.cell_col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
@@ -186,13 +170,7 @@ pub fn appendCursor(
     }
 }
 
-pub fn appendDecorations(
-    out: *std.ArrayListUnmanaged(contract.TextDecorationDraw),
-    cells: []const contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: Damage,
-) void {
+pub fn appendDecorations(out: *std.ArrayListUnmanaged(contract.TextDecorationDraw), cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: Damage) void {
     const font_metrics = defaultFontMetrics(cell_metrics);
     const deco = decorationGeometry(cell_metrics, font_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
@@ -259,16 +237,7 @@ fn classifyDecorationLead(damage: Damage, grid_metrics: contract.GridMetrics, ce
     return .draw;
 }
 
-fn appendDecoration(
-    out: *std.ArrayListUnmanaged(contract.TextDecorationDraw),
-    kind: contract.DecorationKind,
-    cell: contract.RenderableCell,
-    x_px: i32,
-    y_px: i32,
-    width_px: u16,
-    height_px: u16,
-    color: contract.Rgba8,
-) void {
+fn appendDecoration(out: *std.ArrayListUnmanaged(contract.TextDecorationDraw), kind: contract.DecorationKind, cell: contract.RenderableCell, x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: contract.Rgba8) void {
     out.appendAssumeCapacity(.{
         .kind = kind,
         .x_px = x_px,

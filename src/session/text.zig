@@ -108,12 +108,7 @@ pub const TextSession = struct {
         self.text_state.deinit();
     }
 
-    pub fn deriveLayout(
-        self: *TextSession,
-        config: TextSessionConfig,
-        render_px: geometry_contract.PixelSize,
-        grid_px: geometry_contract.PixelSize,
-    ) geometry_mod.FrameGeometryError!SurfaceLayout {
+    pub fn deriveLayout(self: *TextSession, config: TextSessionConfig, render_px: geometry_contract.PixelSize, grid_px: geometry_contract.PixelSize) geometry_mod.FrameGeometryError!SurfaceLayout {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         if (render_px.width == 0 or render_px.height == 0) return error.InvalidSurfaceSize;
@@ -152,11 +147,7 @@ pub const TextSession = struct {
         return owned;
     }
 
-    pub fn submitSurface(
-        self: *TextSession,
-        prepared: *prepared_surface.PreparedSurface,
-        execution: SubmitExecution,
-    ) !prepared_submit_result.SubmitResult {
+    pub fn submitSurface(self: *TextSession, prepared: *prepared_surface.PreparedSurface, execution: SubmitExecution) !prepared_submit_result.SubmitResult {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         prepared_submit.markRendered(&self.text_preparer.?.atlas, prepared.text_frame.raster_plan.outputs);
@@ -188,13 +179,7 @@ pub const TextSession = struct {
         return preparer.atlas.rasterForKey(key);
     }
 
-    fn ownPreparedSurface(
-        allocator: std.mem.Allocator,
-        prepare: PrepareInput,
-        grid: contract.GridMetrics,
-        prepared: text.OwnedPreparedTextFrame,
-        resolve: font_resolve.ResolveObservability,
-    ) prepared_surface.PreparedSurface {
+    fn ownPreparedSurface(allocator: std.mem.Allocator, prepare: PrepareInput, grid: contract.GridMetrics, prepared: text.OwnedPreparedTextFrame, resolve: font_resolve.ResolveObservability) prepared_surface.PreparedSurface {
         return .{
             .allocator = allocator,
             .request = prepare.request,
@@ -517,10 +502,7 @@ pub const TextSessionOwner = struct {
         return self.submitted.submittedToken();
     }
 
-    pub fn syncGeometry(
-        self: *TextSessionOwner,
-        layout: geometry_contract.Geometry,
-    ) !geometry_contract.GeometryResponse {
+    pub fn syncGeometry(self: *TextSessionOwner, layout: geometry_contract.Geometry) !geometry_contract.GeometryResponse {
         const response = self.geometry.sync(layout);
         if (response.changed) {
             const cols = @max(1, @divTrunc(layout.grid_px.width, @max(layout.cell_px.width, 1)));

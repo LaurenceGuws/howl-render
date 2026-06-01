@@ -687,17 +687,7 @@ fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *text_mod
     return result;
 }
 
-fn runWorkloadWarm(
-    io: std.Io,
-    counting: *CountingAllocator,
-    preparer: *text_mod.TextFramePreparer,
-    workload: Workload,
-    context: WorkloadPrepareContext,
-    observations: []RunObservation,
-    fill_values: []u64,
-    glyph_values: []u64,
-    upload_values: []u64,
-) !void {
+fn runWorkloadWarm(io: std.Io, counting: *CountingAllocator, preparer: *text_mod.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext, observations: []RunObservation, fill_values: []u64, glyph_values: []u64, upload_values: []u64) !void {
     for (observations, 0..) |*observation, idx| {
         counting.resetWindow();
         const start_ns = nowNs(io);
@@ -712,13 +702,7 @@ fn runWorkloadWarm(
     }
 }
 
-fn summarizeWarmRuns(
-    allocator: std.mem.Allocator,
-    observations: []const RunObservation,
-    fill_values: []u64,
-    glyph_values: []u64,
-    upload_values: []u64,
-) !WarmSummary {
+fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObservation, fill_values: []u64, glyph_values: []u64, upload_values: []u64) !WarmSummary {
     const ns_values = try allocator.alloc(u64, observations.len);
     defer allocator.free(ns_values);
     const alloc_count_values = try allocator.alloc(u64, observations.len);
@@ -763,13 +747,7 @@ fn summarizeWarmRuns(
     };
 }
 
-fn runWorkloadInitState(
-    allocator: std.mem.Allocator,
-    workload: Workload,
-    counting: *CountingAllocator,
-    preparer: *text_mod.TextFramePreparer,
-    context: *WorkloadPrepareContext,
-) void {
+fn runWorkloadInitState(allocator: std.mem.Allocator, workload: Workload, counting: *CountingAllocator, preparer: *text_mod.TextFramePreparer, context: *WorkloadPrepareContext) void {
     context.* = initPrepareContext(workload);
     counting.* = CountingAllocator.init(allocator);
     preparer.* = text_mod.TextFramePreparer.init(counting.allocator());

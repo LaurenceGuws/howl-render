@@ -37,10 +37,7 @@ pub const Submitted = struct {
         self.submit_mailbox.publish(prepared);
     }
 
-    pub fn takeValidatedSubmitWithLatest(
-        self: *Submitted,
-        latest_token: ?tokens.SnapshotToken,
-    ) SubmitDecision {
+    pub fn takeValidatedSubmitWithLatest(self: *Submitted, latest_token: ?tokens.SnapshotToken) SubmitDecision {
         lockMutex(&self.mutex);
         const prepared = self.submit_mailbox.takeLatest() orelse {
             self.mutex.unlock();
@@ -56,10 +53,7 @@ pub const Submitted = struct {
         return .{ .needs_full_prepare = reason };
     }
 
-    pub fn validatePrepared(
-        self: *const Submitted,
-        prepared: tokens.PreparedSurfaceToken,
-    ) tokens.SubmitValidation {
+    pub fn validatePrepared(self: *const Submitted, prepared: tokens.PreparedSurfaceToken) tokens.SubmitValidation {
         const submitted_owner: *Submitted = @constCast(self);
         lockMutex(&submitted_owner.mutex);
         defer submitted_owner.mutex.unlock();
@@ -89,10 +83,7 @@ pub const Submitted = struct {
         return if (self.submitted_token) |submitted| submitted.token else null;
     }
 
-    pub fn prepareTokenForRetainedState(
-        token: tokens.SnapshotToken,
-        submitted_token: ?tokens.SnapshotToken,
-    ) tokens.SnapshotToken {
+    pub fn prepareTokenForRetainedState(token: tokens.SnapshotToken, submitted_token: ?tokens.SnapshotToken) tokens.SnapshotToken {
         if (!token.requiresRetainedBase()) return token;
         const submitted = submitted_token orelse return forceFull(token);
         if (submitted.geometry_epoch != token.geometry_epoch) return forceFull(token);
@@ -119,11 +110,7 @@ pub const Submitted = struct {
         };
     }
 
-    fn isStalePrepared(
-        self: *const Submitted,
-        latest_token: ?tokens.SnapshotToken,
-        token: tokens.SnapshotToken,
-    ) bool {
+    fn isStalePrepared(self: *const Submitted, latest_token: ?tokens.SnapshotToken, token: tokens.SnapshotToken) bool {
         _ = self;
         const latest = latest_token orelse return false;
         return latest.isNewerThan(token);

@@ -2,10 +2,7 @@ const c = @import("../ffi.zig").c;
 const handle_owner = @import("handle.zig");
 const session_text = @import("../session/text.zig");
 
-pub fn workState(
-    value: c.HowlRenderTextSessionHandle,
-    out: ?*c.HowlRenderSessionWorkState,
-) callconv(.c) c_int {
+pub fn workState(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderSessionWorkState) callconv(.c) c_int {
     const session_work_state_out = out;
     const owner = handle_owner.textSessionOwner(value) orelse {
         if (session_work_state_out) |state| state.* = sessionWorkStateFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);

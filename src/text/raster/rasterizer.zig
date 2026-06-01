@@ -109,12 +109,7 @@ fn boxDrawingRasterMetrics(cell_metrics: contract.CellMetrics) contract.BoxDrawi
     return .{ .light_stroke_px = light, .heavy_stroke_px = @intCast(@min(@as(u32, light) * 2, std.math.maxInt(u16))) };
 }
 
-pub fn appendPendingRequest(
-    allocator: std.mem.Allocator,
-    requests: *std.ArrayList(contract.SpriteRasterRequest),
-    pending: bool,
-    req: contract.SpriteRasterRequest,
-) !void {
+pub fn appendPendingRequest(allocator: std.mem.Allocator, requests: *std.ArrayList(contract.SpriteRasterRequest), pending: bool, req: contract.SpriteRasterRequest) !void {
     if (!pending) return;
     std.debug.assert(req.width_px > 0);
     std.debug.assert(req.height_px > 0);
@@ -149,11 +144,7 @@ fn requestColorMode(kind: contract.GlyphGroupKind) contract.SpriteColorMode {
     return if (kind == .emoji) .color else .alpha;
 }
 
-fn appendUniqueRequest(
-    allocator: std.mem.Allocator,
-    requests: *std.ArrayList(contract.SpriteRasterRequest),
-    req: contract.SpriteRasterRequest,
-) !void {
+fn appendUniqueRequest(allocator: std.mem.Allocator, requests: *std.ArrayList(contract.SpriteRasterRequest), req: contract.SpriteRasterRequest) !void {
     std.debug.assert(req.width_px > 0);
     std.debug.assert(req.height_px > 0);
     if (hasRequestKey(requests.items, req.key)) return;

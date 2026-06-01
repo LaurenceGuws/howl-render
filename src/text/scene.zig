@@ -101,30 +101,13 @@ pub const RetainedScratch = struct {
     }
 };
 
-pub fn buildSceneWithOptions(
-    allocator: std.mem.Allocator,
-    cells: []const contract.RenderableCell,
-    groups: []const contract.GlyphGroup,
-    missing: []const contract.MissingGlyph,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    options: BuildOptions,
-) !OwnedTextScene {
+pub fn buildSceneWithOptions(allocator: std.mem.Allocator, cells: []const contract.RenderableCell, groups: []const contract.GlyphGroup, missing: []const contract.MissingGlyph, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, options: BuildOptions) !OwnedTextScene {
     var cache = try atlas_cache.OwnedAtlasCache.init(allocator, @intCast(groups.len + cells.len));
     defer cache.deinit();
     return buildSceneWithAtlasCacheOptions(allocator, cells, groups, missing, cell_metrics, grid_metrics, &cache, options);
 }
 
-pub fn buildSceneWithAtlasCacheOptions(
-    allocator: std.mem.Allocator,
-    cells: []const contract.RenderableCell,
-    groups: []const contract.GlyphGroup,
-    missing: []const contract.MissingGlyph,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    cache: *atlas_cache.OwnedAtlasCache,
-    options: BuildOptions,
-) !OwnedTextScene {
+pub fn buildSceneWithAtlasCacheOptions(allocator: std.mem.Allocator, cells: []const contract.RenderableCell, groups: []const contract.GlyphGroup, missing: []const contract.MissingGlyph, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, cache: *atlas_cache.OwnedAtlasCache, options: BuildOptions) !OwnedTextScene {
     const damage = normalizedDamage(options.damage, grid_metrics.rows);
     var assembly = SceneAssembly{ .allocator = allocator };
     errdefer assembly.deinit();
@@ -139,17 +122,7 @@ pub fn buildSceneWithAtlasCacheOptions(
     return assembly.toOwnedScene(damage);
 }
 
-pub fn buildBorrowedSceneWithAtlasCacheOptions(
-    allocator: std.mem.Allocator,
-    scratch: *RetainedScratch,
-    cells: []const contract.RenderableCell,
-    groups: []const contract.GlyphGroup,
-    missing: []const contract.MissingGlyph,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    cache: *atlas_cache.OwnedAtlasCache,
-    options: BuildOptions,
-) !BorrowedTextScene {
+pub fn buildBorrowedSceneWithAtlasCacheOptions(allocator: std.mem.Allocator, scratch: *RetainedScratch, cells: []const contract.RenderableCell, groups: []const contract.GlyphGroup, missing: []const contract.MissingGlyph, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, cache: *atlas_cache.OwnedAtlasCache, options: BuildOptions) !BorrowedTextScene {
     const damage = normalizedDamage(options.damage, grid_metrics.rows);
     const capacities = drawCapacities(cells, groups, cell_metrics, grid_metrics, damage, options.cursor);
     try scratch.reset(allocator, capacities);
@@ -259,12 +232,7 @@ const SceneAssembly = struct {
         } };
     }
 
-    fn appendRasterizedSpriteDraw(
-        self: *SceneAssembly,
-        cache: *atlas_cache.OwnedAtlasCache,
-        req: contract.SpriteRasterRequest,
-        draw: SpriteDrawInput,
-    ) !void {
+    fn appendRasterizedSpriteDraw(self: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, req: contract.SpriteRasterRequest, draw: SpriteDrawInput) !void {
         std.debug.assert(draw.width_px > 0);
         std.debug.assert(draw.height_px > 0);
         const residency = cache.reserveRequest(req);
@@ -295,17 +263,7 @@ const SceneAssembly = struct {
         try self.decoration_draws.append(self.allocator, draw);
     }
 
-    fn appendUndercurl(
-        self: *SceneAssembly,
-        cache: *atlas_cache.OwnedAtlasCache,
-        cell: contract.RenderableCell,
-        x: i32,
-        row_y: i32,
-        width: u16,
-        deco: contract.DecorationGeometry,
-        cell_metrics: contract.CellMetrics,
-        color: contract.Rgba8,
-    ) !void {
+    fn appendUndercurl(self: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, cell: contract.RenderableCell, x: i32, row_y: i32, width: u16, deco: contract.DecorationGeometry, cell_metrics: contract.CellMetrics, color: contract.Rgba8) !void {
         const cell_h = @max(cell_metrics.cell_h_px, 1);
         const underline_position: u16 = @intCast(std.math.clamp(deco.underline_y_px, 0, @as(i32, @intCast(cell_h - 1))));
         const underline_thickness = deco.underline_h_px;
@@ -368,25 +326,13 @@ const underline_routes = [5]UnderlineRoute{
     .dashed,
 };
 
-fn appendSceneCursorDraws(
-    assembly: *SceneAssembly,
-    cursor: ?CursorInput,
-    damage: NormalizedDamage,
-    cell_metrics: contract.CellMetrics,
-) !void {
+fn appendSceneCursorDraws(assembly: *SceneAssembly, cursor: ?CursorInput, damage: NormalizedDamage, cell_metrics: contract.CellMetrics) !void {
     const cursor_value = cursor orelse return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
     try assembly.appendCursorDraws(cursor_value, cell_metrics);
 }
 
-fn drawCapacities(
-    cells: []const contract.RenderableCell,
-    groups: []const contract.GlyphGroup,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
-    cursor: ?CursorInput,
-) DrawCapacities {
+fn drawCapacities(cells: []const contract.RenderableCell, groups: []const contract.GlyphGroup, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: NormalizedDamage, cursor: ?CursorInput) DrawCapacities {
     return .{
         .sprite_draws = countGroupSpriteDraws(groups, grid_metrics, damage) + countCurlyUnderlineSprites(cells, grid_metrics, damage),
         .background_draws = cells.len,
@@ -428,12 +374,7 @@ fn countClearDraws(grid_metrics: contract.GridMetrics, damage: NormalizedDamage)
     return count;
 }
 
-fn countDecorationDraws(
-    cells: []const contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
-) usize {
+fn countDecorationDraws(cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) usize {
     const font_metrics = defaultFontMetrics(cell_metrics);
     const deco = decorationGeometry(cell_metrics, font_metrics);
     var count: usize = 0;
@@ -493,12 +434,7 @@ fn classifyDecorationAppend(last: contract.TextDecorationDraw, draw: contract.Te
     return .merge;
 }
 
-fn classifyIconSpan(
-    group: contract.GlyphGroup,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    next_group_cell: ?u32,
-) IconSpan {
+fn classifyIconSpan(group: contract.GlyphGroup, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, next_group_cell: ?u32) IconSpan {
     if (group.kind != .icon) return .keep_kind;
     if (cell_metrics.cell_w_px == 0) return .keep_zero_width;
     const desired = desiredIconCells(group, cell_metrics.cell_w_px);
@@ -675,14 +611,7 @@ fn classifyBackgroundLead(damage: NormalizedDamage, grid_metrics: contract.GridM
     return .span;
 }
 
-fn classifyBackgroundNext(
-    damage: NormalizedDamage,
-    grid_metrics: contract.GridMetrics,
-    row: u16,
-    fill_color: contract.Rgba8,
-    span_end_cell: u32,
-    cell: contract.RenderableCell,
-) BackgroundNext {
+fn classifyBackgroundNext(damage: NormalizedDamage, grid_metrics: contract.GridMetrics, row: u16, fill_color: contract.Rgba8, span_end_cell: u32, cell: contract.RenderableCell) BackgroundNext {
     if (cell.continuation) return .stop_continuation;
     if (!includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .stop_damage;
     if (!sameRgba8(cell.bg, fill_color)) return .stop_color;
@@ -691,15 +620,7 @@ fn classifyBackgroundNext(
     return .merge;
 }
 
-fn appendGroupSpriteDraws(
-    assembly: *SceneAssembly,
-    cache: *atlas_cache.OwnedAtlasCache,
-    cells: []const contract.RenderableCell,
-    groups: []const contract.GlyphGroup,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
-) !void {
+fn appendGroupSpriteDraws(assembly: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, cells: []const contract.RenderableCell, groups: []const contract.GlyphGroup, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) !void {
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const cell_w = @as(i32, @intCast(cell_metrics.cell_w_px));
     const cell_h = @as(i32, @intCast(cell_metrics.cell_h_px));
@@ -725,11 +646,7 @@ fn appendGroupSpriteDraws(
     }
 }
 
-pub fn cursorDraws(
-    allocator: std.mem.Allocator,
-    cursor: CursorInput,
-    cell_metrics: contract.CellMetrics,
-) ![]contract.TextCursorDraw {
+pub fn cursorDraws(allocator: std.mem.Allocator, cursor: CursorInput, cell_metrics: contract.CellMetrics) ![]contract.TextCursorDraw {
     const base_x: i32 = @as(i32, @intCast(cursor.cell_col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
     const base_y: i32 = @as(i32, @intCast(cursor.cell_row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
     const geom = cursorGeometry(cell_metrics);
@@ -751,14 +668,7 @@ pub fn cursorDraws(
     return draws;
 }
 
-fn appendBackgroundDraws(
-    allocator: std.mem.Allocator,
-    out: *std.ArrayList(contract.TextBackgroundDraw),
-    cells: []const contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
-) !void {
+fn appendBackgroundDraws(allocator: std.mem.Allocator, out: *std.ArrayList(contract.TextBackgroundDraw), cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) !void {
     const cell_len = count32(cells);
     var idx: u32 = 0;
     while (idx < cell_len) {
@@ -799,14 +709,7 @@ fn appendBackgroundDraws(
     }
 }
 
-fn appendClearDraws(
-    allocator: std.mem.Allocator,
-    out: *std.ArrayList(contract.TextClearDraw),
-    cells: []const contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
-) !void {
+fn appendClearDraws(allocator: std.mem.Allocator, out: *std.ArrayList(contract.TextClearDraw), cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) !void {
     if (damage.full) return;
     const rows = @min(grid_metrics.rows, damageRowCount(damage));
     var row: u16 = 0;
@@ -859,14 +762,7 @@ fn sameRgba8(a: contract.Rgba8, b: contract.Rgba8) bool {
     return a.r == b.r and a.g == b.g and a.b == b.b and a.a == b.a;
 }
 
-fn appendDecorationDraws(
-    assembly: *SceneAssembly,
-    cache: *atlas_cache.OwnedAtlasCache,
-    cells: []const contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
-) !void {
+fn appendDecorationDraws(assembly: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) !void {
     const font_metrics = defaultFontMetrics(cell_metrics);
     const deco = decorationGeometry(cell_metrics, font_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
@@ -882,17 +778,7 @@ fn appendDecorationDraws(
     }
 }
 
-fn appendDecorationEffect(
-    assembly: *SceneAssembly,
-    cache: *atlas_cache.OwnedAtlasCache,
-    effect: DecorationEffect,
-    cell: contract.RenderableCell,
-    base_x: i32,
-    base_y: i32,
-    width_px: u16,
-    deco: contract.DecorationGeometry,
-    cell_metrics: contract.CellMetrics,
-) !void {
+fn appendDecorationEffect(assembly: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, effect: DecorationEffect, cell: contract.RenderableCell, base_x: i32, base_y: i32, width_px: u16, deco: contract.DecorationGeometry, cell_metrics: contract.CellMetrics) !void {
     switch (effect) {
         .underline => try appendUnderlineDraws(assembly, cache, cell, base_x, base_y, width_px, deco, cell_metrics),
         .strikethrough => try assembly.appendDecoration(.{
@@ -908,29 +794,11 @@ fn appendDecorationEffect(
     }
 }
 
-fn appendDecorationDraw(
-    assembly: *SceneAssembly,
-    kind: contract.DecorationKind,
-    cell: contract.RenderableCell,
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) !void {
+fn appendDecorationDraw(assembly: *SceneAssembly, kind: contract.DecorationKind, cell: contract.RenderableCell, x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) !void {
     try assembly.appendDecoration(.{ .kind = kind, .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = cell.first_cell, .cell_span = cell.cell_span });
 }
 
-fn appendUnderlineDraws(
-    assembly: *SceneAssembly,
-    cache: *atlas_cache.OwnedAtlasCache,
-    cell: contract.RenderableCell,
-    x: i32,
-    row_y: i32,
-    width: u16,
-    deco: contract.DecorationGeometry,
-    cell_metrics: contract.CellMetrics,
-) !void {
+fn appendUnderlineDraws(assembly: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, cell: contract.RenderableCell, x: i32, row_y: i32, width: u16, deco: contract.DecorationGeometry, cell_metrics: contract.CellMetrics) !void {
     const color = if (cell.underline_color.a == 0) cell.fg else cell.underline_color;
     const y = row_y + deco.underline_y_px;
     const height = deco.underline_h_px;

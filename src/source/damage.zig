@@ -2,13 +2,7 @@ const std = @import("std");
 const tokens = @import("../render/tokens.zig");
 const source_vt = @import("vt.zig");
 
-pub fn validateDirtySource(
-    rows: u16,
-    cols: u16,
-    dirty_rows: []const u8,
-    dirty_cols_start: []const u16,
-    dirty_cols_end: []const u16,
-) !void {
+pub fn validateDirtySource(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) !void {
     if (dirty_rows.len != rows) return error.InvalidSurfaceSource;
     if (dirty_cols_start.len != rows) return error.InvalidSurfaceSource;
     if (dirty_cols_end.len != rows) return error.InvalidSurfaceSource;
@@ -27,12 +21,7 @@ pub fn validateDirtySource(
     }
 }
 
-pub fn canonicalizeDirtyMetadata(
-    rows: u16,
-    dirty_rows: []const u8,
-    dirty_cols_start: []u16,
-    dirty_cols_end: []u16,
-) void {
+pub fn canonicalizeDirtyMetadata(rows: u16, dirty_rows: []const u8, dirty_cols_start: []u16, dirty_cols_end: []u16) void {
     std.debug.assert(dirty_rows.len == rows);
     std.debug.assert(dirty_cols_start.len == rows);
     std.debug.assert(dirty_cols_end.len == rows);
@@ -45,10 +34,7 @@ pub fn canonicalizeDirtyMetadata(
     }
 }
 
-pub fn cursorPresentationChanged(
-    prior: source_vt.PublicationSource,
-    current: source_vt.PublicationSource,
-) bool {
+pub fn cursorPresentationChanged(prior: source_vt.PublicationSource, current: source_vt.PublicationSource) bool {
     if (prior.cursor.visible != current.cursor.visible) return true;
     if (prior.cursor.row != current.cursor.row or prior.cursor.col != current.cursor.col) return true;
     if (prior.cursor.shape != current.cursor.shape) return true;
@@ -58,10 +44,7 @@ pub fn cursorPresentationChanged(
     return false;
 }
 
-pub fn colorPresentationChanged(
-    prior: source_vt.PublicationSource,
-    current: source_vt.PublicationSource,
-) bool {
+pub fn colorPresentationChanged(prior: source_vt.PublicationSource, current: source_vt.PublicationSource) bool {
     return !std.mem.eql(u8, std.mem.asBytes(&prior.colors), std.mem.asBytes(&current.colors));
 }
 
@@ -121,15 +104,7 @@ pub fn classifyDirty(snapshot: source_vt.VtSnapshot) tokens.DamageKind {
     return .partial;
 }
 
-fn testSnapshot(
-    rows: u16,
-    cols: u16,
-    scroll_row: u64,
-    snapshot_seq: u64,
-    dirty_rows: []const u8,
-    dirty_cols_start: []const u16,
-    dirty_cols_end: []const u16,
-) source_vt.VtSnapshot {
+fn testSnapshot(rows: u16, cols: u16, scroll_row: u64, snapshot_seq: u64, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) source_vt.VtSnapshot {
     return .{
         .cols = cols,
         .rows = rows,

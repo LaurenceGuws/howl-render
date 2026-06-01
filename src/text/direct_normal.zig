@@ -91,16 +91,7 @@ pub const Driver = struct {
     scratch: *Scratch,
 };
 
-pub fn prepare(
-    driver: Driver,
-    source: Source,
-    policy: Policy,
-    grid_metrics: contract.GridMetrics,
-    session: font_session.FontSession,
-    damage_input: scene.DamageInput,
-    cursor: ?scene.CursorInput,
-    lane_report: *lane.LaneReport,
-) !?Product {
+pub fn prepare(driver: Driver, source: Source, policy: Policy, grid_metrics: contract.GridMetrics, session: font_session.FontSession, damage_input: scene.DamageInput, cursor: ?scene.CursorInput, lane_report: *lane.LaneReport) !?Product {
     const damage = direct_scene.Damage.init(damage_input, grid_metrics.rows);
     const source_len = sourceLen(source);
     const visible_count = countVisible(source, damage, grid_metrics, policy, lane_report) orelse return null;
@@ -113,11 +104,7 @@ pub fn prepare(
     return try finishScene(driver, damage, lane_report);
 }
 
-pub fn counters(
-    scratch: *const Scratch,
-    lane_report: lane.LaneReport,
-    direct: Product,
-) prepare_counters.TextPrepareCounters {
+pub fn counters(scratch: *const Scratch, lane_report: lane.LaneReport, direct: Product) prepare_counters.TextPrepareCounters {
     return .{
         .cell_texts = lane_report.visible_cells,
         .clusters = lane_report.normal_clusters,

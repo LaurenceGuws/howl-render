@@ -903,13 +903,7 @@ fn preparedSurface(options: PreparedOptions) prepared_surface_model.PreparedSurf
         },
     };
 }
-fn backgroundDraw(
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: text_contract.Rgba8,
-) text_contract.TextBackgroundDraw {
+fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: text_contract.Rgba8) text_contract.TextBackgroundDraw {
     return .{
         .x_px = x,
         .y_px = y,

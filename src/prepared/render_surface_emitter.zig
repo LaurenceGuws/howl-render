@@ -173,13 +173,7 @@ pub const SpriteResourceStore = struct {
         }
     }
 
-    fn resourceFor(
-        self: *SpriteResourceStore,
-        sprite: PreparedSprite,
-        width_px: u16,
-        height_px: u16,
-        bytes: []const u8,
-    ) Error!Result {
+    fn resourceFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!Result {
         const format = uploadFormatForPrepared(sprite.color_mode);
         const bytes_hash = hashSpriteBytes(sprite, width_px, height_px, bytes);
         for (self.entries[0..@intCast(self.count)]) |entry| {
@@ -224,13 +218,7 @@ pub const SpriteResourceStore = struct {
         return .{ .resource = resource, .lifetime = .persistent };
     }
 
-    fn atlasRegionFor(
-        self: *SpriteResourceStore,
-        sprite: PreparedSprite,
-        width_px: u16,
-        height_px: u16,
-        bytes: []const u8,
-    ) Error!AtlasResult {
+    fn atlasRegionFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!AtlasResult {
         std.debug.assert(sprite.color_mode == .alpha);
         const bytes_hash = hashSpriteBytes(sprite, width_px, height_px, bytes);
         for (self.atlas_entries[0..@intCast(self.atlas_count)]) |entry| {
@@ -301,10 +289,7 @@ pub const SpriteResourceStore = struct {
         return rect_value;
     }
 
-    fn nextResource(
-        self: *SpriteResourceStore,
-        color_mode: contract.SpriteColorMode,
-    ) Error!ResourceId {
+    fn nextResource(self: *SpriteResourceStore, color_mode: contract.SpriteColorMode) Error!ResourceId {
         if (self.value_next == 0) return error.ResourceBoundOverflow;
         const resource = ResourceId{
             .value = self.value_next,
@@ -383,12 +368,7 @@ pub fn Emitter(comptime limits: Limits) type {
             return &self.surface_storage;
         }
 
-        pub fn emitPrepared(
-            self: *Self,
-            resources: *SpriteResourceStore,
-            session: *text_session.TextSession,
-            prepared: *const prepared_surface.PreparedSurface,
-        ) Error!*const Surface {
+        pub fn emitPrepared(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
             var next = self.*;
             var next_resources = resources.*;
             next.resetPrepared(prepared);
@@ -467,10 +447,7 @@ pub fn Emitter(comptime limits: Limits) type {
             });
         }
 
-        fn appendPreparedClears(
-            self: *Self,
-            draws: []const contract.TextClearDraw,
-        ) Error!void {
+        fn appendPreparedClears(self: *Self, draws: []const contract.TextClearDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -481,10 +458,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedBackgrounds(
-            self: *Self,
-            draws: []const contract.TextBackgroundDraw,
-        ) Error!void {
+        fn appendPreparedBackgrounds(self: *Self, draws: []const contract.TextBackgroundDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -495,10 +469,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedDecorations(
-            self: *Self,
-            draws: []const contract.TextDecorationDraw,
-        ) Error!void {
+        fn appendPreparedDecorations(self: *Self, draws: []const contract.TextDecorationDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -509,10 +480,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedCursors(
-            self: *Self,
-            draws: []const contract.TextCursorDraw,
-        ) Error!void {
+        fn appendPreparedCursors(self: *Self, draws: []const contract.TextCursorDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -523,15 +491,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedFillCommand(
-            self: *Self,
-            x_px: i32,
-            y_px: i32,
-            width_px: u16,
-            height_px: u16,
-            color: contract.Rgba8,
-            kind: u8,
-        ) Error!void {
+        fn appendPreparedFillCommand(self: *Self, x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: contract.Rgba8, kind: u8) Error!void {
             const command = c.HowlRenderSurfaceCommand{
                 .kind = kind,
                 .reserved0 = 0,
@@ -589,12 +549,7 @@ pub fn Emitter(comptime limits: Limits) type {
             }
         }
 
-        fn appendPreparedSprites(
-            self: *Self,
-            resources: *SpriteResourceStore,
-            session: *text_session.TextSession,
-            prepared: *const prepared_surface.PreparedSurface,
-        ) Error!void {
+        fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!void {
             for (prepared.text_frame.scene.scene.sprite_draws) |draw| {
                 const sprite = lookupPreparedSprite(
                     session,
@@ -701,13 +656,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.create_count += 1;
         }
 
-        fn appendPreparedCreate(
-            self: *Self,
-            resource: ResourceId,
-            sprite: PreparedSprite,
-            width_px: u16,
-            height_px: u16,
-        ) Error!void {
+        fn appendPreparedCreate(self: *Self, resource: ResourceId, sprite: PreparedSprite, width_px: u16, height_px: u16) Error!void {
             if (self.create_count >= limits.creates_max) return error.CreateBoundOverflow;
             self.creates[self.create_count] = .{
                 .resource = resource,
@@ -760,14 +709,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.upload_count += 1;
         }
 
-        fn appendPreparedUpload(
-            self: *Self,
-            resource: ResourceId,
-            sprite: PreparedSprite,
-            width_px: u16,
-            height_px: u16,
-            upload_range: ByteRange,
-        ) Error!void {
+        fn appendPreparedUpload(self: *Self, resource: ResourceId, sprite: PreparedSprite, width_px: u16, height_px: u16, upload_range: ByteRange) Error!void {
             if (self.upload_count >= limits.uploads_max) return error.UploadBoundOverflow;
             const bytes_per_pixel = bytesPerPixelForPrepared(sprite.color_mode);
             const upload_stride = std.math.mul(u32, width_px, bytes_per_pixel) catch {
@@ -791,12 +733,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.upload_count += 1;
         }
 
-        fn appendPreparedAtlasUpload(
-            self: *Self,
-            resource: ResourceId,
-            atlas_rect: Rect,
-            upload_range: ByteRange,
-        ) Error!void {
+        fn appendPreparedAtlasUpload(self: *Self, resource: ResourceId, atlas_rect: Rect, upload_range: ByteRange) Error!void {
             if (self.upload_count >= limits.uploads_max) return error.UploadBoundOverflow;
             const bytes_count = upload_range.end - upload_range.start;
             std.debug.assert(upload_range.end == self.upload_bytes_count);
@@ -813,13 +750,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.upload_count += 1;
         }
 
-        fn stagePreparedUploadBytes(
-            self: *Self,
-            sprite: PreparedSprite,
-            bounds: text.Rasterizer.SpriteBounds,
-            width_px: u16,
-            height_px: u16,
-        ) Error!ByteRange {
+        fn stagePreparedUploadBytes(self: *Self, sprite: PreparedSprite, bounds: text.Rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!ByteRange {
             const bytes_per_pixel = bytesPerPixelForPrepared(sprite.color_mode);
             const upload_stride = std.math.mul(u32, width_px, bytes_per_pixel) catch {
                 return error.UploadBytesOverflow;
@@ -1049,11 +980,7 @@ fn gridSizeOut(size: geometry_contract.GridSize) c.HowlRenderGridSize {
     return .{ .cols = size.cols, .rows = size.rows };
 }
 
-fn lookupPreparedSprite(
-    session: *text_session.TextSession,
-    prepared: *const prepared_surface.PreparedSurface,
-    sprite_key: contract.SpriteKey,
-) error{MissingSprite}!PreparedSprite {
+fn lookupPreparedSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: contract.SpriteKey) error{MissingSprite}!PreparedSprite {
     for (prepared.text_frame.raster_plan.outputs) |output| {
         if (output.key.value != sprite_key.value) continue;
         return .{
@@ -1081,12 +1008,7 @@ fn lookupPreparedSprite(
     };
 }
 
-fn hashSpriteBytes(
-    sprite: PreparedSprite,
-    width_px: u16,
-    height_px: u16,
-    bytes: []const u8,
-) u64 {
+fn hashSpriteBytes(sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) u64 {
     var hasher = std.hash.Wyhash.init(0x5350524954455630);
     hasher.update(std.mem.asBytes(&sprite.key.value));
     hasher.update(std.mem.asBytes(&width_px));
@@ -1101,24 +1023,14 @@ fn packedStrideForOutput(output: text.Rasterizer.RasterSpriteOutput) u32 {
     return @as(u32, output.width_px) * bytesPerPixelForPrepared(output.color_mode);
 }
 
-fn visualBoundsForDraw(
-    bounds: text.Rasterizer.SpriteBounds,
-    draw: contract.TextSpriteDraw,
-) text.Rasterizer.SpriteBounds {
+fn visualBoundsForDraw(bounds: text.Rasterizer.SpriteBounds, draw: contract.TextSpriteDraw) text.Rasterizer.SpriteBounds {
     if (bounds.width_px != 0) {
         if (bounds.height_px != 0) return bounds;
     }
     return .{ .x_px = 0, .y_px = 0, .width_px = draw.width_px, .height_px = draw.height_px };
 }
 
-fn copyPreparedSpriteBytes(
-    target: []u8,
-    target_stride: u32,
-    sprite: PreparedSprite,
-    bounds: text.Rasterizer.SpriteBounds,
-    width_px: u16,
-    height_px: u16,
-) Error!void {
+fn copyPreparedSpriteBytes(target: []u8, target_stride: u32, sprite: PreparedSprite, bounds: text.Rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!void {
     const bytes_per_pixel = bytesPerPixelForPrepared(sprite.color_mode);
     const source_right = std.math.add(u32, bounds.x_px, width_px) catch {
         return error.InvalidPreparedSprite;
@@ -1166,15 +1078,7 @@ fn rect(x_px: i32, y_px: i32, width_px: u16, height_px: u16) Rect {
     return .{ .x_px = x_px, .y_px = y_px, .width_px = width_px, .height_px = height_px };
 }
 
-fn spriteFixture(
-    sprite_rect: Rect,
-    color_rgba: u32,
-    bytes: []const u8,
-    width_px: u16,
-    height_px: u16,
-    stride_bytes: u32,
-    color_mode: ColorMode,
-) Sprite {
+fn spriteFixture(sprite_rect: Rect, color_rgba: u32, bytes: []const u8, width_px: u16, height_px: u16, stride_bytes: u32, color_mode: ColorMode) Sprite {
     return .{
         .rect = sprite_rect,
         .color_rgba = color_rgba,
@@ -2297,12 +2201,7 @@ test "render surface surface emitter realizes partial prepared surface equal to 
     });
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, &base);
 }
-fn expectPreparedEmissionEqualsCompose(
-    allocator: std.mem.Allocator,
-    session: *text_session.TextSession,
-    prepared: *const prepared_surface.PreparedSurface,
-    base_pixels: ?[]const u8,
-) !void {
+fn expectPreparedEmissionEqualsCompose(allocator: std.mem.Allocator, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, base_pixels: ?[]const u8) !void {
     const oracle = try prepared_buffer.compose(allocator, base_pixels, session, prepared);
     defer allocator.free(oracle);
     const realized = try allocator.alloc(u8, oracle.len);
@@ -2368,15 +2267,7 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     };
 }
 
-fn rasterOutput(
-    allocator: std.mem.Allocator,
-    key: u64,
-    width_px: u16,
-    height_px: u16,
-    color_mode: contract.SpriteColorMode,
-    pixels: []u8,
-    visual_bounds: text.Rasterizer.SpriteBounds,
-) text.Rasterizer.RasterSpriteOutput {
+fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: contract.SpriteColorMode, pixels: []u8, visual_bounds: text.Rasterizer.SpriteBounds) text.Rasterizer.RasterSpriteOutput {
     return .{
         .allocator = allocator,
         .key = .{ .value = key },
@@ -2388,13 +2279,7 @@ fn rasterOutput(
     };
 }
 
-fn clearDraw(
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextClearDraw {
+fn clearDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextClearDraw {
     return .{
         .x_px = x,
         .y_px = y,
@@ -2406,13 +2291,7 @@ fn clearDraw(
     };
 }
 
-fn backgroundDraw(
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextBackgroundDraw {
+fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextBackgroundDraw {
     return .{
         .x_px = x,
         .y_px = y,
@@ -2424,13 +2303,7 @@ fn backgroundDraw(
     };
 }
 
-fn decorationDraw(
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextDecorationDraw {
+fn decorationDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextDecorationDraw {
     return .{
         .kind = .underline,
         .x_px = x,
@@ -2443,24 +2316,11 @@ fn decorationDraw(
     };
 }
 
-fn cursorDraw(
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextCursorDraw {
+fn cursorDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextCursorDraw {
     return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color };
 }
 
-fn spriteDraw(
-    key: u64,
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
-    color: contract.Rgba8,
-) contract.TextSpriteDraw {
+fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextSpriteDraw {
     return .{
         .sprite = .{ .slot = 0, .key = .{ .value = key } },
         .x_px = x,

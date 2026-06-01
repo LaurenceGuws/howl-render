@@ -7,14 +7,10 @@ pub fn textSessionOwner(handle: c.HowlRenderTextSessionHandle) ?*text_session.Te
     return @ptrCast(@alignCast(owned));
 }
 
-pub fn opaquePreparedHandle(
-    value: c.HowlRenderPreparedSurfaceHandle,
-) prepared_owner.PreparedSurfaceHandle {
+pub fn opaquePreparedHandle(value: c.HowlRenderPreparedSurfaceHandle) prepared_owner.PreparedSurfaceHandle {
     return if (value) |handle| @ptrCast(handle) else null;
 }
 
-pub fn abiPreparedHandle(
-    value: prepared_owner.PreparedSurfaceHandle,
-) c.HowlRenderPreparedSurfaceHandle {
+pub fn abiPreparedHandle(value: prepared_owner.PreparedSurfaceHandle) c.HowlRenderPreparedSurfaceHandle {
     return if (value) |handle| @ptrCast(handle) else null;
 }

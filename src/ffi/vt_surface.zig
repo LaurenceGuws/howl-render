@@ -10,12 +10,7 @@ comptime {
     assertVtCellLayout();
 }
 
-pub fn reserveVtSurfaceSlot(
-    value: c.HowlRenderTextSessionHandle,
-    cols: u16,
-    rows: u16,
-    out: ?*c.HowlRenderVtSurfaceSlot,
-) callconv(.c) c_int {
+pub fn reserveVtSurfaceSlot(value: c.HowlRenderTextSessionHandle, cols: u16, rows: u16, out: ?*c.HowlRenderVtSurfaceSlot) callconv(.c) c_int {
     const slot_out = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     slot_out.* = std.mem.zeroes(c.HowlRenderVtSurfaceSlot);
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
@@ -25,10 +20,7 @@ pub fn reserveVtSurfaceSlot(
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn commitVtSurface(
-    value: c.HowlRenderTextSessionHandle,
-    commit: c.HowlRenderVtSurfaceCommit,
-) callconv(.c) c.HowlRenderVtSurfacePublishResult {
+pub fn commitVtSurface(value: c.HowlRenderTextSessionHandle, commit: c.HowlRenderVtSurfaceCommit) callconv(.c) c.HowlRenderVtSurfacePublishResult {
     const owner = handle_owner.textSessionOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     const cursor = cursorIn(commit.cursor) orelse {
         owner.cancelVtSurface();
@@ -49,10 +41,7 @@ pub fn commitVtSurface(
     return vtSurfacePublishResultOut(result);
 }
 
-pub fn rejectVtSurface(
-    value: c.HowlRenderTextSessionHandle,
-    snapshot_seq: u64,
-) callconv(.c) c.HowlRenderVtSurfacePublishResult {
+pub fn rejectVtSurface(value: c.HowlRenderTextSessionHandle, snapshot_seq: u64) callconv(.c) c.HowlRenderVtSurfacePublishResult {
     const owner = handle_owner.textSessionOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     if (snapshot_seq == 0) return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
     return vtSurfacePublishResultWithStatus(owner.rejectVtSurface(snapshot_seq), c.HOWL_RENDER_CALL_FAILED);
@@ -80,10 +69,7 @@ pub fn vtSurfacePublishResultOut(value: source_vt.VtSurfacePublishResult) c.Howl
     return vtSurfacePublishResultWithStatus(value, c.HOWL_RENDER_CALL_OK);
 }
 
-pub fn vtSurfacePublishResultWithStatus(
-    value: source_vt.VtSurfacePublishResult,
-    status: c_int,
-) c.HowlRenderVtSurfacePublishResult {
+pub fn vtSurfacePublishResultWithStatus(value: source_vt.VtSurfacePublishResult, status: c_int) c.HowlRenderVtSurfacePublishResult {
     return .{
         .status = status,
         .published = @intFromBool(value.published),

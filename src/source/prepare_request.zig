@@ -50,12 +50,7 @@ pub const PrepareRequests = struct {
         self.blink_refresh_pending = false;
     }
 
-    pub fn acceptSource(
-        self: *PrepareRequests,
-        source: source_vt.PublicationSource,
-        submitted_token: ?tokens.SnapshotToken,
-        geometry_epoch: u64,
-    ) source_vt.VtSurfacePublishResult {
+    pub fn acceptSource(self: *PrepareRequests, source: source_vt.PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) source_vt.VtSurfacePublishResult {
         var owned = source;
         source_damage.canonicalizeDirtyMetadata(
             owned.rows,
@@ -93,11 +88,7 @@ pub const PrepareRequests = struct {
         };
     }
 
-    pub fn takePrepareRequest(
-        self: *PrepareRequests,
-        geometry_epoch: u64,
-        submitted_token: ?tokens.SnapshotToken,
-    ) ?tokens.RenderRequest {
+    pub fn takePrepareRequest(self: *PrepareRequests, geometry_epoch: u64, submitted_token: ?tokens.SnapshotToken) ?tokens.RenderRequest {
         if (self.active == null or (self.active.?.taken and self.pending != null)) {
             self.blink_refresh_pending = false;
             self.activatePending(geometry_epoch, submitted_token);
@@ -122,11 +113,7 @@ pub const PrepareRequests = struct {
         return self.active.?.request;
     }
 
-    pub fn consumePrepare(
-        self: *PrepareRequests,
-        layout: geometry_contract.PrepareLayout,
-        token: tokens.SnapshotToken,
-    ) !PrepareConsume {
+    pub fn consumePrepare(self: *PrepareRequests, layout: geometry_contract.PrepareLayout, token: tokens.SnapshotToken) !PrepareConsume {
         const active = self.active orelse return error.MissingPublishedSource;
         if (!source_damage.sameSnapshotToken(active.request.token, token)) return error.MismatchedPublishedSource;
         return .{ .request = active.request, .layout = layout, .state = active.publication.source };
@@ -272,11 +259,7 @@ pub const PrepareRequests = struct {
         };
     }
 
-    fn classify(
-        self: *const PrepareRequests,
-        source: source_vt.PublicationSource,
-        submitted_token: ?tokens.SnapshotToken,
-    ) tokens.DamageKind {
+    fn classify(self: *const PrepareRequests, source: source_vt.PublicationSource, submitted_token: ?tokens.SnapshotToken) tokens.DamageKind {
         const snapshot = source.snapshot();
         const damage_kind = source_damage.classifyDirty(snapshot);
         const prior = self.priorSource() orelse return damage_kind;
