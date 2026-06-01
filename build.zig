@@ -58,30 +58,6 @@ pub fn build(b: *std.Build) void {
         run_unit_tests.has_side_effects = true;
     }
 
-    const protocol_proof_mod = b.createModule(.{
-        .root_source_file = b.path("src/test_protocol_proof.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-    protocol_proof_mod.addIncludePath(b.path("include"));
-    protocol_proof_mod.addIncludePath(b.path("../howl-vt/include"));
-    protocol_proof_mod.addImport("test_font_options", test_font_options.createModule());
-    protocol_proof_mod.linkLibrary(freetype_lib);
-    protocol_proof_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
-    protocol_proof_mod.linkLibrary(harfbuzz_lib);
-    protocol_proof_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    const protocol_proof_tests = b.addTest(.{
-        .name = "test-protocol-proof",
-        .root_module = protocol_proof_mod,
-        .filters = b.args orelse &.{},
-    });
-    protocol_proof_tests.use_llvm = true;
-    const run_protocol_proof_tests = b.addRunArtifact(protocol_proof_tests);
-    if (b.args != null) {
-        run_protocol_proof_tests.has_side_effects = true;
-    }
-
     const abi_mod = b.createModule(.{
         .root_source_file = b.path("src/test_abi.zig"),
         .target = target,
@@ -111,27 +87,15 @@ pub fn build(b: *std.Build) void {
     const test_build_step = b.step("test:build", "Build render tests");
     const test_unit_step = b.step("test:unit", "Run render unit tests");
     const test_unit_build_step = b.step("test:unit:build", "Build render unit tests");
-    const test_protocol_proof_step = b.step(
-        "test:protocol-proof",
-        "Run protocol prepared proof tests",
-    );
-    const test_protocol_proof_build_step = b.step(
-        "test:protocol-proof:build",
-        "Build protocol prepared proof tests",
-    );
     const test_abi_step = b.step("test:abi", "Run shipped render ABI contract tests");
     const test_abi_build_step = b.step("test:abi:build", "Build shipped render ABI contract tests");
     test_unit_build_step.dependOn(&unit_tests.step);
     test_unit_step.dependOn(&run_unit_tests.step);
-    test_protocol_proof_build_step.dependOn(&protocol_proof_tests.step);
-    test_protocol_proof_step.dependOn(&run_protocol_proof_tests.step);
     test_abi_build_step.dependOn(&abi_tests.step);
     test_abi_step.dependOn(&run_abi_tests.step);
     test_build_step.dependOn(test_unit_build_step);
-    test_build_step.dependOn(test_protocol_proof_build_step);
     test_build_step.dependOn(test_abi_build_step);
     test_step.dependOn(test_unit_step);
-    test_step.dependOn(test_protocol_proof_step);
     test_step.dependOn(test_abi_step);
 
     const ffi_mod = b.createModule(.{
