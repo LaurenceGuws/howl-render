@@ -4,8 +4,8 @@ const builtin = @import("builtin");
 const c = @import("../ffi.zig").c;
 const contract = @import("../text/contract.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
-const prepared_surface = @import("../prepared/surface.zig");
-const realize = @import("realize.zig");
+const prepared_surface = @import("surface.zig");
+const realize = @import("../render/v0_frame_realizer.zig");
 const text = @import("../text/text.zig");
 const text_session = @import("../session/text.zig");
 

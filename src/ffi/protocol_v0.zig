@@ -347,5 +347,5 @@ fn assertOffset(comptime Mirror: type, comptime Abi: type, comptime field: []con
 }
 
 test {
-    _ = @import("../protocol_v0/realize.zig");
+    _ = @import("../render/v0_frame_realizer.zig");
 }
