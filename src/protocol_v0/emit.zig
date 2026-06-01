@@ -15,12 +15,16 @@ const GlyphRef = c.HowlRenderV0GlyphRef;
 pub const Frame = c.HowlRenderV0Frame;
 
 pub const persistent_sprite_resources_max: u32 = 384;
+pub const alpha_atlas_entries_max: u32 = 1024;
 const persistent_sprite_resource_bytes_max: u32 = 64 * 1024;
 const glyph_atlas_width_px: u16 = 1024;
 const glyph_atlas_height_px: u16 = 1024;
 
 comptime {
     std.debug.assert(persistent_sprite_resources_max < c.HOWL_RENDER_V0_RESOURCES_MAX);
+    std.debug.assert(alpha_atlas_entries_max > persistent_sprite_resources_max);
+    std.debug.assert(alpha_atlas_entries_max <=
+        @as(u32, glyph_atlas_width_px) * @as(u32, glyph_atlas_height_px));
 }
 
 pub const Error = error{
@@ -90,7 +94,7 @@ pub const SpriteResourceStore = struct {
     bytes_count: u32 = 0,
     value_next: u64 = 1,
     atlas_resource: ResourceId = zeroResource(),
-    atlas_entries: [persistent_sprite_resources_max]AtlasEntry = undefined,
+    atlas_entries: [alpha_atlas_entries_max]AtlasEntry = undefined,
     atlas_count: u32 = 0,
     atlas_next_x: u16 = 0,
     atlas_next_y: u16 = 0,
@@ -226,10 +230,10 @@ pub const SpriteResourceStore = struct {
             if (entry.height_px != height_px) continue;
             return .{ .resource = self.atlas_resource, .rect = entry.rect, .created = false, .uploaded = false };
         }
+        if (self.atlas_count >= alpha_atlas_entries_max) return error.ResourceBoundOverflow;
         const had_resource = !resourceIsZero(self.atlas_resource);
         const resource = try self.ensureAtlasResource();
         const rect_value = try self.reserveAtlasRect(width_px, height_px);
-        if (self.atlas_count >= persistent_sprite_resources_max) return error.ResourceBoundOverflow;
         self.atlas_entries[@intCast(self.atlas_count)] = .{
             .key = sprite.key,
             .bytes_hash = bytes_hash,
@@ -1349,4 +1353,41 @@ test "protocol v0 emitter leaves oracle path independent after emission failure"
     try realize.realize(emitter.frame(), &pixels, null);
     const oracle = [_]u8{ 255, 0, 0, 255 };
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
+}
+
+test "protocol v0 alpha atlas reports explicit entry exhaustion" {
+    var resources = SpriteResourceStore.init();
+    var pixel = [_]u8{255};
+    var index: u32 = 0;
+    while (index < alpha_atlas_entries_max) : (index += 1) {
+        const sprite = PreparedSprite{
+            .key = .{ .value = @as(u64, index) + 1 },
+            .pixels = &pixel,
+            .width_px = 1,
+            .height_px = 1,
+            .stride_bytes = 1,
+            .color_mode = .alpha,
+            .visual_bounds = .{},
+        };
+        const atlas = try resources.atlasRegionFor(sprite, 1, 1, &pixel);
+        try std.testing.expectEqual(index == 0, atlas.created);
+        try std.testing.expect(atlas.uploaded);
+        try std.testing.expect(atlas.resource.value != 0);
+    }
+    try std.testing.expectEqual(alpha_atlas_entries_max, resources.atlas_count);
+
+    const overflow_sprite = PreparedSprite{
+        .key = .{ .value = @as(u64, alpha_atlas_entries_max) + 1 },
+        .pixels = &pixel,
+        .width_px = 1,
+        .height_px = 1,
+        .stride_bytes = 1,
+        .color_mode = .alpha,
+        .visual_bounds = .{},
+    };
+    try std.testing.expectError(
+        error.ResourceBoundOverflow,
+        resources.atlasRegionFor(overflow_sprite, 1, 1, &pixel),
+    );
+    try std.testing.expectEqual(alpha_atlas_entries_max, resources.atlas_count);
 }

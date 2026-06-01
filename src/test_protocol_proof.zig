@@ -135,6 +135,43 @@ test "protocol v0 emitter realizes prepared alpha sprite frame equal to full rgb
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
+test "protocol v0 emitter emits more than old alpha atlas entry cap" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    var emitter = protocol_emit.Emitter(.{}).init();
+    var resources = protocol_emit.SpriteResourceStore.init();
+    var index: u32 = 0;
+    while (index <= protocol_emit.persistent_sprite_resources_max) : (index += 1) {
+        var sprite_bytes = [_]u8{@intCast((index % 251) + 1)};
+        var sprite_draws = [_]contract.TextSpriteDraw{
+            spriteDraw(10_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
+        };
+        var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{rasterOutput(
+            allocator,
+            10_000 + index,
+            1,
+            1,
+            .alpha,
+            &sprite_bytes,
+            .{},
+        )};
+        const prepared = preparedSurface(.{
+            .sprite_draws = &sprite_draws,
+            .raster_outputs = &raster_outputs,
+            .width_px = 1,
+            .height_px = 1,
+        });
+
+        const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+        try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
+        try std.testing.expectEqual(@as(u32, 1), frame.commands.count);
+        try std.testing.expectEqual(c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN, frame.commands.ptr[0].kind);
+    }
+    try std.testing.expectEqual(protocol_emit.persistent_sprite_resources_max + 1, resources.atlas_count);
+}
+
 test "protocol v0 emitter realizes prepared color sprite frame equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
