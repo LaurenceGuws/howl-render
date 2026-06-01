@@ -11,6 +11,13 @@ const surface_geometry = @import("../ffi/surface_geometry.zig");
 const text_session = @import("../ffi/text_session.zig");
 const vt_surface = @import("../ffi/vt_surface.zig");
 const work_state = @import("../ffi/work_state.zig");
+const prepared_buffer_model = @import("../prepared/buffer.zig");
+const prepared_owner_model = @import("../prepared/owner.zig");
+const prepared_surface_model = @import("../prepared/surface.zig");
+const render_surface_realizer = @import("../render/render_surface_realizer.zig");
+const text_contract = @import("../text/contract.zig");
+const text_model = @import("../text/text.zig");
+const text_session_model = @import("../session/text.zig");
 
 const c = ffi_root.c;
 const RenderVtSurfaceSlot = @field(c, "Howl" ++ "RenderVtSurfaceSlot");
@@ -812,4 +819,107 @@ fn expectInvalidPublishedCell(cell: RenderSourceCell) !void {
 
     var next_slot = std.mem.zeroes(RenderVtSurfaceSlot);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, vt_surface.reserveVtSurfaceSlot(handle, 1, 1, &next_slot));
+}
+test "render surface prepared ffi borrowed surface realizes explicit rgba oracle" {
+    const allocator = std.testing.allocator;
+    const session_owner = text_session_model.TextSessionOwner.create(
+        allocator,
+        .{ .surface_px = .{ .width = 2, .height = 1 } },
+    ) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    const background = [_]text_contract.TextBackgroundDraw{
+        backgroundDraw(0, 0, 2, 1, rgba(1, 2, 3, 255)),
+    };
+    var prepared = preparedSurface(.{
+        .background_draws = &background,
+        .width_px = 2,
+        .height_px = 1,
+    });
+    const oracle = try prepared_buffer_model.compose(allocator, null, &session_owner.session, &prepared);
+    defer allocator.free(oracle);
+    const owner = try prepared_owner_model.Owner.create(session_owner, &prepared);
+
+    var surface: ?*const c.HowlRenderSurface = null;
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_CALL_OK,
+        prepared_surface.renderSurface(@ptrCast(owner), &surface),
+    );
+    const value = surface orelse return error.MissingSurface;
+
+    const realized = try allocator.alloc(u8, oracle.len);
+    defer allocator.free(realized);
+    try render_surface_realizer.realize(value, realized, null);
+    try std.testing.expectEqualSlices(u8, oracle, realized);
+}
+const PreparedOptions = struct {
+    clear_draws: []const text_contract.TextClearDraw = &.{},
+    background_draws: []const text_contract.TextBackgroundDraw = &.{},
+    sprite_draws: []const text_contract.TextSpriteDraw = &.{},
+    decoration_draws: []const text_contract.TextDecorationDraw = &.{},
+    cursor_draws: []const text_contract.TextCursorDraw = &.{},
+    raster_outputs: []text_model.Rasterizer.RasterSpriteOutput = &.{},
+    width_px: u16,
+    height_px: u16,
+    full_redraw: bool = true,
+};
+
+fn preparedSurface(options: PreparedOptions) prepared_surface_model.PreparedSurface {
+    return .{
+        .allocator = std.testing.allocator,
+        .request = .{
+            .token = .{
+                .snapshot_seq = 1,
+                .dirty_epoch = 1,
+                .geometry_epoch = 1,
+                .damage_base_seq = if (options.full_redraw) 0 else 1,
+                .damage_kind = if (options.full_redraw) .full else .partial,
+            },
+        },
+        .geometry_epoch = 1,
+        .render_px = .{ .width = options.width_px, .height = options.height_px },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = options.width_px, .rows = options.height_px },
+        .text_frame = .{
+            .scene = .{
+                .allocator = std.testing.allocator,
+                .owned = false,
+                .scene = .{
+                    .clear_draws = options.clear_draws,
+                    .background_draws = options.background_draws,
+                    .sprite_draws = options.sprite_draws,
+                    .decoration_draws = options.decoration_draws,
+                    .cursor_draws = options.cursor_draws,
+                    .raster_requests = &.{},
+                    .missing = &.{},
+                    .full_redraw = options.full_redraw,
+                },
+            },
+            .raster_plan = .{
+                .allocator = std.testing.allocator,
+                .outputs = options.raster_outputs,
+                .owned = false,
+            },
+        },
+    };
+}
+fn backgroundDraw(
+    x: i32,
+    y: i32,
+    width: u16,
+    height: u16,
+    color: text_contract.Rgba8,
+) text_contract.TextBackgroundDraw {
+    return .{
+        .x_px = x,
+        .y_px = y,
+        .width_px = width,
+        .height_px = height,
+        .color = color,
+        .first_cell = 0,
+        .cell_span = 1,
+    };
+}
+fn rgba(r: u8, g: u8, b: u8, a: u8) text_contract.Rgba8 {
+    return .{ .r = r, .g = g, .b = b, .a = a };
 }
