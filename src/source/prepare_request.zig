@@ -13,7 +13,9 @@ pub const PrepareConsume = struct {
 
 pub const Publication = struct {
     source: source_vt.PublicationSource,
+    geometry_epoch: u64,
     damage_kind: tokens.DamageKind = .none,
+    allow_retained_reuse: bool = true,
 
     fn deinit(self: *Publication, allocator: std.mem.Allocator) void {
         self.source.deinit(allocator);
@@ -59,7 +61,7 @@ pub const PrepareRequests = struct {
             owned.dirty_cols_end,
         );
         const snapshot = owned.snapshot();
-        const damage_kind = self.classify(owned, submitted_token);
+        const damage_kind = self.classify(owned, submitted_token, geometry_epoch);
         const published = damage_kind != .none;
         if (!published) {
             owned.deinit(self.allocator);
@@ -77,7 +79,12 @@ pub const PrepareRequests = struct {
                     };
                 };
             }
-            self.replacePending(.{ .source = queued_source, .damage_kind = damage_kind });
+            self.replacePending(.{
+                .source = queued_source,
+                .geometry_epoch = geometry_epoch,
+                .damage_kind = damage_kind,
+                .allow_retained_reuse = !self.geometryChanged(geometry_epoch),
+            });
         }
         return .{
             .published = published,
@@ -124,7 +131,7 @@ pub const PrepareRequests = struct {
             return .{
                 .snapshot_seq = publication.source.snapshot_seq,
                 .dirty_epoch = publication.source.dirty_epoch,
-                .geometry_epoch = 0,
+                .geometry_epoch = publication.geometry_epoch,
                 .damage_base_seq = 0,
                 .damage_kind = publication.damage_kind,
             };
@@ -241,6 +248,7 @@ pub const PrepareRequests = struct {
 
     fn activatePending(self: *PrepareRequests, geometry_epoch: u64, submitted_token: ?tokens.SnapshotToken) void {
         const publication = self.pending orelse return;
+        std.debug.assert(publication.geometry_epoch == geometry_epoch);
         self.pending = null;
         const token = tokens.SnapshotToken{
             .snapshot_seq = publication.source.snapshot_seq,
@@ -255,11 +263,11 @@ pub const PrepareRequests = struct {
         self.dropActive();
         self.active = .{
             .publication = publication,
-            .request = .{ .token = token, .allow_retained_reuse = true },
+            .request = .{ .token = token, .allow_retained_reuse = publication.allow_retained_reuse },
         };
     }
 
-    fn classify(self: *const PrepareRequests, source: source_vt.PublicationSource, submitted_token: ?tokens.SnapshotToken) tokens.DamageKind {
+    fn classify(self: *const PrepareRequests, source: source_vt.PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) tokens.DamageKind {
         const snapshot = source.snapshot();
         const damage_kind = source_damage.classifyDirty(snapshot);
         const prior = self.priorSource() orelse return damage_kind;
@@ -268,6 +276,7 @@ pub const PrepareRequests = struct {
             prior_snapshot.snapshot_seq == token.snapshot_seq
         else
             false;
+        if (self.geometryChanged(geometry_epoch)) return .full;
         if (snapshot.snapshot_seq == prior_snapshot.snapshot_seq) {
             if (source_damage.samePublicationSource(prior, source)) return .none;
             if (source_damage.cursorPresentationChanged(prior, source)) return .full;
@@ -284,6 +293,12 @@ pub const PrepareRequests = struct {
         return damage_kind;
     }
 
+    fn geometryChanged(self: *const PrepareRequests, geometry_epoch: u64) bool {
+        if (self.pending) |publication| return publication.geometry_epoch != geometry_epoch;
+        if (self.active) |active| return active.request.token.geometry_epoch != geometry_epoch;
+        return false;
+    }
+
     fn priorSource(self: *const PrepareRequests) ?source_vt.PublicationSource {
         if (self.pending) |publication| return publication.source;
         if (self.active) |active| return active.publication.source;
@@ -296,4 +311,44 @@ test "prepare requests do not own submitted mailbox" {
     defer requests.deinit();
     try std.testing.expect(!requests.sourcePending());
     try std.testing.expect(!requests.preparePending());
+}
+
+test "prepare requests publish full retained-safe source when geometry changes" {
+    var requests = PrepareRequests.init(std.testing.allocator);
+    defer requests.deinit();
+
+    const first_publish = requests.acceptSource(
+        try source_vt.ownedTestSource(std.testing.allocator, 1, 'A'),
+        null,
+        1,
+    );
+    try std.testing.expect(first_publish.published);
+    try std.testing.expect(first_publish.queued);
+
+    const submitted_request = requests.takePrepareRequest(1, null) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 1), submitted_request.token.geometry_epoch);
+
+    const resize_publish = requests.acceptSource(
+        try source_vt.ownedTestSource(std.testing.allocator, 1, 'A'),
+        submitted_request.token,
+        2,
+    );
+    try std.testing.expect(resize_publish.published);
+    try std.testing.expect(resize_publish.queued);
+    try std.testing.expectEqual(tokens.DamageKind.full, resize_publish.damage_kind);
+
+    const resize_request = requests.takePrepareRequest(2, submitted_request.token) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 2), resize_request.token.geometry_epoch);
+    try std.testing.expectEqual(tokens.DamageKind.full, resize_request.token.damage_kind);
+    try std.testing.expectEqual(@as(u64, 0), resize_request.token.damage_base_seq);
+    try std.testing.expect(!resize_request.allow_retained_reuse);
+
+    const same_geometry_publish = requests.acceptSource(
+        try source_vt.ownedTestSource(std.testing.allocator, 1, 'A'),
+        submitted_request.token,
+        2,
+    );
+    try std.testing.expect(!same_geometry_publish.published);
+    try std.testing.expect(!same_geometry_publish.queued);
+    try std.testing.expectEqual(tokens.DamageKind.none, same_geometry_publish.damage_kind);
 }
