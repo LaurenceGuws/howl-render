@@ -1,4 +1,3 @@
-
 const std = @import("std");
 const contract = @import("../contract.zig");
 const rasterizer = @import("rasterizer.zig");

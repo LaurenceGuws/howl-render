@@ -1,4 +1,3 @@
-
 pub fn isPowerlineCodepoint(codepoint: u21) bool {
     return (codepoint >= 0xE0B0 and codepoint <= 0xE0D7) or
         (codepoint >= 0xE0A0 and codepoint <= 0xE0A2);

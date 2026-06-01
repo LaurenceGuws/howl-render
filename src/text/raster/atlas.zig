@@ -1,4 +1,3 @@
-
 const std = @import("std");
 
 /// Text-atlas layout contract shared by surface execution owners.

@@ -1,4 +1,3 @@
-
 pub fn rasterAsciiOrPlaceholder(dst: []u8, cell_w: u16, codepoint: u21, gw: u16, gh: u16) void {
     _ = codepoint;
     rasterPlaceholder(dst, cell_w, gw, gh);

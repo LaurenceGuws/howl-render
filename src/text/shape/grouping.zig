@@ -1,4 +1,3 @@
-
 const std = @import("std");
 const contract = @import("../contract.zig");
 const font_resolver = @import("../font/resolver.zig");

@@ -1,4 +1,3 @@
-
 pub const TextFramePreparer = @import("frame_preparer.zig").TextFramePreparer;
 pub const PrepareOptions = @import("frame_preparer.zig").PrepareOptions;
 pub const PrepareTimings = @import("frame_preparer.zig").PrepareTimings;

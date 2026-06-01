@@ -1,4 +1,3 @@
-
 /// Report whether a codepoint should be treated as a symbol glyph.
 pub fn isSymbolGlyph(codepoint: u21) bool {
     return (codepoint >= 0xE000 and codepoint <= 0xF8FF) or

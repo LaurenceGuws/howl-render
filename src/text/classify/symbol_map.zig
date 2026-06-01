@@ -1,4 +1,3 @@
-
 const contract = @import("../contract.zig");
 const special_glyphs = @import("special_glyphs.zig");
 
