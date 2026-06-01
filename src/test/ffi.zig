@@ -60,7 +60,7 @@ test "render ffi invalid arguments report shipped contract" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, vt_surface.reserveVtSurfaceSlot(handle, 0, 1, null));
 }
 
-test "render ffi protocol v0 emit status values are stable" {
+test "render ffi render API V0 emit status values are stable" {
     try std.testing.expectEqual(@as(i32, 0), c.HOWL_RENDER_V0_EMIT_OK);
     try std.testing.expectEqual(@as(i32, 1), c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW);
     try std.testing.expectEqual(@as(i32, 2), c.HOWL_RENDER_V0_EMIT_CREATE_BOUND_OVERFLOW);
@@ -335,7 +335,7 @@ test "render ffi released prepared handle rejects describe and diagnostics" {
     try std.testing.expectEqual(@as(u32, 0), diagnostics.reserved0);
 }
 
-test "render ffi prepared protocol v0 rejects missing handle" {
+test "render ffi prepared V0 frame rejects missing handle" {
     var frame_storage = std.mem.zeroes(c.HowlRenderV0Frame);
     var frame: ?*const c.HowlRenderV0Frame = &frame_storage;
 
@@ -351,7 +351,7 @@ test "render ffi prepared protocol v0 rejects missing handle" {
     );
 }
 
-test "render ffi prepared protocol v0 rejects null output" {
+test "render ffi prepared V0 frame rejects null output" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
@@ -363,7 +363,7 @@ test "render ffi prepared protocol v0 rejects null output" {
     );
 }
 
-test "render ffi prepared protocol v0 rejects released handle" {
+test "render ffi prepared V0 frame rejects released handle" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
@@ -378,7 +378,7 @@ test "render ffi prepared protocol v0 rejects released handle" {
     try std.testing.expect(frame == null);
 }
 
-test "render ffi prepared protocol v0 returns borrowed live frame" {
+test "render ffi prepared V0 frame returns borrowed live frame" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
@@ -400,7 +400,7 @@ test "render ffi prepared protocol v0 returns borrowed live frame" {
     try std.testing.expect(value.commands.ptr != null);
 }
 
-test "render ffi prepared protocol v0 does not change prepared lifecycle" {
+test "render ffi prepared V0 frame does not change prepared lifecycle" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);

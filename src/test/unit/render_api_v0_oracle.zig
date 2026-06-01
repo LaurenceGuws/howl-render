@@ -11,13 +11,13 @@ const contract = @import("../../text/contract.zig");
 const text = @import("../../text/text.zig");
 const text_session = @import("../../session/text.zig");
 
-test "protocol v0 prepared proof target imports owner oracle" {
+test "render API V0 prepared proof target imports owner oracle" {
     _ = prepared_buffer.compose;
     _ = text_session.TextSession;
     _ = protocol_emit.Emitter;
 }
 
-test "protocol v0 emitter realizes prepared fill frame equal to full rgba oracle" {
+test "render API V0 frame emitter realizes prepared fill frame equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -43,7 +43,7 @@ test "protocol v0 emitter realizes prepared fill frame equal to full rgba oracle
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "protocol v0 emitter coalesces adjacent prepared fill commands" {
+test "render API V0 frame emitter coalesces adjacent prepared fill commands" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -76,7 +76,7 @@ test "protocol v0 emitter coalesces adjacent prepared fill commands" {
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "protocol v0 emitter does not coalesce distinct prepared fills" {
+test "render API V0 frame emitter does not coalesce distinct prepared fills" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -108,7 +108,7 @@ test "protocol v0 emitter does not coalesce distinct prepared fills" {
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "protocol v0 emitter realizes prepared alpha sprite frame equal to full rgba oracle" {
+test "render API V0 frame emitter realizes prepared alpha sprite frame equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -135,7 +135,7 @@ test "protocol v0 emitter realizes prepared alpha sprite frame equal to full rgb
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "protocol v0 emitter batches prepared alpha sprite glyph commands" {
+test "render API V0 frame emitter batches prepared alpha sprite glyph commands" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -174,7 +174,7 @@ test "protocol v0 emitter batches prepared alpha sprite glyph commands" {
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "protocol v0 emitter emits over command bound alpha draws with batched glyph runs" {
+test "render API V0 frame emitter emits over command bound alpha draws with batched glyph runs" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -225,7 +225,7 @@ test "protocol v0 emitter emits over command bound alpha draws with batched glyp
     try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
 }
 
-test "protocol v0 emitter preserves command overflow after batched glyph runs" {
+test "render API V0 frame emitter preserves command overflow after batched glyph runs" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -266,7 +266,7 @@ test "protocol v0 emitter preserves command overflow after batched glyph runs" {
     try std.testing.expectEqual(@as(u32, 0), resources.atlas_count);
 }
 
-test "protocol v0 emitter emits more than old alpha atlas entry cap" {
+test "render API V0 frame emitter emits more than old alpha atlas entry cap" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -306,7 +306,7 @@ test "protocol v0 emitter emits more than old alpha atlas entry cap" {
     try std.testing.expectEqual(protocol_emit.persistent_sprite_resources_max + 1, resources.atlas_count);
 }
 
-test "protocol v0 emitter realizes prepared color sprite frame equal to full rgba oracle" {
+test "render API V0 frame emitter realizes prepared color sprite frame equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -333,7 +333,7 @@ test "protocol v0 emitter realizes prepared color sprite frame equal to full rgb
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "protocol v0 emitter realizes prepared sprite visual bounds equal to full rgba oracle" {
+test "render API V0 frame emitter realizes sprite visual bounds like oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -363,7 +363,7 @@ test "protocol v0 emitter realizes prepared sprite visual bounds equal to full r
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "protocol v0 emitter persists prepared sprite resource across frames" {
+test "render API V0 frame emitter persists prepared sprite resource across frames" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -426,7 +426,7 @@ test "protocol v0 emitter persists prepared sprite resource across frames" {
     try std.testing.expectEqualSlices(u8, oracle, realized2);
 }
 
-test "protocol v0 emitter allocates distinct monotonic sprite resources" {
+test "render API V0 frame emitter allocates distinct monotonic sprite resources" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -484,7 +484,7 @@ test "protocol v0 emitter allocates distinct monotonic sprite resources" {
     try std.testing.expectEqual(@as(u32, 1), second_resource.generation);
 }
 
-test "protocol v0 emitter allocates distinct resource for changed sprite bytes" {
+test "render API V0 frame emitter allocates distinct resource for changed sprite bytes" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -545,7 +545,7 @@ test "protocol v0 emitter allocates distinct resource for changed sprite bytes" 
     try std.testing.expectEqual(@as(u32, 0), frame2.retires.count);
 }
 
-test "protocol v0 emitter allocates distinct resource for changed sprite dimensions" {
+test "render API V0 frame emitter allocates distinct resource for changed sprite dimensions" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -606,7 +606,7 @@ test "protocol v0 emitter allocates distinct resource for changed sprite dimensi
     try std.testing.expectEqual(@as(u32, 0), frame2.retires.count);
 }
 
-test "protocol v0 emitter failure preserves accepted persistent resource state" {
+test "render API V0 frame emitter failure preserves accepted persistent resource state" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -646,7 +646,7 @@ test "protocol v0 emitter failure preserves accepted persistent resource state" 
     try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
 }
 
-test "protocol v0 emitter resource id exhaustion preserves accepted state" {
+test "render API V0 frame emitter resource id exhaustion preserves accepted state" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -686,7 +686,7 @@ test "protocol v0 emitter resource id exhaustion preserves accepted state" {
     try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
 }
 
-test "protocol v0 emitter emits transient sprite beyond persistent budget" {
+test "render API V0 frame emitter emits transient sprite beyond persistent budget" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -727,7 +727,7 @@ test "protocol v0 emitter emits transient sprite beyond persistent budget" {
     try std.testing.expectEqual(@as(u64, 1), frame.retires.ptr[0].retire_seq);
 }
 
-test "protocol v0 emitter reports exact transient retire bound" {
+test "render API V0 frame emitter reports exact transient retire bound" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -764,7 +764,7 @@ test "protocol v0 emitter reports exact transient retire bound" {
     try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
 }
 
-test "protocol v0 emitter rejects missing prepared sprite without mutating accepted frame" {
+test "render API V0 frame emitter rejects missing prepared sprite without mutating accepted frame" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -806,7 +806,7 @@ test "protocol v0 emitter rejects missing prepared sprite without mutating accep
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "protocol v0 emitter realizes partial prepared frame equal to full rgba oracle" {
+test "render API V0 frame emitter realizes partial prepared frame equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -827,7 +827,7 @@ test "protocol v0 emitter realizes partial prepared frame equal to full rgba ora
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, &base);
 }
 
-test "protocol v0 prepared owner frame equals explicit rgba oracle" {
+test "render API V0 prepared owner frame equals explicit rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -873,7 +873,7 @@ test "protocol v0 prepared owner frame equals explicit rgba oracle" {
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "protocol v0 prepared ffi borrowed frame realizes explicit rgba oracle" {
+test "render API V0 prepared ffi borrowed frame realizes explicit rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -906,7 +906,7 @@ test "protocol v0 prepared ffi borrowed frame realizes explicit rgba oracle" {
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "protocol v0 prepared owner partial frame equals explicit base rgba oracle" {
+test "render API V0 prepared owner partial frame equals explicit base rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -942,7 +942,7 @@ test "protocol v0 prepared owner partial frame equals explicit base rgba oracle"
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "protocol v0 prepared owner releases v0 payload with handle" {
+test "render API V0 prepared owner releases v0 payload with handle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -967,7 +967,7 @@ test "protocol v0 prepared owner releases v0 payload with handle" {
     try std.testing.expect(owner.protocolV0FrameStorageEmptyForTest());
 }
 
-test "protocol v0 prepared owner reports missing frame when v0 emission overflows" {
+test "render API V0 prepared owner reports missing frame when v0 emission overflows" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -997,7 +997,7 @@ test "protocol v0 prepared owner reports missing frame when v0 emission overflow
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
 
-test "protocol v0 prepared owner overflow still consumes prepare surface once" {
+test "render API V0 prepared owner overflow still consumes prepare surface once" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -1017,7 +1017,7 @@ test "protocol v0 prepared owner overflow still consumes prepare surface once" {
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
 
-test "protocol v0 prepared owner allocation failure remains diagnostic only" {
+test "render API V0 prepared owner allocation failure remains diagnostic only" {
     var probe_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     {
         var session_owner = text_session.TextSessionOwner.create(

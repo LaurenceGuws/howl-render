@@ -636,7 +636,7 @@ test "owner exports prepared metrics and required upload count truth" {
     );
 }
 
-test "owner maps every protocol v0 emit error to diagnostics status" {
+test "owner maps every V0 frame emit error to diagnostics status" {
     try std.testing.expectEqual(
         c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
         protocolV0EmitStatus(error.CommandBoundOverflow),

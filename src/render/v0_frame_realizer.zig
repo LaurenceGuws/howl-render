@@ -1043,7 +1043,7 @@ fn unpackRgba(color_rgba: u32) Rgba {
     };
 }
 
-test "protocol v0 constants match documented kind values" {
+test "render API V0 constants match documented kind values" {
     try std.testing.expectEqual(@as(u8, 1), c.HOWL_RENDER_V0_DAMAGE_RECT);
     try std.testing.expectEqual(@as(u8, 2), c.HOWL_RENDER_V0_DAMAGE_FULL);
     try std.testing.expectEqual(@as(u32, 1), c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_ALPHA);
@@ -1058,7 +1058,7 @@ test "protocol v0 constants match documented kind values" {
     try std.testing.expectEqual(@as(u8, 4), c.HOWL_RENDER_V0_COMMAND_DRAW_SPRITE);
 }
 
-test "protocol v0 realizer clears and fills in command order" {
+test "V0 frame realizer clears and fills in command order" {
     var commands = [_]Command{
         fillCommand(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, makeRect(0, 0, 2, 1), 0xff0000ff),
         fillCommand(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, makeRect(1, 0, 1, 1), 0x0000ffff),
@@ -1071,7 +1071,7 @@ test "protocol v0 realizer clears and fills in command order" {
     try expectPixel(&pixels, 1, .{ .r = 0, .g = 0, .b = 255, .a = 255 });
 }
 
-test "protocol v0 realizer preserves retained base outside commands" {
+test "V0 frame realizer preserves retained base outside commands" {
     var commands = [_]Command{
         fillCommand(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0x010203ff),
     };
@@ -1084,7 +1084,7 @@ test "protocol v0 realizer preserves retained base outside commands" {
     try expectPixel(&pixels, 1, .{ .r = 5, .g = 4, .b = 3, .a = 2 });
 }
 
-test "protocol v0 realizer draws alpha sprite bytes" {
+test "V0 frame realizer draws alpha sprite bytes" {
     const resource = spriteAlphaResource(1, 1);
     var creates = [_]Create{createResource(resource, 2, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var bytes = [_]u8{ 255, 128 };
@@ -1100,7 +1100,7 @@ test "protocol v0 realizer draws alpha sprite bytes" {
     try expectPixel(&pixels, 1, .{ .r = 64, .g = 0, .b = 0, .a = 255 });
 }
 
-test "protocol v0 realizer draws color sprite bytes" {
+test "V0 frame realizer draws color sprite bytes" {
     const resource = spriteColorResource(2, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_RGBA8)};
     var bytes = [_]u8{ 0, 255, 0, 128 };
@@ -1115,7 +1115,7 @@ test "protocol v0 realizer draws color sprite bytes" {
     try expectPixel(&pixels, 0, .{ .r = 0, .g = 128, .b = 0, .a = 255 });
 }
 
-test "protocol v0 realizer draws alpha glyph atlas run" {
+test "V0 frame realizer draws alpha glyph atlas run" {
     const resource = glyphAtlasAlphaResource(1, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var bytes = [_]u8{ 255, 128, 64, 0 };
@@ -1134,7 +1134,7 @@ test "protocol v0 realizer draws alpha glyph atlas run" {
     try expectPixel(&pixels, 3, .{ .r = 0, .g = 0, .b = 0, .a = 255 });
 }
 
-test "protocol v0 realizer clips alpha glyph atlas run" {
+test "V0 frame realizer clips alpha glyph atlas run" {
     const resource = glyphAtlasAlphaResource(2, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var bytes = [_]u8{ 10, 255, 20, 128 };
@@ -1151,7 +1151,7 @@ test "protocol v0 realizer clips alpha glyph atlas run" {
     try expectPixel(&pixels, 1, .{ .r = 0, .g = 128, .b = 0, .a = 255 });
 }
 
-test "protocol v0 realizer draws split alpha glyph runs in source order" {
+test "V0 frame realizer draws split alpha glyph runs in source order" {
     const resource = glyphAtlasAlphaResource(3, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var bytes = [_]u8{255};
@@ -1168,25 +1168,25 @@ test "protocol v0 realizer draws split alpha glyph runs in source order" {
     try expectPixel(&pixels, 0, .{ .r = 63, .g = 0, .b = 128, .a = 255 });
 }
 
-test "protocol v0 rejects unknown command kind" {
+test "V0 frame rejects unknown command kind" {
     var commands = [_]Command{fillCommand(255, makeRect(0, 0, 0, 0), 0)};
     try expectRejectWithCommands(&commands, error.UnknownCommandKind);
 }
 
-test "protocol v0 rejects unknown damage kind" {
+test "V0 frame rejects unknown damage kind" {
     var damage = [_]DamageItem{.{ .kind = 255, .rect = makeRect(0, 0, 1, 1) }};
     var frame = testFrame(1, 1);
     frame.damage = damageSpan(&damage, c.HOWL_RENDER_V0_DAMAGE_ITEMS_MAX);
     try expectReject(&frame, error.UnknownDamageKind);
 }
 
-test "protocol v0 rejects unknown resource kind" {
+test "V0 frame rejects unknown resource kind" {
     const resource = ResourceId{ .value = 1, .generation = 1, .kind = 255 };
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_RGBA8)};
     try expectRejectWithCreates(&creates, error.UnknownResourceKind);
 }
 
-test "protocol v0 rejects unknown upload format" {
+test "V0 frame rejects unknown upload format" {
     const resource = spriteAlphaResource(1, 1);
     var bytes = [_]u8{255};
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
@@ -1196,39 +1196,39 @@ test "protocol v0 rejects unknown upload format" {
     try expectRejectWithCreatesUploads(&creates, &uploads, bytes.len, error.UnknownUploadFormat);
 }
 
-test "protocol v0 rejects zero command width" {
+test "V0 frame rejects zero command width" {
     var commands = [_]Command{
         fillCommand(c.HOWL_RENDER_V0_COMMAND_CLEAR_RECT, makeRect(0, 0, 0, 1), 0),
     };
     try expectRejectWithCommands(&commands, error.InvalidDamage);
 }
 
-test "protocol v0 rejects zero command height" {
+test "V0 frame rejects zero command height" {
     var commands = [_]Command{
         fillCommand(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, makeRect(0, 0, 1, 0), 0),
     };
     try expectRejectWithCommands(&commands, error.InvalidDamage);
 }
 
-test "protocol v0 rejects damage span overflow" {
+test "V0 frame rejects damage span overflow" {
     var frame = testFrame(1, 1);
     frame.damage.count = c.HOWL_RENDER_V0_DAMAGE_ITEMS_MAX + 1;
     try expectReject(&frame, error.InvalidSpan);
 }
 
-test "protocol v0 rejects upload span overflow" {
+test "V0 frame rejects upload span overflow" {
     var frame = testFrame(1, 1);
     frame.uploads.count = c.HOWL_RENDER_V0_UPLOADS_MAX + 1;
     try expectReject(&frame, error.InvalidSpan);
 }
 
-test "protocol v0 rejects command span overflow" {
+test "V0 frame rejects command span overflow" {
     var frame = testFrame(1, 1);
     frame.commands.count = c.HOWL_RENDER_V0_COMMANDS_MAX + 1;
     try expectReject(&frame, error.InvalidSpan);
 }
 
-test "protocol v0 rejects glyph span overflow" {
+test "V0 frame rejects glyph span overflow" {
     var commands = [_]Command{
         fillCommand(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0),
     };
@@ -1236,7 +1236,7 @@ test "protocol v0 rejects glyph span overflow" {
     try expectRejectWithCommands(&commands, error.InvalidSpan);
 }
 
-test "protocol v0 rejects alpha upload to color sprite" {
+test "V0 frame rejects alpha upload to color sprite" {
     const resource = spriteColorResource(1, 1);
     var bytes = [_]u8{255};
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_RGBA8)};
@@ -1252,7 +1252,7 @@ test "protocol v0 rejects alpha upload to color sprite" {
     try expectRejectWithCreatesUploads(&creates, &uploads, bytes.len, error.InvalidUpload);
 }
 
-test "protocol v0 rejects rgba upload to alpha sprite" {
+test "V0 frame rejects rgba upload to alpha sprite" {
     const resource = spriteAlphaResource(1, 1);
     var bytes = [_]u8{ 1, 2, 3, 4 };
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
@@ -1268,7 +1268,7 @@ test "protocol v0 rejects rgba upload to alpha sprite" {
     try expectRejectWithCreatesUploads(&creates, &uploads, bytes.len, error.InvalidUpload);
 }
 
-test "protocol v0 rejects upload before create" {
+test "V0 frame rejects upload before create" {
     const resource = spriteAlphaResource(77, 1);
     var bytes = [_]u8{255};
     var uploads = [_]Upload{uploadResource(resource, makeRect(0, 0, 1, 1), &bytes, 1)};
@@ -1277,13 +1277,13 @@ test "protocol v0 rejects upload before create" {
     try expectReject(&frame, error.MissingResource);
 }
 
-test "protocol v0 rejects missing sprite command resource" {
+test "V0 frame rejects missing sprite command resource" {
     const resource = spriteAlphaResource(78, 1);
     var commands = [_]Command{spriteCommand(resource, makeRect(0, 0, 1, 1), 0xffffffff)};
     try expectRejectWithCommands(&commands, error.MissingResource);
 }
 
-test "protocol v0 rejects wrong generation sprite use" {
+test "V0 frame rejects wrong generation sprite use" {
     const created = spriteAlphaResource(79, 1);
     const used = spriteAlphaResource(79, 2);
     var creates = [_]Create{createResource(created, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
@@ -1291,7 +1291,7 @@ test "protocol v0 rejects wrong generation sprite use" {
     try expectRejectWithCreatesCommands(&creates, &commands, error.WrongResourceGeneration);
 }
 
-test "protocol v0 rejects retired sprite use" {
+test "V0 frame rejects retired sprite use" {
     const resource = spriteAlphaResource(80, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var retires = [_]Retire{.{ .resource = resource }};
@@ -1303,14 +1303,14 @@ test "protocol v0 rejects retired sprite use" {
     try expectReject(&frame, error.RetiredResource);
 }
 
-test "protocol v0 rejects color sprite command color" {
+test "V0 frame rejects color sprite command color" {
     const resource = spriteColorResource(1, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_RGBA8)};
     var commands = [_]Command{spriteCommand(resource, makeRect(0, 0, 1, 1), 0x01020304)};
     try expectRejectWithCreatesCommands(&creates, &commands, error.InvalidResource);
 }
 
-test "protocol v0 rejects sprite command glyph span" {
+test "V0 frame rejects sprite command glyph span" {
     const resource = spriteAlphaResource(1, 1);
     var glyphs = [_]GlyphRef{.{}};
     var commands = [_]Command{spriteCommand(resource, makeRect(0, 0, 1, 1), 0xffffffff)};
@@ -1322,7 +1322,7 @@ test "protocol v0 rejects sprite command glyph span" {
     try expectRejectWithCommands(&commands, error.InvalidDamage);
 }
 
-test "protocol v0 rejects fill command resource" {
+test "V0 frame rejects fill command resource" {
     var commands = [_]Command{
         fillCommand(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0),
     };
@@ -1330,19 +1330,19 @@ test "protocol v0 rejects fill command resource" {
     try expectRejectWithCommands(&commands, error.InvalidResource);
 }
 
-test "protocol v0 realizer rejects alpha atlas wrong size" {
+test "V0 frame realizer rejects alpha atlas wrong size" {
     const resource = glyphAtlasAlphaResource(1, 1);
     var creates = [_]Create{createResource(resource, 1023, 1024, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     try expectRejectWithCreates(&creates, error.InvalidResource);
 }
 
-test "protocol v0 realizer rejects color atlas create" {
+test "V0 frame realizer rejects color atlas create" {
     const resource = glyphAtlasColorResource(1, 1);
     var creates = [_]Create{createResource(resource, 1024, 1024, c.HOWL_RENDER_V0_UPLOAD_RGBA8)};
     try expectRejectWithCreates(&creates, error.UnsupportedGlyphAtlas);
 }
 
-test "protocol v0 realizer rejects color atlas upload" {
+test "V0 frame realizer rejects color atlas upload" {
     const resource = glyphAtlasColorResource(1, 1);
     var bytes = [_]u8{ 1, 2, 3, 4 };
     var uploads = [_]Upload{
@@ -1359,7 +1359,7 @@ test "protocol v0 realizer rejects color atlas upload" {
     try expectReject(&frame, error.UnsupportedGlyphAtlas);
 }
 
-test "protocol v0 realizer rejects rgba upload to alpha atlas" {
+test "V0 frame realizer rejects rgba upload to alpha atlas" {
     const resource = glyphAtlasAlphaResource(2, 1);
     var bytes = [_]u8{ 1, 2, 3, 4 };
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
@@ -1375,7 +1375,7 @@ test "protocol v0 realizer rejects rgba upload to alpha atlas" {
     try expectRejectWithCreatesUploads(&creates, &uploads, bytes.len, error.InvalidUpload);
 }
 
-test "protocol v0 realizer rejects alpha upload stride too small" {
+test "V0 frame realizer rejects alpha upload stride too small" {
     const resource = glyphAtlasAlphaResource(3, 1);
     var bytes = [_]u8{ 1, 2, 3, 4 };
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
@@ -1383,7 +1383,7 @@ test "protocol v0 realizer rejects alpha upload stride too small" {
     try expectRejectWithCreatesUploads(&creates, &uploads, bytes.len, error.InvalidUpload);
 }
 
-test "protocol v0 realizer rejects alpha upload byte count too small" {
+test "V0 frame realizer rejects alpha upload byte count too small" {
     const resource = glyphAtlasAlphaResource(4, 1);
     var bytes = [_]u8{1};
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
@@ -1391,7 +1391,7 @@ test "protocol v0 realizer rejects alpha upload byte count too small" {
     try expectRejectWithCreatesUploads(&creates, &uploads, bytes.len, error.InvalidUpload);
 }
 
-test "protocol v0 realizer rejects alpha atlas upload outside page" {
+test "V0 frame realizer rejects alpha atlas upload outside page" {
     const resource = glyphAtlasAlphaResource(5, 1);
     var bytes = [_]u8{ 1, 2 };
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
@@ -1399,14 +1399,14 @@ test "protocol v0 realizer rejects alpha atlas upload outside page" {
     try expectRejectWithCreatesUploads(&creates, &uploads, bytes.len, error.InvalidUpload);
 }
 
-test "protocol v0 realizer rejects missing glyph atlas resource" {
+test "V0 frame realizer rejects missing glyph atlas resource" {
     const resource = glyphAtlasAlphaResource(81, 1);
     var glyphs = [_]GlyphRef{glyphRef(resource, makeRect(0, 0, 1, 1), 0, 0, 0xffffffff)};
     var commands = [_]Command{glyphCommand(&glyphs)};
     try expectRejectWithCommands(&commands, error.MissingResource);
 }
 
-test "protocol v0 realizer rejects wrong generation glyph atlas use" {
+test "V0 frame realizer rejects wrong generation glyph atlas use" {
     const created = glyphAtlasAlphaResource(82, 1);
     const used = glyphAtlasAlphaResource(82, 2);
     var creates = [_]Create{createGlyphAtlasAlpha(created)};
@@ -1415,7 +1415,7 @@ test "protocol v0 realizer rejects wrong generation glyph atlas use" {
     try expectRejectWithCreatesCommands(&creates, &commands, error.WrongResourceGeneration);
 }
 
-test "protocol v0 realizer rejects retired glyph atlas use" {
+test "V0 frame realizer rejects retired glyph atlas use" {
     const resource = glyphAtlasAlphaResource(83, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var retires = [_]Retire{.{ .resource = resource }};
@@ -1428,12 +1428,12 @@ test "protocol v0 realizer rejects retired glyph atlas use" {
     try expectReject(&frame, error.RetiredResource);
 }
 
-test "protocol v0 realizer rejects empty glyph run" {
+test "V0 frame realizer rejects empty glyph run" {
     var commands = [_]Command{glyphCommand(&.{})};
     try expectRejectWithCommands(&commands, error.UnsupportedGlyphRun);
 }
 
-test "protocol v0 realizer rejects zero alpha glyph ref" {
+test "V0 frame realizer rejects zero alpha glyph ref" {
     const resource = glyphAtlasAlphaResource(84, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var bytes = [_]u8{255};
@@ -1447,7 +1447,7 @@ test "protocol v0 realizer rejects zero alpha glyph ref" {
     try expectReject(&frame, error.InvalidDamage);
 }
 
-test "protocol v0 realizer rejects glyph rect outside page" {
+test "V0 frame realizer rejects glyph rect outside page" {
     const resource = glyphAtlasAlphaResource(85, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var glyphs = [_]GlyphRef{glyphRef(resource, makeRect(1023, 0, 2, 1), 0, 0, 0xffffffff)};
@@ -1455,14 +1455,14 @@ test "protocol v0 realizer rejects glyph rect outside page" {
     try expectRejectWithCreatesCommands(&creates, &commands, error.InvalidDamage);
 }
 
-test "protocol v0 realizer rejects color glyph run" {
+test "V0 frame realizer rejects color glyph run" {
     const resource = glyphAtlasColorResource(86, 1);
     var glyphs = [_]GlyphRef{glyphRef(resource, makeRect(0, 0, 1, 1), 0, 0, 0xffffffff)};
     var commands = [_]Command{glyphCommand(&glyphs)};
     try expectRejectWithCommands(&commands, error.UnsupportedGlyphAtlas);
 }
 
-test "protocol v0 realizer rejects glyph destination outside render" {
+test "V0 frame realizer rejects glyph destination outside render" {
     const resource = glyphAtlasAlphaResource(87, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var bytes = [_]u8{255};
@@ -1476,7 +1476,7 @@ test "protocol v0 realizer rejects glyph destination outside render" {
     try expectReject(&frame, error.InvalidDamage);
 }
 
-test "protocol v0 realizer rejects glyph without upload coverage" {
+test "V0 frame realizer rejects glyph without upload coverage" {
     const resource = glyphAtlasAlphaResource(88, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var bytes = [_]u8{255};
@@ -1490,25 +1490,25 @@ test "protocol v0 realizer rejects glyph without upload coverage" {
     try expectReject(&frame, error.MissingResource);
 }
 
-test "protocol v0 realizer rejects glyph run command rect" {
+test "V0 frame realizer rejects glyph run command rect" {
     var commands = [_]Command{glyphCommand(&.{})};
     commands[0].rect.width_px = 1;
     try expectRejectWithCommands(&commands, error.InvalidDamage);
 }
 
-test "protocol v0 realizer rejects glyph run command resource" {
+test "V0 frame realizer rejects glyph run command resource" {
     var commands = [_]Command{glyphCommand(&.{})};
     commands[0].resource.value = 1;
     try expectRejectWithCommands(&commands, error.InvalidResource);
 }
 
-test "protocol v0 realizer rejects glyph run command color" {
+test "V0 frame realizer rejects glyph run command color" {
     var commands = [_]Command{glyphCommand(&.{})};
     commands[0].color_rgba = 0xffffffff;
     try expectRejectWithCommands(&commands, error.InvalidDamage);
 }
 
-test "protocol v0 rejects duplicate creates" {
+test "V0 frame rejects duplicate creates" {
     const resource = spriteAlphaResource(81, 1);
     var creates = [_]Create{
         createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8),
@@ -1517,7 +1517,7 @@ test "protocol v0 rejects duplicate creates" {
     try expectRejectWithCreates(&creates, error.InvalidResource);
 }
 
-test "protocol v0 rejects duplicate retires" {
+test "V0 frame rejects duplicate retires" {
     const resource = spriteAlphaResource(82, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var retires = [_]Retire{ .{ .resource = resource }, .{ .resource = resource } };
@@ -1527,7 +1527,7 @@ test "protocol v0 rejects duplicate retires" {
     try expectReject(&frame, error.InvalidResource);
 }
 
-test "protocol v0 rejects upload to retired resource" {
+test "V0 frame rejects upload to retired resource" {
     const resource = spriteAlphaResource(83, 1);
     var bytes = [_]u8{255};
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
@@ -1540,7 +1540,7 @@ test "protocol v0 rejects upload to retired resource" {
     try expectReject(&frame, error.RetiredResource);
 }
 
-test "protocol v0 rejects wrong generation uploads" {
+test "V0 frame rejects wrong generation uploads" {
     const created = spriteAlphaResource(84, 1);
     const uploaded = spriteAlphaResource(84, 2);
     var bytes = [_]u8{255};
@@ -1549,7 +1549,7 @@ test "protocol v0 rejects wrong generation uploads" {
     try expectRejectWithCreatesUploads(&creates, &uploads, bytes.len, error.WrongResourceGeneration);
 }
 
-test "protocol v0 realizer accepts sprite use before same frame retire" {
+test "V0 frame realizer accepts sprite use before same frame retire" {
     const resource = spriteAlphaResource(89, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var bytes = [_]u8{255};
@@ -1566,7 +1566,7 @@ test "protocol v0 realizer accepts sprite use before same frame retire" {
     try expectPixel(&pixels, 0, .{ .r = 255, .g = 255, .b = 255, .a = 255 });
 }
 
-test "protocol v0 realizer accepts late sprite create upload use retire" {
+test "V0 frame realizer accepts late sprite create upload use retire" {
     const resource = spriteAlphaResource(90, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     creates[0].create_seq = 1;
@@ -1588,7 +1588,7 @@ test "protocol v0 realizer accepts late sprite create upload use retire" {
     try expectPixel(&pixels, 0, .{ .r = 255, .g = 255, .b = 255, .a = 255 });
 }
 
-test "protocol v0 realizer rejects upload after same frame retire" {
+test "V0 frame realizer rejects upload after same frame retire" {
     const resource = spriteAlphaResource(91, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var bytes = [_]u8{255};
@@ -1604,7 +1604,7 @@ test "protocol v0 realizer rejects upload after same frame retire" {
     try expectReject(&frame, error.RetiredResource);
 }
 
-test "protocol v0 realizer rejects upload before same frame create" {
+test "V0 frame realizer rejects upload before same frame create" {
     const resource = spriteAlphaResource(92, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     creates[0].create_seq = 1;
@@ -1618,7 +1618,7 @@ test "protocol v0 realizer rejects upload before same frame create" {
     try expectReject(&frame, error.InvalidUpload);
 }
 
-test "protocol v0 realizer rejects sprite use before same frame create" {
+test "V0 frame realizer rejects sprite use before same frame create" {
     const resource = spriteAlphaResource(93, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     creates[0].create_seq = 1;
@@ -1633,7 +1633,7 @@ test "protocol v0 realizer rejects sprite use before same frame create" {
     try expectReject(&frame, error.MissingResource);
 }
 
-test "protocol v0 realizer rejects sprite use before same frame upload" {
+test "V0 frame realizer rejects sprite use before same frame upload" {
     const resource = spriteAlphaResource(94, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var bytes = [_]u8{255};
@@ -1647,7 +1647,7 @@ test "protocol v0 realizer rejects sprite use before same frame upload" {
     try expectReject(&frame, error.MissingResource);
 }
 
-test "protocol v0 realizer rejects sprite command outside visible upload before mutation" {
+test "V0 frame realizer rejects sprite command outside visible upload before mutation" {
     const resource = spriteAlphaResource(94, 2);
     var creates = [_]Create{createResource(resource, 2, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var bytes = [_]u8{255};
@@ -1664,7 +1664,7 @@ test "protocol v0 realizer rejects sprite command outside visible upload before 
     try std.testing.expectEqualSlices(u8, &pixels_before, &pixels);
 }
 
-test "protocol v0 retained realizer rejects invalid frame without store mutation" {
+test "retained V0 frame realizer rejects invalid frame without store mutation" {
     const accepted = spriteAlphaResource(200, 1);
     var accepted_creates = [_]Create{createResource(accepted, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var accepted_bytes = [_]u8{255};
@@ -1707,7 +1707,7 @@ test "protocol v0 retained realizer rejects invalid frame without store mutation
     );
 }
 
-test "protocol v0 realizer rejects sprite use after same frame retire" {
+test "V0 frame realizer rejects sprite use after same frame retire" {
     const resource = spriteAlphaResource(95, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var bytes = [_]u8{255};
@@ -1722,7 +1722,7 @@ test "protocol v0 realizer rejects sprite use after same frame retire" {
     try expectReject(&frame, error.RetiredResource);
 }
 
-test "protocol v0 retained realizer accepts existing sprite use before same frame retire" {
+test "retained V0 frame realizer accepts existing sprite use before same frame retire" {
     const resource = spriteAlphaResource(97, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var bytes = [_]u8{255};
@@ -1746,7 +1746,7 @@ test "protocol v0 retained realizer accepts existing sprite use before same fram
     try std.testing.expect(store.find(resource).?.retired);
 }
 
-test "protocol v0 retained realizer uses old upload before future upload" {
+test "retained V0 frame realizer uses old upload before future upload" {
     const resource = spriteAlphaResource(99, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var old_bytes = [_]u8{64};
@@ -1770,7 +1770,7 @@ test "protocol v0 retained realizer uses old upload before future upload" {
     try expectPixel(&pixels, 0, .{ .r = 64, .g = 64, .b = 64, .a = 255 });
 }
 
-test "protocol v0 realizer uses latest visible same frame upload" {
+test "V0 frame realizer uses latest visible same frame upload" {
     const resource = spriteAlphaResource(100, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var old_bytes = [_]u8{64};
@@ -1795,7 +1795,7 @@ test "protocol v0 realizer uses latest visible same frame upload" {
     try expectPixel(&pixels, 0, .{ .r = 255, .g = 255, .b = 255, .a = 255 });
 }
 
-test "protocol v0 rejects out of order upload sequence" {
+test "V0 frame rejects out of order upload sequence" {
     const resource = spriteAlphaResource(101, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var first_bytes = [_]u8{64};
@@ -1813,7 +1813,7 @@ test "protocol v0 rejects out of order upload sequence" {
     try expectReject(&frame, error.InvalidUpload);
 }
 
-test "protocol v0 realizer rejects retire before final sprite use" {
+test "V0 frame realizer rejects retire before final sprite use" {
     const resource = spriteAlphaResource(96, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var bytes = [_]u8{255};
@@ -1831,7 +1831,7 @@ test "protocol v0 realizer rejects retire before final sprite use" {
     try expectReject(&frame, error.RetiredResource);
 }
 
-test "protocol v0 realizer rejects create sequence outside frame" {
+test "V0 frame realizer rejects create sequence outside frame" {
     const resource = spriteAlphaResource(98, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     creates[0].create_seq = 2;
@@ -1842,7 +1842,7 @@ test "protocol v0 realizer rejects create sequence outside frame" {
     try expectReject(&frame, error.InvalidResource);
 }
 
-test "protocol v0 realizer rejects upload sequence outside frame" {
+test "V0 frame realizer rejects upload sequence outside frame" {
     const resource = spriteAlphaResource(99, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var bytes = [_]u8{255};
@@ -1856,7 +1856,7 @@ test "protocol v0 realizer rejects upload sequence outside frame" {
     try expectReject(&frame, error.InvalidUpload);
 }
 
-test "protocol v0 realizer rejects retire sequence outside frame" {
+test "V0 frame realizer rejects retire sequence outside frame" {
     const resource = spriteAlphaResource(100, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
     var commands = [_]Command{fillCommand(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
@@ -1868,7 +1868,7 @@ test "protocol v0 realizer rejects retire sequence outside frame" {
     try expectReject(&frame, error.RetiredResource);
 }
 
-test "protocol v0 realizer accepts glyph atlas use before same frame retire" {
+test "V0 frame realizer accepts glyph atlas use before same frame retire" {
     const resource = glyphAtlasAlphaResource(101, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var bytes = [_]u8{255};
@@ -1886,7 +1886,7 @@ test "protocol v0 realizer accepts glyph atlas use before same frame retire" {
     try expectPixel(&pixels, 0, .{ .r = 255, .g = 255, .b = 255, .a = 255 });
 }
 
-test "protocol v0 realizer rejects glyph atlas use after same frame retire" {
+test "V0 frame realizer rejects glyph atlas use after same frame retire" {
     const resource = glyphAtlasAlphaResource(102, 1);
     var creates = [_]Create{createGlyphAtlasAlpha(resource)};
     var bytes = [_]u8{255};
@@ -1902,7 +1902,7 @@ test "protocol v0 realizer rejects glyph atlas use after same frame retire" {
     try expectReject(&frame, error.RetiredResource);
 }
 
-test "protocol v0 rejects upload byte total mismatch" {
+test "V0 frame rejects upload byte total mismatch" {
     const resource = spriteAlphaResource(85, 1);
     var bytes = [_]u8{255};
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
@@ -1913,7 +1913,7 @@ test "protocol v0 rejects upload byte total mismatch" {
     try expectReject(&frame, error.InvalidSpan);
 }
 
-test "protocol v0 rejects upload byte total overflow" {
+test "V0 frame rejects upload byte total overflow" {
     const resource = spriteAlphaResource(86, 1);
     var bytes = [_]u8{255};
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
@@ -1925,7 +1925,7 @@ test "protocol v0 rejects upload byte total overflow" {
     try expectReject(&frame, error.InvalidSpan);
 }
 
-test "protocol v0 rejects nonzero sprite upload origin" {
+test "V0 frame rejects nonzero sprite upload origin" {
     const resource = spriteAlphaResource(87, 1);
     var bytes = [_]u8{255};
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};
@@ -1933,7 +1933,7 @@ test "protocol v0 rejects nonzero sprite upload origin" {
     try expectRejectWithCreatesUploads(&creates, &uploads, bytes.len, error.InvalidUpload);
 }
 
-test "protocol v0 realizer clips fill coordinate overflow" {
+test "V0 frame realizer clips fill coordinate overflow" {
     var commands = [_]Command{
         fillCommand(
             c.HOWL_RENDER_V0_COMMAND_FILL_RECT,
@@ -1948,7 +1948,7 @@ test "protocol v0 realizer clips fill coordinate overflow" {
     try expectPixel(&pixels, 0, .{ .r = 0, .g = 0, .b = 0, .a = 255 });
 }
 
-test "protocol v0 realizer clips sprite coordinate overflow" {
+test "V0 frame realizer clips sprite coordinate overflow" {
     const resource = spriteAlphaResource(88, 1);
     var bytes = [_]u8{ 255, 255, 255, 255 };
     var creates = [_]Create{createResource(resource, 2, 2, c.HOWL_RENDER_V0_UPLOAD_ALPHA8)};

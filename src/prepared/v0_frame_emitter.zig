@@ -1207,7 +1207,7 @@ fn realizeFixture(comptime limits: Limits, fixture: Fixture, pixels: []u8) !void
     try realize.realize(frame, pixels, null);
 }
 
-test "protocol v0 emitter realizes fill pass order equal to oracle" {
+test "render API V0 frame emitter realizes fill pass order equal to oracle" {
     const limits = Limits{ .commands_max = 5, .glyph_refs_max = 5 };
     const clear = [_]Fill{.{ .rect = rect(0, 0, 2, 1), .color_rgba = 0x000000ff }};
     const background = [_]Fill{.{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xff0000ff }};
@@ -1225,7 +1225,7 @@ test "protocol v0 emitter realizes fill pass order equal to oracle" {
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "protocol v0 emitter realizes alpha sprite equal to oracle" {
+test "render API V0 frame emitter realizes alpha sprite equal to oracle" {
     const limits = Limits{
         .creates_max = 1,
         .uploads_max = 1,
@@ -1252,7 +1252,7 @@ test "protocol v0 emitter realizes alpha sprite equal to oracle" {
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "protocol v0 emitter realizes color sprite equal to oracle" {
+test "render API V0 frame emitter realizes color sprite equal to oracle" {
     const limits = Limits{
         .creates_max = 1,
         .uploads_max = 1,
@@ -1279,7 +1279,7 @@ test "protocol v0 emitter realizes color sprite equal to oracle" {
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "protocol v0 emitter batches two glyph refs into one run command" {
+test "render API V0 frame emitter batches two glyph refs into one run command" {
     var emitter = Emitter(.{ .commands_max = 1, .glyph_refs_max = 2 }).init();
     try emitter.appendGlyphRef(glyphRefForTest(1));
     try emitter.appendGlyphRef(glyphRefForTest(2));
@@ -1296,7 +1296,7 @@ test "protocol v0 emitter batches two glyph refs into one run command" {
     try std.testing.expectEqual(@as(u32, 2), frame_value.commands.ptr[0].glyphs.ptr[1].glyph_id);
 }
 
-test "protocol v0 emitter starts a second glyph run after run capacity" {
+test "render API V0 frame emitter starts a second glyph run after run capacity" {
     const glyphs_max: u32 = c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX + 1;
     var emitter = Emitter(.{ .commands_max = 2, .glyph_refs_max = glyphs_max }).init();
     var glyph_index: u32 = 0;
@@ -1319,7 +1319,7 @@ test "protocol v0 emitter starts a second glyph run after run capacity" {
     try std.testing.expectEqual(glyphs_max, frame_value.commands.ptr[1].glyphs.ptr[0].glyph_id);
 }
 
-test "protocol v0 emitter emits sprite retires after final use" {
+test "render API V0 frame emitter emits sprite retires after final use" {
     const limits = Limits{
         .creates_max = 1,
         .uploads_max = 1,
@@ -1350,7 +1350,7 @@ test "protocol v0 emitter emits sprite retires after final use" {
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "protocol v0 emitter rejects command bound overflow" {
+test "render API V0 frame emitter rejects command bound overflow" {
     const limits = Limits{ .commands_max = 1, .glyph_refs_max = 1 };
     const fills = [_]Fill{
         .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff },
@@ -1363,7 +1363,7 @@ test "protocol v0 emitter rejects command bound overflow" {
     }));
 }
 
-test "protocol v0 emitter rejects upload bound overflow" {
+test "render API V0 frame emitter rejects upload bound overflow" {
     const limits = Limits{
         .creates_max = 2,
         .uploads_max = 1,
@@ -1383,7 +1383,7 @@ test "protocol v0 emitter rejects upload bound overflow" {
     }));
 }
 
-test "protocol v0 emitter rejects retire bound overflow" {
+test "render API V0 frame emitter rejects retire bound overflow" {
     const limits = Limits{
         .creates_max = 2,
         .uploads_max = 2,
@@ -1403,7 +1403,7 @@ test "protocol v0 emitter rejects retire bound overflow" {
     }));
 }
 
-test "protocol v0 emitter rejects upload byte total overflow" {
+test "render API V0 frame emitter rejects upload byte total overflow" {
     const limits = Limits{
         .creates_max = 1,
         .uploads_max = 1,
@@ -1428,7 +1428,7 @@ test "protocol v0 emitter rejects upload byte total overflow" {
     }));
 }
 
-test "protocol v0 emitter leaves oracle path independent after emission failure" {
+test "render API V0 frame emitter leaves oracle path independent after emission failure" {
     const limits = Limits{ .commands_max = 1, .glyph_refs_max = 1 };
     const fill = [_]Fill{.{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xff0000ff }};
     const too_many = [_]Fill{
@@ -1451,7 +1451,7 @@ test "protocol v0 emitter leaves oracle path independent after emission failure"
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "protocol v0 alpha atlas reports explicit entry exhaustion" {
+test "V0 frame alpha atlas reports explicit entry exhaustion" {
     var resources = SpriteResourceStore.init();
     var pixel = [_]u8{255};
     var index: u32 = 0;
