@@ -5,7 +5,7 @@ const tokens = @import("../render/tokens.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_surface = @import("surface.zig");
 const prepared_submit_result = @import("submit_result.zig");
-const protocol_v0_emit = @import("v0_frame_emitter.zig");
+const render_surface_emitter = @import("render_surface_emitter.zig");
 const text_session = @import("../session/text.zig");
 const text = @import("../text/text.zig");
 const contract = @import("../text/contract.zig");
@@ -31,16 +31,16 @@ pub const PreparedBuffer = struct {
 pub const PreparedDiagnostics = struct {
     missing_glyphs: u64,
     resolve_metrics: prepared_submit_result.Metrics,
-    protocol_v0_emit_status: i32,
+    render_surface_emit_status: i32,
 };
 
 pub const Owner = struct {
     pub const State = enum { prepared, published, submit_ready, released, consumed };
-    const V0Payload = protocol_v0_emit.Emitter(.{});
+    const RenderSurfacePayload = render_surface_emitter.Emitter(.{});
 
     session_owner: *text_session.TextSessionOwner,
     prepared: prepared_surface.PreparedSurface,
-    v0_payload: ?*V0Payload = null,
+    render_surface_payload: ?*RenderSurfacePayload = null,
     state: State = .prepared,
     snapshot_seq: u64,
     dirty_epoch: u64,
@@ -54,7 +54,7 @@ pub const Owner = struct {
     uploads_required: u64,
     missing_glyphs: u64,
     resolve_metrics: prepared_submit_result.Metrics,
-    protocol_v0_emit_status: i32 = c.HOWL_RENDER_V0_EMIT_OK,
+    render_surface_emit_status: i32 = c.HOWL_RENDER_SURFACE_EMIT_OK,
 
     pub const SubmitResult = union(enum) {
         rendered: prepared_submit_result.SubmitResult,
@@ -72,10 +72,10 @@ pub const Owner = struct {
         value.* = emptyPreparedSurface(prepared_allocator);
         errdefer owner.destroy();
         try session_owner.registerPreparedHandle(owner);
-        owner.emitV0Payload() catch |err| {
-            owner.protocol_v0_emit_status = switch (err) {
-                error.OutOfMemory => c.HOWL_RENDER_V0_EMIT_ALLOCATION_FAILED,
-                else => protocolV0EmitStatus(@errorCast(err)),
+        owner.emitRenderSurfacePayload() catch |err| {
+            owner.render_surface_emit_status = switch (err) {
+                error.OutOfMemory => c.HOWL_RENDER_SURFACE_EMIT_ALLOCATION_FAILED,
+                else => renderSurfaceEmitStatus(@errorCast(err)),
             };
         };
         return owner;
@@ -141,28 +141,28 @@ pub const Owner = struct {
         };
     }
 
-    pub fn protocolV0Frame(self: *const Owner) ?*const protocol_v0_emit.Frame {
+    pub fn renderSurface(self: *const Owner) ?*const render_surface_emitter.Surface {
         std.debug.assert(self.isLive());
-        const payload = self.v0_payload orelse return null;
-        return payload.frame();
+        const payload = self.render_surface_payload orelse return null;
+        return payload.surface();
     }
 
-    pub fn protocolV0FrameForTest(self: *const Owner) *const protocol_v0_emit.Frame {
+    pub fn renderSurfaceForTest(self: *const Owner) *const render_surface_emitter.Surface {
         comptime std.debug.assert(builtin.is_test);
-        return self.protocolV0Frame().?;
+        return self.renderSurface().?;
     }
 
-    pub fn protocolV0FrameStorageEmptyForTest(self: *const Owner) bool {
+    pub fn renderSurfaceStorageEmptyForTest(self: *const Owner) bool {
         comptime std.debug.assert(builtin.is_test);
         std.debug.assert(!self.isLive());
-        return self.v0_payload == null;
+        return self.render_surface_payload == null;
     }
 
     pub fn diagnostics(self: *Owner) PreparedDiagnostics {
         return .{
             .missing_glyphs = self.missing_glyphs,
             .resolve_metrics = self.resolve_metrics,
-            .protocol_v0_emit_status = self.protocol_v0_emit_status,
+            .render_surface_emit_status = self.render_surface_emit_status,
         };
     }
 
@@ -225,25 +225,25 @@ pub const Owner = struct {
             .prepared, .published, .submit_ready => {},
         }
         self.prepared.deinit();
-        self.freeV0Payload();
+        self.freeRenderSurfacePayload();
     }
 
-    fn emitV0Payload(self: *Owner) !void {
-        std.debug.assert(self.v0_payload == null);
-        const payload = try self.session_owner.allocator.create(V0Payload);
+    fn emitRenderSurfacePayload(self: *Owner) !void {
+        std.debug.assert(self.render_surface_payload == null);
+        const payload = try self.session_owner.allocator.create(RenderSurfacePayload);
         payload.* = .{};
         errdefer self.session_owner.allocator.destroy(payload);
         _ = try payload.emitPrepared(
-            &self.session_owner.protocol_v0_sprite_resources,
+            &self.session_owner.render_surface_sprite_resources,
             &self.session_owner.session,
             &self.prepared,
         );
-        self.v0_payload = payload;
+        self.render_surface_payload = payload;
     }
 
-    fn freeV0Payload(self: *Owner) void {
-        const payload = self.v0_payload orelse return;
-        self.v0_payload = null;
+    fn freeRenderSurfacePayload(self: *Owner) void {
+        const payload = self.render_surface_payload orelse return;
+        self.render_surface_payload = null;
         self.session_owner.allocator.destroy(payload);
     }
 };
@@ -264,21 +264,21 @@ fn ownerBase(session_owner: *text_session.TextSessionOwner, value: prepared_surf
         .uploads_required = value.text_frame.raster_plan.outputs.len,
         .missing_glyphs = value.text_frame.scene.scene.missing.len,
         .resolve_metrics = resolveMetricsOut(value),
-        .protocol_v0_emit_status = c.HOWL_RENDER_V0_EMIT_OK,
+        .render_surface_emit_status = c.HOWL_RENDER_SURFACE_EMIT_OK,
     };
 }
 
-fn protocolV0EmitStatus(err: protocol_v0_emit.Error) i32 {
+fn renderSurfaceEmitStatus(err: render_surface_emitter.Error) i32 {
     return switch (err) {
-        error.CommandBoundOverflow => c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
-        error.CreateBoundOverflow => c.HOWL_RENDER_V0_EMIT_CREATE_BOUND_OVERFLOW,
-        error.DamageBoundOverflow => c.HOWL_RENDER_V0_EMIT_DAMAGE_BOUND_OVERFLOW,
-        error.RetireBoundOverflow => c.HOWL_RENDER_V0_EMIT_RETIRE_BOUND_OVERFLOW,
-        error.ResourceBoundOverflow => c.HOWL_RENDER_V0_EMIT_RESOURCE_BOUND_OVERFLOW,
-        error.UploadBoundOverflow => c.HOWL_RENDER_V0_EMIT_UPLOAD_BOUND_OVERFLOW,
-        error.UploadBytesOverflow => c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW,
-        error.InvalidPreparedSprite => c.HOWL_RENDER_V0_EMIT_INVALID_PREPARED_SPRITE,
-        error.MissingPreparedSprite => c.HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE,
+        error.CommandBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW,
+        error.CreateBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_CREATE_BOUND_OVERFLOW,
+        error.DamageBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_DAMAGE_BOUND_OVERFLOW,
+        error.RetireBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_RETIRE_BOUND_OVERFLOW,
+        error.ResourceBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_RESOURCE_BOUND_OVERFLOW,
+        error.UploadBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BOUND_OVERFLOW,
+        error.UploadBytesOverflow => c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW,
+        error.InvalidPreparedSprite => c.HOWL_RENDER_SURFACE_EMIT_INVALID_PREPARED_SPRITE,
+        error.MissingPreparedSprite => c.HOWL_RENDER_SURFACE_EMIT_MISSING_PREPARED_SPRITE,
     };
 }
 
@@ -433,10 +433,10 @@ test "create reports missing-sprite diagnostic without double free" {
 
     var owned_prepared = prepared;
     const owner = try Owner.create(session_owner, &owned_prepared);
-    try std.testing.expect(owner.protocolV0Frame() == null);
+    try std.testing.expect(owner.renderSurface() == null);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE,
-        owner.diagnostics().protocol_v0_emit_status,
+        c.HOWL_RENDER_SURFACE_EMIT_MISSING_PREPARED_SPRITE,
+        owner.diagnostics().render_surface_emit_status,
     );
 }
 
@@ -562,7 +562,7 @@ test "owner exports prepared metrics and required upload count truth" {
             .fallback_misses = 0,
             .missing_glyphs = 2,
         },
-        .protocol_v0_emit_status = c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW,
+        .render_surface_emit_status = c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW,
     };
 
     owner.prepared = .{
@@ -631,47 +631,47 @@ test "owner exports prepared metrics and required upload count truth" {
     try std.testing.expectEqual(@as(u64, 5), diagnostics.resolve_metrics.face_checks);
     try std.testing.expectEqual(@as(u64, 2), diagnostics.resolve_metrics.missing_glyphs);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW,
-        diagnostics.protocol_v0_emit_status,
+        c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW,
+        diagnostics.render_surface_emit_status,
     );
 }
 
-test "owner maps every V0 frame emit error to diagnostics status" {
+test "owner maps every render-surface surface emit error to diagnostics status" {
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
-        protocolV0EmitStatus(error.CommandBoundOverflow),
+        c.HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW,
+        renderSurfaceEmitStatus(error.CommandBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_CREATE_BOUND_OVERFLOW,
-        protocolV0EmitStatus(error.CreateBoundOverflow),
+        c.HOWL_RENDER_SURFACE_EMIT_CREATE_BOUND_OVERFLOW,
+        renderSurfaceEmitStatus(error.CreateBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_DAMAGE_BOUND_OVERFLOW,
-        protocolV0EmitStatus(error.DamageBoundOverflow),
+        c.HOWL_RENDER_SURFACE_EMIT_DAMAGE_BOUND_OVERFLOW,
+        renderSurfaceEmitStatus(error.DamageBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_RETIRE_BOUND_OVERFLOW,
-        protocolV0EmitStatus(error.RetireBoundOverflow),
+        c.HOWL_RENDER_SURFACE_EMIT_RETIRE_BOUND_OVERFLOW,
+        renderSurfaceEmitStatus(error.RetireBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_RESOURCE_BOUND_OVERFLOW,
-        protocolV0EmitStatus(error.ResourceBoundOverflow),
+        c.HOWL_RENDER_SURFACE_EMIT_RESOURCE_BOUND_OVERFLOW,
+        renderSurfaceEmitStatus(error.ResourceBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_UPLOAD_BOUND_OVERFLOW,
-        protocolV0EmitStatus(error.UploadBoundOverflow),
+        c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BOUND_OVERFLOW,
+        renderSurfaceEmitStatus(error.UploadBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW,
-        protocolV0EmitStatus(error.UploadBytesOverflow),
+        c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW,
+        renderSurfaceEmitStatus(error.UploadBytesOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_INVALID_PREPARED_SPRITE,
-        protocolV0EmitStatus(error.InvalidPreparedSprite),
+        c.HOWL_RENDER_SURFACE_EMIT_INVALID_PREPARED_SPRITE,
+        renderSurfaceEmitStatus(error.InvalidPreparedSprite),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE,
-        protocolV0EmitStatus(error.MissingPreparedSprite),
+        c.HOWL_RENDER_SURFACE_EMIT_MISSING_PREPARED_SPRITE,
+        renderSurfaceEmitStatus(error.MissingPreparedSprite),
     );
 }
 

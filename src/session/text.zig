@@ -13,7 +13,7 @@ const source_prepare = @import("../source/prepare_request.zig");
 const prepared_surface = @import("../prepared/surface.zig");
 const prepared_submit_result = @import("../prepared/submit_result.zig");
 const session_submitted = @import("submitted.zig");
-const protocol_v0_emit = @import("../prepared/v0_frame_emitter.zig");
+const render_surface_emitter = @import("../prepared/render_surface_emitter.zig");
 const contract = @import("../text/contract.zig");
 const font_resolve = @import("../text/font/resolve.zig");
 const text = @import("../text/text.zig");
@@ -74,7 +74,7 @@ pub const TextSession = struct {
         session_config: TextSessionConfig,
     };
 
-    pub const FrameLayout = geometry_contract.SurfaceLayout;
+    pub const SurfaceLayout = geometry_contract.SurfaceLayout;
     pub const PreparedTimings = prepared_surface.PrepareMetrics;
     pub const DamageKind = enum { partial, scroll, full };
     pub const SubmitExecution = struct {
@@ -113,7 +113,7 @@ pub const TextSession = struct {
         config: TextSessionConfig,
         render_px: geometry_contract.PixelSize,
         grid_px: geometry_contract.PixelSize,
-    ) geometry_mod.FrameGeometryError!FrameLayout {
+    ) geometry_mod.FrameGeometryError!SurfaceLayout {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         if (render_px.width == 0 or render_px.height == 0) return error.InvalidSurfaceSize;
@@ -354,7 +354,7 @@ pub const TextSessionOwner = struct {
     prepared_handles: std.ArrayList(*prepared_owner.Owner) = .empty,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
-    protocol_v0_sprite_resources: protocol_v0_emit.SpriteResourceStore = .init(),
+    render_surface_sprite_resources: render_surface_emitter.SpriteResourceStore = .init(),
     prepare_handle_failure_count: u64 = 0,
 
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };

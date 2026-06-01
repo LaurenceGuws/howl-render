@@ -34,69 +34,45 @@ pub fn build(b: *std.Build) void {
         .optimize = perf_optimize,
     });
     const perf_harfbuzz_lib = perf_harfbuzz_dep.artifact("harfbuzz");
-    const unit_mod = b.createModule(.{
-        .root_source_file = b.path("src/test_unit.zig"),
+    const test_mod = b.createModule(.{
+        .root_source_file = b.path("src/test.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
-    unit_mod.addIncludePath(b.path("include"));
-    unit_mod.addIncludePath(b.path("../howl-vt/include"));
-    unit_mod.addImport("test_font_options", test_font_options.createModule());
-    unit_mod.linkLibrary(freetype_lib);
-    unit_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
-    unit_mod.linkLibrary(harfbuzz_lib);
-    unit_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    const unit_tests = b.addTest(.{
-        .name = "test-unit",
-        .root_module = unit_mod,
+    test_mod.addIncludePath(b.path("include"));
+    test_mod.addIncludePath(b.path("../howl-vt/include"));
+    test_mod.addImport("test_font_options", test_font_options.createModule());
+    test_mod.linkLibrary(freetype_lib);
+    test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
+    test_mod.linkLibrary(harfbuzz_lib);
+    test_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    const render_tests = b.addTest(.{
+        .name = "test-render",
+        .root_module = test_mod,
         .filters = b.args orelse &.{},
     });
-    unit_tests.use_llvm = true;
-    const run_unit_tests = b.addRunArtifact(unit_tests);
+    render_tests.use_llvm = true;
+    const run_render_tests = b.addRunArtifact(render_tests);
     if (b.args != null) {
-        run_unit_tests.has_side_effects = true;
-    }
-
-    const abi_mod = b.createModule(.{
-        .root_source_file = b.path("src/test_abi.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-    abi_mod.addIncludePath(b.path("include"));
-    abi_mod.addIncludePath(b.path("../howl-vt/include"));
-    abi_mod.addImport("test_font_options", test_font_options.createModule());
-    abi_mod.linkLibrary(freetype_lib);
-    abi_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
-    abi_mod.linkLibrary(harfbuzz_lib);
-    abi_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    const abi_tests = b.addTest(.{
-        .name = "test-abi",
-        .root_module = abi_mod,
-        .filters = b.args orelse &.{},
-    });
-    abi_tests.use_llvm = true;
-    const run_abi_tests = b.addRunArtifact(abi_tests);
-    if (b.args != null) {
-        run_abi_tests.has_side_effects = true;
+        run_render_tests.has_side_effects = true;
     }
 
     const check_step = b.step("check", "Compile owner surfaces without installing or running");
     const test_step = b.step("test", "Run all tests");
     const test_build_step = b.step("test:build", "Build render tests");
-    const test_unit_step = b.step("test:unit", "Run render unit tests");
-    const test_unit_build_step = b.step("test:unit:build", "Build render unit tests");
-    const test_abi_step = b.step("test:abi", "Run shipped render ABI contract tests");
-    const test_abi_build_step = b.step("test:abi:build", "Build shipped render ABI contract tests");
-    test_unit_build_step.dependOn(&unit_tests.step);
-    test_unit_step.dependOn(&run_unit_tests.step);
-    test_abi_build_step.dependOn(&abi_tests.step);
-    test_abi_step.dependOn(&run_abi_tests.step);
-    test_build_step.dependOn(test_unit_build_step);
-    test_build_step.dependOn(test_abi_build_step);
-    test_step.dependOn(test_unit_step);
-    test_step.dependOn(test_abi_step);
+    const unit_test_step = b.step("test:unit", "Run render unit tests");
+    const unit_test_build_step = b.step("test:unit:build", "Build render unit tests");
+    const abi_test_step = b.step("test:abi", "Run shipped render ABI contract tests");
+    const abi_test_build_step = b.step("test:abi:build", "Build shipped render ABI contract tests");
+    unit_test_build_step.dependOn(&render_tests.step);
+    unit_test_step.dependOn(&run_render_tests.step);
+    abi_test_build_step.dependOn(&render_tests.step);
+    abi_test_step.dependOn(&run_render_tests.step);
+    test_build_step.dependOn(unit_test_build_step);
+    test_build_step.dependOn(abi_test_build_step);
+    test_step.dependOn(unit_test_step);
+    test_step.dependOn(abi_test_step);
 
     const ffi_mod = b.createModule(.{
         .root_source_file = b.path("src/libhowl_render.zig"),

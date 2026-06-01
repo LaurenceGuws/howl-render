@@ -43,18 +43,18 @@ pub fn describe(
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn protocolV0(
+pub fn renderSurface(
     prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
-    frame_out: ?*?*const c.HowlRenderV0Frame,
+    surface_out: ?*?*const c.HowlRenderSurface,
 ) callconv(.c) c_int {
-    const out = frame_out;
+    const out = surface_out;
     if (out) |value| value.* = null;
     const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
         return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     };
     const value = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!owner.isLive()) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    value.* = owner.protocolV0Frame() orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    value.* = owner.renderSurface() orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     return c.HOWL_RENDER_CALL_OK;
 }
 
@@ -113,7 +113,7 @@ pub fn preparedDiagnosticsOut(
         .status = c.HOWL_RENDER_CALL_OK,
         .missing_glyphs = value.missing_glyphs,
         .resolve_metrics = submit_result.metricsOut(value.resolve_metrics),
-        .protocol_v0_emit_status = value.protocol_v0_emit_status,
+        .render_surface_emit_status = value.render_surface_emit_status,
         .reserved0 = 0,
     };
 }
@@ -123,7 +123,7 @@ pub fn diagnosticsFailure(status: c_int) c.HowlRenderPreparedSurfaceDiagnostics 
         .status = status,
         .missing_glyphs = 0,
         .resolve_metrics = std.mem.zeroes(c.HowlRenderMetrics),
-        .protocol_v0_emit_status = c.HOWL_RENDER_V0_EMIT_OK,
+        .render_surface_emit_status = c.HOWL_RENDER_SURFACE_EMIT_OK,
         .reserved0 = 0,
     };
 }

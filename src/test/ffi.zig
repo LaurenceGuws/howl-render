@@ -44,8 +44,8 @@ test "render ffi missing handles report shipped contract" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, diagnostics.status);
     try std.testing.expectEqual(@as(u64, 0), diagnostics.missing_glyphs);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_OK,
-        diagnostics.protocol_v0_emit_status,
+        c.HOWL_RENDER_SURFACE_EMIT_OK,
+        diagnostics.render_surface_emit_status,
     );
     try std.testing.expectEqual(@as(u32, 0), diagnostics.reserved0);
 }
@@ -60,18 +60,18 @@ test "render ffi invalid arguments report shipped contract" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, vt_surface.reserveVtSurfaceSlot(handle, 0, 1, null));
 }
 
-test "render ffi render API V0 emit status values are stable" {
-    try std.testing.expectEqual(@as(i32, 0), c.HOWL_RENDER_V0_EMIT_OK);
-    try std.testing.expectEqual(@as(i32, 1), c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW);
-    try std.testing.expectEqual(@as(i32, 2), c.HOWL_RENDER_V0_EMIT_CREATE_BOUND_OVERFLOW);
-    try std.testing.expectEqual(@as(i32, 3), c.HOWL_RENDER_V0_EMIT_DAMAGE_BOUND_OVERFLOW);
-    try std.testing.expectEqual(@as(i32, 4), c.HOWL_RENDER_V0_EMIT_RETIRE_BOUND_OVERFLOW);
-    try std.testing.expectEqual(@as(i32, 5), c.HOWL_RENDER_V0_EMIT_RESOURCE_BOUND_OVERFLOW);
-    try std.testing.expectEqual(@as(i32, 6), c.HOWL_RENDER_V0_EMIT_UPLOAD_BOUND_OVERFLOW);
-    try std.testing.expectEqual(@as(i32, 7), c.HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW);
-    try std.testing.expectEqual(@as(i32, 8), c.HOWL_RENDER_V0_EMIT_INVALID_PREPARED_SPRITE);
-    try std.testing.expectEqual(@as(i32, 9), c.HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE);
-    try std.testing.expectEqual(@as(i32, 10), c.HOWL_RENDER_V0_EMIT_ALLOCATION_FAILED);
+test "render ffi render surface emit status values are stable" {
+    try std.testing.expectEqual(@as(i32, 0), c.HOWL_RENDER_SURFACE_EMIT_OK);
+    try std.testing.expectEqual(@as(i32, 1), c.HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 2), c.HOWL_RENDER_SURFACE_EMIT_CREATE_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 3), c.HOWL_RENDER_SURFACE_EMIT_DAMAGE_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 4), c.HOWL_RENDER_SURFACE_EMIT_RETIRE_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 5), c.HOWL_RENDER_SURFACE_EMIT_RESOURCE_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 6), c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BOUND_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 7), c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW);
+    try std.testing.expectEqual(@as(i32, 8), c.HOWL_RENDER_SURFACE_EMIT_INVALID_PREPARED_SPRITE);
+    try std.testing.expectEqual(@as(i32, 9), c.HOWL_RENDER_SURFACE_EMIT_MISSING_PREPARED_SPRITE);
+    try std.testing.expectEqual(@as(i32, 10), c.HOWL_RENDER_SURFACE_EMIT_ALLOCATION_FAILED);
 }
 
 test "render ffi prepared diagnostics layout is stable" {
@@ -91,7 +91,7 @@ test "render ffi prepared diagnostics layout is stable" {
     );
     try std.testing.expectEqual(
         @as(usize, 152),
-        @offsetOf(c.HowlRenderPreparedSurfaceDiagnostics, "protocol_v0_emit_status"),
+        @offsetOf(c.HowlRenderPreparedSurfaceDiagnostics, "render_surface_emit_status"),
     );
     try std.testing.expectEqual(
         @as(usize, 156),
@@ -308,8 +308,8 @@ test "render ffi live prepared handle describes diagnostics" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, diagnostics.status);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_OK,
-        diagnostics.protocol_v0_emit_status,
+        c.HOWL_RENDER_SURFACE_EMIT_OK,
+        diagnostics.render_surface_emit_status,
     );
     try std.testing.expectEqual(@as(u32, 0), diagnostics.reserved0);
 }
@@ -329,29 +329,29 @@ test "render ffi released prepared handle rejects describe and diagnostics" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.diagnostics(prepared_handle, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, diagnostics.status);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_OK,
-        diagnostics.protocol_v0_emit_status,
+        c.HOWL_RENDER_SURFACE_EMIT_OK,
+        diagnostics.render_surface_emit_status,
     );
     try std.testing.expectEqual(@as(u32, 0), diagnostics.reserved0);
 }
 
-test "render ffi prepared V0 frame rejects missing handle" {
-    var frame_storage = std.mem.zeroes(c.HowlRenderV0Frame);
-    var frame: ?*const c.HowlRenderV0Frame = &frame_storage;
+test "render ffi prepared render-surface surface rejects missing handle" {
+    var surface_storage = std.mem.zeroes(c.HowlRenderSurface);
+    var surface: ?*const c.HowlRenderSurface = &surface_storage;
 
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_MISSING_HANDLE,
-        prepared_surface.protocolV0(null, &frame),
+        prepared_surface.renderSurface(null, &surface),
     );
-    try std.testing.expect(frame == null);
+    try std.testing.expect(surface == null);
 
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_MISSING_HANDLE,
-        prepared_surface.protocolV0(null, null),
+        prepared_surface.renderSurface(null, null),
     );
 }
 
-test "render ffi prepared V0 frame rejects null output" {
+test "render ffi prepared render-surface surface rejects null output" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
@@ -359,57 +359,57 @@ test "render ffi prepared V0 frame rejects null output" {
 
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_INVALID_ARGUMENT,
-        prepared_surface.protocolV0(prepared_handle, null),
+        prepared_surface.renderSurface(prepared_handle, null),
     );
 }
 
-test "render ffi prepared V0 frame rejects released handle" {
+test "render ffi prepared render-surface surface rejects released handle" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     prepared_surface.release(prepared_handle);
 
-    var frame_storage = std.mem.zeroes(c.HowlRenderV0Frame);
-    var frame: ?*const c.HowlRenderV0Frame = &frame_storage;
+    var surface_storage = std.mem.zeroes(c.HowlRenderSurface);
+    var surface: ?*const c.HowlRenderSurface = &surface_storage;
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_INVALID_ARGUMENT,
-        prepared_surface.protocolV0(prepared_handle, &frame),
+        prepared_surface.renderSurface(prepared_handle, &surface),
     );
-    try std.testing.expect(frame == null);
+    try std.testing.expect(surface == null);
 }
 
-test "render ffi prepared V0 frame returns borrowed live frame" {
+test "render ffi prepared render-surface surface returns borrowed live surface" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
     defer prepared_surface.release(prepared_handle);
 
-    var frame: ?*const c.HowlRenderV0Frame = null;
+    var surface: ?*const c.HowlRenderSurface = null;
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_OK,
-        prepared_surface.protocolV0(prepared_handle, &frame),
+        prepared_surface.renderSurface(prepared_handle, &surface),
     );
-    const value = frame orelse return error.MissingFrame;
+    const value = surface orelse return error.MissingSurface;
 
     try std.testing.expectEqual(
-        @as(u32, c.HOWL_RENDER_PROTOCOL_V0_VERSION),
-        value.protocol_version,
+        @as(u32, c.HOWL_RENDER_SURFACE_VERSION),
+        value.surface_version,
     );
     try std.testing.expectEqual(@as(u32, 1), value.damage.count);
     try std.testing.expect(value.damage.ptr != null);
     try std.testing.expect(value.commands.ptr != null);
 }
 
-test "render ffi prepared V0 frame does not change prepared lifecycle" {
+test "render ffi prepared render-surface surface does not change prepared lifecycle" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
 
-    var frame_before: ?*const c.HowlRenderV0Frame = null;
-    var frame_after: ?*const c.HowlRenderV0Frame = null;
+    var surface_before: ?*const c.HowlRenderSurface = null;
+    var surface_after: ?*const c.HowlRenderSurface = null;
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_OK,
-        prepared_surface.protocolV0(prepared_handle, &frame_before),
+        prepared_surface.renderSurface(prepared_handle, &surface_before),
     );
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
     try std.testing.expectEqual(
@@ -418,9 +418,9 @@ test "render ffi prepared V0 frame does not change prepared lifecycle" {
     );
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_OK,
-        prepared_surface.protocolV0(prepared_handle, &frame_after),
+        prepared_surface.renderSurface(prepared_handle, &surface_after),
     );
-    try std.testing.expectEqual(frame_before, frame_after);
+    try std.testing.expectEqual(surface_before, surface_after);
 
     const token = try preparedSurfaceTokenFromHandle(prepared_handle);
     const execution = validExecutionInput();
@@ -429,13 +429,13 @@ test "render ffi prepared V0 frame does not change prepared lifecycle" {
         submission.submit(handle, prepared_handle, token, &execution, null),
     );
 
-    var frame_storage = std.mem.zeroes(c.HowlRenderV0Frame);
-    var frame_consumed: ?*const c.HowlRenderV0Frame = &frame_storage;
+    var surface_storage = std.mem.zeroes(c.HowlRenderSurface);
+    var surface_consumed: ?*const c.HowlRenderSurface = &surface_storage;
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_INVALID_ARGUMENT,
-        prepared_surface.protocolV0(prepared_handle, &frame_consumed),
+        prepared_surface.renderSurface(prepared_handle, &surface_consumed),
     );
-    try std.testing.expect(frame_consumed == null);
+    try std.testing.expect(surface_consumed == null);
 }
 
 test "render ffi prepared handle release is idempotent" {

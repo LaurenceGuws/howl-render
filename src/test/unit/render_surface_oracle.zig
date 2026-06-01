@@ -5,19 +5,19 @@ const ffi_prepared_surface = @import("../../ffi/prepared_surface.zig");
 const prepared_buffer = @import("../../prepared/buffer.zig");
 const prepared_owner = @import("../../prepared/owner.zig");
 const prepared_surface = @import("../../prepared/surface.zig");
-const protocol_emit = @import("../../prepared/v0_frame_emitter.zig");
-const protocol_realize = @import("../../render/v0_frame_realizer.zig");
+const render_surface_emitter = @import("../../prepared/render_surface_emitter.zig");
+const render_surface_realizer = @import("../../render/render_surface_realizer.zig");
 const contract = @import("../../text/contract.zig");
 const text = @import("../../text/text.zig");
 const text_session = @import("../../session/text.zig");
 
-test "render API V0 prepared proof target imports owner oracle" {
+test "render surface prepared proof target imports owner oracle" {
     _ = prepared_buffer.compose;
     _ = text_session.TextSession;
-    _ = protocol_emit.Emitter;
+    _ = render_surface_emitter.Emitter;
 }
 
-test "render API V0 frame emitter realizes prepared fill frame equal to full rgba oracle" {
+test "render surface surface emitter realizes prepared fill surface equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -43,7 +43,7 @@ test "render API V0 frame emitter realizes prepared fill frame equal to full rgb
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "render API V0 frame emitter coalesces adjacent prepared fill commands" {
+test "render surface surface emitter coalesces adjacent prepared fill commands" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -60,23 +60,23 @@ test "render API V0 frame emitter coalesces adjacent prepared fill commands" {
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
-    try std.testing.expectEqual(@as(u32, 1), frame.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_V0_COMMAND_FILL_RECT, frame.commands.ptr[0].kind);
-    try std.testing.expectEqual(@as(i32, 0), frame.commands.ptr[0].rect.x_px);
-    try std.testing.expectEqual(@as(i32, 0), frame.commands.ptr[0].rect.y_px);
-    try std.testing.expectEqual(@as(u16, 4), frame.commands.ptr[0].rect.width_px);
-    try std.testing.expectEqual(@as(u16, 1), frame.commands.ptr[0].rect.height_px);
+    try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[0].rect.x_px);
+    try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[0].rect.y_px);
+    try std.testing.expectEqual(@as(u16, 4), surface.commands.ptr[0].rect.width_px);
+    try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[0].rect.height_px);
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "render API V0 frame emitter does not coalesce distinct prepared fills" {
+test "render surface surface emitter does not coalesce distinct prepared fills" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -97,18 +97,18 @@ test "render API V0 frame emitter does not coalesce distinct prepared fills" {
         .height_px = 2,
     });
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
-    try std.testing.expectEqual(@as(u32, 5), frame.commands.count);
+    try std.testing.expectEqual(@as(u32, 5), surface.commands.count);
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "render API V0 frame emitter realizes prepared alpha sprite frame equal to full rgba oracle" {
+test "render surface surface emitter realizes prepared alpha sprite surface equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -135,7 +135,7 @@ test "render API V0 frame emitter realizes prepared alpha sprite frame equal to 
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "render API V0 frame emitter batches prepared alpha sprite glyph commands" {
+test "render surface surface emitter batches prepared alpha sprite glyph commands" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -161,25 +161,25 @@ test "render API V0 frame emitter batches prepared alpha sprite glyph commands" 
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{ .commands_max = 1, .glyph_refs_max = 2 });
+    const Emitter = render_surface_emitter.Emitter(.{ .commands_max = 1, .glyph_refs_max = 2 });
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
-    try std.testing.expectEqual(@as(u32, 1), frame.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN, frame.commands.ptr[0].kind);
-    try std.testing.expectEqual(@as(u32, 2), frame.commands.ptr[0].glyphs.count);
+    try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(@as(u32, 2), surface.commands.ptr[0].glyphs.count);
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "render API V0 frame emitter emits over command bound alpha draws with batched glyph runs" {
+test "render surface surface emitter emits over command bound alpha draws with batched glyph runs" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const draws_len: usize = c.HOWL_RENDER_V0_COMMANDS_MAX + 1;
+    const draws_len: usize = c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1;
     const sprite_draws = try allocator.alloc(contract.TextSpriteDraw, draws_len);
     defer allocator.free(sprite_draws);
     for (sprite_draws, 0..) |*draw, index| {
@@ -202,35 +202,35 @@ test "render API V0 frame emitter emits over command bound alpha draws with batc
         .height_px = 1,
     });
 
-    const glyphs_max: u32 = c.HOWL_RENDER_V0_COMMANDS_MAX + 1;
-    const Emitter = protocol_emit.Emitter(.{});
+    const glyphs_max: u32 = c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1;
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     const commands_expected = std.math.divCeil(
         u32,
         glyphs_max,
-        c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX,
+        c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX,
     ) catch unreachable;
-    try std.testing.expectEqual(commands_expected, frame.commands.count);
-    try std.testing.expect(frame.commands.count < c.HOWL_RENDER_V0_COMMANDS_MAX + 1);
-    try std.testing.expectEqual(c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN, frame.commands.ptr[0].kind);
+    try std.testing.expectEqual(commands_expected, surface.commands.count);
+    try std.testing.expect(surface.commands.count < c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[0].kind);
     try std.testing.expectEqual(
-        @as(u32, c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX),
-        frame.commands.ptr[0].glyphs.count,
+        @as(u32, c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX),
+        surface.commands.ptr[0].glyphs.count,
     );
-    try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
+    try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
 }
 
-test "render API V0 frame emitter preserves command overflow after batched glyph runs" {
+test "render surface surface emitter preserves command overflow after batched glyph runs" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const draws_len: usize = c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX + 1;
+    const draws_len: usize = c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX + 1;
     const sprite_draws = try allocator.alloc(contract.TextSpriteDraw, draws_len);
     defer allocator.free(sprite_draws);
     for (sprite_draws, 0..) |*draw, index| {
@@ -253,31 +253,31 @@ test "render API V0 frame emitter preserves command overflow after batched glyph
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{ .commands_max = 1, .glyph_refs_max = draws_len });
+    const Emitter = render_surface_emitter.Emitter(.{ .commands_max = 1, .glyph_refs_max = draws_len });
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
+    var resources = render_surface_emitter.SpriteResourceStore.init();
     try std.testing.expectError(
         error.CommandBoundOverflow,
         emitter.emitPrepared(&resources, &session, &prepared),
     );
-    try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
+    try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
     try std.testing.expectEqual(@as(u32, 0), resources.atlas_count);
 }
 
-test "render API V0 frame emitter emits more than old alpha atlas entry cap" {
+test "render surface surface emitter emits more than old alpha atlas entry cap" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
+    var resources = render_surface_emitter.SpriteResourceStore.init();
     var index: u32 = 0;
-    while (index <= protocol_emit.persistent_sprite_resources_max) : (index += 1) {
+    while (index <= render_surface_emitter.persistent_sprite_resources_max) : (index += 1) {
         var sprite_bytes = [_]u8{@intCast((index % 251) + 1)};
         var sprite_draws = [_]contract.TextSpriteDraw{
             spriteDraw(10_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
@@ -298,15 +298,15 @@ test "render API V0 frame emitter emits more than old alpha atlas entry cap" {
             .height_px = 1,
         });
 
-        const frame = try emitter.emitPrepared(&resources, &session, &prepared);
-        try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
-        try std.testing.expectEqual(@as(u32, 1), frame.commands.count);
-        try std.testing.expectEqual(c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN, frame.commands.ptr[0].kind);
+        const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+        try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
+        try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
+        try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[0].kind);
     }
-    try std.testing.expectEqual(protocol_emit.persistent_sprite_resources_max + 1, resources.atlas_count);
+    try std.testing.expectEqual(render_surface_emitter.persistent_sprite_resources_max + 1, resources.atlas_count);
 }
 
-test "render API V0 frame emitter realizes prepared color sprite frame equal to full rgba oracle" {
+test "render surface surface emitter realizes prepared color sprite surface equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -333,7 +333,7 @@ test "render API V0 frame emitter realizes prepared color sprite frame equal to 
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "render API V0 frame emitter realizes sprite visual bounds like oracle" {
+test "render surface surface emitter realizes sprite visual bounds like oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -363,7 +363,7 @@ test "render API V0 frame emitter realizes sprite visual bounds like oracle" {
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
-test "render API V0 frame emitter persists prepared sprite resource across frames" {
+test "render surface surface emitter persists prepared sprite resource across surfaces" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -388,21 +388,21 @@ test "render API V0 frame emitter persists prepared sprite resource across frame
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const frame1 = try emitter.emitPrepared(&resources, &session, &prepared);
-    try std.testing.expectEqual(@as(u32, 1), frame1.creates.count);
-    try std.testing.expectEqual(@as(u32, 1), frame1.uploads.count);
-    try std.testing.expectEqual(@as(u32, 1), frame1.commands.count);
-    try std.testing.expectEqual(@as(u32, 0), frame1.retires.count);
-    const resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const surface1 = try emitter.emitPrepared(&resources, &session, &prepared);
+    try std.testing.expectEqual(@as(u32, 1), surface1.creates.count);
+    try std.testing.expectEqual(@as(u32, 1), surface1.uploads.count);
+    try std.testing.expectEqual(@as(u32, 1), surface1.commands.count);
+    try std.testing.expectEqual(@as(u32, 0), surface1.retires.count);
+    const resource = surface1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     try std.testing.expect(resource.value != 0);
     try std.testing.expectEqual(@as(u32, 1), resource.generation);
 
-    const retained = try allocator.create(protocol_realize.ResourceStore);
+    const retained = try allocator.create(render_surface_realizer.ResourceStore);
     defer allocator.destroy(retained);
     retained.count = 0;
     retained.bytes_count = 0;
@@ -410,23 +410,23 @@ test "render API V0 frame emitter persists prepared sprite resource across frame
     defer allocator.free(oracle);
     const realized1 = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized1);
-    try protocol_realize.realizeRetained(frame1, realized1, null, retained);
+    try render_surface_realizer.realizeRetained(surface1, realized1, null, retained);
     try std.testing.expectEqualSlices(u8, oracle, realized1);
 
-    const frame2 = try emitter.emitPrepared(&resources, &session, &prepared);
-    try std.testing.expectEqual(@as(u32, 0), frame2.creates.count);
-    try std.testing.expectEqual(@as(u32, 0), frame2.uploads.count);
-    try std.testing.expectEqual(@as(u32, 1), frame2.commands.count);
-    try std.testing.expectEqual(@as(u32, 0), frame2.retires.count);
-    try std.testing.expectEqual(resource.value, frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource.value);
-    try std.testing.expectEqual(resource.generation, frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource.generation);
+    const surface2 = try emitter.emitPrepared(&resources, &session, &prepared);
+    try std.testing.expectEqual(@as(u32, 0), surface2.creates.count);
+    try std.testing.expectEqual(@as(u32, 0), surface2.uploads.count);
+    try std.testing.expectEqual(@as(u32, 1), surface2.commands.count);
+    try std.testing.expectEqual(@as(u32, 0), surface2.retires.count);
+    try std.testing.expectEqual(resource.value, surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource.value);
+    try std.testing.expectEqual(resource.generation, surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource.generation);
     const realized2 = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized2);
-    try protocol_realize.realizeRetained(frame2, realized2, null, retained);
+    try render_surface_realizer.realizeRetained(surface2, realized2, null, retained);
     try std.testing.expectEqualSlices(u8, oracle, realized2);
 }
 
-test "render API V0 frame emitter allocates distinct monotonic sprite resources" {
+test "render surface surface emitter allocates distinct monotonic sprite resources" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -470,21 +470,21 @@ test "render API V0 frame emitter allocates distinct monotonic sprite resources"
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const frame1 = try emitter.emitPrepared(&resources, &session, &first);
-    const first_resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
-    const frame2 = try emitter.emitPrepared(&resources, &session, &second);
-    const second_resource = frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const surface1 = try emitter.emitPrepared(&resources, &session, &first);
+    const first_resource = surface1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const surface2 = try emitter.emitPrepared(&resources, &session, &second);
+    const second_resource = surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
     try std.testing.expectEqual(first_resource.value, second_resource.value);
     try std.testing.expectEqual(@as(u32, 1), second_resource.generation);
 }
 
-test "render API V0 frame emitter allocates distinct resource for changed sprite bytes" {
+test "render surface surface emitter allocates distinct resource for changed sprite bytes" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -528,24 +528,24 @@ test "render API V0 frame emitter allocates distinct resource for changed sprite
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const frame1 = try emitter.emitPrepared(&resources, &session, &first);
-    const first_resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
-    const frame2 = try emitter.emitPrepared(&resources, &session, &second);
-    const second_resource = frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const surface1 = try emitter.emitPrepared(&resources, &session, &first);
+    const first_resource = surface1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const surface2 = try emitter.emitPrepared(&resources, &session, &second);
+    const second_resource = surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
     try std.testing.expectEqual(first_resource.value, second_resource.value);
     try std.testing.expectEqual(@as(u32, 1), first_resource.generation);
     try std.testing.expectEqual(@as(u32, 1), second_resource.generation);
-    try std.testing.expectEqual(@as(u32, 0), frame1.retires.count);
-    try std.testing.expectEqual(@as(u32, 0), frame2.retires.count);
+    try std.testing.expectEqual(@as(u32, 0), surface1.retires.count);
+    try std.testing.expectEqual(@as(u32, 0), surface2.retires.count);
 }
 
-test "render API V0 frame emitter allocates distinct resource for changed sprite dimensions" {
+test "render surface surface emitter allocates distinct resource for changed sprite dimensions" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -589,24 +589,24 @@ test "render API V0 frame emitter allocates distinct resource for changed sprite
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const frame1 = try emitter.emitPrepared(&resources, &session, &first);
-    const first_resource = frame1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
-    const frame2 = try emitter.emitPrepared(&resources, &session, &second);
-    const second_resource = frame2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const surface1 = try emitter.emitPrepared(&resources, &session, &first);
+    const first_resource = surface1.commands.ptr[0].glyphs.ptr[0].atlas_resource;
+    const surface2 = try emitter.emitPrepared(&resources, &session, &second);
+    const second_resource = surface2.commands.ptr[0].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
     try std.testing.expectEqual(first_resource.value, second_resource.value);
     try std.testing.expectEqual(@as(u32, 1), first_resource.generation);
     try std.testing.expectEqual(@as(u32, 1), second_resource.generation);
-    try std.testing.expectEqual(@as(u32, 0), frame1.retires.count);
-    try std.testing.expectEqual(@as(u32, 0), frame2.retires.count);
+    try std.testing.expectEqual(@as(u32, 0), surface1.retires.count);
+    try std.testing.expectEqual(@as(u32, 0), surface2.retires.count);
 }
 
-test "render API V0 frame emitter failure preserves accepted persistent resource state" {
+test "render surface surface emitter failure preserves accepted persistent resource state" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -631,22 +631,22 @@ test "render API V0 frame emitter failure preserves accepted persistent resource
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{
+    var emitter = render_surface_emitter.Emitter(.{
         .commands_max = 1,
         .glyph_refs_max = 1,
         .upload_bytes_max = 1,
     }).init();
-    var resources = protocol_emit.SpriteResourceStore.init();
+    var resources = render_surface_emitter.SpriteResourceStore.init();
     try std.testing.expectError(
         error.UploadBytesOverflow,
         emitter.emitPrepared(&resources, &session, &prepared),
     );
     try std.testing.expectEqual(@as(u32, 0), resources.count);
-    try std.testing.expectEqual(@as(u32, 0), emitter.frame().creates.count);
-    try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
+    try std.testing.expectEqual(@as(u32, 0), emitter.surface().creates.count);
+    try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
 }
 
-test "render API V0 frame emitter resource id exhaustion preserves accepted state" {
+test "render surface surface emitter resource id exhaustion preserves accepted state" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -671,22 +671,22 @@ test "render API V0 frame emitter resource id exhaustion preserves accepted stat
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
+    var resources = render_surface_emitter.SpriteResourceStore.init();
     resources.value_next = 0;
     try std.testing.expectError(
         error.ResourceBoundOverflow,
         emitter.emitPrepared(&resources, &session, &prepared),
     );
     try std.testing.expectEqual(@as(u32, 0), resources.count);
-    try std.testing.expectEqual(@as(u32, 0), emitter.frame().creates.count);
-    try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
+    try std.testing.expectEqual(@as(u32, 0), emitter.surface().creates.count);
+    try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
 }
 
-test "render API V0 frame emitter emits transient sprite beyond persistent budget" {
+test "render surface surface emitter emits transient sprite beyond persistent budget" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -711,23 +711,23 @@ test "render API V0 frame emitter emits transient sprite beyond persistent budge
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    resources.fillForTest(protocol_emit.persistent_sprite_resources_max);
-    const frame = try emitter.emitPrepared(&resources, &session, &prepared);
-    try std.testing.expectEqual(protocol_emit.persistent_sprite_resources_max, resources.count);
-    try std.testing.expectEqual(@as(u32, 1), frame.creates.count);
-    try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
-    try std.testing.expectEqual(@as(u32, 1), frame.commands.count);
-    try std.testing.expectEqual(@as(u32, 1), frame.retires.count);
-    try std.testing.expectEqual(frame.commands.ptr[0].resource.value, frame.retires.ptr[0].resource.value);
-    try std.testing.expectEqual(@as(u64, 1), frame.retires.ptr[0].retire_seq);
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    resources.fillForTest(render_surface_emitter.persistent_sprite_resources_max);
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    try std.testing.expectEqual(render_surface_emitter.persistent_sprite_resources_max, resources.count);
+    try std.testing.expectEqual(@as(u32, 1), surface.creates.count);
+    try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
+    try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
+    try std.testing.expectEqual(@as(u32, 1), surface.retires.count);
+    try std.testing.expectEqual(surface.commands.ptr[0].resource.value, surface.retires.ptr[0].resource.value);
+    try std.testing.expectEqual(@as(u64, 1), surface.retires.ptr[0].retire_seq);
 }
 
-test "render API V0 frame emitter reports exact transient retire bound" {
+test "render surface surface emitter reports exact transient retire bound" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -749,22 +749,22 @@ test "render API V0 frame emitter reports exact transient retire bound" {
         .height_px = 1,
     });
 
-    var emitter = protocol_emit.Emitter(.{
+    var emitter = render_surface_emitter.Emitter(.{
         .commands_max = 2,
         .glyph_refs_max = 2,
         .retires_max = 1,
     }).init();
-    var resources = protocol_emit.SpriteResourceStore.init();
-    resources.fillForTest(protocol_emit.persistent_sprite_resources_max);
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    resources.fillForTest(render_surface_emitter.persistent_sprite_resources_max);
     try std.testing.expectError(
         error.RetireBoundOverflow,
         emitter.emitPrepared(&resources, &session, &prepared),
     );
-    try std.testing.expectEqual(protocol_emit.persistent_sprite_resources_max, resources.count);
-    try std.testing.expectEqual(@as(u32, 0), emitter.frame().commands.count);
+    try std.testing.expectEqual(render_surface_emitter.persistent_sprite_resources_max, resources.count);
+    try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
 }
 
-test "render API V0 frame emitter rejects missing prepared sprite without mutating accepted frame" {
+test "render surface surface emitter rejects missing prepared sprite without mutating accepted surface" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -786,27 +786,27 @@ test "render API V0 frame emitter rejects missing prepared sprite without mutati
         .height_px = 1,
     });
 
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const accepted_frame = try emitter.emitPrepared(&resources, &session, &accepted_prepared);
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const accepted_surface = try emitter.emitPrepared(&resources, &session, &accepted_prepared);
     try std.testing.expectError(
         error.MissingPreparedSprite,
         emitter.emitPrepared(&resources, &session, &missing_prepared),
     );
-    try std.testing.expectEqual(accepted_frame, emitter.frame());
+    try std.testing.expectEqual(accepted_surface, emitter.surface());
 
     const oracle = try prepared_buffer.compose(allocator, null, &session, &accepted_prepared);
     defer allocator.free(oracle);
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
-    try protocol_realize.realize(emitter.frame(), realized, null);
+    try render_surface_realizer.realize(emitter.surface(), realized, null);
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "render API V0 frame emitter realizes partial prepared frame equal to full rgba oracle" {
+test "render surface surface emitter realizes partial prepared surface equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
@@ -827,7 +827,7 @@ test "render API V0 frame emitter realizes partial prepared frame equal to full 
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, &base);
 }
 
-test "render API V0 prepared owner frame equals explicit rgba oracle" {
+test "render surface prepared owner surface equals explicit rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -858,22 +858,22 @@ test "render API V0 prepared owner frame equals explicit rgba oracle" {
     const oracle = try prepared_buffer.compose(allocator, null, &session_owner.session, &prepared);
     defer allocator.free(oracle);
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
-    const frame = owner.protocolV0FrameForTest();
-    try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
-    try std.testing.expect(frame.uploads.ptr[0].bytes_ptr != null);
-    const upload_bytes_ptr = frame.uploads.ptr[0].bytes_ptr;
+    const surface = owner.renderSurfaceForTest();
+    try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
+    try std.testing.expect(surface.uploads.ptr[0].bytes_ptr != null);
+    const upload_bytes_ptr = surface.uploads.ptr[0].bytes_ptr;
 
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
-    try protocol_realize.realize(frame, realized, null);
+    try render_surface_realizer.realize(surface, realized, null);
     try std.testing.expectEqual(
         upload_bytes_ptr,
-        owner.protocolV0FrameForTest().uploads.ptr[0].bytes_ptr,
+        owner.renderSurfaceForTest().uploads.ptr[0].bytes_ptr,
     );
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "render API V0 prepared ffi borrowed frame realizes explicit rgba oracle" {
+test "render surface prepared ffi borrowed surface realizes explicit rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -893,20 +893,20 @@ test "render API V0 prepared ffi borrowed frame realizes explicit rgba oracle" {
     defer allocator.free(oracle);
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
 
-    var frame: ?*const c.HowlRenderV0Frame = null;
+    var surface: ?*const c.HowlRenderSurface = null;
     try std.testing.expectEqual(
         c.HOWL_RENDER_CALL_OK,
-        ffi_prepared_surface.protocolV0(@ptrCast(owner), &frame),
+        ffi_prepared_surface.renderSurface(@ptrCast(owner), &surface),
     );
-    const value = frame orelse return error.MissingFrame;
+    const value = surface orelse return error.MissingSurface;
 
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
-    try protocol_realize.realize(value, realized, null);
+    try render_surface_realizer.realize(value, realized, null);
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "render API V0 prepared owner partial frame equals explicit base rgba oracle" {
+test "render surface prepared owner partial surface equals explicit base rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -934,15 +934,15 @@ test "render API V0 prepared owner partial frame equals explicit base rgba oracl
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
-    try protocol_realize.realize(
-        owner.protocolV0FrameForTest(),
+    try render_surface_realizer.realize(
+        owner.renderSurfaceForTest(),
         realized,
         &base,
     );
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "render API V0 prepared owner releases v0 payload with handle" {
+test "render surface prepared owner releases render_surface payload with handle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -960,14 +960,14 @@ test "render API V0 prepared owner releases v0 payload with handle" {
     });
 
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
-    try std.testing.expectEqual(@as(u32, 1), owner.protocolV0FrameForTest().commands.count);
+    try std.testing.expectEqual(@as(u32, 1), owner.renderSurfaceForTest().commands.count);
 
     owner.release();
 
-    try std.testing.expect(owner.protocolV0FrameStorageEmptyForTest());
+    try std.testing.expect(owner.renderSurfaceStorageEmptyForTest());
 }
 
-test "render API V0 prepared owner reports missing frame when v0 emission overflows" {
+test "render surface prepared owner reports missing surface when render_surface emission overflows" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -975,7 +975,7 @@ test "render API V0 prepared owner reports missing frame when v0 emission overfl
     ) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
-    const draws_len: usize = c.HOWL_RENDER_V0_COMMANDS_MAX + 1;
+    const draws_len: usize = c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1;
     const background_draws = try allocator.alloc(contract.TextBackgroundDraw, draws_len);
     defer allocator.free(background_draws);
     for (background_draws) |*draw| {
@@ -989,15 +989,15 @@ test "render API V0 prepared owner reports missing frame when v0 emission overfl
 
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
 
-    try std.testing.expect(owner.protocolV0Frame() == null);
+    try std.testing.expect(owner.renderSurface() == null);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
-        owner.diagnostics().protocol_v0_emit_status,
+        c.HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW,
+        owner.diagnostics().render_surface_emit_status,
     );
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
 
-test "render API V0 prepared owner overflow still consumes prepare surface once" {
+test "render surface prepared owner overflow still consumes prepare surface once" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -1008,16 +1008,16 @@ test "render API V0 prepared owner overflow still consumes prepare surface once"
     var prepared = try ownedCommandOverflowPreparedSurface(allocator);
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
 
-    try std.testing.expect(owner.protocolV0Frame() == null);
+    try std.testing.expect(owner.renderSurface() == null);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
-        owner.diagnostics().protocol_v0_emit_status,
+        c.HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW,
+        owner.diagnostics().render_surface_emit_status,
     );
     try std.testing.expectEqual(@as(u64, 0), prepared.request.token.snapshot_seq);
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
 
-test "render API V0 prepared owner allocation failure remains diagnostic only" {
+test "render surface prepared owner allocation failure remains diagnostic only" {
     var probe_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     {
         var session_owner = text_session.TextSessionOwner.create(
@@ -1057,9 +1057,9 @@ test "render API V0 prepared owner allocation failure remains diagnostic only" {
             .height_px = 1,
         });
         const owner = prepared_owner.Owner.create(session_owner, &prepared) catch continue;
-        if (owner.diagnostics().protocol_v0_emit_status !=
-            c.HOWL_RENDER_V0_EMIT_ALLOCATION_FAILED) continue;
-        try std.testing.expect(owner.protocolV0Frame() == null);
+        if (owner.diagnostics().render_surface_emit_status !=
+            c.HOWL_RENDER_SURFACE_EMIT_ALLOCATION_FAILED) continue;
+        try std.testing.expect(owner.renderSurface() == null);
         return;
     }
     return error.MissingAllocationFailureCase;
@@ -1075,20 +1075,20 @@ fn expectPreparedEmissionEqualsCompose(
     defer allocator.free(oracle);
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
-    const Emitter = protocol_emit.Emitter(.{});
+    const Emitter = render_surface_emitter.Emitter(.{});
     const emitter = try allocator.create(Emitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = protocol_emit.SpriteResourceStore.init();
-    const frame = try emitter.emitPrepared(&resources, session, prepared);
-    try protocol_realize.realize(frame, realized, base_pixels);
+    var resources = render_surface_emitter.SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, session, prepared);
+    try render_surface_realizer.realize(surface, realized, base_pixels);
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
 fn ownedCommandOverflowPreparedSurface(
     allocator: std.mem.Allocator,
 ) !prepared_surface.PreparedSurface {
-    const draws_len: usize = c.HOWL_RENDER_V0_COMMANDS_MAX + 1;
+    const draws_len: usize = c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1;
     const background_draws = try allocator.alloc(contract.TextBackgroundDraw, draws_len);
     for (background_draws) |*draw| {
         draw.* = backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255));

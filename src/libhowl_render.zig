@@ -5,10 +5,10 @@ const prepared_surface = @import("ffi/prepared_surface.zig");
 const prepare_request = @import("ffi/prepare_request.zig");
 const submission = @import("ffi/submission.zig");
 const work_state = @import("ffi/work_state.zig");
-const protocol_v0 = @import("ffi/protocol_v0.zig");
+const render_surface = @import("ffi/render_surface.zig");
 
 comptime {
-    _ = protocol_v0;
+    _ = render_surface;
     @export(&text_session.init, .{ .name = "howl_render_text_session_init" });
     @export(&text_session.deinit, .{ .name = "howl_render_text_session_deinit" });
     @export(&text_session.setFontSize, .{ .name = "howl_render_text_session_set_font_size_px" });
@@ -34,6 +34,6 @@ comptime {
     @export(&work_state.workState, .{ .name = "howl_render_text_session_work_state" });
     @export(&prepared_surface.release, .{ .name = "howl_render_prepared_surface_release" });
     @export(&prepared_surface.describe, .{ .name = "howl_render_prepared_surface_describe" });
-    @export(&prepared_surface.protocolV0, .{ .name = "howl_render_prepared_surface_protocol_v0" });
+    @export(&prepared_surface.renderSurface, .{ .name = "howl_render_prepared_surface_render_surface" });
     @export(&prepared_surface.diagnostics, .{ .name = "howl_render_prepared_surface_diagnostics" });
 }

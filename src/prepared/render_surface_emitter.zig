@@ -5,14 +5,14 @@ const c = @import("../ffi.zig").c;
 const contract = @import("../text/contract.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_surface = @import("surface.zig");
-const realize = @import("../render/v0_frame_realizer.zig");
+const realize = @import("../render/render_surface_realizer.zig");
 const text = @import("../text/text.zig");
 const text_session = @import("../session/text.zig");
 
-const ResourceId = c.HowlRenderV0ResourceId;
-const Rect = c.HowlRenderV0Rect;
-const GlyphRef = c.HowlRenderV0GlyphRef;
-pub const Frame = c.HowlRenderV0Frame;
+const ResourceId = c.HowlRenderResourceId;
+const Rect = c.HowlRenderSurfaceRect;
+const GlyphRef = c.HowlRenderGlyphRef;
+pub const Surface = c.HowlRenderSurface;
 
 pub const persistent_sprite_resources_max: u32 = 384;
 pub const alpha_atlas_entries_max: u32 = 1024;
@@ -23,11 +23,11 @@ const glyph_atlas_width_px: u16 = 1024;
 const glyph_atlas_height_px: u16 = 1024;
 
 comptime {
-    std.debug.assert(persistent_sprite_resources_max < c.HOWL_RENDER_V0_RESOURCES_MAX);
+    std.debug.assert(persistent_sprite_resources_max < c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
     std.debug.assert(alpha_atlas_entries_max > persistent_sprite_resources_max);
-    std.debug.assert(glyph_refs_max > c.HOWL_RENDER_V0_COMMANDS_MAX);
+    std.debug.assert(glyph_refs_max > c.HOWL_RENDER_SURFACE_COMMANDS_MAX);
     std.debug.assert(glyph_refs_max <=
-        c.HOWL_RENDER_V0_COMMANDS_MAX * c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX);
+        c.HOWL_RENDER_SURFACE_COMMANDS_MAX * c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX);
     std.debug.assert(alpha_atlas_entries_max <=
         @as(u32, glyph_atlas_width_px) * @as(u32, glyph_atlas_height_px));
 }
@@ -45,24 +45,24 @@ pub const Error = error{
 };
 
 pub const Limits = struct {
-    damage_max: u32 = c.HOWL_RENDER_V0_DAMAGE_ITEMS_MAX,
-    creates_max: u32 = c.HOWL_RENDER_V0_CREATES_MAX,
-    uploads_max: u32 = c.HOWL_RENDER_V0_UPLOADS_MAX,
-    commands_max: u32 = c.HOWL_RENDER_V0_COMMANDS_MAX,
+    damage_max: u32 = c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX,
+    creates_max: u32 = c.HOWL_RENDER_SURFACE_CREATES_MAX,
+    uploads_max: u32 = c.HOWL_RENDER_SURFACE_UPLOADS_MAX,
+    commands_max: u32 = c.HOWL_RENDER_SURFACE_COMMANDS_MAX,
     glyph_refs_max: u32 = glyph_refs_max,
-    retires_max: u32 = c.HOWL_RENDER_V0_RETIRES_MAX,
-    upload_bytes_max: u32 = c.HOWL_RENDER_V0_UPLOAD_BYTES_MAX,
+    retires_max: u32 = c.HOWL_RENDER_SURFACE_RETIRES_MAX,
+    upload_bytes_max: u32 = c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX,
 
     pub fn assertValid(comptime limits: Limits) void {
-        std.debug.assert(limits.damage_max <= c.HOWL_RENDER_V0_DAMAGE_ITEMS_MAX);
-        std.debug.assert(limits.creates_max <= c.HOWL_RENDER_V0_CREATES_MAX);
-        std.debug.assert(limits.uploads_max <= c.HOWL_RENDER_V0_UPLOADS_MAX);
-        std.debug.assert(limits.commands_max <= c.HOWL_RENDER_V0_COMMANDS_MAX);
+        std.debug.assert(limits.damage_max <= c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX);
+        std.debug.assert(limits.creates_max <= c.HOWL_RENDER_SURFACE_CREATES_MAX);
+        std.debug.assert(limits.uploads_max <= c.HOWL_RENDER_SURFACE_UPLOADS_MAX);
+        std.debug.assert(limits.commands_max <= c.HOWL_RENDER_SURFACE_COMMANDS_MAX);
         std.debug.assert(limits.glyph_refs_max <=
-            c.HOWL_RENDER_V0_COMMANDS_MAX * c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX);
+            c.HOWL_RENDER_SURFACE_COMMANDS_MAX * c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX);
         std.debug.assert(limits.glyph_refs_max >= limits.commands_max);
-        std.debug.assert(limits.retires_max <= c.HOWL_RENDER_V0_RETIRES_MAX);
-        std.debug.assert(limits.upload_bytes_max <= c.HOWL_RENDER_V0_UPLOAD_BYTES_MAX);
+        std.debug.assert(limits.retires_max <= c.HOWL_RENDER_SURFACE_RETIRES_MAX);
+        std.debug.assert(limits.upload_bytes_max <= c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX);
     }
 };
 
@@ -97,7 +97,7 @@ const PreparedSprite = struct {
 };
 
 pub const SpriteResourceStore = struct {
-    entries: [c.HOWL_RENDER_V0_RESOURCES_MAX]Entry = undefined,
+    entries: [c.HOWL_RENDER_SURFACE_RESOURCES_MAX]Entry = undefined,
     bytes: [persistent_sprite_resource_bytes_max]u8 = undefined,
     count: u32 = 0,
     bytes_count: u32 = 0,
@@ -148,7 +148,7 @@ pub const SpriteResourceStore = struct {
 
     pub fn fillForTest(self: *SpriteResourceStore, count: u32) void {
         comptime std.debug.assert(builtin.is_test);
-        std.debug.assert(count <= c.HOWL_RENDER_V0_RESOURCES_MAX);
+        std.debug.assert(count <= c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
         self.count = count;
         self.bytes_count = 0;
         self.value_next = @as(u64, count) + 1;
@@ -163,11 +163,11 @@ pub const SpriteResourceStore = struct {
                 .resource = .{
                     .value = value,
                     .generation = 1,
-                    .kind = c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA,
+                    .kind = c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
                 },
                 .width_px = 1,
                 .height_px = 1,
-                .format = c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
+                .format = c.HOWL_RENDER_UPLOAD_ALPHA8,
             };
         }
     }
@@ -260,7 +260,7 @@ pub const SpriteResourceStore = struct {
         self.atlas_resource = .{
             .value = self.value_next,
             .generation = 1,
-            .kind = c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_ALPHA,
+            .kind = c.HOWL_RENDER_RESOURCE_GLYPH_ATLAS_ALPHA,
         };
         self.value_next = std.math.add(u64, self.value_next, 1) catch {
             return error.ResourceBoundOverflow;
@@ -309,8 +309,8 @@ pub const SpriteResourceStore = struct {
             .value = self.value_next,
             .generation = 1,
             .kind = switch (color_mode) {
-                .alpha => c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA,
-                .color => c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR,
+                .alpha => c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
+                .color => c.HOWL_RENDER_RESOURCE_SPRITE_COLOR,
             },
         };
         self.value_next = std.math.add(u64, self.value_next, 1) catch {
@@ -324,9 +324,9 @@ pub const Fixture = struct {
     render_px: c.HowlRenderPixelSize,
     cell_px: c.HowlRenderCellSize = .{ .width = 1, .height = 1 },
     grid: c.HowlRenderGridSize = .{ .cols = 1, .rows = 1 },
-    token: c.HowlRenderV0Token = .{
+    token: c.HowlRenderSurfaceToken = .{
         .snapshot_seq = 0,
-        .frame_seq = 0,
+        .surface_seq = 0,
         .geometry_epoch = 0,
         .resource_epoch = 0,
     },
@@ -341,13 +341,13 @@ pub fn Emitter(comptime limits: Limits) type {
     comptime limits.assertValid();
 
     return struct {
-        damage: [limits.damage_max]c.HowlRenderV0DamageItem = undefined,
-        creates: [limits.creates_max]c.HowlRenderV0Create = undefined,
-        uploads: [limits.uploads_max]c.HowlRenderV0Upload = undefined,
+        damage: [limits.damage_max]c.HowlRenderSurfaceDamageItem = undefined,
+        creates: [limits.creates_max]c.HowlRenderResourceCreate = undefined,
+        uploads: [limits.uploads_max]c.HowlRenderResourceUpload = undefined,
         upload_byte_offsets: [limits.uploads_max]u32 = undefined,
-        commands: [limits.commands_max]c.HowlRenderV0Command = undefined,
+        commands: [limits.commands_max]c.HowlRenderSurfaceCommand = undefined,
         glyphs: [limits.glyph_refs_max]GlyphRef = undefined,
-        retires: [limits.retires_max]c.HowlRenderV0Retire = undefined,
+        retires: [limits.retires_max]c.HowlRenderResourceRetire = undefined,
         upload_bytes: [limits.upload_bytes_max]u8 = undefined,
         damage_count: u32 = 0,
         create_count: u32 = 0,
@@ -356,7 +356,7 @@ pub fn Emitter(comptime limits: Limits) type {
         glyph_count: u32 = 0,
         retire_count: u32 = 0,
         upload_bytes_count: u32 = 0,
-        frame_storage: Frame = emptyFrame(),
+        surface_storage: Surface = emptySurface(),
 
         const Self = @This();
 
@@ -364,22 +364,22 @@ pub fn Emitter(comptime limits: Limits) type {
             return .{};
         }
 
-        pub fn frame(self: *const Self) *const Frame {
-            return &self.frame_storage;
+        pub fn surface(self: *const Self) *const Surface {
+            return &self.surface_storage;
         }
 
-        pub fn emit(self: *Self, fixture: *const Fixture) Error!*const Frame {
+        pub fn emit(self: *Self, fixture: *const Fixture) Error!*const Surface {
             var next = self.*;
             next.reset(fixture);
             try next.appendFullDamage(fixture.render_px);
-            try next.appendFillPass(fixture.clear_fills, c.HOWL_RENDER_V0_COMMAND_CLEAR_RECT);
-            try next.appendFillPass(fixture.background_fills, c.HOWL_RENDER_V0_COMMAND_FILL_RECT);
-            try next.appendFillPass(fixture.decoration_fills, c.HOWL_RENDER_V0_COMMAND_FILL_RECT);
+            try next.appendFillPass(fixture.clear_fills, c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT);
+            try next.appendFillPass(fixture.background_fills, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
+            try next.appendFillPass(fixture.decoration_fills, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
             try next.appendSprites(fixture.sprites);
-            try next.appendFillPass(fixture.cursor_fills, c.HOWL_RENDER_V0_COMMAND_FILL_RECT);
+            try next.appendFillPass(fixture.cursor_fills, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
             self.* = next;
-            self.publishFrame();
-            return &self.frame_storage;
+            self.publishSurface();
+            return &self.surface_storage;
         }
 
         pub fn emitPrepared(
@@ -387,7 +387,7 @@ pub fn Emitter(comptime limits: Limits) type {
             resources: *SpriteResourceStore,
             session: *text_session.TextSession,
             prepared: *const prepared_surface.PreparedSurface,
-        ) Error!*const Frame {
+        ) Error!*const Surface {
             var next = self.*;
             var next_resources = resources.*;
             next.resetPrepared(prepared);
@@ -399,8 +399,8 @@ pub fn Emitter(comptime limits: Limits) type {
             try next.appendPreparedCursors(prepared.text_frame.scene.scene.cursor_draws);
             self.* = next;
             resources.* = next_resources;
-            self.publishFrame();
-            return &self.frame_storage;
+            self.publishSurface();
+            return &self.surface_storage;
         }
 
         fn reset(self: *Self, fixture: *const Fixture) void {
@@ -411,11 +411,11 @@ pub fn Emitter(comptime limits: Limits) type {
             self.glyph_count = 0;
             self.retire_count = 0;
             self.upload_bytes_count = 0;
-            self.frame_storage = emptyFrame();
-            self.frame_storage.token = fixture.token;
-            self.frame_storage.render_px = fixture.render_px;
-            self.frame_storage.cell_px = fixture.cell_px;
-            self.frame_storage.grid = fixture.grid;
+            self.surface_storage = emptySurface();
+            self.surface_storage.token = fixture.token;
+            self.surface_storage.render_px = fixture.render_px;
+            self.surface_storage.cell_px = fixture.cell_px;
+            self.surface_storage.grid = fixture.grid;
         }
 
         fn resetPrepared(self: *Self, prepared: *const prepared_surface.PreparedSurface) void {
@@ -426,22 +426,22 @@ pub fn Emitter(comptime limits: Limits) type {
             self.glyph_count = 0;
             self.retire_count = 0;
             self.upload_bytes_count = 0;
-            self.frame_storage = emptyFrame();
-            self.frame_storage.token = .{
+            self.surface_storage = emptySurface();
+            self.surface_storage.token = .{
                 .snapshot_seq = prepared.request.token.snapshot_seq,
-                .frame_seq = prepared.request.token.dirty_epoch,
+                .surface_seq = prepared.request.token.dirty_epoch,
                 .geometry_epoch = prepared.geometry_epoch,
                 .resource_epoch = 0,
             };
-            self.frame_storage.render_px = pixelSizeOut(prepared.render_px);
-            self.frame_storage.cell_px = cellSizeOut(prepared.cell_px);
-            self.frame_storage.grid = gridSizeOut(prepared.grid);
+            self.surface_storage.render_px = pixelSizeOut(prepared.render_px);
+            self.surface_storage.cell_px = cellSizeOut(prepared.cell_px);
+            self.surface_storage.grid = gridSizeOut(prepared.grid);
         }
 
         fn appendFullDamage(self: *Self, render_px: c.HowlRenderPixelSize) Error!void {
             if (self.damage_count >= limits.damage_max) return error.DamageBoundOverflow;
             self.damage[self.damage_count] = .{
-                .kind = c.HOWL_RENDER_V0_DAMAGE_FULL,
+                .kind = c.HOWL_RENDER_SURFACE_DAMAGE_FULL,
                 .reserved0 = 0,
                 .reserved1 = 0,
                 .rect = .{
@@ -476,7 +476,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 draw.width_px,
                 draw.height_px,
                 draw.color,
-                c.HOWL_RENDER_V0_COMMAND_CLEAR_RECT,
+                c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT,
             );
         }
 
@@ -490,7 +490,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 draw.width_px,
                 draw.height_px,
                 draw.color,
-                c.HOWL_RENDER_V0_COMMAND_FILL_RECT,
+                c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
             );
         }
 
@@ -504,7 +504,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 draw.width_px,
                 draw.height_px,
                 draw.color,
-                c.HOWL_RENDER_V0_COMMAND_FILL_RECT,
+                c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
             );
         }
 
@@ -518,7 +518,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 draw.width_px,
                 draw.height_px,
                 draw.color,
-                c.HOWL_RENDER_V0_COMMAND_FILL_RECT,
+                c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
             );
         }
 
@@ -531,7 +531,7 @@ pub fn Emitter(comptime limits: Limits) type {
             color: contract.Rgba8,
             kind: u8,
         ) Error!void {
-            const command = c.HowlRenderV0Command{
+            const command = c.HowlRenderSurfaceCommand{
                 .kind = kind,
                 .reserved0 = 0,
                 .reserved1 = 0,
@@ -549,7 +549,7 @@ pub fn Emitter(comptime limits: Limits) type {
             try self.appendCommand(command);
         }
 
-        fn tryMergePreparedFillCommand(self: *Self, command: c.HowlRenderV0Command) bool {
+        fn tryMergePreparedFillCommand(self: *Self, command: c.HowlRenderSurfaceCommand) bool {
             if (self.command_count == 0) return false;
             const prior = &self.commands[self.command_count - 1];
             if (prior.kind != command.kind) return false;
@@ -576,7 +576,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 try self.appendCreate(resource, sprite);
                 try self.appendUpload(resource, sprite);
                 try self.appendCommand(.{
-                    .kind = c.HOWL_RENDER_V0_COMMAND_DRAW_SPRITE,
+                    .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE,
                     .reserved0 = 0,
                     .reserved1 = 0,
                     .rect = sprite.rect,
@@ -665,7 +665,7 @@ pub fn Emitter(comptime limits: Limits) type {
                     },
                 }
                 try self.appendCommand(.{
-                    .kind = c.HOWL_RENDER_V0_COMMAND_DRAW_SPRITE,
+                    .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE,
                     .reserved0 = 0,
                     .reserved1 = 0,
                     .rect = .{
@@ -724,7 +724,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 .resource = resource,
                 .width_px = glyph_atlas_width_px,
                 .height_px = glyph_atlas_height_px,
-                .format = c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
+                .format = c.HOWL_RENDER_UPLOAD_ALPHA8,
                 .create_seq = 0,
             };
             self.create_count += 1;
@@ -805,7 +805,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 .bytes_ptr = &self.upload_bytes[upload_range.start],
                 .bytes_count = bytes_count,
                 .stride_bytes = atlas_rect.width_px,
-                .format = c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
+                .format = c.HOWL_RENDER_UPLOAD_ALPHA8,
                 .upload_seq = 0,
             };
             self.upload_byte_offsets[self.upload_count] = upload_range.start;
@@ -843,7 +843,7 @@ pub fn Emitter(comptime limits: Limits) type {
             return range;
         }
 
-        fn appendCommand(self: *Self, command: c.HowlRenderV0Command) Error!void {
+        fn appendCommand(self: *Self, command: c.HowlRenderSurfaceCommand) Error!void {
             if (self.command_count >= limits.commands_max) return error.CommandBoundOverflow;
             self.commands[self.command_count] = command;
             self.command_count += 1;
@@ -854,10 +854,10 @@ pub fn Emitter(comptime limits: Limits) type {
 
             if (self.command_count > 0) {
                 const prior = &self.commands[self.command_count - 1];
-                if (prior.kind == c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN) {
+                if (prior.kind == c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN) {
                     std.debug.assert(prior.glyphs.count > 0);
-                    std.debug.assert(prior.glyphs.count <= c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX);
-                    if (prior.glyphs.count < c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX) {
+                    std.debug.assert(prior.glyphs.count <= c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX);
+                    if (prior.glyphs.count < c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX) {
                         self.glyphs[@intCast(self.glyph_count)] = glyph;
                         self.glyph_count += 1;
                         prior.glyphs.count += 1;
@@ -872,7 +872,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.glyphs[@intCast(self.glyph_count)] = glyph;
             self.glyph_count += 1;
             try self.appendCommand(.{
-                .kind = c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN,
+                .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN,
                 .reserved0 = 0,
                 .reserved1 = 0,
                 .rect = .{ .x_px = 0, .y_px = 0, .width_px = 0, .height_px = 0 },
@@ -881,7 +881,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 .glyphs = .{
                     .ptr = &self.glyphs[@intCast(start)],
                     .count = 1,
-                    .count_max = c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX,
+                    .count_max = c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX,
                 },
             });
         }
@@ -895,14 +895,14 @@ pub fn Emitter(comptime limits: Limits) type {
             self.retire_count += 1;
         }
 
-        fn publishFrame(self: *Self) void {
+        fn publishSurface(self: *Self) void {
             var glyph_offset: u32 = 0;
             var command_index: u32 = 0;
             while (command_index < self.command_count) : (command_index += 1) {
                 const command = &self.commands[command_index];
-                if (command.kind != c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN) continue;
+                if (command.kind != c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN) continue;
                 std.debug.assert(command.glyphs.count > 0);
-                std.debug.assert(command.glyphs.count <= c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX);
+                std.debug.assert(command.glyphs.count <= c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX);
                 std.debug.assert(glyph_offset < self.glyph_count);
                 command.glyphs.ptr = &self.glyphs[@intCast(glyph_offset)];
                 glyph_offset += command.glyphs.count;
@@ -916,61 +916,61 @@ pub fn Emitter(comptime limits: Limits) type {
                 std.debug.assert(byte_offset < self.upload_bytes_count);
                 self.uploads[upload_index].bytes_ptr = &self.upload_bytes[byte_offset];
             }
-            self.frame_storage.damage = .{
+            self.surface_storage.damage = .{
                 .ptr = if (self.damage_count == 0) null else &self.damage[0],
                 .count = self.damage_count,
-                .count_max = c.HOWL_RENDER_V0_DAMAGE_ITEMS_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX,
             };
-            self.frame_storage.creates = .{
+            self.surface_storage.creates = .{
                 .ptr = if (self.create_count == 0) null else &self.creates[0],
                 .count = self.create_count,
-                .count_max = c.HOWL_RENDER_V0_CREATES_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_CREATES_MAX,
             };
-            self.frame_storage.uploads = .{
+            self.surface_storage.uploads = .{
                 .ptr = if (self.upload_count == 0) null else &self.uploads[0],
                 .count = self.upload_count,
-                .count_max = c.HOWL_RENDER_V0_UPLOADS_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_UPLOADS_MAX,
                 .bytes_count_total = self.upload_bytes_count,
-                .bytes_count_max = c.HOWL_RENDER_V0_UPLOAD_BYTES_MAX,
+                .bytes_count_max = c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX,
             };
-            self.frame_storage.commands = .{
+            self.surface_storage.commands = .{
                 .ptr = if (self.command_count == 0) null else &self.commands[0],
                 .count = self.command_count,
-                .count_max = c.HOWL_RENDER_V0_COMMANDS_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_COMMANDS_MAX,
             };
-            self.frame_storage.retires = .{
+            self.surface_storage.retires = .{
                 .ptr = if (self.retire_count == 0) null else &self.retires[0],
                 .count = self.retire_count,
-                .count_max = c.HOWL_RENDER_V0_RETIRES_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_RETIRES_MAX,
             };
         }
     };
 }
 
-fn emptyFrame() Frame {
+fn emptySurface() Surface {
     return .{
-        .protocol_version = c.HOWL_RENDER_PROTOCOL_V0_VERSION,
+        .surface_version = c.HOWL_RENDER_SURFACE_VERSION,
         .reserved0 = 0,
-        .token = .{ .snapshot_seq = 0, .frame_seq = 0, .geometry_epoch = 0, .resource_epoch = 0 },
+        .token = .{ .snapshot_seq = 0, .surface_seq = 0, .geometry_epoch = 0, .resource_epoch = 0 },
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
-        .damage = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_V0_DAMAGE_ITEMS_MAX },
-        .creates = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_V0_CREATES_MAX },
+        .damage = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX },
+        .creates = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_CREATES_MAX },
         .uploads = .{
             .ptr = null,
             .count = 0,
-            .count_max = c.HOWL_RENDER_V0_UPLOADS_MAX,
+            .count_max = c.HOWL_RENDER_SURFACE_UPLOADS_MAX,
             .bytes_count_total = 0,
-            .bytes_count_max = c.HOWL_RENDER_V0_UPLOAD_BYTES_MAX,
+            .bytes_count_max = c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX,
         },
-        .commands = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_V0_COMMANDS_MAX },
-        .retires = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_V0_RETIRES_MAX },
+        .commands = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_COMMANDS_MAX },
+        .retires = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_RETIRES_MAX },
     };
 }
 
-fn emptyGlyphs() c.HowlRenderV0GlyphRunSpan {
-    return .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX };
+fn emptyGlyphs() c.HowlRenderGlyphRunSpan {
+    return .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX };
 }
 
 fn zeroResource() ResourceId {
@@ -986,8 +986,8 @@ fn spriteResource(sprite: Sprite, value: u64) ResourceId {
         .value = value,
         .generation = 1,
         .kind = switch (sprite.color_mode) {
-            .alpha => c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA,
-            .color => c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR,
+            .alpha => c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
+            .color => c.HOWL_RENDER_RESOURCE_SPRITE_COLOR,
         },
     };
 }
@@ -997,8 +997,8 @@ fn preparedSpriteResource(sprite: PreparedSprite, value: u64) ResourceId {
         .value = value,
         .generation = 1,
         .kind = switch (sprite.color_mode) {
-            .alpha => c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA,
-            .color => c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR,
+            .alpha => c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
+            .color => c.HOWL_RENDER_RESOURCE_SPRITE_COLOR,
         },
     };
 }
@@ -1010,15 +1010,15 @@ const ByteRange = struct {
 
 fn uploadFormat(color_mode: ColorMode) u32 {
     return switch (color_mode) {
-        .alpha => c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
-        .color => c.HOWL_RENDER_V0_UPLOAD_RGBA8,
+        .alpha => c.HOWL_RENDER_UPLOAD_ALPHA8,
+        .color => c.HOWL_RENDER_UPLOAD_RGBA8,
     };
 }
 
 fn uploadFormatForPrepared(color_mode: contract.SpriteColorMode) u32 {
     return switch (color_mode) {
-        .alpha => c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
-        .color => c.HOWL_RENDER_V0_UPLOAD_RGBA8,
+        .alpha => c.HOWL_RENDER_UPLOAD_ALPHA8,
+        .color => c.HOWL_RENDER_UPLOAD_RGBA8,
     };
 }
 
@@ -1191,7 +1191,7 @@ fn glyphRefForTest(glyph_id: u32) GlyphRef {
         .atlas_resource = .{
             .value = 1,
             .generation = 1,
-            .kind = c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_ALPHA,
+            .kind = c.HOWL_RENDER_RESOURCE_GLYPH_ATLAS_ALPHA,
         },
         .atlas_rect = rect(0, 0, 1, 1),
         .x_px = @intCast(glyph_id),
@@ -1203,11 +1203,11 @@ fn glyphRefForTest(glyph_id: u32) GlyphRef {
 
 fn realizeFixture(comptime limits: Limits, fixture: Fixture, pixels: []u8) !void {
     var emitter = Emitter(limits).init();
-    const frame = try emitter.emit(&fixture);
-    try realize.realize(frame, pixels, null);
+    const surface = try emitter.emit(&fixture);
+    try realize.realize(surface, pixels, null);
 }
 
-test "render API V0 frame emitter realizes fill pass order equal to oracle" {
+test "render surface surface emitter realizes fill pass order equal to oracle" {
     const limits = Limits{ .commands_max = 5, .glyph_refs_max = 5 };
     const clear = [_]Fill{.{ .rect = rect(0, 0, 2, 1), .color_rgba = 0x000000ff }};
     const background = [_]Fill{.{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xff0000ff }};
@@ -1225,7 +1225,7 @@ test "render API V0 frame emitter realizes fill pass order equal to oracle" {
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "render API V0 frame emitter realizes alpha sprite equal to oracle" {
+test "render surface surface emitter realizes alpha sprite equal to oracle" {
     const limits = Limits{
         .creates_max = 1,
         .uploads_max = 1,
@@ -1252,7 +1252,7 @@ test "render API V0 frame emitter realizes alpha sprite equal to oracle" {
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "render API V0 frame emitter realizes color sprite equal to oracle" {
+test "render surface surface emitter realizes color sprite equal to oracle" {
     const limits = Limits{
         .creates_max = 1,
         .uploads_max = 1,
@@ -1279,47 +1279,47 @@ test "render API V0 frame emitter realizes color sprite equal to oracle" {
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "render API V0 frame emitter batches two glyph refs into one run command" {
+test "render surface surface emitter batches two glyph refs into one run command" {
     var emitter = Emitter(.{ .commands_max = 1, .glyph_refs_max = 2 }).init();
     try emitter.appendGlyphRef(glyphRefForTest(1));
     try emitter.appendGlyphRef(glyphRefForTest(2));
-    emitter.publishFrame();
+    emitter.publishSurface();
 
-    const frame_value = emitter.frame();
-    try std.testing.expectEqual(@as(u32, 1), frame_value.commands.count);
+    const surface_value = emitter.surface();
+    try std.testing.expectEqual(@as(u32, 1), surface_value.commands.count);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN,
-        frame_value.commands.ptr[0].kind,
+        c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN,
+        surface_value.commands.ptr[0].kind,
     );
-    try std.testing.expectEqual(@as(u32, 2), frame_value.commands.ptr[0].glyphs.count);
-    try std.testing.expectEqual(@as(u32, 1), frame_value.commands.ptr[0].glyphs.ptr[0].glyph_id);
-    try std.testing.expectEqual(@as(u32, 2), frame_value.commands.ptr[0].glyphs.ptr[1].glyph_id);
+    try std.testing.expectEqual(@as(u32, 2), surface_value.commands.ptr[0].glyphs.count);
+    try std.testing.expectEqual(@as(u32, 1), surface_value.commands.ptr[0].glyphs.ptr[0].glyph_id);
+    try std.testing.expectEqual(@as(u32, 2), surface_value.commands.ptr[0].glyphs.ptr[1].glyph_id);
 }
 
-test "render API V0 frame emitter starts a second glyph run after run capacity" {
-    const glyphs_max: u32 = c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX + 1;
+test "render surface surface emitter starts a second glyph run after run capacity" {
+    const glyphs_max: u32 = c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX + 1;
     var emitter = Emitter(.{ .commands_max = 2, .glyph_refs_max = glyphs_max }).init();
     var glyph_index: u32 = 0;
     while (glyph_index < glyphs_max) : (glyph_index += 1) {
         try emitter.appendGlyphRef(glyphRefForTest(glyph_index + 1));
     }
-    emitter.publishFrame();
+    emitter.publishSurface();
 
-    const frame_value = emitter.frame();
-    try std.testing.expectEqual(@as(u32, 2), frame_value.commands.count);
+    const surface_value = emitter.surface();
+    try std.testing.expectEqual(@as(u32, 2), surface_value.commands.count);
     try std.testing.expectEqual(
-        @as(u32, c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX),
-        frame_value.commands.ptr[0].glyphs.count,
+        @as(u32, c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX),
+        surface_value.commands.ptr[0].glyphs.count,
     );
-    try std.testing.expectEqual(@as(u32, 1), frame_value.commands.ptr[1].glyphs.count);
+    try std.testing.expectEqual(@as(u32, 1), surface_value.commands.ptr[1].glyphs.count);
     try std.testing.expectEqual(
-        @as(u32, c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX),
-        frame_value.commands.ptr[0].glyphs.ptr[c.HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX - 1].glyph_id,
+        @as(u32, c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX),
+        surface_value.commands.ptr[0].glyphs.ptr[c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX - 1].glyph_id,
     );
-    try std.testing.expectEqual(glyphs_max, frame_value.commands.ptr[1].glyphs.ptr[0].glyph_id);
+    try std.testing.expectEqual(glyphs_max, surface_value.commands.ptr[1].glyphs.ptr[0].glyph_id);
 }
 
-test "render API V0 frame emitter emits sprite retires after final use" {
+test "render surface surface emitter emits sprite retires after final use" {
     const limits = Limits{
         .creates_max = 1,
         .uploads_max = 1,
@@ -1338,19 +1338,19 @@ test "render API V0 frame emitter emits sprite retires after final use" {
         .color_mode = .alpha,
     }};
     var emitter = Emitter(limits).init();
-    const frame = try emitter.emit(&.{
+    const surface = try emitter.emit(&.{
         .render_px = .{ .width = 1, .height = 1 },
         .sprites = &sprites,
     });
-    try std.testing.expectEqual(@as(u32, 1), frame.retires.count);
-    try std.testing.expectEqual(@as(u64, 1), frame.retires.ptr[0].retire_seq);
+    try std.testing.expectEqual(@as(u32, 1), surface.retires.count);
+    try std.testing.expectEqual(@as(u64, 1), surface.retires.ptr[0].retire_seq);
     var pixels: [4]u8 = undefined;
-    try realize.realize(frame, &pixels, null);
+    try realize.realize(surface, &pixels, null);
     const oracle = [_]u8{ 255, 255, 255, 255 };
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "render API V0 frame emitter rejects command bound overflow" {
+test "render surface surface emitter rejects command bound overflow" {
     const limits = Limits{ .commands_max = 1, .glyph_refs_max = 1 };
     const fills = [_]Fill{
         .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff },
@@ -1363,7 +1363,7 @@ test "render API V0 frame emitter rejects command bound overflow" {
     }));
 }
 
-test "render API V0 frame emitter rejects upload bound overflow" {
+test "render surface surface emitter rejects upload bound overflow" {
     const limits = Limits{
         .creates_max = 2,
         .uploads_max = 1,
@@ -1383,7 +1383,7 @@ test "render API V0 frame emitter rejects upload bound overflow" {
     }));
 }
 
-test "render API V0 frame emitter rejects retire bound overflow" {
+test "render surface surface emitter rejects retire bound overflow" {
     const limits = Limits{
         .creates_max = 2,
         .uploads_max = 2,
@@ -1403,7 +1403,7 @@ test "render API V0 frame emitter rejects retire bound overflow" {
     }));
 }
 
-test "render API V0 frame emitter rejects upload byte total overflow" {
+test "render surface surface emitter rejects upload byte total overflow" {
     const limits = Limits{
         .creates_max = 1,
         .uploads_max = 1,
@@ -1428,7 +1428,7 @@ test "render API V0 frame emitter rejects upload byte total overflow" {
     }));
 }
 
-test "render API V0 frame emitter leaves oracle path independent after emission failure" {
+test "render surface surface emitter leaves oracle path independent after emission failure" {
     const limits = Limits{ .commands_max = 1, .glyph_refs_max = 1 };
     const fill = [_]Fill{.{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xff0000ff }};
     const too_many = [_]Fill{
@@ -1444,14 +1444,14 @@ test "render API V0 frame emitter leaves oracle path independent after emission 
         .render_px = .{ .width = 1, .height = 1 },
         .background_fills = &too_many,
     }));
-    try std.testing.expectEqual(@as(*const Frame, accepted), emitter.frame());
+    try std.testing.expectEqual(@as(*const Surface, accepted), emitter.surface());
     var pixels: [4]u8 = undefined;
-    try realize.realize(emitter.frame(), &pixels, null);
+    try realize.realize(emitter.surface(), &pixels, null);
     const oracle = [_]u8{ 255, 0, 0, 255 };
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "V0 frame alpha atlas reports explicit entry exhaustion" {
+test "render-surface surface alpha atlas reports explicit entry exhaustion" {
     var resources = SpriteResourceStore.init();
     var pixel = [_]u8{255};
     var index: u32 = 0;

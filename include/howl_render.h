@@ -16,32 +16,32 @@ typedef HowlRenderPreparedSurfaceObject *HowlRenderPreparedSurfaceHandle;
 
 #define HOWL_RENDER_MAX_FALLBACK_FONTS 24
 
-#define HOWL_RENDER_PROTOCOL_V0_VERSION 0
-#define HOWL_RENDER_V0_FRAMES_IN_FLIGHT_MAX 2
-#define HOWL_RENDER_V0_SNAPSHOTS_IN_FLIGHT_MAX 2
-#define HOWL_RENDER_V0_DAMAGE_ITEMS_MAX 1024
-#define HOWL_RENDER_V0_UPLOADS_MAX 256
-#define HOWL_RENDER_V0_COMMANDS_MAX 8192
-#define HOWL_RENDER_V0_GLYPHS_PER_RUN_MAX 256
-#define HOWL_RENDER_V0_UPLOAD_BYTES_MAX 8388608
-#define HOWL_RENDER_V0_ATLAS_PAGES_MAX 64
-#define HOWL_RENDER_V0_RESOURCES_MAX 4096
-#define HOWL_RENDER_V0_CREATES_MAX 256
-#define HOWL_RENDER_V0_RETIRES_MAX 256
-#define HOWL_RENDER_V0_HOST_ACKS_MAX 256
+#define HOWL_RENDER_SURFACE_VERSION 0
+#define HOWL_RENDER_SURFACE_IN_FLIGHT_MAX 2
+#define HOWL_RENDER_SURFACE_SNAPSHOTS_IN_FLIGHT_MAX 2
+#define HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX 1024
+#define HOWL_RENDER_SURFACE_UPLOADS_MAX 256
+#define HOWL_RENDER_SURFACE_COMMANDS_MAX 8192
+#define HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX 256
+#define HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX 8388608
+#define HOWL_RENDER_SURFACE_ATLAS_PAGES_MAX 64
+#define HOWL_RENDER_SURFACE_RESOURCES_MAX 4096
+#define HOWL_RENDER_SURFACE_CREATES_MAX 256
+#define HOWL_RENDER_SURFACE_RETIRES_MAX 256
+#define HOWL_RENDER_SURFACE_HOST_ACKS_MAX 256
 
-#define HOWL_RENDER_V0_DAMAGE_RECT 1
-#define HOWL_RENDER_V0_DAMAGE_FULL 2
-#define HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_ALPHA 1
-#define HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_COLOR 2
-#define HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA 3
-#define HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR 4
-#define HOWL_RENDER_V0_UPLOAD_ALPHA8 1
-#define HOWL_RENDER_V0_UPLOAD_RGBA8 2
-#define HOWL_RENDER_V0_COMMAND_CLEAR_RECT 1
-#define HOWL_RENDER_V0_COMMAND_FILL_RECT 2
-#define HOWL_RENDER_V0_COMMAND_DRAW_GLYPH_RUN 3
-#define HOWL_RENDER_V0_COMMAND_DRAW_SPRITE 4
+#define HOWL_RENDER_SURFACE_DAMAGE_RECT 1
+#define HOWL_RENDER_SURFACE_DAMAGE_FULL 2
+#define HOWL_RENDER_RESOURCE_GLYPH_ATLAS_ALPHA 1
+#define HOWL_RENDER_RESOURCE_GLYPH_ATLAS_COLOR 2
+#define HOWL_RENDER_RESOURCE_SPRITE_ALPHA 3
+#define HOWL_RENDER_RESOURCE_SPRITE_COLOR 4
+#define HOWL_RENDER_UPLOAD_ALPHA8 1
+#define HOWL_RENDER_UPLOAD_RGBA8 2
+#define HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT 1
+#define HOWL_RENDER_SURFACE_COMMAND_FILL_RECT 2
+#define HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN 3
+#define HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE 4
 
 typedef enum {
     HOWL_RENDER_CALL_OK = 0,
@@ -51,18 +51,18 @@ typedef enum {
 } HowlRenderCallStatus;
 
 typedef enum {
-    HOWL_RENDER_V0_EMIT_OK = 0,
-    HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW = 1,
-    HOWL_RENDER_V0_EMIT_CREATE_BOUND_OVERFLOW = 2,
-    HOWL_RENDER_V0_EMIT_DAMAGE_BOUND_OVERFLOW = 3,
-    HOWL_RENDER_V0_EMIT_RETIRE_BOUND_OVERFLOW = 4,
-    HOWL_RENDER_V0_EMIT_RESOURCE_BOUND_OVERFLOW = 5,
-    HOWL_RENDER_V0_EMIT_UPLOAD_BOUND_OVERFLOW = 6,
-    HOWL_RENDER_V0_EMIT_UPLOAD_BYTES_OVERFLOW = 7,
-    HOWL_RENDER_V0_EMIT_INVALID_PREPARED_SPRITE = 8,
-    HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE = 9,
-    HOWL_RENDER_V0_EMIT_ALLOCATION_FAILED = 10,
-} HowlRenderV0EmitStatus;
+    HOWL_RENDER_SURFACE_EMIT_OK = 0,
+    HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW = 1,
+    HOWL_RENDER_SURFACE_EMIT_CREATE_BOUND_OVERFLOW = 2,
+    HOWL_RENDER_SURFACE_EMIT_DAMAGE_BOUND_OVERFLOW = 3,
+    HOWL_RENDER_SURFACE_EMIT_RETIRE_BOUND_OVERFLOW = 4,
+    HOWL_RENDER_SURFACE_EMIT_RESOURCE_BOUND_OVERFLOW = 5,
+    HOWL_RENDER_SURFACE_EMIT_UPLOAD_BOUND_OVERFLOW = 6,
+    HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW = 7,
+    HOWL_RENDER_SURFACE_EMIT_INVALID_PREPARED_SPRITE = 8,
+    HOWL_RENDER_SURFACE_EMIT_MISSING_PREPARED_SPRITE = 9,
+    HOWL_RENDER_SURFACE_EMIT_ALLOCATION_FAILED = 10,
+} HowlRenderSurfaceEmitStatus;
 
 typedef enum {
     HOWL_RENDER_PREPARE_IDLE = 0,
@@ -181,137 +181,137 @@ typedef struct {
     HowlRenderPixelSize grid_px;
 } HowlRenderGeometry;
 
-typedef struct HowlRenderV0Token {
+typedef struct HowlRenderSurfaceToken {
     uint64_t snapshot_seq;
-    uint64_t frame_seq;
+    uint64_t surface_seq;
     uint64_t geometry_epoch;
     uint64_t resource_epoch;
-} HowlRenderV0Token;
+} HowlRenderSurfaceToken;
 
-typedef struct HowlRenderV0Rect {
+typedef struct HowlRenderSurfaceRect {
     int32_t x_px;
     int32_t y_px;
     uint16_t width_px;
     uint16_t height_px;
-} HowlRenderV0Rect;
+} HowlRenderSurfaceRect;
 
-typedef struct HowlRenderV0DamageItem {
+typedef struct HowlRenderSurfaceDamageItem {
     uint8_t kind;
     uint8_t reserved0;
     uint16_t reserved1;
-    HowlRenderV0Rect rect;
-} HowlRenderV0DamageItem;
+    HowlRenderSurfaceRect rect;
+} HowlRenderSurfaceDamageItem;
 
-typedef struct HowlRenderV0DamageSpan {
-    const HowlRenderV0DamageItem *ptr;
+typedef struct HowlRenderSurfaceDamageSpan {
+    const HowlRenderSurfaceDamageItem *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderV0DamageSpan;
+} HowlRenderSurfaceDamageSpan;
 
-typedef struct HowlRenderV0ResourceId {
+typedef struct HowlRenderResourceId {
     uint64_t value;
     uint32_t generation;
     uint32_t kind;
-} HowlRenderV0ResourceId;
+} HowlRenderResourceId;
 
-typedef struct HowlRenderV0Upload {
-    HowlRenderV0ResourceId resource;
-    HowlRenderV0Rect rect;
+typedef struct HowlRenderResourceUpload {
+    HowlRenderResourceId resource;
+    HowlRenderSurfaceRect rect;
     const uint8_t *bytes_ptr;
     uint32_t bytes_count;
     uint32_t stride_bytes;
     uint32_t format;
     uint32_t upload_seq;
-} HowlRenderV0Upload;
+} HowlRenderResourceUpload;
 
-typedef struct HowlRenderV0UploadSpan {
-    const HowlRenderV0Upload *ptr;
+typedef struct HowlRenderResourceUploadSpan {
+    const HowlRenderResourceUpload *ptr;
     uint32_t count;
     uint32_t count_max;
     uint32_t bytes_count_total;
     uint32_t bytes_count_max;
-} HowlRenderV0UploadSpan;
+} HowlRenderResourceUploadSpan;
 
-typedef struct HowlRenderV0Create {
-    HowlRenderV0ResourceId resource;
+typedef struct HowlRenderResourceCreate {
+    HowlRenderResourceId resource;
     uint32_t width_px;
     uint32_t height_px;
     uint32_t format;
     uint64_t create_seq;
-} HowlRenderV0Create;
+} HowlRenderResourceCreate;
 
-typedef struct HowlRenderV0CreateSpan {
-    const HowlRenderV0Create *ptr;
+typedef struct HowlRenderResourceCreateSpan {
+    const HowlRenderResourceCreate *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderV0CreateSpan;
+} HowlRenderResourceCreateSpan;
 
-typedef struct HowlRenderV0GlyphRef {
-    HowlRenderV0ResourceId atlas_resource;
-    HowlRenderV0Rect atlas_rect;
+typedef struct HowlRenderGlyphRef {
+    HowlRenderResourceId atlas_resource;
+    HowlRenderSurfaceRect atlas_rect;
     int32_t x_px;
     int32_t y_px;
     uint32_t glyph_id;
     uint32_t color_rgba;
-} HowlRenderV0GlyphRef;
+} HowlRenderGlyphRef;
 
-typedef struct HowlRenderV0GlyphRunSpan {
-    const HowlRenderV0GlyphRef *ptr;
+typedef struct HowlRenderGlyphRunSpan {
+    const HowlRenderGlyphRef *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderV0GlyphRunSpan;
+} HowlRenderGlyphRunSpan;
 
-typedef struct HowlRenderV0Command {
+typedef struct HowlRenderSurfaceCommand {
     uint8_t kind;
     uint8_t reserved0;
     uint16_t reserved1;
-    HowlRenderV0Rect rect;
+    HowlRenderSurfaceRect rect;
     uint32_t color_rgba;
-    HowlRenderV0ResourceId resource;
-    HowlRenderV0GlyphRunSpan glyphs;
-} HowlRenderV0Command;
+    HowlRenderResourceId resource;
+    HowlRenderGlyphRunSpan glyphs;
+} HowlRenderSurfaceCommand;
 
-typedef struct HowlRenderV0CommandSpan {
-    const HowlRenderV0Command *ptr;
+typedef struct HowlRenderSurfaceCommandSpan {
+    const HowlRenderSurfaceCommand *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderV0CommandSpan;
+} HowlRenderSurfaceCommandSpan;
 
-typedef struct HowlRenderV0Retire {
-    HowlRenderV0ResourceId resource;
+typedef struct HowlRenderResourceRetire {
+    HowlRenderResourceId resource;
     uint64_t retire_seq;
-} HowlRenderV0Retire;
+} HowlRenderResourceRetire;
 
-typedef struct HowlRenderV0RetireSpan {
-    const HowlRenderV0Retire *ptr;
+typedef struct HowlRenderResourceRetireSpan {
+    const HowlRenderResourceRetire *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderV0RetireSpan;
+} HowlRenderResourceRetireSpan;
 
-typedef struct HowlRenderV0HostAck {
-    HowlRenderV0ResourceId resource;
+typedef struct HowlRenderResourceAck {
+    HowlRenderResourceId resource;
     uint64_t ack_seq;
-} HowlRenderV0HostAck;
+} HowlRenderResourceAck;
 
-typedef struct HowlRenderV0HostAckSpan {
-    const HowlRenderV0HostAck *ptr;
+typedef struct HowlRenderResourceAckSpan {
+    const HowlRenderResourceAck *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderV0HostAckSpan;
+} HowlRenderResourceAckSpan;
 
-typedef struct HowlRenderV0Frame {
-    uint32_t protocol_version;
+typedef struct HowlRenderSurface {
+    uint32_t surface_version;
     uint32_t reserved0;
-    HowlRenderV0Token token;
+    HowlRenderSurfaceToken token;
     HowlRenderPixelSize render_px;
     HowlRenderCellSize cell_px;
     HowlRenderGridSize grid;
-    HowlRenderV0DamageSpan damage;
-    HowlRenderV0CreateSpan creates;
-    HowlRenderV0UploadSpan uploads;
-    HowlRenderV0CommandSpan commands;
-    HowlRenderV0RetireSpan retires;
-} HowlRenderV0Frame;
+    HowlRenderSurfaceDamageSpan damage;
+    HowlRenderResourceCreateSpan creates;
+    HowlRenderResourceUploadSpan uploads;
+    HowlRenderSurfaceCommandSpan commands;
+    HowlRenderResourceRetireSpan retires;
+} HowlRenderSurface;
 
 typedef struct {
     int32_t status;
@@ -517,7 +517,7 @@ typedef struct {
     int32_t status;
     uint64_t missing_glyphs;
     HowlRenderMetrics resolve_metrics;
-    int32_t protocol_v0_emit_status;
+    int32_t render_surface_emit_status;
     uint32_t reserved0;
 } HowlRenderPreparedSurfaceDiagnostics;
 
@@ -641,9 +641,9 @@ int howl_render_prepared_surface_describe(
     HowlRenderPreparedSurfaceHandle prepared_surface_handle,
     HowlRenderPreparedSurfaceInfo *info_out
 );
-int howl_render_prepared_surface_protocol_v0(
+int howl_render_prepared_surface_render_surface(
     HowlRenderPreparedSurfaceHandle prepared_surface_handle,
-    const HowlRenderV0Frame **frame_out
+    const HowlRenderSurface **surface_out
 );
 int howl_render_prepared_surface_diagnostics(
     HowlRenderPreparedSurfaceHandle prepared_surface_handle,

@@ -523,7 +523,7 @@ pub const PrepareOptions = struct {
     scene: scene.BuildOptions = .{},
 };
 
-test "text frame preparer prepares cell inputs into clusters and runs" {
+test "text preparation prepares cell inputs into clusters and runs" {
     var engine = TextFramePreparer.init(std.testing.allocator);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -542,7 +542,7 @@ test "text frame preparer prepares cell inputs into clusters and runs" {
     try std.testing.expectEqual(@as(u64, 0), engine.counters.glyph_groups);
 }
 
-test "text frame preparer records sprite routes through resolver" {
+test "text preparation records sprite routes through resolver" {
     var engine = TextFramePreparer.init(std.testing.allocator);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -563,7 +563,7 @@ test "text frame preparer records sprite routes through resolver" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.sprite_cache_misses);
 }
 
-test "text frame preparer scene is grid positioned" {
+test "text preparation scene is grid positioned" {
     var engine = TextFramePreparer.init(std.testing.allocator);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -582,7 +582,7 @@ test "text frame preparer scene is grid positioned" {
     try std.testing.expectEqual(@as(i32, 1), analysis.scene.scene.sprite_draws[2].y_px);
 }
 
-test "text frame preparer rerasterizes pending atlas entries across prepares" {
+test "text preparation rerasterizes pending atlas entries across prepares" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 8);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -600,7 +600,7 @@ test "text frame preparer rerasterizes pending atlas entries across prepares" {
     try std.testing.expect(!engine.atlas.get(.{ .value = second.scene.scene.sprite_draws[0].sprite.key.value }).?.rendered);
 }
 
-test "text frame preparer rerasterizes sprites after cell metrics change" {
+test "text preparation rerasterizes sprites after cell metrics change" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 8);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -617,7 +617,7 @@ test "text frame preparer rerasterizes sprites after cell metrics change" {
     try std.testing.expectEqual(@as(u16, 32), second.raster_plan.outputs[0].height_px);
 }
 
-test "text frame preparer rerasterizes sprites after box thickness change" {
+test "text preparation rerasterizes sprites after box thickness change" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 8);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -632,7 +632,7 @@ test "text frame preparer rerasterizes sprites after box thickness change" {
     try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
 }
 
-test "text frame preparer accepts configurable shaper" {
+test "text preparation accepts configurable shaper" {
     const Stub = struct {
         hits: u8 = 0,
 
@@ -656,7 +656,7 @@ test "text frame preparer accepts configurable shaper" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
 }
 
-test "text frame preparer accepts unified provider rasterizer" {
+test "text preparation accepts unified provider rasterizer" {
     const Stub = struct {
         hits: u8 = 0,
 
@@ -677,7 +677,7 @@ test "text frame preparer accepts unified provider rasterizer" {
     try std.testing.expectEqual(@as(u8, 1), stub.hits);
 }
 
-test "text frame preparer prepare options produce scene cursor draws" {
+test "text preparation options produce scene cursor draws" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -694,7 +694,7 @@ test "text frame preparer prepare options produce scene cursor draws" {
     try std.testing.expectEqual(@as(u16, 8), analysis.scene.scene.cursor_draws[0].width_px);
 }
 
-test "text frame preparer prepares rich multi-codepoint cell inputs" {
+test "text preparation prepares rich multi-codepoint cell inputs" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -713,7 +713,7 @@ test "text frame preparer prepares rich multi-codepoint cell inputs" {
     try std.testing.expectEqual(@as(u16, 2), analysis.scene.scene.sprite_draws[1].width_px);
 }
 
-test "text frame preparer direct-renders pure normal cell text inputs" {
+test "text preparation direct-renders pure normal cell text inputs" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -733,7 +733,7 @@ test "text frame preparer direct-renders pure normal cell text inputs" {
     try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
 }
 
-test "text frame preparer keeps mixed cell text normals out of legacy path" {
+test "text preparation keeps mixed cell text normals out of legacy path" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -752,7 +752,7 @@ test "text frame preparer keeps mixed cell text normals out of legacy path" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
 }
 
-test "text frame preparer marks curly underline cells complex before shaping" {
+test "text preparation marks curly underline cells complex before shaping" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -771,7 +771,7 @@ test "text frame preparer marks curly underline cells complex before shaping" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
 }
 
-test "text frame preparer sizes cluster scratch for multi codepoint cell inputs" {
+test "text preparation sizes cluster scratch for multi codepoint cell inputs" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -786,7 +786,7 @@ test "text frame preparer sizes cluster scratch for multi codepoint cell inputs"
     try std.testing.expect(count32(analysis.scene.scene.sprite_draws) != 0);
 }
 
-test "text frame preparer keeps icon codepoints out of the normal lane" {
+test "text preparation keeps icon codepoints out of the normal lane" {
     const Stub = struct {
         fn shape(_: *anyopaque, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) anyerror!shape_run.OwnedShapedRun {
             _ = text_cache;
@@ -825,7 +825,7 @@ test "text frame preparer keeps icon codepoints out of the normal lane" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
 }
 
-test "text frame preparer uses ft hb source coverage for fallback" {
+test "text preparation uses ft hb source coverage for fallback" {
     const FallbackShaper = struct {
         last_face_id: u32 = 0,
         inner: shape_run.Shaper,

@@ -61,12 +61,12 @@ pub const PreparedSurface = struct {
 };
 
 test "prepared surface owner stays separate from geometry contracts" {
-    const frame = geometry_contract.FramePixels{
+    const pixels = geometry_contract.FramePixels{
         .render_width = 0,
         .render_height = -2,
         .grid_width = 80,
         .grid_height = 24,
     };
-    try std.testing.expectEqual(@as(u16, 1), frame.renderWidth());
+    try std.testing.expectEqual(@as(u16, 1), pixels.renderWidth());
     try std.testing.expect(@This().PreparedSurface != geometry_contract.FramePixels);
 }
