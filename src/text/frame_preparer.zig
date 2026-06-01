@@ -97,7 +97,13 @@ pub const TextFramePreparer = struct {
         self.atlas.next_slot = 0;
     }
 
-    pub fn prepareCellsWithSessionOptions(self: *TextFramePreparer, cells: []const contract.CellInput, grid_metrics: contract.GridMetrics, session: font_session.FontSession, options: PrepareOptions) !OwnedPreparedTextFrame {
+    pub fn prepareCellsWithSessionOptions(
+        self: *TextFramePreparer,
+        cells: []const contract.CellInput,
+        grid_metrics: contract.GridMetrics,
+        session: font_session.FontSession,
+        options: PrepareOptions,
+    ) !OwnedPreparedTextFrame {
         var lane_report = lane.LaneReport{};
         if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report)) |direct| {
             return self.finishNormalOnlyFrame(direct, lane_report, .{});
@@ -112,7 +118,13 @@ pub const TextFramePreparer = struct {
         return self.preparePreparedTextFrame(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings);
     }
 
-    pub fn prepareCellTextInputsWithSessionOptions(self: *TextFramePreparer, inputs: []const cluster.CellTextInput, grid_metrics: contract.GridMetrics, session: font_session.FontSession, options: PrepareOptions) !OwnedPreparedTextFrame {
+    pub fn prepareCellTextInputsWithSessionOptions(
+        self: *TextFramePreparer,
+        inputs: []const cluster.CellTextInput,
+        grid_metrics: contract.GridMetrics,
+        session: font_session.FontSession,
+        options: PrepareOptions,
+    ) !OwnedPreparedTextFrame {
         var lane_report = lane.LaneReport{};
         if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report)) |direct| {
             return self.finishNormalOnlyFrame(direct, lane_report, .{});
@@ -128,14 +140,29 @@ pub const TextFramePreparer = struct {
         return self.preparePreparedTextFrame(text_cache, renderable, grid_metrics, session, options, .{});
     }
 
-    fn preparePreparedTextFrame(self: *TextFramePreparer, text_cache: cluster.OwnedLineTextCache, renderable: cluster.OwnedRenderableCells, grid_metrics: contract.GridMetrics, session: font_session.FontSession, options: PrepareOptions, initial_timings: PrepareTimings) !OwnedPreparedTextFrame {
+    fn preparePreparedTextFrame(
+        self: *TextFramePreparer,
+        text_cache: cluster.OwnedLineTextCache,
+        renderable: cluster.OwnedRenderableCells,
+        grid_metrics: contract.GridMetrics,
+        session: font_session.FontSession,
+        options: PrepareOptions,
+        initial_timings: PrepareTimings,
+    ) !OwnedPreparedTextFrame {
         var timings = initial_timings;
         var owned_text_cache = text_cache;
         errdefer owned_text_cache.deinit();
         var owned_renderable = renderable;
         errdefer owned_renderable.deinit();
         const clusters_start_ns = monotonicNs();
-        var clusters = try cluster.extractClustersWithDamageScratch(self.allocator, &self.cluster_scratch, owned_renderable.cells, owned_text_cache.view(), grid_metrics, options.scene.damage);
+        var clusters = try cluster.extractClustersWithDamageScratch(
+            self.allocator,
+            &self.cluster_scratch,
+            owned_renderable.cells,
+            owned_text_cache.view(),
+            grid_metrics,
+            options.scene.damage,
+        );
         timings.clusters_us = elapsedUs(clusters_start_ns);
         errdefer clusters.deinit();
         try self.ensureResolverScratchCapacity(count32(clusters.clusters));
@@ -171,19 +198,63 @@ pub const TextFramePreparer = struct {
         );
     }
 
-    fn prepareComplexFrame(self: *TextFramePreparer, prepared: PreparedComplexFrame, grid_metrics: contract.GridMetrics, session: font_session.FontSession, options: PrepareOptions, timings: *PrepareTimings) !OwnedPreparedTextFrame {
+    fn prepareComplexFrame(
+        self: *TextFramePreparer,
+        prepared: PreparedComplexFrame,
+        grid_metrics: contract.GridMetrics,
+        session: font_session.FontSession,
+        options: PrepareOptions,
+        timings: *PrepareTimings,
+    ) !OwnedPreparedTextFrame {
         var final_prepared = prepared;
         errdefer final_prepared.deinit(self.allocator);
-        var complex = try cluster.selectComplexWithDamageScratch(self.allocator, &self.cluster_scratch, final_prepared.renderable.cells, final_prepared.text_cache.view(), final_prepared.clusters.clusters, grid_metrics, options.scene.damage);
+        var complex = try cluster.selectComplexWithDamageScratch(
+            self.allocator,
+            &self.cluster_scratch,
+            final_prepared.renderable.cells,
+            final_prepared.text_cache.view(),
+            final_prepared.clusters.clusters,
+            grid_metrics,
+            options.scene.damage,
+        );
         defer complex.deinit();
         std.debug.assert(@as(u64, @intCast(complex.cells.len)) == final_prepared.lane_report.complex_cells);
         std.debug.assert(@as(u64, @intCast(complex.clusters.len)) == final_prepared.lane_report.complex_clusters);
 
         final_prepared.runs = try resolveComplexRuns(self, final_prepared.text_cache.view(), complex.clusters, grid_metrics, session, timings, &final_prepared.lane_report, complex.cells);
-        final_prepared.shaped_runs = try shapeComplexRuns(self, final_prepared.runs.?.runs, final_prepared.text_cache.view(), complex.clusters, session.metrics, timings, &final_prepared.lane_report, complex.cells);
-        final_prepared.grouped = try groupComplexRuns(self, final_prepared.shaped_runs.?.runs, final_prepared.runs.?.sprite_routes, complex.clusters, session.metrics, timings, &final_prepared.lane_report, final_prepared.text_cache.view(), complex.cells);
+        final_prepared.shaped_runs = try shapeComplexRuns(
+            self,
+            final_prepared.runs.?.runs,
+            final_prepared.text_cache.view(),
+            complex.clusters,
+            session.metrics,
+            timings,
+            &final_prepared.lane_report,
+            complex.cells,
+        );
+        final_prepared.grouped = try groupComplexRuns(
+            self,
+            final_prepared.shaped_runs.?.runs,
+            final_prepared.runs.?.sprite_routes,
+            complex.clusters,
+            session.metrics,
+            timings,
+            &final_prepared.lane_report,
+            final_prepared.text_cache.view(),
+            complex.cells,
+        );
         const scene_start_ns = monotonicNs();
-        var text_scene = try scene.buildBorrowedSceneWithAtlasCacheOptions(self.allocator, &self.scene_scratch, complex.cells, final_prepared.grouped.?.groups.groups, final_prepared.runs.?.missing, session.metrics, grid_metrics, &self.atlas, options.scene);
+        var text_scene = try scene.buildBorrowedSceneWithAtlasCacheOptions(
+            self.allocator,
+            &self.scene_scratch,
+            complex.cells,
+            final_prepared.grouped.?.groups.groups,
+            final_prepared.runs.?.missing,
+            session.metrics,
+            grid_metrics,
+            &self.atlas,
+            options.scene,
+        );
         timings.scene_us = elapsedUs(scene_start_ns);
         errdefer text_scene.deinit();
         for (text_scene.scene.sprite_draws) |draw| final_prepared.lane_report.recordLegacySceneSpriteDraw(final_prepared.text_cache.view(), complex.cells, draw);
@@ -267,7 +338,15 @@ pub const TextFramePreparer = struct {
         };
     }
 
-    fn prepareDirectNormal(self: *TextFramePreparer, source: direct_normal.Source, policy: direct_normal.Policy, grid_metrics: contract.GridMetrics, session: font_session.FontSession, options: PrepareOptions, lane_report: *lane.LaneReport) !?direct_normal.Product {
+    fn prepareDirectNormal(
+        self: *TextFramePreparer,
+        source: direct_normal.Source,
+        policy: direct_normal.Policy,
+        grid_metrics: contract.GridMetrics,
+        session: font_session.FontSession,
+        options: PrepareOptions,
+        lane_report: *lane.LaneReport,
+    ) !?direct_normal.Product {
         return try direct_normal.prepare(
             .{
                 .allocator = self.allocator,
@@ -333,7 +412,16 @@ const PreparedGroups = struct {
     }
 };
 
-fn resolveComplexRuns(self: *TextFramePreparer, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, grid_metrics: contract.GridMetrics, session: font_session.FontSession, timings: *PrepareTimings, lane_report: *lane.LaneReport, cells: []const contract.RenderableCell) !font_resolver.OwnedResolvedRuns {
+fn resolveComplexRuns(
+    self: *TextFramePreparer,
+    text_cache: contract.LineTextCache,
+    clusters: []const contract.CellCluster,
+    grid_metrics: contract.GridMetrics,
+    session: font_session.FontSession,
+    timings: *PrepareTimings,
+    lane_report: *lane.LaneReport,
+    cells: []const contract.RenderableCell,
+) !font_resolver.OwnedResolvedRuns {
     const resolve_start_ns = monotonicNs();
     const runs = try font_resolver.resolveClusters(self.allocator, &self.resolver_scratch, session, clusters, text_cache, grid_metrics);
     timings.resolve_us = elapsedUs(resolve_start_ns);
@@ -341,7 +429,16 @@ fn resolveComplexRuns(self: *TextFramePreparer, text_cache: contract.LineTextCac
     return runs;
 }
 
-fn shapeComplexRuns(self: *TextFramePreparer, runs: []const contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics, timings: *PrepareTimings, lane_report: *lane.LaneReport, cells: []const contract.RenderableCell) !shape_run.OwnedShapedRuns {
+fn shapeComplexRuns(
+    self: *TextFramePreparer,
+    runs: []const contract.ResolvedRun,
+    text_cache: contract.LineTextCache,
+    clusters: []const contract.CellCluster,
+    cell_metrics: contract.CellMetrics,
+    timings: *PrepareTimings,
+    lane_report: *lane.LaneReport,
+    cells: []const contract.RenderableCell,
+) !shape_run.OwnedShapedRuns {
     const shape_start_ns = monotonicNs();
     const shaped_runs = try shape_run.shapeResolvedRunsWithShaper(self.allocator, self.shaper, runs, text_cache, clusters, cell_metrics);
     timings.shape_us = elapsedUs(shape_start_ns);
@@ -349,7 +446,17 @@ fn shapeComplexRuns(self: *TextFramePreparer, runs: []const contract.ResolvedRun
     return shaped_runs;
 }
 
-fn groupComplexRuns(self: *TextFramePreparer, shaped_runs: []const shape_run.OwnedShapedRun, sprite_routes: []const font_resolver.SpriteRouteHit, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics, timings: *PrepareTimings, lane_report: *lane.LaneReport, text_cache: contract.LineTextCache, cells: []const contract.RenderableCell) !PreparedGroups {
+fn groupComplexRuns(
+    self: *TextFramePreparer,
+    shaped_runs: []const shape_run.OwnedShapedRun,
+    sprite_routes: []const font_resolver.SpriteRouteHit,
+    clusters: []const contract.CellCluster,
+    cell_metrics: contract.CellMetrics,
+    timings: *PrepareTimings,
+    lane_report: *lane.LaneReport,
+    text_cache: contract.LineTextCache,
+    cells: []const contract.RenderableCell,
+) !PreparedGroups {
     const group_start_ns = monotonicNs();
     var font_groups = try grouping.groupShapedRunsWithPolicy(self.allocator, shaped_runs, clusters, cell_metrics, .{});
     errdefer font_groups.deinit();
@@ -433,7 +540,12 @@ fn mergeFirstCellSlices(comptime T: type, allocator: std.mem.Allocator, lhs: []c
     return out;
 }
 
-fn mergeRasterPlans(allocator: std.mem.Allocator, direct_outputs: []rasterizer.RasterSpriteOutput, direct_outputs_owned: bool, complex_plan: *rasterizer.OwnedRasterPlan) !rasterizer.OwnedRasterPlan {
+fn mergeRasterPlans(
+    allocator: std.mem.Allocator,
+    direct_outputs: []rasterizer.RasterSpriteOutput,
+    direct_outputs_owned: bool,
+    complex_plan: *rasterizer.OwnedRasterPlan,
+) !rasterizer.OwnedRasterPlan {
     const out = try allocator.alloc(rasterizer.RasterSpriteOutput, direct_outputs.len + complex_plan.outputs.len);
     @memcpy(out[0..direct_outputs.len], direct_outputs);
     @memcpy(out[direct_outputs.len..], complex_plan.outputs);
@@ -537,10 +649,20 @@ test "text preparation rerasterizes sprites after cell metrics change" {
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const cells = [_]contract.CellInput{.{ .codepoint = 0x2588, .fg = white, .bg = black }};
-    var first = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 } }, .{});
+    var first = try engine.prepareCellsWithSessionOptions(
+        &cells,
+        .{ .cols = 1, .rows = 1 },
+        .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 } },
+        .{},
+    );
     const first_key = first.scene.scene.sprite_draws[0].sprite.key.value;
     first.deinit();
-    var second = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 16, .cell_h_px = 32, .baseline_px = 24 } }, .{});
+    var second = try engine.prepareCellsWithSessionOptions(
+        &cells,
+        .{ .cols = 1, .rows = 1 },
+        .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 16, .cell_h_px = 32, .baseline_px = 24 } },
+        .{},
+    );
     defer second.deinit();
     try std.testing.expect(first_key != second.scene.scene.sprite_draws[0].sprite.key.value);
     try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
@@ -554,10 +676,20 @@ test "text preparation rerasterizes sprites after box thickness change" {
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const cells = [_]contract.CellInput{.{ .codepoint = 0x256d, .fg = white, .bg = black }};
-    var first = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 1 } }, .{});
+    var first = try engine.prepareCellsWithSessionOptions(
+        &cells,
+        .{ .cols = 1, .rows = 1 },
+        .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 1 } },
+        .{},
+    );
     const first_key = first.scene.scene.sprite_draws[0].sprite.key.value;
     first.deinit();
-    var second = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 3 } }, .{});
+    var second = try engine.prepareCellsWithSessionOptions(
+        &cells,
+        .{ .cols = 1, .rows = 1 },
+        .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 3 } },
+        .{},
+    );
     defer second.deinit();
     try std.testing.expect(first_key != second.scene.scene.sprite_draws[0].sprite.key.value);
     try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
@@ -567,7 +699,14 @@ test "text preparation accepts configurable shaper" {
     const Stub = struct {
         hits: u8 = 0,
 
-        fn shape(ctx: *anyopaque, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) anyerror!shape_run.OwnedShapedRun {
+        fn shape(
+            ctx: *anyopaque,
+            allocator: std.mem.Allocator,
+            run: contract.ResolvedRun,
+            text_cache: contract.LineTextCache,
+            clusters: []const contract.CellCluster,
+            cell_metrics: contract.CellMetrics,
+        ) anyerror!shape_run.OwnedShapedRun {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             self.hits += 1;
             return shape_run.shapeRun(allocator, run, text_cache, clusters, cell_metrics);
@@ -719,7 +858,14 @@ test "text preparation sizes cluster scratch for multi codepoint cell inputs" {
 
 test "text preparation keeps icon codepoints out of the normal lane" {
     const Stub = struct {
-        fn shape(_: *anyopaque, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) anyerror!shape_run.OwnedShapedRun {
+        fn shape(
+            _: *anyopaque,
+            allocator: std.mem.Allocator,
+            run: contract.ResolvedRun,
+            text_cache: contract.LineTextCache,
+            clusters: []const contract.CellCluster,
+            cell_metrics: contract.CellMetrics,
+        ) anyerror!shape_run.OwnedShapedRun {
             _ = text_cache;
             _ = cell_metrics;
             std.debug.assert(clusters.len >= 1);
@@ -761,7 +907,14 @@ test "text preparation uses ft hb source coverage for fallback" {
         last_face_id: u32 = 0,
         inner: shape_run.Shaper,
 
-        fn shape(ctx: *anyopaque, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) anyerror!shape_run.OwnedShapedRun {
+        fn shape(
+            ctx: *anyopaque,
+            allocator: std.mem.Allocator,
+            run: contract.ResolvedRun,
+            text_cache: contract.LineTextCache,
+            clusters: []const contract.CellCluster,
+            cell_metrics: contract.CellMetrics,
+        ) anyerror!shape_run.OwnedShapedRun {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             self.last_face_id = run.run.font.face_id.value;
             return self.inner.shapeRun(allocator, run, text_cache, clusters, cell_metrics);

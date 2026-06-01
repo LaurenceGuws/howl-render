@@ -687,7 +687,17 @@ fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *text_mod
     return result;
 }
 
-fn runWorkloadWarm(io: std.Io, counting: *CountingAllocator, preparer: *text_mod.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext, observations: []RunObservation, fill_values: []u64, glyph_values: []u64, upload_values: []u64) !void {
+fn runWorkloadWarm(
+    io: std.Io,
+    counting: *CountingAllocator,
+    preparer: *text_mod.TextFramePreparer,
+    workload: Workload,
+    context: WorkloadPrepareContext,
+    observations: []RunObservation,
+    fill_values: []u64,
+    glyph_values: []u64,
+    upload_values: []u64,
+) !void {
     for (observations, 0..) |*observation, idx| {
         counting.resetWindow();
         const start_ns = nowNs(io);
@@ -880,7 +890,14 @@ fn printNdjsonResult(result: WorkloadResult) void {
         },
     );
     std.debug.print(
-        "\"runs\":{d},\"dirty_cells_per_run\":{d},\"cold_ns\":{d},\"cold_resolve_us\":{d},\"cold_shape_us\":{d},\"cold_group_us\":{d},\"cold_scene_us\":{d},\"cold_alloc_count\":{d},\"cold_alloc_bytes\":{d},\"cold_peak_live_bytes\":{d},\"cold_fills\":{d},\"cold_glyphs\":{d},\"cold_uploads\":{d},\"warm_median_ns\":{d},\"warm_p95_ns\":{d},\"warm_median_resolve_us\":{d},\"warm_median_shape_us\":{d},\"warm_median_group_us\":{d},\"warm_median_scene_us\":{d},\"dirty_cells_per_second\":{d:.0},\"warm_median_alloc_count\":{d},\"warm_median_alloc_bytes\":{d},\"warm_median_peak_live_bytes\":{d},\"warm_median_fills\":{d},\"warm_median_glyphs\":{d},\"warm_median_uploads\":{d}}}\n",
+        "\"runs\":{d},\"dirty_cells_per_run\":{d},\"cold_ns\":{d},\"cold_resolve_us\":{d}," ++
+            "\"cold_shape_us\":{d},\"cold_group_us\":{d},\"cold_scene_us\":{d},\"cold_alloc_count\":{d}," ++
+            "\"cold_alloc_bytes\":{d},\"cold_peak_live_bytes\":{d},\"cold_fills\":{d},\"cold_glyphs\":{d}," ++
+            "\"cold_uploads\":{d},\"warm_median_ns\":{d},\"warm_p95_ns\":{d},\"warm_median_resolve_us\":{d}," ++
+            "\"warm_median_shape_us\":{d},\"warm_median_group_us\":{d},\"warm_median_scene_us\":{d}," ++
+            "\"dirty_cells_per_second\":{d:.0},\"warm_median_alloc_count\":{d},\"warm_median_alloc_bytes\":{d}," ++
+            "\"warm_median_peak_live_bytes\":{d},\"warm_median_fills\":{d},\"warm_median_glyphs\":{d}," ++
+            "\"warm_median_uploads\":{d}}}\n",
         .{
             result.runs,
             result.dirty_cells_per_run,

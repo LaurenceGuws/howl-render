@@ -370,7 +370,13 @@ const ComposeTrace = struct {
     }
 };
 
-fn testPreparedSurface(allocator: std.mem.Allocator, clear_draws: []const contract.TextClearDraw, background_draws: []const contract.TextBackgroundDraw, decoration_draws: []const contract.TextDecorationDraw, cursor_draws: []const contract.TextCursorDraw) prepared_surface.PreparedSurface {
+fn testPreparedSurface(
+    allocator: std.mem.Allocator,
+    clear_draws: []const contract.TextClearDraw,
+    background_draws: []const contract.TextBackgroundDraw,
+    decoration_draws: []const contract.TextDecorationDraw,
+    cursor_draws: []const contract.TextCursorDraw,
+) prepared_surface.PreparedSurface {
     return .{
         .allocator = allocator,
         .request = .{

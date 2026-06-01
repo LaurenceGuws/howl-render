@@ -10,13 +10,27 @@ pub const ShapeRunResult = struct {
     glyphs: []const contract.GlyphInstance,
 };
 
-pub const ShapeRunFn = *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) anyerror!OwnedShapedRun;
+pub const ShapeRunFn = *const fn (
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    run: contract.ResolvedRun,
+    text_cache: contract.LineTextCache,
+    clusters: []const contract.CellCluster,
+    cell_metrics: contract.CellMetrics,
+) anyerror!OwnedShapedRun;
 
 pub const Shaper = struct {
     ctx: *anyopaque,
     shape_run: ShapeRunFn,
 
-    pub fn shapeRun(self: Shaper, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) !OwnedShapedRun {
+    pub fn shapeRun(
+        self: Shaper,
+        allocator: std.mem.Allocator,
+        run: contract.ResolvedRun,
+        text_cache: contract.LineTextCache,
+        clusters: []const contract.CellCluster,
+        cell_metrics: contract.CellMetrics,
+    ) !OwnedShapedRun {
         return self.shape_run(self.ctx, allocator, run, text_cache, clusters, cell_metrics);
     }
 };
@@ -50,7 +64,14 @@ pub fn emptyResult() ShapeRunResult {
     return .{ .glyphs = &.{} };
 }
 
-pub fn shapeResolvedRunsWithShaper(allocator: std.mem.Allocator, shaper: Shaper, runs: []const contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) !OwnedShapedRuns {
+pub fn shapeResolvedRunsWithShaper(
+    allocator: std.mem.Allocator,
+    shaper: Shaper,
+    runs: []const contract.ResolvedRun,
+    text_cache: contract.LineTextCache,
+    clusters: []const contract.CellCluster,
+    cell_metrics: contract.CellMetrics,
+) !OwnedShapedRuns {
     const shaped = try allocator.alloc(OwnedShapedRun, runs.len);
     errdefer allocator.free(shaped);
 
@@ -71,11 +92,24 @@ pub fn defaultShaper() Shaper {
     return .{ .ctx = undefined, .shape_run = shapeRunThunk };
 }
 
-fn shapeRunThunk(_: *anyopaque, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) anyerror!OwnedShapedRun {
+fn shapeRunThunk(
+    _: *anyopaque,
+    allocator: std.mem.Allocator,
+    run: contract.ResolvedRun,
+    text_cache: contract.LineTextCache,
+    clusters: []const contract.CellCluster,
+    cell_metrics: contract.CellMetrics,
+) anyerror!OwnedShapedRun {
     return shapeRun(allocator, run, text_cache, clusters, cell_metrics);
 }
 
-pub fn shapeRun(allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) !OwnedShapedRun {
+pub fn shapeRun(
+    allocator: std.mem.Allocator,
+    run: contract.ResolvedRun,
+    text_cache: contract.LineTextCache,
+    clusters: []const contract.CellCluster,
+    cell_metrics: contract.CellMetrics,
+) !OwnedShapedRun {
     const window = runClusterWindow(run, clusters);
     const glyphs = try allocator.alloc(contract.GlyphInstance, @intCast(window.end - window.start));
     errdefer allocator.free(glyphs);

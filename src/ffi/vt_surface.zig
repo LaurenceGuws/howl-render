@@ -21,10 +21,10 @@ pub fn reserveVtSurfaceSlot(value: c.HowlRenderTextSessionHandle, cols: u16, row
 }
 
 pub fn commitVtSurface(value: c.HowlRenderTextSessionHandle, commit: c.HowlRenderVtSurfaceCommit) callconv(.c) c.HowlRenderVtSurfacePublishResult {
-    const owner = handle_owner.textSessionOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const owner = handle_owner.textSessionOwner(value) orelse return vtSurfacePublishFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
     const cursor = cursorIn(commit.cursor) orelse {
         owner.cancelVtSurface();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+        return vtSurfacePublishFailure(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
     };
     const result = owner.commitVtSurface(.{
         .history_count = commit.history_count,
@@ -36,15 +36,26 @@ pub fn commitVtSurface(value: c.HowlRenderTextSessionHandle, commit: c.HowlRende
         .selection = selectionIn(commit.selection),
     }) catch {
         owner.cancelVtSurface();
-        return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+        return vtSurfacePublishFailure(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
     };
     return vtSurfacePublishResultOut(result);
 }
 
 pub fn rejectVtSurface(value: c.HowlRenderTextSessionHandle, snapshot_seq: u64) callconv(.c) c.HowlRenderVtSurfacePublishResult {
-    const owner = handle_owner.textSessionOwner(value) orelse return .{ .status = c.HOWL_RENDER_CALL_MISSING_HANDLE, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
-    if (snapshot_seq == 0) return .{ .status = c.HOWL_RENDER_CALL_INVALID_ARGUMENT, .published = 0, .queued = 0, .damage_kind = @intFromEnum(tokens.DamageKind.none), .snapshot_seq = 0, .geometry_epoch = 0 };
+    const owner = handle_owner.textSessionOwner(value) orelse return vtSurfacePublishFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
+    if (snapshot_seq == 0) return vtSurfacePublishFailure(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
     return vtSurfacePublishResultWithStatus(owner.rejectVtSurface(snapshot_seq), c.HOWL_RENDER_CALL_FAILED);
+}
+
+fn vtSurfacePublishFailure(status: c_int) c.HowlRenderVtSurfacePublishResult {
+    return .{
+        .status = status,
+        .published = 0,
+        .queued = 0,
+        .damage_kind = @intFromEnum(tokens.DamageKind.none),
+        .snapshot_seq = 0,
+        .geometry_epoch = 0,
+    };
 }
 
 pub fn cancelVtSurface(value: c.HowlRenderTextSessionHandle) callconv(.c) void {

@@ -79,7 +79,13 @@ pub fn installMergedScene(text_scene: *scene.OwnedTextScene, damage: Damage, mer
     text_scene.scene.missing = merged.missing;
 }
 
-pub fn appendBackgrounds(out: *std.ArrayListUnmanaged(contract.TextBackgroundDraw), cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: Damage) void {
+pub fn appendBackgrounds(
+    out: *std.ArrayListUnmanaged(contract.TextBackgroundDraw),
+    cells: []const contract.RenderableCell,
+    cell_metrics: contract.CellMetrics,
+    grid_metrics: contract.GridMetrics,
+    damage: Damage,
+) void {
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const cell_len = count32(cells);
     var idx: u32 = 0;
@@ -159,18 +165,42 @@ pub fn appendCursor(out: *std.ArrayListUnmanaged(contract.TextCursorDraw), curso
     switch (cursorRoute(cursor_value.shape)) {
         .block => out.appendAssumeCapacity(.{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor_value.color }),
         .beam => out.appendAssumeCapacity(.{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor_value.color }),
-        .underline => out.appendAssumeCapacity(.{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - geom.underline_h_px)), .width_px = cell_metrics.cell_w_px, .height_px = geom.underline_h_px, .color = cursor_value.color }),
+        .underline => out.appendAssumeCapacity(.{
+            .x_px = base_x,
+            .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - geom.underline_h_px)),
+            .width_px = cell_metrics.cell_w_px,
+            .height_px = geom.underline_h_px,
+            .color = cursor_value.color,
+        }),
         .hollow_block => {
             const stroke = geom.hollow_stroke_px;
             out.appendAssumeCapacity(.{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor_value.color });
-            out.appendAssumeCapacity(.{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - stroke)), .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor_value.color });
+            out.appendAssumeCapacity(.{
+                .x_px = base_x,
+                .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - stroke)),
+                .width_px = cell_metrics.cell_w_px,
+                .height_px = stroke,
+                .color = cursor_value.color,
+            });
             out.appendAssumeCapacity(.{ .x_px = base_x, .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor_value.color });
-            out.appendAssumeCapacity(.{ .x_px = base_x + @as(i32, @intCast(cell_metrics.cell_w_px - stroke)), .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor_value.color });
+            out.appendAssumeCapacity(.{
+                .x_px = base_x + @as(i32, @intCast(cell_metrics.cell_w_px - stroke)),
+                .y_px = base_y,
+                .width_px = stroke,
+                .height_px = cell_metrics.cell_h_px,
+                .color = cursor_value.color,
+            });
         },
     }
 }
 
-pub fn appendDecorations(out: *std.ArrayListUnmanaged(contract.TextDecorationDraw), cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: Damage) void {
+pub fn appendDecorations(
+    out: *std.ArrayListUnmanaged(contract.TextDecorationDraw),
+    cells: []const contract.RenderableCell,
+    cell_metrics: contract.CellMetrics,
+    grid_metrics: contract.GridMetrics,
+    damage: Damage,
+) void {
     const font_metrics = defaultFontMetrics(cell_metrics);
     const deco = decorationGeometry(cell_metrics, font_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
@@ -187,7 +217,8 @@ pub fn appendDecorations(out: *std.ArrayListUnmanaged(contract.TextDecorationDra
                 .straight => appendDecoration(out, .underline, cell, base_x, base_y + deco.underline_y_px, width_px, deco.underline_h_px, color),
                 .double => {
                     const gap: i32 = @max(@as(i32, @intCast(deco.underline_h_px)), 1);
-                    appendDecoration(out, .underline, cell, base_x, @max(base_y + deco.underline_y_px - gap - @as(i32, @intCast(deco.underline_h_px)), 0), width_px, deco.underline_h_px, color);
+                    const y_px = @max(base_y + deco.underline_y_px - gap - @as(i32, @intCast(deco.underline_h_px)), 0);
+                    appendDecoration(out, .underline, cell, base_x, y_px, width_px, deco.underline_h_px, color);
                     appendDecoration(out, .underline, cell, base_x, base_y + deco.underline_y_px, width_px, deco.underline_h_px, color);
                 },
                 .dotted => {
@@ -203,7 +234,8 @@ pub fn appendDecorations(out: *std.ArrayListUnmanaged(contract.TextDecorationDra
                     const step: u16 = @max(dash + 2, 3);
                     var off: u16 = 0;
                     while (off < width_px) : (off += step) {
-                        appendDecoration(out, .underline_dashed, cell, base_x + @as(i32, @intCast(off)), base_y + deco.underline_y_px, @min(dash, width_px - off), deco.underline_h_px, color);
+                        const x_px = base_x + @as(i32, @intCast(off));
+                        appendDecoration(out, .underline_dashed, cell, x_px, base_y + deco.underline_y_px, @min(dash, width_px - off), deco.underline_h_px, color);
                     }
                 },
                 .curly => unreachable,
@@ -237,7 +269,16 @@ fn classifyDecorationLead(damage: Damage, grid_metrics: contract.GridMetrics, ce
     return .draw;
 }
 
-fn appendDecoration(out: *std.ArrayListUnmanaged(contract.TextDecorationDraw), kind: contract.DecorationKind, cell: contract.RenderableCell, x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: contract.Rgba8) void {
+fn appendDecoration(
+    out: *std.ArrayListUnmanaged(contract.TextDecorationDraw),
+    kind: contract.DecorationKind,
+    cell: contract.RenderableCell,
+    x_px: i32,
+    y_px: i32,
+    width_px: u16,
+    height_px: u16,
+    color: contract.Rgba8,
+) void {
     out.appendAssumeCapacity(.{
         .kind = kind,
         .x_px = x_px,

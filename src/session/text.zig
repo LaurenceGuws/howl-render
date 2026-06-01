@@ -108,7 +108,12 @@ pub const TextSession = struct {
         self.text_state.deinit();
     }
 
-    pub fn deriveLayout(self: *TextSession, config: TextSessionConfig, render_px: geometry_contract.PixelSize, grid_px: geometry_contract.PixelSize) geometry_mod.FrameGeometryError!SurfaceLayout {
+    pub fn deriveLayout(
+        self: *TextSession,
+        config: TextSessionConfig,
+        render_px: geometry_contract.PixelSize,
+        grid_px: geometry_contract.PixelSize,
+    ) geometry_mod.FrameGeometryError!SurfaceLayout {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         if (render_px.width == 0 or render_px.height == 0) return error.InvalidSurfaceSize;
@@ -179,7 +184,13 @@ pub const TextSession = struct {
         return preparer.atlas.rasterForKey(key);
     }
 
-    fn ownPreparedSurface(allocator: std.mem.Allocator, prepare: PrepareInput, grid: contract.GridMetrics, prepared: text.OwnedPreparedTextFrame, resolve: font_resolve.ResolveObservability) prepared_surface.PreparedSurface {
+    fn ownPreparedSurface(
+        allocator: std.mem.Allocator,
+        prepare: PrepareInput,
+        grid: contract.GridMetrics,
+        prepared: text.OwnedPreparedTextFrame,
+        resolve: font_resolve.ResolveObservability,
+    ) prepared_surface.PreparedSurface {
         return .{
             .allocator = allocator,
             .request = prepare.request,
@@ -272,7 +283,14 @@ pub const TextSession = struct {
         return text_support.providerHasCellText(TextContext, ctx, face_id, text_value);
     }
 
-    fn providerShapeRunThunk(ctx: *anyopaque, allocator: std.mem.Allocator, run: contract.ResolvedRun, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) anyerror!text.ShapeRun.OwnedShapedRun {
+    fn providerShapeRunThunk(
+        ctx: *anyopaque,
+        allocator: std.mem.Allocator,
+        run: contract.ResolvedRun,
+        text_cache_view: contract.LineTextCache,
+        clusters: []const contract.CellCluster,
+        cell_metrics: contract.CellMetrics,
+    ) anyerror!text.ShapeRun.OwnedShapedRun {
         return text_support.providerShapeRun(TextContext, ctx, allocator, run, text_cache_view, clusters, cell_metrics);
     }
 
@@ -305,7 +323,8 @@ pub const TextSession = struct {
     }
 
     fn prepareMetrics(timings: text.PrepareTimings) prepared_surface.PrepareMetrics {
-        const total = timings.input_us + timings.sparse_us + timings.clusters_us + timings.resolve_us + timings.shape_us + timings.group_us + timings.scene_us + timings.raster_us + timings.atlas_us;
+        const total = timings.input_us + timings.sparse_us + timings.clusters_us + timings.resolve_us +
+            timings.shape_us + timings.group_us + timings.scene_us + timings.raster_us + timings.atlas_us;
         return .{
             .sync_us = timings.input_us,
             .copy_us = timings.sparse_us + timings.clusters_us,

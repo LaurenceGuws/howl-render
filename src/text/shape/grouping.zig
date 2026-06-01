@@ -21,7 +21,13 @@ pub const GroupingPolicy = struct {
     suppress_ligature_at_cursor: bool = false,
 };
 
-pub fn groupShapedRunsWithPolicy(allocator: std.mem.Allocator, shaped_runs: []const shape_run.OwnedShapedRun, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics, policy: GroupingPolicy) !OwnedGlyphGroups {
+pub fn groupShapedRunsWithPolicy(
+    allocator: std.mem.Allocator,
+    shaped_runs: []const shape_run.OwnedShapedRun,
+    clusters: []const contract.CellCluster,
+    cell_metrics: contract.CellMetrics,
+    policy: GroupingPolicy,
+) !OwnedGlyphGroups {
     var count: u32 = 0;
     for (shaped_runs) |run| {
         const glyph_len = count32(run.glyphs);
@@ -88,7 +94,12 @@ fn groupPlacement(glyphs: []const contract.GlyphInstance, cell_metrics: contract
     return .{ .advance_px = @max(advance_px, min_advance) };
 }
 
-pub fn groupSpriteRoutes(allocator: std.mem.Allocator, routes: []const font_resolver.SpriteRouteHit, clusters: []const contract.CellCluster, cell_metrics: contract.CellMetrics) !OwnedGlyphGroups {
+pub fn groupSpriteRoutes(
+    allocator: std.mem.Allocator,
+    routes: []const font_resolver.SpriteRouteHit,
+    clusters: []const contract.CellCluster,
+    cell_metrics: contract.CellMetrics,
+) !OwnedGlyphGroups {
     const groups = try allocator.alloc(contract.GlyphGroup, routes.len);
     errdefer allocator.free(groups);
     for (routes, 0..) |route, idx| {
@@ -252,7 +263,12 @@ test "grouping classifies emoji icon and sprite route groups" {
     try std.testing.expectEqual(contract.GlyphGroupKind.emoji, classifyFontGroup(emoji_cluster, &glyphs, emoji_cluster.cell_span));
     try std.testing.expectEqual(contract.GlyphGroupKind.icon, classifyFontGroup(icon_cluster, &glyphs, icon_cluster.cell_span));
 
-    var sprite_groups = try groupSpriteRoutes(std.testing.allocator, &.{.{ .cluster_index = 1, .route = .box }}, &.{ emoji_cluster, icon_cluster }, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
+    var sprite_groups = try groupSpriteRoutes(
+        std.testing.allocator,
+        &.{.{ .cluster_index = 1, .route = .box }},
+        &.{ emoji_cluster, icon_cluster },
+        .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
+    );
     defer sprite_groups.deinit();
     try std.testing.expectEqual(contract.GlyphGroupKind.box_fallback, sprite_groups.groups[0].kind);
     try std.testing.expect(sprite_groups.groups[0].sprite_key.value != 0);
@@ -359,7 +375,13 @@ test "grouping policy can suppress ligature span across cursor" {
         var owned = shaped_run;
         owned.deinit();
     }
-    var groups = try groupShapedRunsWithPolicy(std.testing.allocator, &.{shaped_run}, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cursor_cell = 1, .suppress_ligature_at_cursor = true });
+    var groups = try groupShapedRunsWithPolicy(
+        std.testing.allocator,
+        &.{shaped_run},
+        &clusters,
+        .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
+        .{ .cursor_cell = 1, .suppress_ligature_at_cursor = true },
+    );
     defer groups.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(groups.groups));
     try std.testing.expectEqual(@as(u8, 1), groups.groups[0].cell_span);

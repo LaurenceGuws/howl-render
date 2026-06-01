@@ -689,7 +689,10 @@ fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, snaps
 }
 
 fn createTestTextSessionHandle() !c.HowlRenderTextSessionHandle {
-    const owner = @import("../session/text.zig").TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
+    const owner = @import("../session/text.zig").TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 },
+    ) orelse return error.OutOfMemory;
     return @ptrCast(owner);
 }
 

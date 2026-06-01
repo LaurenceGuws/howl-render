@@ -60,7 +60,18 @@ pub fn providerRasterizeSprite(comptime ContextType: type, ctx: *anyopaque, allo
     }
     return providerSpriteOutput(allocator, req, width, height, pixels);
 }
-pub fn rasterizeProviderGlyph(self: anytype, dst: []u8, width: u16, height: u16, baseline_px: i16, face_id: contract.FontFaceId, glyph_id: u32, x_origin_px: i32, y_origin_px: i32, glyph_index: u32) bool {
+pub fn rasterizeProviderGlyph(
+    self: anytype,
+    dst: []u8,
+    width: u16,
+    height: u16,
+    baseline_px: i16,
+    face_id: contract.FontFaceId,
+    glyph_id: u32,
+    x_origin_px: i32,
+    y_origin_px: i32,
+    glyph_index: u32,
+) bool {
     if (useDeterministicTestTextFallback(self)) {
         special_sprite.rasterizeFallbackGlyph(dst, width, height, @intCast(glyph_id), width, height);
         return true;
@@ -117,7 +128,13 @@ fn setFacePixelHeight(self: anytype, face: FtFace) bool {
 }
 fn faceMetricsInput(face: FtFace, font_size_px: u16) contract.FaceMetrics26Dot6 {
     const metrics = face.*.size.*.metrics;
-    return .{ .ascender = @intCast(metrics.ascender), .descender = @intCast(metrics.descender), .height = @intCast(metrics.height), .max_advance = asciiCellAdvance(face, @intCast(metrics.max_advance)), .fallback_font_px = @max(font_size_px, 1) };
+    return .{
+        .ascender = @intCast(metrics.ascender),
+        .descender = @intCast(metrics.descender),
+        .height = @intCast(metrics.height),
+        .max_advance = asciiCellAdvance(face, @intCast(metrics.max_advance)),
+        .fallback_font_px = @max(font_size_px, 1),
+    };
 }
 fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
     var max_advance: i32 = 0;
@@ -137,7 +154,9 @@ fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, h
         return true;
     }
     if (req.group.kind == .box_fallback) {
-        if (!text.Rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing)) special_sprite.rasterizeSpecialSpriteAlpha(pixels, width, height, req.group.first_cp);
+        if (!text.Rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing)) {
+            special_sprite.rasterizeSpecialSpriteAlpha(pixels, width, height, req.group.first_cp);
+        }
         return true;
     }
     if (!useDeterministicTestTextFallback(context)) return false;

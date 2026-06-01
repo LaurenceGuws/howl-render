@@ -112,7 +112,14 @@ pub const RetainedScratch = struct {
     }
 };
 
-pub fn resolveClusters(allocator: std.mem.Allocator, scratch: *RetainedScratch, session: font_session.FontSession, clusters: []const contract.CellCluster, text_cache: contract.LineTextCache, grid_metrics: contract.GridMetrics) !OwnedResolvedRuns {
+pub fn resolveClusters(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    session: font_session.FontSession,
+    clusters: []const contract.CellCluster,
+    text_cache: contract.LineTextCache,
+    grid_metrics: contract.GridMetrics,
+) !OwnedResolvedRuns {
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const cluster_count = count32(clusters);
     try scratch.reset(cluster_count);
@@ -159,7 +166,13 @@ pub fn resolveClusters(allocator: std.mem.Allocator, scratch: *RetainedScratch, 
     return .{ .allocator = allocator, .runs = runs, .missing = missing_list, .sprite_routes = sprite_routes };
 }
 
-pub fn resolveClusterFaces(allocator: std.mem.Allocator, scratch: *RetainedScratch, session: font_session.FontSession, clusters: []const contract.CellCluster, text_cache: contract.LineTextCache) !OwnedResolvedClusterFaces {
+pub fn resolveClusterFaces(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    session: font_session.FontSession,
+    clusters: []const contract.CellCluster,
+    text_cache: contract.LineTextCache,
+) !OwnedResolvedClusterFaces {
     try scratch.reset(count32(clusters));
 
     for (clusters, 0..) |cluster, idx| {

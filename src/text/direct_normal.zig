@@ -91,7 +91,16 @@ pub const Driver = struct {
     scratch: *Scratch,
 };
 
-pub fn prepare(driver: Driver, source: Source, policy: Policy, grid_metrics: contract.GridMetrics, session: font_session.FontSession, damage_input: scene.DamageInput, cursor: ?scene.CursorInput, lane_report: *lane.LaneReport) !?Product {
+pub fn prepare(
+    driver: Driver,
+    source: Source,
+    policy: Policy,
+    grid_metrics: contract.GridMetrics,
+    session: font_session.FontSession,
+    damage_input: scene.DamageInput,
+    cursor: ?scene.CursorInput,
+    lane_report: *lane.LaneReport,
+) !?Product {
     const damage = direct_scene.Damage.init(damage_input, grid_metrics.rows);
     const source_len = sourceLen(source);
     const visible_count = countVisible(source, damage, grid_metrics, policy, lane_report) orelse return null;
@@ -154,7 +163,15 @@ fn countVisible(source: Source, damage: direct_scene.Damage, grid_metrics: contr
     return visible_count;
 }
 
-fn appendVisible(driver: Driver, source: Source, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics, session: font_session.FontSession, policy: Policy, lane_report: *lane.LaneReport) !void {
+fn appendVisible(
+    driver: Driver,
+    source: Source,
+    damage: direct_scene.Damage,
+    grid_metrics: contract.GridMetrics,
+    session: font_session.FontSession,
+    policy: Policy,
+    lane_report: *lane.LaneReport,
+) !void {
     var idx: u32 = 0;
     while (idx < sourceLen(source)) : (idx += 1) {
         const candidate = sourceCandidate(source, idx, damage, grid_metrics) orelse continue;
@@ -218,7 +235,14 @@ fn recordLane(lane_report: *lane.LaneReport, text: contract.CellText) void {
     if (!blankText(text)) lane_report.normal_clusters += 1;
 }
 
-fn appendRenderable(driver: Driver, renderable: contract.RenderableCell, text: contract.CellText, grid_metrics: contract.GridMetrics, session: font_session.FontSession, lane_report: *lane.LaneReport) !void {
+fn appendRenderable(
+    driver: Driver,
+    renderable: contract.RenderableCell,
+    text: contract.CellText,
+    grid_metrics: contract.GridMetrics,
+    session: font_session.FontSession,
+    lane_report: *lane.LaneReport,
+) !void {
     driver.scratch.renderable.appendAssumeCapacity(renderable);
     if (text.first_cp == 0 or text.first_cp == '\t') return;
 
@@ -232,7 +256,13 @@ fn appendRenderable(driver: Driver, renderable: contract.RenderableCell, text: c
     const key = sprite_key.hashGlyphLocal(face.id, lookup.glyph_id, span, session.metrics);
     const residency = driver.atlas.reserve(key, false);
     if (residency.pending) {
-        driver.scratch.raster_reqs.appendAssumeCapacity(.{ .face_id = face.id.value, .glyph_id = lookup.glyph_id, .atlas_key = key.value, .cell_metrics = session.metrics, .cell_span = span });
+        driver.scratch.raster_reqs.appendAssumeCapacity(.{
+            .face_id = face.id.value,
+            .glyph_id = lookup.glyph_id,
+            .atlas_key = key.value,
+            .cell_metrics = session.metrics,
+            .cell_span = span,
+        });
     }
 
     const cols = @max(@as(u32, grid_metrics.cols), 1);

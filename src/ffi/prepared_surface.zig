@@ -5,7 +5,11 @@ const prepared_owner = @import("../prepared/owner.zig");
 const prepare_request_boundary = @import("prepare_request.zig");
 const submit_result = @import("submit_result.zig");
 
-pub fn prepareHandle(text_session_handle: c.HowlRenderTextSessionHandle, prepare_request: c.HowlRenderPrepareRequest, prepared_handle_out: ?*c.HowlRenderPreparedSurfaceHandle) callconv(.c) c_int {
+pub fn prepareHandle(
+    text_session_handle: c.HowlRenderTextSessionHandle,
+    prepare_request: c.HowlRenderPrepareRequest,
+    prepared_handle_out: ?*c.HowlRenderPreparedSurfaceHandle,
+) callconv(.c) c_int {
     const prepared_out = prepared_handle_out;
     if (prepared_out) |value| value.* = null;
     const owner = handle_owner.textSessionOwner(text_session_handle) orelse return c.HOWL_RENDER_PREPARE_FAILED;

@@ -2267,7 +2267,15 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     };
 }
 
-fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: contract.SpriteColorMode, pixels: []u8, visual_bounds: text.Rasterizer.SpriteBounds) text.Rasterizer.RasterSpriteOutput {
+fn rasterOutput(
+    allocator: std.mem.Allocator,
+    key: u64,
+    width_px: u16,
+    height_px: u16,
+    color_mode: contract.SpriteColorMode,
+    pixels: []u8,
+    visual_bounds: text.Rasterizer.SpriteBounds,
+) text.Rasterizer.RasterSpriteOutput {
     return .{
         .allocator = allocator,
         .key = .{ .value = key },

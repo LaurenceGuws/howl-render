@@ -79,7 +79,13 @@ pub fn acceptSubmitted(value: c.HowlRenderTextSessionHandle, prepared_in: c.Howl
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn submit(text_session_handle: c.HowlRenderTextSessionHandle, prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, prepared_token_in: c.HowlRenderPreparedSurfaceToken, execution_in: ?*const c.HowlRenderSubmitExecution, result_out: ?*c.HowlRenderSubmitResult) callconv(.c) c_int {
+pub fn submit(
+    text_session_handle: c.HowlRenderTextSessionHandle,
+    prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
+    prepared_token_in: c.HowlRenderPreparedSurfaceToken,
+    execution_in: ?*const c.HowlRenderSubmitExecution,
+    result_out: ?*c.HowlRenderSubmitResult,
+) callconv(.c) c_int {
     if (result_out) |out| out.* = submit_result.failedSubmitResult();
     const owner = handle_owner.textSessionOwner(text_session_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     const prepared = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
@@ -154,7 +160,12 @@ fn damageKindIn(value: u8) ?tokens.DamageKind {
     };
 }
 
-pub fn submitHandle(text_session_handle: c.HowlRenderTextSessionHandle, prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, execution_in: ?*const c.HowlRenderSubmitExecution, result_out: ?*c.HowlRenderSubmitResult) callconv(.c) c_int {
+pub fn submitHandle(
+    text_session_handle: c.HowlRenderTextSessionHandle,
+    prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
+    execution_in: ?*const c.HowlRenderSubmitExecution,
+    result_out: ?*c.HowlRenderSubmitResult,
+) callconv(.c) c_int {
     if (result_out) |out| out.* = submit_result.failedSubmitResult();
     const owner = handle_owner.textSessionOwner(text_session_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
     const execution = execution_in orelse return c.HOWL_RENDER_SUBMIT_FAILED;

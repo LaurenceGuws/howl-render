@@ -295,7 +295,16 @@ fn canMapDirtyOnly(state: anytype) bool {
         count16(state.damage.dirty_cols_end) == rows;
 }
 
-fn mapDirtyCellsOnly(dst: []contract.CellInput, cells: []const source_cell.Cell, grid_cols: u16, grid_rows: u16, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, t: FrameTheme) void {
+fn mapDirtyCellsOnly(
+    dst: []contract.CellInput,
+    cells: []const source_cell.Cell,
+    grid_cols: u16,
+    grid_rows: u16,
+    dirty_rows: []const bool,
+    dirty_cols_start: []const u16,
+    dirty_cols_end: []const u16,
+    t: FrameTheme,
+) void {
     const cols: u16 = @max(grid_cols, 1);
     const rows = grid_rows;
     const cell_len = count32(cells);
@@ -842,8 +851,26 @@ test "source text input maps only dirty ranges for partial damage" {
 
 test "source text input borrowed publication mapping reuses caller storage" {
     var cells = [_]source_vt.SourceCell{
-        .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
-        .{ .codepoint = ' ', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
+        .{
+            .codepoint = 'A',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 0, .value = 0 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
+        .{
+            .codepoint = ' ',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 0, .value = 0 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
     };
     var storage: [4]contract.CellInput = undefined;
     const dirty_rows = [_]u8{1};
@@ -956,8 +983,26 @@ test "source text input borrowed publication mapping hides blinking cursor when 
 
 test "source text input borrowed publication mapping applies selection styling across scrollback rows" {
     var cells = [_]source_vt.SourceCell{
-        .{ .codepoint = 'A', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 2, .value = 0x102030 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 1 }, .link_id = 0 },
-        .{ .codepoint = 'B', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 2, .value = 0x405060 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 }, .link_id = 0 },
+        .{
+            .codepoint = 'A',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 2, .value = 0x102030 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 1 },
+            .link_id = 0,
+        },
+        .{
+            .codepoint = 'B',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 2, .value = 0x405060 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
     };
     var storage: [2]contract.CellInput = undefined;
     const dirty_rows = [_]u8{1};

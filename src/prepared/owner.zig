@@ -189,7 +189,12 @@ pub const Owner = struct {
         return .{ .rendered = result };
     }
 
-    pub fn submit(self: *Owner, session_owner: *text_session.TextSessionOwner, prepared_token: tokens.PreparedSurfaceToken, execution: text_session.TextSession.SubmitExecution) SubmitResult {
+    pub fn submit(
+        self: *Owner,
+        session_owner: *text_session.TextSessionOwner,
+        prepared_token: tokens.PreparedSurfaceToken,
+        execution: text_session.TextSession.SubmitExecution,
+    ) SubmitResult {
         if (self.state != .prepared) return .failed;
         if (!self.belongsToSession(session_owner)) return .failed;
         if (!samePreparedSurfaceToken(self.prepared.preparedSurfaceToken(), prepared_token)) {
@@ -975,7 +980,15 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     };
 }
 
-fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: contract.SpriteColorMode, pixels: []u8, visual_bounds: text.Rasterizer.SpriteBounds) text.Rasterizer.RasterSpriteOutput {
+fn rasterOutput(
+    allocator: std.mem.Allocator,
+    key: u64,
+    width_px: u16,
+    height_px: u16,
+    color_mode: contract.SpriteColorMode,
+    pixels: []u8,
+    visual_bounds: text.Rasterizer.SpriteBounds,
+) text.Rasterizer.RasterSpriteOutput {
     return .{
         .allocator = allocator,
         .key = .{ .value = key },

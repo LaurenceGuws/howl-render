@@ -264,7 +264,13 @@ pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const c
     return buildSparseCellsWithDamageScratch(allocator, &scratch, cells, grid_metrics, damage);
 }
 
-pub fn buildSparseCellsWithDamageScratch(allocator: std.mem.Allocator, scratch: *RetainedScratch, cells: []const contract.CellInput, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) !SparseCells {
+pub fn buildSparseCellsWithDamageScratch(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    cells: []const contract.CellInput,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.DamageInput,
+) !SparseCells {
     const damage_filter = DamageFilter.init(damage, grid_metrics);
     const total_cells = count32(cells);
     try scratch.require(total_cells, countCellInputCodepoints(cells));
@@ -371,7 +377,13 @@ pub fn buildRenderableCellsFromInputs(allocator: std.mem.Allocator, inputs: []co
         const cps = normalizedCodepoints(input.codepoints);
         const first_cell: u32 = @intCast(idx);
         const text_id = findText(cache.texts, cps) orelse unreachable;
-        assembly.append(renderableFromInput(text_id, first_cell, @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, first_cell)), detectPresentation(cps, input.presentation), input));
+        assembly.append(renderableFromInput(
+            text_id,
+            first_cell,
+            @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, first_cell)),
+            detectPresentation(cps, input.presentation),
+            input,
+        ));
     }
 
     return assembly.toOwnedRenderableCells();
@@ -389,14 +401,27 @@ pub fn extractClusters(allocator: std.mem.Allocator, cells: []const contract.Ren
     return extractClustersWithDamage(allocator, cells, cache, .{ .cols = @intCast(@max(cells.len, 1)), .rows = 1 }, .{});
 }
 
-pub fn extractClustersWithDamage(allocator: std.mem.Allocator, cells: []const contract.RenderableCell, cache: contract.LineTextCache, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) !OwnedClusters {
+pub fn extractClustersWithDamage(
+    allocator: std.mem.Allocator,
+    cells: []const contract.RenderableCell,
+    cache: contract.LineTextCache,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.DamageInput,
+) !OwnedClusters {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     try scratch.configure(allocator, count32(cells), 0);
     return extractClustersWithDamageScratch(allocator, &scratch, cells, cache, grid_metrics, damage);
 }
 
-pub fn extractClustersWithDamageScratch(allocator: std.mem.Allocator, scratch: *RetainedScratch, cells: []const contract.RenderableCell, cache: contract.LineTextCache, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) !OwnedClusters {
+pub fn extractClustersWithDamageScratch(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    cells: []const contract.RenderableCell,
+    cache: contract.LineTextCache,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.DamageInput,
+) !OwnedClusters {
     const damage_filter = DamageFilter.init(damage, grid_metrics);
     try scratch.require(count32(cells), 0);
     var cluster_count: u32 = 0;
@@ -412,14 +437,29 @@ pub fn extractClustersWithDamageScratch(allocator: std.mem.Allocator, scratch: *
     return .{ .allocator = allocator, .clusters = try allocator.dupe(contract.CellCluster, scratch.clusters[0..@intCast(cluster_count)]) };
 }
 
-pub fn selectComplexWithDamage(allocator: std.mem.Allocator, cells: []const contract.RenderableCell, cache: contract.LineTextCache, clusters: []const contract.CellCluster, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) !ComplexSelection {
+pub fn selectComplexWithDamage(
+    allocator: std.mem.Allocator,
+    cells: []const contract.RenderableCell,
+    cache: contract.LineTextCache,
+    clusters: []const contract.CellCluster,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.DamageInput,
+) !ComplexSelection {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     try scratch.configure(allocator, count32(cells), 0);
     return selectComplexWithDamageScratch(allocator, &scratch, cells, cache, clusters, grid_metrics, damage);
 }
 
-pub fn selectComplexWithDamageScratch(allocator: std.mem.Allocator, scratch: *RetainedScratch, cells: []const contract.RenderableCell, cache: contract.LineTextCache, clusters: []const contract.CellCluster, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) !ComplexSelection {
+pub fn selectComplexWithDamageScratch(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    cells: []const contract.RenderableCell,
+    cache: contract.LineTextCache,
+    clusters: []const contract.CellCluster,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.DamageInput,
+) !ComplexSelection {
     const damage_filter = DamageFilter.init(damage, grid_metrics);
     try scratch.require(@max(count32(cells), count32(clusters)), 0);
     var cell_count: u32 = 0;

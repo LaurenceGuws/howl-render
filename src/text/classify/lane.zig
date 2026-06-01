@@ -136,11 +136,23 @@ pub const LaneReport = struct {
         recordLegacyRunClusters(&self.legacy.shaped_clusters, text_cache, &.{}, clusters, run);
     }
 
-    pub fn recordLegacyResolvedRunWithCells(self: *LaneReport, text_cache: contract.LineTextCache, cells: []const contract.RenderableCell, clusters: []const contract.CellCluster, run: contract.ResolvedRun) void {
+    pub fn recordLegacyResolvedRunWithCells(
+        self: *LaneReport,
+        text_cache: contract.LineTextCache,
+        cells: []const contract.RenderableCell,
+        clusters: []const contract.CellCluster,
+        run: contract.ResolvedRun,
+    ) void {
         recordLegacyRunClusters(&self.legacy.resolved_clusters, text_cache, cells, clusters, run);
     }
 
-    pub fn recordLegacyShapedRunWithCells(self: *LaneReport, text_cache: contract.LineTextCache, cells: []const contract.RenderableCell, clusters: []const contract.CellCluster, run: contract.ResolvedRun) void {
+    pub fn recordLegacyShapedRunWithCells(
+        self: *LaneReport,
+        text_cache: contract.LineTextCache,
+        cells: []const contract.RenderableCell,
+        clusters: []const contract.CellCluster,
+        run: contract.ResolvedRun,
+    ) void {
         recordLegacyRunClusters(&self.legacy.shaped_clusters, text_cache, cells, clusters, run);
     }
 
@@ -156,7 +168,9 @@ pub const LaneReport = struct {
 
     pub fn assertValid(self: LaneReport) void {
         std.debug.assert(self.visible_cells == self.normal_cells + self.complex_cells);
-        std.debug.assert(self.complex_cells == self.complex_multi_codepoint_cells + self.complex_emoji_cells + self.complex_special_sprite_cells + self.complex_icon_cells + self.complex_curly_underline_cells);
+        const classified_complex_cells = self.complex_multi_codepoint_cells + self.complex_emoji_cells +
+            self.complex_special_sprite_cells + self.complex_icon_cells + self.complex_curly_underline_cells;
+        std.debug.assert(self.complex_cells == classified_complex_cells);
         std.debug.assert(self.normal_clusters + self.complex_clusters <= self.visible_cells);
     }
 
@@ -271,7 +285,13 @@ fn assertTextInvariants(text: contract.CellText) void {
     std.debug.assert(text.codepoints[0] == text.first_cp);
 }
 
-fn recordLegacyRunClusters(counts: *LegacyStageCounts, text_cache: contract.LineTextCache, cells: []const contract.RenderableCell, clusters: []const contract.CellCluster, run: contract.ResolvedRun) void {
+fn recordLegacyRunClusters(
+    counts: *LegacyStageCounts,
+    text_cache: contract.LineTextCache,
+    cells: []const contract.RenderableCell,
+    clusters: []const contract.CellCluster,
+    run: contract.ResolvedRun,
+) void {
     const window = runClusterWindow(run, clusters);
     for (clusters[@intCast(window.start)..@intCast(window.end)]) |cluster| {
         const choice = classifyClusterInCells(cells, cluster, textForCluster(text_cache, cluster));
@@ -523,7 +543,11 @@ test "lane report flags legacy leakage for normal runs" {
         .font = .{ .face_id = .{ .value = 1 }, .style = .regular, .presentation = .any },
     } });
     report.recordLegacyGroup(.{ .texts = &.{text} }, &.{cell}, .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 1 }, .kind = .normal });
-    report.recordLegacySceneSpriteDraw(.{ .texts = &.{text} }, &.{cell}, .{ .sprite = .{ .slot = 0, .key = .{ .value = 1 } }, .x_px = 0, .y_px = 0, .width_px = 8, .height_px = 16, .color = cell.fg, .first_cell = 0, .cell_span = 1 });
+    report.recordLegacySceneSpriteDraw(
+        .{ .texts = &.{text} },
+        &.{cell},
+        .{ .sprite = .{ .slot = 0, .key = .{ .value = 1 } }, .x_px = 0, .y_px = 0, .width_px = 8, .height_px = 16, .color = cell.fg, .first_cell = 0, .cell_span = 1 },
+    );
     try std.testing.expect(report.frameFullyNormalInput());
     try std.testing.expectEqual(@as(u64, 1), report.legacy.resolved_clusters.normal);
     try std.testing.expectEqual(@as(u64, 1), report.legacy.shaped_clusters.normal);
@@ -536,8 +560,24 @@ test "lane legacy run accounting accepts exact end-bound run" {
     const text_a = contract.CellText{ .id = .{ .value = 0 }, .first_cp = 'A', .codepoints = &.{'A'} };
     const text_b = contract.CellText{ .id = .{ .value = 1 }, .first_cp = 'B', .codepoints = &.{'B'} };
     const cells = [_]contract.RenderableCell{
-        .{ .text_id = text_a.id, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = .{ .r = 255, .g = 255, .b = 255, .a = 255 }, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
-        .{ .text_id = text_b.id, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = .{ .r = 255, .g = 255, .b = 255, .a = 255 }, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
+        .{
+            .text_id = text_a.id,
+            .first_cell = 0,
+            .cell_span = 1,
+            .style = .regular,
+            .presentation = .any,
+            .fg = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
+            .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+        },
+        .{
+            .text_id = text_b.id,
+            .first_cell = 1,
+            .cell_span = 1,
+            .style = .regular,
+            .presentation = .any,
+            .fg = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
+            .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+        },
     };
     const clusters = [_]contract.CellCluster{
         .{ .text_id = text_a.id, .first_cell = 0, .cell_span = 1, .first_cp = 'A', .style = .regular, .presentation = .any },

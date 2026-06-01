@@ -248,7 +248,10 @@ test "raster plan creates one output per request" {
 test "pending raster requests dedupe by sprite key" {
     var requests = std.ArrayList(contract.SpriteRasterRequest).empty;
     defer requests.deinit(std.testing.allocator);
-    const req = requestForGroup(.{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 5 }, .kind = .normal }, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
+    const req = requestForGroup(
+        .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 5 }, .kind = .normal },
+        .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
+    );
     try appendPendingRequest(std.testing.allocator, &requests, true, req);
     try appendPendingRequest(std.testing.allocator, &requests, true, req);
     try appendPendingRequest(std.testing.allocator, &requests, false, req);

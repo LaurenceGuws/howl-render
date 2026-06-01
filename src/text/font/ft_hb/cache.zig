@@ -277,12 +277,18 @@ test "shape run cache keeps retained bounded storage" {
 
     const glyphs_b = try std.testing.allocator.alloc(contract.GlyphInstance, 4);
     defer std.testing.allocator.free(glyphs_b);
-    try std.testing.expectError(error.CachedRunTooLarge, cache.putRun(.{ .face_id = 7, .run_hash = 2, .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .allocator = std.testing.allocator, .run = run_a, .glyphs = glyphs_b }));
+    try std.testing.expectError(
+        error.CachedRunTooLarge,
+        cache.putRun(.{ .face_id = 7, .run_hash = 2, .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .allocator = std.testing.allocator, .run = run_a, .glyphs = glyphs_b }),
+    );
 
     const glyphs_c = try std.testing.allocator.alloc(contract.GlyphInstance, 1);
     defer std.testing.allocator.free(glyphs_c);
     glyphs_c[0] = .{ .face_id = .{ .value = 7 }, .glyph_id = 13, .cluster_index = 4, .x_advance_px = 8 };
     try cache.putRun(.{ .face_id = 7, .run_hash = 3, .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .allocator = std.testing.allocator, .run = run_a, .glyphs = glyphs_c });
 
-    try std.testing.expectError(error.CacheFull, cache.putRun(.{ .face_id = 7, .run_hash = 4, .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .allocator = std.testing.allocator, .run = run_a, .glyphs = glyphs_c }));
+    try std.testing.expectError(
+        error.CacheFull,
+        cache.putRun(.{ .face_id = 7, .run_hash = 4, .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .allocator = std.testing.allocator, .run = run_a, .glyphs = glyphs_c }),
+    );
 }
