@@ -42,6 +42,11 @@ pub fn build(b: *std.Build) void {
     });
     unit_mod.addIncludePath(b.path("include"));
     unit_mod.addIncludePath(b.path("../howl-vt/include"));
+    unit_mod.addImport("test_font_options", test_font_options.createModule());
+    unit_mod.linkLibrary(freetype_lib);
+    unit_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
+    unit_mod.linkLibrary(harfbuzz_lib);
+    unit_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
     const unit_tests = b.addTest(.{
         .name = "test-unit",
         .root_module = unit_mod,

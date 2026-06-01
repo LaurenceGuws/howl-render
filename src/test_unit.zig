@@ -1,3 +1,3 @@
 test {
-    _ = @import("test/unit.zig");
+    _ = @import("test/unit/root.zig");
 }

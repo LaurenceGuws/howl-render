@@ -1,11 +1,6 @@
 const std = @import("std");
-const geometry = @import("../render/grid_geometry.zig");
-const geometry_contract = @import("../render/geometry_contract.zig");
-
-test {
-    _ = @import("../protocol_v0/realize.zig");
-    _ = @import("../protocol_v0/emit.zig");
-}
+const geometry = @import("../../render/grid_geometry.zig");
+const geometry_contract = @import("../../render/geometry_contract.zig");
 
 test "render frame pixel geometry clamps to drawable size" {
     const frame = geometry_contract.FramePixels{ .render_width = 0, .render_height = -2, .grid_width = 80, .grid_height = 24 };
