@@ -36,7 +36,6 @@ typedef HowlRenderPreparedSurfaceObject *HowlRenderPreparedSurfaceHandle;
 #define HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_COLOR 2
 #define HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA 3
 #define HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR 4
-#define HOWL_RENDER_V0_RESOURCE_FALLBACK_RGBA 5
 #define HOWL_RENDER_V0_UPLOAD_ALPHA8 1
 #define HOWL_RENDER_V0_UPLOAD_RGBA8 2
 #define HOWL_RENDER_V0_COMMAND_CLEAR_RECT 1
@@ -516,12 +515,6 @@ typedef struct {
 
 typedef struct {
     int32_t status;
-    HowlRenderByteSpan rgba_pixels;
-    uint64_t uploads_committed;
-} HowlRenderPreparedSurfaceBuffer;
-
-typedef struct {
-    int32_t status;
     uint64_t missing_glyphs;
     HowlRenderMetrics resolve_metrics;
     int32_t protocol_v0_emit_status;
@@ -647,10 +640,6 @@ void howl_render_prepared_surface_release(
 int howl_render_prepared_surface_describe(
     HowlRenderPreparedSurfaceHandle prepared_surface_handle,
     HowlRenderPreparedSurfaceInfo *info_out
-);
-int howl_render_prepared_surface_buffer(
-    HowlRenderPreparedSurfaceHandle prepared_surface_handle,
-    HowlRenderPreparedSurfaceBuffer *buffer_out
 );
 int howl_render_prepared_surface_protocol_v0(
     HowlRenderPreparedSurfaceHandle prepared_surface_handle,

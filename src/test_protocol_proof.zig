@@ -827,7 +827,7 @@ test "protocol v0 emitter realizes partial prepared frame equal to full rgba ora
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, &base);
 }
 
-test "protocol v0 prepared owner frame equals owner rgba oracle" {
+test "protocol v0 prepared owner frame equals explicit rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -855,23 +855,25 @@ test "protocol v0 prepared owner frame equals owner rgba oracle" {
         .height_px = 1,
     });
 
+    const oracle = try prepared_buffer.compose(allocator, null, &session_owner.session, &prepared);
+    defer allocator.free(oracle);
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
     const frame = owner.protocolV0FrameForTest();
     try std.testing.expectEqual(@as(u32, 1), frame.uploads.count);
     try std.testing.expect(frame.uploads.ptr[0].bytes_ptr != null);
     const upload_bytes_ptr = frame.uploads.ptr[0].bytes_ptr;
 
-    const realized = try allocator.alloc(u8, owner.rgba_pixels.len);
+    const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
     try protocol_realize.realize(frame, realized, null);
     try std.testing.expectEqual(
         upload_bytes_ptr,
         owner.protocolV0FrameForTest().uploads.ptr[0].bytes_ptr,
     );
-    try std.testing.expectEqualSlices(u8, owner.rgba_pixels, realized);
+    try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "protocol v0 prepared ffi borrowed frame realizes owner rgba oracle" {
+test "protocol v0 prepared ffi borrowed frame realizes explicit rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -887,6 +889,8 @@ test "protocol v0 prepared ffi borrowed frame realizes owner rgba oracle" {
         .width_px = 2,
         .height_px = 1,
     });
+    const oracle = try prepared_buffer.compose(allocator, null, &session_owner.session, &prepared);
+    defer allocator.free(oracle);
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
 
     var frame: ?*const c.HowlRenderV0Frame = null;
@@ -896,13 +900,13 @@ test "protocol v0 prepared ffi borrowed frame realizes owner rgba oracle" {
     );
     const value = frame orelse return error.MissingFrame;
 
-    const realized = try allocator.alloc(u8, owner.rgba_pixels.len);
+    const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
     try protocol_realize.realize(value, realized, null);
-    try std.testing.expectEqualSlices(u8, owner.rgba_pixels, realized);
+    try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
-test "protocol v0 prepared owner partial frame equals retained-base rgba oracle" {
+test "protocol v0 prepared owner partial frame equals explicit base rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -910,13 +914,10 @@ test "protocol v0 prepared owner partial frame equals retained-base rgba oracle"
     ) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
-    const base = try allocator.dupe(u8, &[_]u8{
+    const base = [_]u8{
         1, 2, 3, 255,
         4, 5, 6, 255,
-    });
-    var retained_base = base;
-    session_owner.retainSurfacePixels(&retained_base, 2, 1, 1);
-    try std.testing.expect(retained_base.len == 0);
+    };
 
     const background = [_]contract.TextBackgroundDraw{
         backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255)),
@@ -928,15 +929,17 @@ test "protocol v0 prepared owner partial frame equals retained-base rgba oracle"
         .full_redraw = false,
     });
 
+    const oracle = try prepared_buffer.compose(allocator, &base, &session_owner.session, &prepared);
+    defer allocator.free(oracle);
     const owner = try prepared_owner.Owner.create(session_owner, &prepared);
-    const realized = try allocator.alloc(u8, owner.rgba_pixels.len);
+    const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
     try protocol_realize.realize(
         owner.protocolV0FrameForTest(),
         realized,
-        session_owner.retained_surface_pixels,
+        &base,
     );
-    try std.testing.expectEqualSlices(u8, owner.rgba_pixels, realized);
+    try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
 test "protocol v0 prepared owner releases v0 payload with handle" {
@@ -962,10 +965,9 @@ test "protocol v0 prepared owner releases v0 payload with handle" {
     owner.release();
 
     try std.testing.expect(owner.protocolV0FrameStorageEmptyForTest());
-    try std.testing.expect(owner.rgba_pixels.len == 0);
 }
 
-test "protocol v0 prepared owner keeps rgba when v0 emission overflows" {
+test "protocol v0 prepared owner reports missing frame when v0 emission overflows" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(
         allocator,
@@ -992,7 +994,6 @@ test "protocol v0 prepared owner keeps rgba when v0 emission overflows" {
         c.HOWL_RENDER_V0_EMIT_COMMAND_BOUND_OVERFLOW,
         owner.diagnostics().protocol_v0_emit_status,
     );
-    try std.testing.expect(owner.rgba_pixels.len > 0);
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
 
@@ -1059,7 +1060,6 @@ test "protocol v0 prepared owner allocation failure remains diagnostic only" {
         if (owner.diagnostics().protocol_v0_emit_status !=
             c.HOWL_RENDER_V0_EMIT_ALLOCATION_FAILED) continue;
         try std.testing.expect(owner.protocolV0Frame() == null);
-        try std.testing.expect(owner.rgba_pixels.len > 0);
         return;
     }
     return error.MissingAllocationFailureCase;

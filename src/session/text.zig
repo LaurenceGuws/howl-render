@@ -354,10 +354,6 @@ pub const TextSessionOwner = struct {
     prepared_handles: std.ArrayList(*prepared_owner.Owner) = .empty,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
-    retained_surface_pixels: []u8 = &.{},
-    retained_surface_width: u16 = 0,
-    retained_surface_height: u16 = 0,
-    retained_surface_snapshot_seq: u64 = 0,
     protocol_v0_sprite_resources: protocol_v0_emit.SpriteResourceStore = .init(),
     prepare_handle_failure_count: u64 = 0,
 
@@ -389,7 +385,6 @@ pub const TextSessionOwner = struct {
         freeOwnedFallbackFontPaths(self.allocator, &self.fallback_font_paths);
         self.prepare_requests.deinit();
         self.source_slot.deinit();
-        self.clearRetainedSurface();
         self.session.deinit();
         self.allocator.destroy(self);
     }
@@ -492,7 +487,6 @@ pub const TextSessionOwner = struct {
         self.session.text_state.shape_run_cache.clear();
         self.session.text_state.glyph_cell_cache.clear();
         if (self.session.text_preparer) |*preparer| preparer.clearAtlas();
-        self.clearRetainedSurface();
     }
 
     pub fn setOwnedFontPath(self: *TextSessionOwner, owned: ?[:0]u8) void {
@@ -511,45 +505,6 @@ pub const TextSessionOwner = struct {
         self.syncFallbackFontPaths();
         self.invalidateTextState();
         freeOwnedFallbackFontPaths(self.allocator, &old);
-    }
-
-    pub fn requiredRetainedSurfaceBase(
-        self: *const TextSessionOwner,
-        prepared: *const prepared_surface.PreparedSurface,
-    ) []const u8 {
-        std.debug.assert(prepared.damageKind() == .partial);
-        // Queue validation already proved that partial prepares must compose
-        // against the last submitted full pixels from this render owner.
-        std.debug.assert(self.retained_surface_snapshot_seq == prepared.preparedSurfaceToken().required_base_seq);
-        std.debug.assert(self.retained_surface_width == prepared.render_px.width);
-        std.debug.assert(self.retained_surface_height == prepared.render_px.height);
-        const pixels_len: u64 = @as(u64, prepared.render_px.width) * @as(u64, prepared.render_px.height) * 4;
-        const retained_len: u64 = @intCast(self.retained_surface_pixels.len);
-        std.debug.assert(retained_len == pixels_len);
-        return self.retained_surface_pixels;
-    }
-
-    pub fn retainSurfacePixels(self: *TextSessionOwner, pixels: *[]u8, width: u16, height: u16, snapshot_seq: u64) void {
-        std.debug.assert(width > 0);
-        std.debug.assert(height > 0);
-        const pixels_len: u64 = @as(u64, width) * @as(u64, height) * 4;
-        const incoming_len: u64 = @intCast(pixels.*.len);
-        std.debug.assert(pixels_len > 0);
-        std.debug.assert(incoming_len == pixels_len);
-        self.clearRetainedSurface();
-        self.retained_surface_pixels = pixels.*;
-        self.retained_surface_width = width;
-        self.retained_surface_height = height;
-        self.retained_surface_snapshot_seq = snapshot_seq;
-        pixels.* = &.{};
-    }
-
-    pub fn clearRetainedSurface(self: *TextSessionOwner) void {
-        if (self.retained_surface_pixels.len > 0) self.allocator.free(self.retained_surface_pixels);
-        self.retained_surface_pixels = &.{};
-        self.retained_surface_width = 0;
-        self.retained_surface_height = 0;
-        self.retained_surface_snapshot_seq = 0;
     }
 
     pub fn nextSourceDirtyEpoch(self: *TextSessionOwner) u64 {
@@ -687,63 +642,6 @@ pub const TextSessionOwner = struct {
     }
 };
 
-test "retainSurfacePixels adopts full pixels for later partial prepares" {
-    var owner = TextSessionOwner{
-        .allocator = std.heap.c_allocator,
-        .session = TextSession.init(std.heap.c_allocator),
-        .geometry = .{},
-        .source_slot = source_slot.SourceSlot.init(std.heap.c_allocator),
-        .prepare_requests = source_prepare.PrepareRequests.init(std.heap.c_allocator),
-        .submitted = .{},
-        .config = .{ .surface_px = .{ .width = 2, .height = 3 } },
-    };
-    defer owner.clearRetainedSurface();
-    defer owner.prepare_requests.deinit();
-    defer owner.source_slot.deinit();
-    defer owner.session.deinit();
-
-    const pixels = try std.heap.c_allocator.alloc(u8, 2 * 3 * 4);
-    for (pixels, 0..) |*pixel, i| pixel.* = @intCast(i);
-    var owned_pixels = pixels;
-    owner.retainSurfacePixels(&owned_pixels, 2, 3, 1);
-
-    try std.testing.expect(owned_pixels.len == 0);
-    try std.testing.expectEqual(@as(u16, 2), owner.retained_surface_width);
-    try std.testing.expectEqual(@as(u16, 3), owner.retained_surface_height);
-    try std.testing.expectEqual(@as(u64, 1), owner.retained_surface_snapshot_seq);
-
-    const prepared = prepared_surface.PreparedSurface{
-        .allocator = std.heap.c_allocator,
-        .request = .{
-            .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
-        },
-        .geometry_epoch = 1,
-        .render_px = .{ .width = 2, .height = 3 },
-        .cell_px = .{ .width = 1, .height = 1 },
-        .grid = .{ .cols = 2, .rows = 3 },
-        .text_frame = .{
-            .scene = .{
-                .allocator = std.heap.c_allocator,
-                .owned = false,
-                .scene = .{
-                    .clear_draws = &.{},
-                    .background_draws = &.{},
-                    .sprite_draws = &.{},
-                    .decoration_draws = &.{},
-                    .cursor_draws = &.{},
-                    .raster_requests = &.{},
-                    .missing = &.{},
-                    .full_redraw = false,
-                },
-            },
-            .raster_plan = .{ .allocator = std.heap.c_allocator, .outputs = &.{}, .owned = false },
-        },
-    };
-
-    const base = owner.requiredRetainedSurfaceBase(&prepared);
-    try std.testing.expectEqualSlices(u8, pixels, base);
-}
-
 fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !source_vt.PublicationSource {
     const cells = try allocator.alloc(source_vt.SourceCell, 1);
     errdefer allocator.free(cells);
@@ -836,34 +734,6 @@ test "surface text retains translated cell scratch across prepares" {
 
     try session.ensureCellInputScratchCapacity(8);
     try std.testing.expectEqual(@as(usize, 8), session.cell_input_scratch.len);
-}
-
-test "invalidateTextState clears retained pixel state" {
-    var owner = TextSessionOwner{
-        .allocator = std.heap.c_allocator,
-        .session = TextSession.init(std.heap.c_allocator),
-        .geometry = .{},
-        .source_slot = source_slot.SourceSlot.init(std.heap.c_allocator),
-        .prepare_requests = source_prepare.PrepareRequests.init(std.heap.c_allocator),
-        .submitted = .{},
-        .config = .{ .surface_px = .{ .width = 1, .height = 1 } },
-    };
-    defer owner.clearRetainedSurface();
-    defer owner.prepare_requests.deinit();
-    defer owner.source_slot.deinit();
-    defer owner.session.deinit();
-
-    const pixels = try std.heap.c_allocator.alloc(u8, 4);
-    @memset(pixels, 9);
-    var owned_pixels = pixels;
-    owner.retainSurfacePixels(&owned_pixels, 1, 1, 1);
-
-    owner.invalidateTextState();
-
-    try std.testing.expect(owner.retained_surface_pixels.len == 0);
-    try std.testing.expectEqual(@as(u16, 0), owner.retained_surface_width);
-    try std.testing.expectEqual(@as(u16, 0), owner.retained_surface_height);
-    try std.testing.expectEqual(@as(u64, 0), owner.retained_surface_snapshot_seq);
 }
 
 test "setOwnedFontPath keeps owner and config font paths aligned" {

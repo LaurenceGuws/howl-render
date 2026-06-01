@@ -43,24 +43,6 @@ pub fn describe(
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn buffer(
-    prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
-    buffer_out: ?*c.HowlRenderPreparedSurfaceBuffer,
-) callconv(.c) c_int {
-    const out = buffer_out;
-    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
-        if (out) |value| value.* = bufferFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
-        return c.HOWL_RENDER_CALL_MISSING_HANDLE;
-    };
-    const value = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!owner.isLive()) {
-        value.* = bufferFailure(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
-        return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    }
-    value.* = preparedBufferOut(owner.buffer());
-    return c.HOWL_RENDER_CALL_OK;
-}
-
 pub fn protocolV0(
     prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
     frame_out: ?*?*const c.HowlRenderV0Frame,
@@ -124,22 +106,6 @@ pub fn infoFailure(status: c_int) c.HowlRenderPreparedSurfaceInfo {
     };
 }
 
-pub fn preparedBufferOut(value: prepared_owner.PreparedBuffer) c.HowlRenderPreparedSurfaceBuffer {
-    return .{
-        .status = c.HOWL_RENDER_CALL_OK,
-        .rgba_pixels = byteSpan(value.rgba_pixels),
-        .uploads_committed = value.uploads_required,
-    };
-}
-
-pub fn bufferFailure(status: c_int) c.HowlRenderPreparedSurfaceBuffer {
-    return .{
-        .status = status,
-        .rgba_pixels = .{ .ptr = null, .len = 0 },
-        .uploads_committed = 0,
-    };
-}
-
 pub fn preparedDiagnosticsOut(
     value: prepared_owner.PreparedDiagnostics,
 ) c.HowlRenderPreparedSurfaceDiagnostics {
@@ -160,8 +126,4 @@ pub fn diagnosticsFailure(status: c_int) c.HowlRenderPreparedSurfaceDiagnostics 
         .protocol_v0_emit_status = c.HOWL_RENDER_V0_EMIT_OK,
         .reserved0 = 0,
     };
-}
-
-fn byteSpan(items: []u8) c.HowlRenderByteSpan {
-    return .{ .ptr = if (items.len == 0) null else items.ptr, .len = items.len };
 }

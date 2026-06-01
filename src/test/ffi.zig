@@ -39,13 +39,6 @@ test "render ffi missing handles report shipped contract" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface.describe(null, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, info.status);
 
-    var buffer = std.mem.zeroes(c.HowlRenderPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface.buffer(null, &buffer));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, buffer.status);
-    try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
-    try std.testing.expect(buffer.rgba_pixels.ptr == null);
-    try std.testing.expectEqual(@as(u64, 0), buffer.uploads_committed);
-
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, prepared_surface.diagnostics(null, &diagnostics));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, diagnostics.status);
@@ -302,7 +295,7 @@ test "render ffi invalid prepare requests fail and leave output handle null" {
     try expectPrepareHandleFailedWithNullOutput(handle, partial_zero_damage_base);
 }
 
-test "render ffi live prepared handle describes buffer and diagnostics" {
+test "render ffi live prepared handle describes diagnostics" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
@@ -310,13 +303,6 @@ test "render ffi live prepared handle describes buffer and diagnostics" {
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.describe(prepared_handle, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, info.status);
-
-    var buffer = std.mem.zeroes(c.HowlRenderPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.buffer(prepared_handle, &buffer));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, buffer.status);
-    try std.testing.expect(buffer.rgba_pixels.ptr != null);
-    try std.testing.expect(buffer.rgba_pixels.len > 0);
-    try std.testing.expectEqual(@as(u64, 1), buffer.uploads_committed);
 
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.diagnostics(prepared_handle, &diagnostics));
@@ -328,7 +314,7 @@ test "render ffi live prepared handle describes buffer and diagnostics" {
     try std.testing.expectEqual(@as(u32, 0), diagnostics.reserved0);
 }
 
-test "render ffi released prepared handle rejects describe buffer and diagnostics" {
+test "render ffi released prepared handle rejects describe and diagnostics" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
@@ -338,12 +324,6 @@ test "render ffi released prepared handle rejects describe buffer and diagnostic
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.describe(prepared_handle, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, info.status);
-
-    var buffer = std.mem.zeroes(c.HowlRenderPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.buffer(prepared_handle, &buffer));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, buffer.status);
-    try std.testing.expect(buffer.rgba_pixels.ptr == null);
-    try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
 
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.diagnostics(prepared_handle, &diagnostics));
@@ -563,7 +543,7 @@ test "render ffi direct submit rejects wrong surface height without consuming ha
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_RENDERED, submission.submit(handle, prepared_handle, token, &execution, null));
 }
 
-test "render ffi consumed prepared handle rejects describe buffer and diagnostics" {
+test "render ffi consumed prepared handle rejects describe and diagnostics" {
     const handle = try createTestTextSessionHandle();
     defer text_session.deinit(handle);
     const prepared_handle = try createPreparedHandle(handle);
@@ -575,12 +555,6 @@ test "render ffi consumed prepared handle rejects describe buffer and diagnostic
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.describe(prepared_handle, &info));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, info.status);
-
-    var buffer = std.mem.zeroes(c.HowlRenderPreparedSurfaceBuffer);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.buffer(prepared_handle, &buffer));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, buffer.status);
-    try std.testing.expect(buffer.rgba_pixels.ptr == null);
-    try std.testing.expectEqual(@as(usize, 0), buffer.rgba_pixels.len);
 
     var diagnostics = std.mem.zeroes(c.HowlRenderPreparedSurfaceDiagnostics);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, prepared_surface.diagnostics(prepared_handle, &diagnostics));

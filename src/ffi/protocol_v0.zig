@@ -158,7 +158,6 @@ fn assertConstants() void {
     std.debug.assert(c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_COLOR == 2);
     std.debug.assert(c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA == 3);
     std.debug.assert(c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR == 4);
-    std.debug.assert(c.HOWL_RENDER_V0_RESOURCE_FALLBACK_RGBA == 5);
     std.debug.assert(c.HOWL_RENDER_V0_UPLOAD_ALPHA8 == 1);
     std.debug.assert(c.HOWL_RENDER_V0_UPLOAD_RGBA8 == 2);
     std.debug.assert(c.HOWL_RENDER_V0_COMMAND_CLEAR_RECT == 1);

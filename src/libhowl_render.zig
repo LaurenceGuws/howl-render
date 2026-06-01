@@ -34,7 +34,6 @@ comptime {
     @export(&work_state.workState, .{ .name = "howl_render_text_session_work_state" });
     @export(&prepared_surface.release, .{ .name = "howl_render_prepared_surface_release" });
     @export(&prepared_surface.describe, .{ .name = "howl_render_prepared_surface_describe" });
-    @export(&prepared_surface.buffer, .{ .name = "howl_render_prepared_surface_buffer" });
     @export(&prepared_surface.protocolV0, .{ .name = "howl_render_prepared_surface_protocol_v0" });
     @export(&prepared_surface.diagnostics, .{ .name = "howl_render_prepared_surface_diagnostics" });
 }

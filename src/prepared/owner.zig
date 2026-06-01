@@ -5,7 +5,6 @@ const tokens = @import("../render/tokens.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_surface = @import("surface.zig");
 const prepared_submit_result = @import("submit_result.zig");
-const prepared_buffer = @import("buffer.zig");
 const protocol_v0_emit = @import("../protocol_v0/emit.zig");
 const text_session = @import("../session/text.zig");
 const text = @import("../text/text.zig");
@@ -26,7 +25,6 @@ pub const PreparedInfo = struct {
 };
 
 pub const PreparedBuffer = struct {
-    rgba_pixels: []u8,
     uploads_required: u64,
 };
 
@@ -53,7 +51,6 @@ pub const Owner = struct {
     grid: geometry_contract.GridSize,
     prepare_metrics: prepared_submit_result.Metrics,
     damage_kind: u8,
-    rgba_pixels: []u8 = &.{},
     uploads_required: u64,
     missing_glyphs: u64,
     resolve_metrics: prepared_submit_result.Metrics,
@@ -74,7 +71,6 @@ pub const Owner = struct {
         owner.* = ownerBase(session_owner, value.*);
         value.* = emptyPreparedSurface(prepared_allocator);
         errdefer owner.destroy();
-        try owner.copySurfaceBuffer();
         try session_owner.registerPreparedHandle(owner);
         owner.emitV0Payload() catch |err| {
             owner.protocol_v0_emit_status = switch (err) {
@@ -141,7 +137,6 @@ pub const Owner = struct {
 
     pub fn buffer(self: *Owner) PreparedBuffer {
         return .{
-            .rgba_pixels = self.rgba_pixels,
             .uploads_required = self.uploads_required,
         };
     }
@@ -199,12 +194,6 @@ pub const Owner = struct {
         const result = session_owner.session.submitSurface(&self.prepared, execution) catch {
             return .failed;
         };
-        session_owner.retainSurfacePixels(
-            &self.rgba_pixels,
-            self.prepared.render_px.width,
-            self.prepared.render_px.height,
-            self.snapshot_seq,
-        );
         self.consume();
         return .{ .rendered = result };
     }
@@ -237,21 +226,6 @@ pub const Owner = struct {
         }
         self.prepared.deinit();
         self.freeV0Payload();
-        freeOwnedBytes(self.session_owner.allocator, &self.rgba_pixels);
-    }
-
-    fn copySurfaceBuffer(self: *Owner) !void {
-        const base_pixels = switch (self.prepared.damageKind()) {
-            .partial => self.session_owner.requiredRetainedSurfaceBase(&self.prepared),
-            .full => null,
-            else => unreachable,
-        };
-        self.rgba_pixels = try prepared_buffer.compose(
-            self.session_owner.allocator,
-            base_pixels,
-            &self.session_owner.session,
-            &self.prepared,
-        );
     }
 
     fn emitV0Payload(self: *Owner) !void {
@@ -391,12 +365,6 @@ fn resolveMetricsOut(value: prepared_surface.PreparedSurface) prepared_submit_re
     };
 }
 
-fn freeOwnedBytes(allocator: std.mem.Allocator, items: *[]u8) void {
-    if (items.*.len == 0) return;
-    allocator.free(items.*);
-    items.* = &.{};
-}
-
 fn count64(items: anytype) u64 {
     std.debug.assert(items.len <= std.math.maxInt(u64));
     return @intCast(items.len);
@@ -422,7 +390,7 @@ fn executionMatchesPrepared(
     return true;
 }
 
-test "create returns missing-sprite without double free" {
+test "create reports missing-sprite diagnostic without double free" {
     const session_owner = text_session.TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
@@ -464,11 +432,15 @@ test "create returns missing-sprite without double free" {
     };
 
     var owned_prepared = prepared;
-    try std.testing.expectError(error.MissingSprite, Owner.create(session_owner, &owned_prepared));
+    const owner = try Owner.create(session_owner, &owned_prepared);
+    try std.testing.expect(owner.protocolV0Frame() == null);
+    try std.testing.expectEqual(
+        c.HOWL_RENDER_V0_EMIT_MISSING_PREPARED_SPRITE,
+        owner.diagnostics().protocol_v0_emit_status,
+    );
 }
 
 test "owner exports prepared metrics and required upload count truth" {
-    var rgba_pixels = [_]u8{ 1, 2, 3, 4 };
     var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{
         undefined,
         undefined,
@@ -569,7 +541,6 @@ test "owner exports prepared metrics and required upload count truth" {
             .missing_glyphs = 2,
         },
         .damage_kind = 1,
-        .rgba_pixels = rgba_pixels[0..],
         .uploads_required = 3,
         .missing_glyphs = 2,
         .resolve_metrics = .{
@@ -653,8 +624,6 @@ test "owner exports prepared metrics and required upload count truth" {
     try std.testing.expectEqual(@as(u64, 2), info.prepare_metrics.missing_glyphs);
 
     const buffer = owner.buffer();
-    try std.testing.expectEqual(@as(usize, 4), buffer.rgba_pixels.len);
-    try std.testing.expectEqual(&rgba_pixels[0], &buffer.rgba_pixels[0]);
     try std.testing.expectEqual(@as(u64, 3), buffer.uploads_required);
 
     const diagnostics = owner.diagnostics();

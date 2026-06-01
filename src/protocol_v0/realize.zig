@@ -695,7 +695,6 @@ fn validateResourceKind(kind: u32) Error!void {
         c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_COLOR,
         c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA,
         c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR,
-        c.HOWL_RENDER_V0_RESOURCE_FALLBACK_RGBA,
         => {},
         else => return error.UnknownResourceKind,
     }
@@ -713,7 +712,6 @@ fn uploadFormatForResource(kind: u32) u32 {
         c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_ALPHA => c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
         c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA => c.HOWL_RENDER_V0_UPLOAD_ALPHA8,
         c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR => c.HOWL_RENDER_V0_UPLOAD_RGBA8,
-        c.HOWL_RENDER_V0_RESOURCE_FALLBACK_RGBA => c.HOWL_RENDER_V0_UPLOAD_RGBA8,
         else => 0,
     };
 }
@@ -1052,7 +1050,6 @@ test "protocol v0 constants match documented kind values" {
     try std.testing.expectEqual(@as(u32, 2), c.HOWL_RENDER_V0_RESOURCE_GLYPH_ATLAS_COLOR);
     try std.testing.expectEqual(@as(u32, 3), c.HOWL_RENDER_V0_RESOURCE_SPRITE_ALPHA);
     try std.testing.expectEqual(@as(u32, 4), c.HOWL_RENDER_V0_RESOURCE_SPRITE_COLOR);
-    try std.testing.expectEqual(@as(u32, 5), c.HOWL_RENDER_V0_RESOURCE_FALLBACK_RGBA);
     try std.testing.expectEqual(@as(u32, 1), c.HOWL_RENDER_V0_UPLOAD_ALPHA8);
     try std.testing.expectEqual(@as(u32, 2), c.HOWL_RENDER_V0_UPLOAD_RGBA8);
     try std.testing.expectEqual(@as(u8, 1), c.HOWL_RENDER_V0_COMMAND_CLEAR_RECT);
