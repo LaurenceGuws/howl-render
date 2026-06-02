@@ -542,6 +542,16 @@ pub fn Emitter(comptime limits: Limits) type {
             };
         }
 
+        fn destinationOverlaps(render_px: c.HowlRenderPixelSize, x_px: i32, y_px: i32, width_px: u16, height_px: u16) bool {
+            const right = std.math.add(i32, x_px, width_px) catch return false;
+            const bottom = std.math.add(i32, y_px, height_px) catch return false;
+            if (right <= 0) return false;
+            if (bottom <= 0) return false;
+            if (x_px >= render_px.width) return false;
+            if (y_px >= render_px.height) return false;
+            return true;
+        }
+
         fn tryMergePreparedFillCommand(self: *Self, command: c.HowlRenderSurfaceCommand) bool {
             if (self.command_count == 0) return false;
             const prior = &self.commands[self.command_count - 1];
@@ -597,6 +607,13 @@ pub fn Emitter(comptime limits: Limits) type {
                 const height_px = @min(draw.height_px, bounds.height_px);
                 if (width_px == 0) return error.InvalidPreparedSprite;
                 if (height_px == 0) return error.InvalidPreparedSprite;
+                const dest_x = std.math.add(i32, draw.x_px, @intCast(bounds.x_px)) catch {
+                    return error.InvalidPreparedSprite;
+                };
+                const dest_y = std.math.add(i32, draw.y_px, @intCast(bounds.y_px)) catch {
+                    return error.InvalidPreparedSprite;
+                };
+                if (!destinationOverlaps(self.surface_storage.render_px, dest_x, dest_y, width_px, height_px)) continue;
 
                 const upload_range = try self.stagePreparedUploadBytes(
                     sprite,
@@ -620,12 +637,8 @@ pub fn Emitter(comptime limits: Limits) type {
                     try self.appendGlyphRef(.{
                         .atlas_resource = atlas.resource,
                         .atlas_rect = atlas.rect,
-                        .x_px = std.math.add(i32, draw.x_px, @intCast(bounds.x_px)) catch {
-                            return error.InvalidPreparedSprite;
-                        },
-                        .y_px = std.math.add(i32, draw.y_px, @intCast(bounds.y_px)) catch {
-                            return error.InvalidPreparedSprite;
-                        },
+                        .x_px = dest_x,
+                        .y_px = dest_y,
                         .glyph_id = @intCast(draw.sprite.key.value & 0xffffffff),
                         .color_rgba = packRgba(draw.color),
                     });
@@ -657,12 +670,8 @@ pub fn Emitter(comptime limits: Limits) type {
                     .reserved0 = 0,
                     .reserved1 = 0,
                     .rect = .{
-                        .x_px = std.math.add(i32, draw.x_px, @intCast(bounds.x_px)) catch {
-                            return error.InvalidPreparedSprite;
-                        },
-                        .y_px = std.math.add(i32, draw.y_px, @intCast(bounds.y_px)) catch {
-                            return error.InvalidPreparedSprite;
-                        },
+                        .x_px = dest_x,
+                        .y_px = dest_y,
                         .width_px = width_px,
                         .height_px = height_px,
                     },
@@ -1696,6 +1705,46 @@ test "render surface surface emitter batches prepared alpha sprite glyph command
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
+test "render surface surface emitter skips fully offscreen prepared alpha sprites" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    var sprite_bytes = [_]u8{255};
+    var sprite_draws = [_]contract.TextSpriteDraw{
+        spriteDraw(114, 2, 0, 1, 1, rgba(255, 255, 255, 255)),
+    };
+    var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{rasterOutput(
+        allocator,
+        114,
+        1,
+        1,
+        .alpha,
+        &sprite_bytes,
+        .{},
+    )};
+    const prepared = preparedSurface(.{
+        .sprite_draws = &sprite_draws,
+        .raster_outputs = &raster_outputs,
+        .width_px = 1,
+        .height_px = 1,
+    });
+
+    const PreparedEmitter = Emitter(.{ .commands_max = 2, .glyph_refs_max = 2 });
+    const emitter = try allocator.create(PreparedEmitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 0), surface.creates.count);
+    try std.testing.expectEqual(@as(u32, 0), surface.uploads.count);
+    try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(@as(u32, 0), resources.atlas_count);
+    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+}
+
 test "render surface surface emitter emits over command bound alpha draws with batched glyph runs" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
@@ -1720,7 +1769,7 @@ test "render surface surface emitter emits over command bound alpha draws with b
     const prepared = preparedSurface(.{
         .sprite_draws = sprite_draws,
         .raster_outputs = &raster_outputs,
-        .width_px = 1,
+        .width_px = @intCast(draws_len),
         .height_px = 1,
     });
 
@@ -1771,7 +1820,7 @@ test "render surface surface emitter preserves command overflow after batched gl
     const prepared = preparedSurface(.{
         .sprite_draws = sprite_draws,
         .raster_outputs = &raster_outputs,
-        .width_px = 1,
+        .width_px = @intCast(draws_len),
         .height_px = 1,
     });
 
