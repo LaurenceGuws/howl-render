@@ -13,7 +13,7 @@ const source_prepare = @import("../source/prepare_request.zig");
 const prepared_surface = @import("../prepared/surface.zig");
 const prepared_submit_result = @import("../prepared/submit_result.zig");
 const session_submitted = @import("submitted.zig");
-const render_surface_emitter = @import("../prepared/render_surface_emitter.zig");
+const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
 const contract = @import("../text/contract.zig");
 const font_resolve = @import("../text/font/resolve.zig");
 const text = @import("../text/text.zig");
@@ -321,7 +321,7 @@ pub const TextSessionOwner = struct {
     prepared_handles: std.ArrayList(*prepared_owner.Owner) = .empty,
     font_path: ?[:0]u8 = null,
     fallback_font_paths: std.ArrayList([:0]u8) = .empty,
-    render_surface_sprite_resources: render_surface_emitter.SpriteResourceStore = .init(),
+    render_surface_sprite_resources: sprite_resource_store.SpriteResourceStore = .init(),
     prepare_handle_failure_count: u64 = 0,
 
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };

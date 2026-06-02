@@ -7,6 +7,7 @@ const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_buffer = @import("buffer.zig");
 const prepared_surface = @import("surface.zig");
 const realize = @import("../render/render_surface_realizer.zig");
+const sprite_resource_store = @import("sprite_resource_store.zig");
 const text = @import("../text/text.zig");
 const text_session = @import("../session/text.zig");
 
@@ -14,23 +15,16 @@ const ResourceId = c.HowlRenderResourceId;
 const Rect = c.HowlRenderSurfaceRect;
 const GlyphRef = c.HowlRenderGlyphRef;
 pub const Surface = c.HowlRenderSurface;
+const SpriteResourceStore = sprite_resource_store.SpriteResourceStore;
 
-pub const persistent_sprite_resources_max: u32 = 384;
-pub const alpha_atlas_entries_max: u32 = c.HOWL_RENDER_SURFACE_COMMANDS_MAX;
-const persistent_sprite_resource_bytes_max: u32 = 64 * 1024;
 // Glyph refs are data-plane payload; commands are control-plane payload.
 const glyph_refs_max: u32 = 32 * 1024;
-const glyph_atlas_width_px: u16 = 1024;
-const glyph_atlas_height_px: u16 = 1024;
+const PreparedSprite = sprite_resource_store.PreparedSprite;
 
 comptime {
-    std.debug.assert(persistent_sprite_resources_max < c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
-    std.debug.assert(alpha_atlas_entries_max > persistent_sprite_resources_max);
     std.debug.assert(glyph_refs_max > c.HOWL_RENDER_SURFACE_COMMANDS_MAX);
     std.debug.assert(glyph_refs_max <=
         c.HOWL_RENDER_SURFACE_COMMANDS_MAX * c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX);
-    std.debug.assert(alpha_atlas_entries_max <=
-        @as(u32, glyph_atlas_width_px) * @as(u32, glyph_atlas_height_px));
 }
 
 pub const Error = error{
@@ -85,225 +79,6 @@ pub const Sprite = struct {
 pub const ColorMode = enum {
     alpha,
     color,
-};
-
-const PreparedSprite = struct {
-    key: contract.SpriteKey,
-    pixels: []const u8,
-    width_px: u16,
-    height_px: u16,
-    stride_bytes: u32,
-    color_mode: contract.SpriteColorMode,
-    visual_bounds: text.Rasterizer.SpriteBounds,
-};
-
-pub const SpriteResourceStore = struct {
-    entries: [c.HOWL_RENDER_SURFACE_RESOURCES_MAX]Entry = undefined,
-    bytes: [persistent_sprite_resource_bytes_max]u8 = undefined,
-    count: u32 = 0,
-    bytes_count: u32 = 0,
-    value_next: u64 = 1,
-    atlas_resource: ResourceId = zeroResource(),
-    atlas_entries: [alpha_atlas_entries_max]AtlasEntry = undefined,
-    atlas_count: u32 = 0,
-    atlas_next_x: u16 = 0,
-    atlas_next_y: u16 = 0,
-    atlas_row_height: u16 = 0,
-
-    pub const Result = struct {
-        resource: ResourceId,
-        lifetime: Lifetime,
-
-        pub const Lifetime = enum { reused, persistent, transient };
-    };
-
-    pub const AtlasResult = struct {
-        resource: ResourceId,
-        rect: Rect,
-        created: bool,
-        uploaded: bool,
-    };
-
-    const Entry = struct {
-        key: contract.SpriteKey,
-        bytes_hash: u64,
-        bytes_offset: u32,
-        bytes_count: u32,
-        resource: ResourceId,
-        width_px: u16,
-        height_px: u16,
-        format: u32,
-    };
-
-    const AtlasEntry = struct {
-        key: contract.SpriteKey,
-        bytes_hash: u64,
-        width_px: u16,
-        height_px: u16,
-        rect: Rect,
-    };
-
-    pub fn init() SpriteResourceStore {
-        return .{};
-    }
-
-    pub fn fillForTest(self: *SpriteResourceStore, count: u32) void {
-        comptime std.debug.assert(builtin.is_test);
-        std.debug.assert(count <= c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
-        self.count = count;
-        self.bytes_count = 0;
-        self.value_next = @as(u64, count) + 1;
-        var index: u32 = 0;
-        while (index < count) : (index += 1) {
-            const value = @as(u64, index) + 1;
-            self.entries[@intCast(index)] = .{
-                .key = .{ .value = value },
-                .bytes_hash = value,
-                .bytes_offset = 0,
-                .bytes_count = 0,
-                .resource = .{
-                    .value = value,
-                    .generation = 1,
-                    .kind = c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
-                },
-                .width_px = 1,
-                .height_px = 1,
-                .format = c.HOWL_RENDER_UPLOAD_ALPHA8,
-            };
-        }
-    }
-
-    fn resourceFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!Result {
-        const format = uploadFormatForPrepared(sprite.color_mode);
-        const bytes_hash = hashSpriteBytes(sprite, width_px, height_px, bytes);
-        for (self.entries[0..@intCast(self.count)]) |entry| {
-            if (entry.key.value != sprite.key.value) continue;
-            if (entry.bytes_hash != bytes_hash) continue;
-            if (entry.width_px != width_px) continue;
-            if (entry.height_px != height_px) continue;
-            if (entry.format != format) continue;
-            const bytes_end = std.math.add(u32, entry.bytes_offset, entry.bytes_count) catch {
-                return error.ResourceBoundOverflow;
-            };
-            std.debug.assert(bytes_end <= self.bytes_count);
-            if (!std.mem.eql(u8, self.bytes[entry.bytes_offset..bytes_end], bytes)) continue;
-            return .{ .resource = entry.resource, .lifetime = .reused };
-        }
-        const bytes_count: u32 = std.math.cast(u32, bytes.len) orelse {
-            return error.ResourceBoundOverflow;
-        };
-        const resource = try self.nextResource(sprite.color_mode);
-        if (self.count >= persistent_sprite_resources_max) {
-            return .{ .resource = resource, .lifetime = .transient };
-        }
-        const bytes_end = std.math.add(u32, self.bytes_count, bytes_count) catch {
-            return error.ResourceBoundOverflow;
-        };
-        if (bytes_end > persistent_sprite_resource_bytes_max) {
-            return .{ .resource = resource, .lifetime = .transient };
-        }
-        self.entries[@intCast(self.count)] = .{
-            .key = sprite.key,
-            .bytes_hash = bytes_hash,
-            .bytes_offset = self.bytes_count,
-            .bytes_count = bytes_count,
-            .resource = resource,
-            .width_px = width_px,
-            .height_px = height_px,
-            .format = format,
-        };
-        @memcpy(self.bytes[self.bytes_count..bytes_end], bytes);
-        self.bytes_count = bytes_end;
-        self.count += 1;
-        return .{ .resource = resource, .lifetime = .persistent };
-    }
-
-    fn atlasRegionFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!AtlasResult {
-        std.debug.assert(sprite.color_mode == .alpha);
-        const bytes_hash = hashSpriteBytes(sprite, width_px, height_px, bytes);
-        for (self.atlas_entries[0..@intCast(self.atlas_count)]) |entry| {
-            if (entry.key.value != sprite.key.value) continue;
-            if (entry.bytes_hash != bytes_hash) continue;
-            if (entry.width_px != width_px) continue;
-            if (entry.height_px != height_px) continue;
-            return .{ .resource = self.atlas_resource, .rect = entry.rect, .created = false, .uploaded = false };
-        }
-        if (self.atlas_count >= alpha_atlas_entries_max) return error.ResourceBoundOverflow;
-        const had_resource = !resourceIsZero(self.atlas_resource);
-        const resource = try self.ensureAtlasResource();
-        const rect_value = try self.reserveAtlasRect(width_px, height_px);
-        self.atlas_entries[@intCast(self.atlas_count)] = .{
-            .key = sprite.key,
-            .bytes_hash = bytes_hash,
-            .width_px = width_px,
-            .height_px = height_px,
-            .rect = rect_value,
-        };
-        self.atlas_count += 1;
-        return .{ .resource = resource, .rect = rect_value, .created = !had_resource, .uploaded = true };
-    }
-
-    fn ensureAtlasResource(self: *SpriteResourceStore) Error!ResourceId {
-        if (!resourceIsZero(self.atlas_resource)) return self.atlas_resource;
-        if (self.value_next == 0) return error.ResourceBoundOverflow;
-        self.atlas_resource = .{
-            .value = self.value_next,
-            .generation = 1,
-            .kind = c.HOWL_RENDER_RESOURCE_GLYPH_ATLAS_ALPHA,
-        };
-        self.value_next = std.math.add(u64, self.value_next, 1) catch {
-            return error.ResourceBoundOverflow;
-        };
-        return self.atlas_resource;
-    }
-
-    fn reserveAtlasRect(self: *SpriteResourceStore, width_px: u16, height_px: u16) Error!Rect {
-        if (width_px == 0) return error.InvalidPreparedSprite;
-        if (height_px == 0) return error.InvalidPreparedSprite;
-        if (width_px > glyph_atlas_width_px) return error.ResourceBoundOverflow;
-        if (height_px > glyph_atlas_height_px) return error.ResourceBoundOverflow;
-        const next_x = std.math.add(u16, self.atlas_next_x, width_px) catch {
-            return error.ResourceBoundOverflow;
-        };
-        if (next_x > glyph_atlas_width_px) {
-            self.atlas_next_x = 0;
-            self.atlas_next_y = std.math.add(u16, self.atlas_next_y, self.atlas_row_height) catch {
-                return error.ResourceBoundOverflow;
-            };
-            self.atlas_row_height = 0;
-        }
-        const bottom = std.math.add(u16, self.atlas_next_y, height_px) catch {
-            return error.ResourceBoundOverflow;
-        };
-        if (bottom > glyph_atlas_height_px) return error.ResourceBoundOverflow;
-        const rect_value = Rect{
-            .x_px = @intCast(self.atlas_next_x),
-            .y_px = @intCast(self.atlas_next_y),
-            .width_px = width_px,
-            .height_px = height_px,
-        };
-        self.atlas_next_x = std.math.add(u16, self.atlas_next_x, width_px) catch {
-            return error.ResourceBoundOverflow;
-        };
-        self.atlas_row_height = @max(self.atlas_row_height, height_px);
-        return rect_value;
-    }
-
-    fn nextResource(self: *SpriteResourceStore, color_mode: contract.SpriteColorMode) Error!ResourceId {
-        if (self.value_next == 0) return error.ResourceBoundOverflow;
-        const resource = ResourceId{
-            .value = self.value_next,
-            .generation = 1,
-            .kind = switch (color_mode) {
-                .alpha => c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
-                .color => c.HOWL_RENDER_RESOURCE_SPRITE_COLOR,
-            },
-        };
-        self.value_next = std.math.add(u64, self.value_next, 1) catch {
-            return error.ResourceBoundOverflow;
-        };
-        return resource;
-    }
 };
 
 pub const Fixture = struct {
@@ -703,7 +478,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 .resource = resource,
                 .width_px = width_px,
                 .height_px = height_px,
-                .format = uploadFormatForPrepared(sprite.color_mode),
+                .format = sprite_resource_store.uploadFormatForPrepared(sprite.color_mode),
                 .create_seq = 0,
             };
             self.create_count += 1;
@@ -713,8 +488,8 @@ pub fn Emitter(comptime limits: Limits) type {
             if (self.create_count >= limits.creates_max) return error.CreateBoundOverflow;
             self.creates[self.create_count] = .{
                 .resource = resource,
-                .width_px = glyph_atlas_width_px,
-                .height_px = glyph_atlas_height_px,
+                .width_px = sprite_resource_store.glyph_atlas_width_px,
+                .height_px = sprite_resource_store.glyph_atlas_height_px,
                 .format = c.HOWL_RENDER_UPLOAD_ALPHA8,
                 .create_seq = 0,
             };
@@ -752,7 +527,7 @@ pub fn Emitter(comptime limits: Limits) type {
 
         fn appendPreparedUpload(self: *Self, resource: ResourceId, sprite: PreparedSprite, width_px: u16, height_px: u16, upload_range: ByteRange) Error!void {
             if (self.upload_count >= limits.uploads_max) return error.UploadBoundOverflow;
-            const bytes_per_pixel = bytesPerPixelForPrepared(sprite.color_mode);
+            const bytes_per_pixel = sprite_resource_store.bytesPerPixelForPrepared(sprite.color_mode);
             const upload_stride = std.math.mul(u32, width_px, bytes_per_pixel) catch {
                 return error.UploadBytesOverflow;
             };
@@ -767,7 +542,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 .bytes_ptr = &self.upload_bytes[upload_range.start],
                 .bytes_count = bytes_count,
                 .stride_bytes = upload_stride,
-                .format = uploadFormatForPrepared(sprite.color_mode),
+                .format = sprite_resource_store.uploadFormatForPrepared(sprite.color_mode),
                 .upload_seq = 0,
             };
             self.upload_byte_offsets[self.upload_count] = upload_range.start;
@@ -792,7 +567,7 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         fn stagePreparedUploadBytes(self: *Self, sprite: PreparedSprite, bounds: text.Rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!ByteRange {
-            const bytes_per_pixel = bytesPerPixelForPrepared(sprite.color_mode);
+            const bytes_per_pixel = sprite_resource_store.bytesPerPixelForPrepared(sprite.color_mode);
             const upload_stride = std.math.mul(u32, width_px, bytes_per_pixel) catch {
                 return error.UploadBytesOverflow;
             };
@@ -950,22 +725,7 @@ fn zeroResource() ResourceId {
     return .{ .value = 0, .generation = 0, .kind = 0 };
 }
 
-fn resourceIsZero(resource: ResourceId) bool {
-    return resource.value == 0 and resource.generation == 0 and resource.kind == 0;
-}
-
 fn spriteResource(sprite: Sprite, value: u64) ResourceId {
-    return .{
-        .value = value,
-        .generation = 1,
-        .kind = switch (sprite.color_mode) {
-            .alpha => c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
-            .color => c.HOWL_RENDER_RESOURCE_SPRITE_COLOR,
-        },
-    };
-}
-
-fn preparedSpriteResource(sprite: PreparedSprite, value: u64) ResourceId {
     return .{
         .value = value,
         .generation = 1,
@@ -985,20 +745,6 @@ fn uploadFormat(color_mode: ColorMode) u32 {
     return switch (color_mode) {
         .alpha => c.HOWL_RENDER_UPLOAD_ALPHA8,
         .color => c.HOWL_RENDER_UPLOAD_RGBA8,
-    };
-}
-
-fn uploadFormatForPrepared(color_mode: contract.SpriteColorMode) u32 {
-    return switch (color_mode) {
-        .alpha => c.HOWL_RENDER_UPLOAD_ALPHA8,
-        .color => c.HOWL_RENDER_UPLOAD_RGBA8,
-    };
-}
-
-fn bytesPerPixelForPrepared(color_mode: contract.SpriteColorMode) u32 {
-    return switch (color_mode) {
-        .alpha => 1,
-        .color => 4,
     };
 }
 
@@ -1049,19 +795,8 @@ fn lookupPreparedSprite(session: *text_session.TextSession, prepared: *const pre
     };
 }
 
-fn hashSpriteBytes(sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) u64 {
-    var hasher = std.hash.Wyhash.init(0x5350524954455630);
-    hasher.update(std.mem.asBytes(&sprite.key.value));
-    hasher.update(std.mem.asBytes(&width_px));
-    hasher.update(std.mem.asBytes(&height_px));
-    const format = uploadFormatForPrepared(sprite.color_mode);
-    hasher.update(std.mem.asBytes(&format));
-    hasher.update(bytes);
-    return hasher.final();
-}
-
 fn packedStrideForOutput(output: text.Rasterizer.RasterSpriteOutput) u32 {
-    return @as(u32, output.width_px) * bytesPerPixelForPrepared(output.color_mode);
+    return @as(u32, output.width_px) * sprite_resource_store.bytesPerPixelForPrepared(output.color_mode);
 }
 
 fn visualBoundsForDraw(bounds: text.Rasterizer.SpriteBounds, draw: contract.TextSpriteDraw) text.Rasterizer.SpriteBounds {
@@ -1072,7 +807,7 @@ fn visualBoundsForDraw(bounds: text.Rasterizer.SpriteBounds, draw: contract.Text
 }
 
 fn copyPreparedSpriteBytes(target: []u8, target_stride: u32, sprite: PreparedSprite, bounds: text.Rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!void {
-    const bytes_per_pixel = bytesPerPixelForPrepared(sprite.color_mode);
+    const bytes_per_pixel = sprite_resource_store.bytesPerPixelForPrepared(sprite.color_mode);
     const source_right = std.math.add(u32, bounds.x_px, width_px) catch {
         return error.InvalidPreparedSprite;
     };
@@ -1397,42 +1132,6 @@ test "render surface surface emitter leaves oracle path independent after emissi
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "render-surface surface alpha atlas reports explicit entry exhaustion" {
-    var resources = SpriteResourceStore.init();
-    var pixel = [_]u8{255};
-    var index: u32 = 0;
-    while (index < alpha_atlas_entries_max) : (index += 1) {
-        const sprite = PreparedSprite{
-            .key = .{ .value = @as(u64, index) + 1 },
-            .pixels = &pixel,
-            .width_px = 1,
-            .height_px = 1,
-            .stride_bytes = 1,
-            .color_mode = .alpha,
-            .visual_bounds = .{},
-        };
-        const atlas = try resources.atlasRegionFor(sprite, 1, 1, &pixel);
-        try std.testing.expectEqual(index == 0, atlas.created);
-        try std.testing.expect(atlas.uploaded);
-        try std.testing.expect(atlas.resource.value != 0);
-    }
-    try std.testing.expectEqual(alpha_atlas_entries_max, resources.atlas_count);
-
-    const overflow_sprite = PreparedSprite{
-        .key = .{ .value = @as(u64, alpha_atlas_entries_max) + 1 },
-        .pixels = &pixel,
-        .width_px = 1,
-        .height_px = 1,
-        .stride_bytes = 1,
-        .color_mode = .alpha,
-        .visual_bounds = .{},
-    };
-    try std.testing.expectError(
-        error.ResourceBoundOverflow,
-        resources.atlasRegionFor(overflow_sprite, 1, 1, &pixel),
-    );
-    try std.testing.expectEqual(alpha_atlas_entries_max, resources.atlas_count);
-}
 test "render surface surface emitter realizes prepared fill surface equal to full rgba oracle" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
@@ -1476,7 +1175,7 @@ test "render surface surface emitter emits full prepared surface clear before fi
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
@@ -1507,7 +1206,7 @@ test "render surface surface emitter keeps partial prepared surface patch shaped
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
@@ -1533,7 +1232,7 @@ test "render surface surface emitter skips zero area prepared fills" {
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
@@ -1561,7 +1260,7 @@ test "render surface surface emitter clips prepared fills to surface" {
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     try std.testing.expectEqual(@as(u32, 3), surface.commands.count);
@@ -1595,7 +1294,7 @@ test "render surface surface emitter coalesces adjacent prepared fill commands" 
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
@@ -1632,7 +1331,7 @@ test "render surface surface emitter does not coalesce distinct prepared fills" 
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     try std.testing.expectEqual(@as(u32, 6), surface.commands.count);
@@ -1696,7 +1395,7 @@ test "render surface surface emitter batches prepared alpha sprite glyph command
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
@@ -1734,7 +1433,7 @@ test "render surface surface emitter skips fully offscreen prepared alpha sprite
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     try std.testing.expectEqual(@as(u32, 0), surface.creates.count);
@@ -1778,7 +1477,7 @@ test "render surface surface emitter emits over command bound alpha draws with b
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
 
     const commands_expected = std.math.divCeil(
@@ -1828,7 +1527,7 @@ test "render surface surface emitter preserves command overflow after batched gl
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     try std.testing.expectError(
         error.CommandBoundOverflow,
         emitter.emitPrepared(&resources, &session, &prepared),
@@ -1846,9 +1545,9 @@ test "render surface surface emitter emits more than old alpha atlas entry cap" 
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     var index: u32 = 0;
-    while (index <= persistent_sprite_resources_max) : (index += 1) {
+    while (index <= sprite_resource_store.persistent_sprite_resources_max) : (index += 1) {
         var sprite_bytes = [_]u8{@intCast((index % 251) + 1)};
         var sprite_draws = [_]contract.TextSpriteDraw{
             spriteDraw(10_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
@@ -1874,7 +1573,7 @@ test "render surface surface emitter emits more than old alpha atlas entry cap" 
         try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
         try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
     }
-    try std.testing.expectEqual(persistent_sprite_resources_max + 1, resources.atlas_count);
+    try std.testing.expectEqual(sprite_resource_store.persistent_sprite_resources_max + 1, resources.atlas_count);
 }
 
 test "render surface surface emitter emits more than old alpha atlas hard cap" {
@@ -1882,14 +1581,14 @@ test "render surface surface emitter emits more than old alpha atlas hard cap" {
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const old_alpha_atlas_entries_max: u32 = 1024;
+    const old_alpha_atlas_entry_limit: u32 = 1024;
     const PreparedEmitter = Emitter(.{});
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     var index: u32 = 0;
-    while (index <= old_alpha_atlas_entries_max) : (index += 1) {
+    while (index <= old_alpha_atlas_entry_limit) : (index += 1) {
         var sprite_bytes = [_]u8{@intCast((index % 251) + 1)};
         var sprite_draws = [_]contract.TextSpriteDraw{
             spriteDraw(20_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
@@ -1913,7 +1612,7 @@ test "render surface surface emitter emits more than old alpha atlas hard cap" {
         const surface = try emitter.emitPrepared(&resources, &session, &prepared);
         try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
     }
-    try std.testing.expectEqual(old_alpha_atlas_entries_max + 1, resources.atlas_count);
+    try std.testing.expectEqual(old_alpha_atlas_entry_limit + 1, resources.atlas_count);
 }
 
 test "render surface surface emitter realizes prepared color sprite surface equal to full rgba oracle" {
@@ -2002,7 +1701,7 @@ test "render surface surface emitter persists prepared sprite resource across su
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface1 = try emitter.emitPrepared(&resources, &session, &prepared);
     try std.testing.expectEqual(@as(u32, 1), surface1.creates.count);
     try std.testing.expectEqual(@as(u32, 1), surface1.uploads.count);
@@ -2084,7 +1783,7 @@ test "render surface surface emitter allocates distinct monotonic sprite resourc
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface1 = try emitter.emitPrepared(&resources, &session, &first);
     const first_resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     const surface2 = try emitter.emitPrepared(&resources, &session, &second);
@@ -2142,7 +1841,7 @@ test "render surface surface emitter allocates distinct resource for changed spr
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface1 = try emitter.emitPrepared(&resources, &session, &first);
     const first_resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     const surface2 = try emitter.emitPrepared(&resources, &session, &second);
@@ -2203,7 +1902,7 @@ test "render surface surface emitter allocates distinct resource for changed spr
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface1 = try emitter.emitPrepared(&resources, &session, &first);
     const first_resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     const surface2 = try emitter.emitPrepared(&resources, &session, &second);
@@ -2246,7 +1945,7 @@ test "render surface surface emitter failure preserves accepted persistent resou
         .glyph_refs_max = 1,
         .upload_bytes_max = 1,
     }).init();
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     try std.testing.expectError(
         error.UploadBytesOverflow,
         emitter.emitPrepared(&resources, &session, &prepared),
@@ -2285,7 +1984,7 @@ test "render surface surface emitter resource id exhaustion preserves accepted s
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     resources.value_next = 0;
     try std.testing.expectError(
         error.ResourceBoundOverflow,
@@ -2325,10 +2024,10 @@ test "render surface surface emitter emits transient sprite beyond persistent bu
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
-    resources.fillForTest(persistent_sprite_resources_max);
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+    resources.fillForTest(sprite_resource_store.persistent_sprite_resources_max);
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
-    try std.testing.expectEqual(persistent_sprite_resources_max, resources.count);
+    try std.testing.expectEqual(sprite_resource_store.persistent_sprite_resources_max, resources.count);
     try std.testing.expectEqual(@as(u32, 1), surface.creates.count);
     try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
@@ -2364,13 +2063,13 @@ test "render surface surface emitter reports exact transient retire bound" {
         .glyph_refs_max = 3,
         .retires_max = 1,
     }).init();
-    var resources = SpriteResourceStore.init();
-    resources.fillForTest(persistent_sprite_resources_max);
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+    resources.fillForTest(sprite_resource_store.persistent_sprite_resources_max);
     try std.testing.expectError(
         error.RetireBoundOverflow,
         emitter.emitPrepared(&resources, &session, &prepared),
     );
-    try std.testing.expectEqual(persistent_sprite_resources_max, resources.count);
+    try std.testing.expectEqual(sprite_resource_store.persistent_sprite_resources_max, resources.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
 }
 
@@ -2400,7 +2099,7 @@ test "render surface surface emitter rejects missing prepared sprite without mut
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const accepted_surface = try emitter.emitPrepared(&resources, &session, &accepted_prepared);
     try std.testing.expectError(
         error.MissingPreparedSprite,
@@ -2445,7 +2144,7 @@ fn expectPreparedEmissionEqualsCompose(allocator: std.mem.Allocator, session: *t
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
-    var resources = SpriteResourceStore.init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, session, prepared);
     try realize.realize(surface, realized, base_pixels);
     try std.testing.expectEqualSlices(u8, oracle, realized);
