@@ -46,11 +46,11 @@ pub fn renderSurface(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
     };
     const value = out orelse return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;
     if (!owner.isLive()) return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;
-    value.* = owner.renderSurface() orelse return renderSurfaceStatus(owner.renderSurfaceFailure());
+    value.* = owner.renderSurface() orelse return renderSurfaceStatusFromFailure(owner.renderSurfaceEmissionFailure());
     return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK;
 }
 
-fn renderSurfaceStatus(failure: prepared_owner.RenderSurfaceEmissionFailure) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
+fn renderSurfaceStatusFromFailure(failure: prepared_owner.RenderSurfaceEmissionFailure) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
     return switch (failure) {
         .none => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK,
         .allocation_failed => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_ALLOCATION_FAILED,

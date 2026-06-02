@@ -59,7 +59,7 @@ pub const Owner = struct {
     grid: geometry_contract.GridSize,
     damage_kind: u8,
     uploads_required: u64,
-    render_surface_failure: RenderSurfaceEmissionFailure = .none,
+    render_surface_emission_failure: RenderSurfaceEmissionFailure = .none,
 
     pub const SubmitResult = union(enum) {
         rendered: prepared_submit_result.SubmitResult,
@@ -75,9 +75,9 @@ pub const Owner = struct {
         errdefer owner.destroy();
         try session_owner.registerPreparedHandle(owner);
         owner.emitRenderSurfacePayload() catch |err| {
-            owner.render_surface_failure = switch (err) {
+            owner.render_surface_emission_failure = switch (err) {
                 error.OutOfMemory => .allocation_failed,
-                else => renderSurfaceFailureFromError(@errorCast(err)),
+                else => renderSurfaceEmissionFailureFromError(@errorCast(err)),
             };
         };
         return owner;
@@ -148,9 +148,9 @@ pub const Owner = struct {
         return payload.surface();
     }
 
-    pub fn renderSurfaceFailure(self: *const Owner) RenderSurfaceEmissionFailure {
+    pub fn renderSurfaceEmissionFailure(self: *const Owner) RenderSurfaceEmissionFailure {
         std.debug.assert(self.isLive());
-        return self.render_surface_failure;
+        return self.render_surface_emission_failure;
     }
 
     pub fn renderSurfaceForTest(self: *const Owner) *const render_surface_emitter.Surface {
@@ -252,11 +252,11 @@ fn ownerBase(session_owner: *text_session.TextSessionOwner, value: prepared_surf
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
         .damage_kind = @intFromEnum(value.damageKind()),
         .uploads_required = value.text_frame.raster_plan.outputs.len,
-        .render_surface_failure = .none,
+        .render_surface_emission_failure = .none,
     };
 }
 
-fn renderSurfaceFailureFromError(err: render_surface_emitter.Error) RenderSurfaceEmissionFailure {
+fn renderSurfaceEmissionFailureFromError(err: render_surface_emitter.Error) RenderSurfaceEmissionFailure {
     return switch (err) {
         error.CommandBoundOverflow => .command_bound_overflow,
         error.CreateBoundOverflow => .create_bound_overflow,
@@ -363,7 +363,7 @@ test "create reports missing-sprite diagnostic without double free" {
     var owned_prepared = prepared;
     const owner = try Owner.create(session_owner, &owned_prepared);
     try std.testing.expect(owner.renderSurface() == null);
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.missing_prepared_sprite, owner.renderSurfaceFailure());
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.missing_prepared_sprite, owner.renderSurfaceEmissionFailure());
 }
 
 test "owner exports prepared info and required upload count truth" {
@@ -384,7 +384,7 @@ test "owner exports prepared info and required upload count truth" {
         .grid = .{ .cols = 4, .rows = 5 },
         .damage_kind = 1,
         .uploads_required = 3,
-        .render_surface_failure = .upload_bytes_overflow,
+        .render_surface_emission_failure = .upload_bytes_overflow,
     };
 
     owner.prepared = .{
@@ -419,22 +419,22 @@ test "owner exports prepared info and required upload count truth" {
     const info = owner.info();
     try std.testing.expectEqual(@as(u64, 7), info.snapshot_seq);
     try std.testing.expectEqual(@as(u64, 6), info.required_base_seq);
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.upload_bytes_overflow, owner.renderSurfaceFailure());
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.upload_bytes_overflow, owner.renderSurfaceEmissionFailure());
 
     const buffer = owner.buffer();
     try std.testing.expectEqual(@as(u64, 3), buffer.uploads_required);
 }
 
 test "owner maps every render-surface emission error to local failure" {
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.command_bound_overflow, renderSurfaceFailureFromError(error.CommandBoundOverflow));
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.create_bound_overflow, renderSurfaceFailureFromError(error.CreateBoundOverflow));
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.damage_bound_overflow, renderSurfaceFailureFromError(error.DamageBoundOverflow));
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.retire_bound_overflow, renderSurfaceFailureFromError(error.RetireBoundOverflow));
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.resource_bound_overflow, renderSurfaceFailureFromError(error.ResourceBoundOverflow));
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.upload_bound_overflow, renderSurfaceFailureFromError(error.UploadBoundOverflow));
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.upload_bytes_overflow, renderSurfaceFailureFromError(error.UploadBytesOverflow));
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.invalid_prepared_sprite, renderSurfaceFailureFromError(error.InvalidPreparedSprite));
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.missing_prepared_sprite, renderSurfaceFailureFromError(error.MissingPreparedSprite));
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.command_bound_overflow, renderSurfaceEmissionFailureFromError(error.CommandBoundOverflow));
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.create_bound_overflow, renderSurfaceEmissionFailureFromError(error.CreateBoundOverflow));
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.damage_bound_overflow, renderSurfaceEmissionFailureFromError(error.DamageBoundOverflow));
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.retire_bound_overflow, renderSurfaceEmissionFailureFromError(error.RetireBoundOverflow));
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.resource_bound_overflow, renderSurfaceEmissionFailureFromError(error.ResourceBoundOverflow));
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.upload_bound_overflow, renderSurfaceEmissionFailureFromError(error.UploadBoundOverflow));
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.upload_bytes_overflow, renderSurfaceEmissionFailureFromError(error.UploadBytesOverflow));
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.invalid_prepared_sprite, renderSurfaceEmissionFailureFromError(error.InvalidPreparedSprite));
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.missing_prepared_sprite, renderSurfaceEmissionFailureFromError(error.MissingPreparedSprite));
 }
 
 test "owner validates realized uploads and host surface dimensions before submit" {
@@ -579,7 +579,7 @@ test "render surface prepared owner reports missing surface when render_surface 
     const owner = try Owner.create(session_owner, &prepared);
 
     try std.testing.expect(owner.renderSurface() == null);
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.command_bound_overflow, owner.renderSurfaceFailure());
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.command_bound_overflow, owner.renderSurfaceEmissionFailure());
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
 
@@ -595,7 +595,7 @@ test "render surface prepared owner overflow still consumes prepare surface once
     const owner = try Owner.create(session_owner, &prepared);
 
     try std.testing.expect(owner.renderSurface() == null);
-    try std.testing.expectEqual(RenderSurfaceEmissionFailure.command_bound_overflow, owner.renderSurfaceFailure());
+    try std.testing.expectEqual(RenderSurfaceEmissionFailure.command_bound_overflow, owner.renderSurfaceEmissionFailure());
     try std.testing.expectEqual(@as(u64, 0), prepared.request.token.snapshot_seq);
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
@@ -640,7 +640,7 @@ test "render surface prepared owner allocation failure is reported in info" {
             .height_px = 1,
         });
         const owner = Owner.create(session_owner, &prepared) catch continue;
-        if (owner.renderSurfaceFailure() != .allocation_failed) continue;
+        if (owner.renderSurfaceEmissionFailure() != .allocation_failed) continue;
         try std.testing.expect(owner.renderSurface() == null);
         return;
     }

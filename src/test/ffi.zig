@@ -631,7 +631,7 @@ fn preparedOwnerWithFailure(failure: prepared_owner_model.RenderSurfaceEmissionF
         .grid = .{ .cols = 1, .rows = 1 },
         .damage_kind = damageFull(),
         .uploads_required = 0,
-        .render_surface_failure = failure,
+        .render_surface_emission_failure = failure,
     };
 }
 
