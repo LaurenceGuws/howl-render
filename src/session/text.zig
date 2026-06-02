@@ -432,6 +432,7 @@ pub const TextSessionOwner = struct {
         self.session.text_state.shape_run_cache.clear();
         self.session.text_state.glyph_cell_cache.clear();
         if (self.session.text_preparer) |*preparer| preparer.clearAtlas();
+        self.render_surface_sprite_resources.clear();
     }
 
     pub fn adoptFallbackFontPaths(self: *TextSessionOwner, owned_paths: *std.ArrayList([:0]u8)) void {
@@ -628,6 +629,32 @@ test "surface text owner keeps source and submitted owners separate" {
     try std.testing.expect(owner.source_slot.reserved == null);
     try std.testing.expect(owner.prepare_requests.pending == null);
     try std.testing.expect(owner.submitted.submitted_token == null);
+}
+
+test "surface text owner invalidation clears sprite resource store" {
+    const owner = TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    const sprite = sprite_resource_store.PreparedSprite{
+        .key = .{ .value = 1 },
+        .pixels = &[_]u8{255},
+        .width_px = 1,
+        .height_px = 1,
+        .stride_bytes = 1,
+        .color_mode = .alpha,
+        .visual_bounds = .{},
+    };
+    _ = try owner.render_surface_sprite_resources.atlasRegionFor(sprite, 1, 1, &[_]u8{255});
+    try std.testing.expectEqual(@as(u32, 1), owner.render_surface_sprite_resources.atlas_count);
+    const next_value = owner.render_surface_sprite_resources.value_next;
+
+    owner.invalidateTextState();
+    try std.testing.expectEqual(@as(u32, 0), owner.render_surface_sprite_resources.atlas_count);
+    try std.testing.expectEqual(@as(u32, 0), owner.render_surface_sprite_resources.count);
+    try std.testing.expectEqual(next_value, owner.render_surface_sprite_resources.value_next);
 }
 
 test "surface text owner rejects prepared work after resize publication" {

@@ -237,6 +237,22 @@ test "provider decodes packed monochrome bitmap alpha" {
     try std.testing.expectEqual(@as(u8, 255), bitmapAlpha(&row, @as(u8, 1), 1, false, 4, 1, 2, 0));
     try std.testing.expectEqual(@as(u8, 0), bitmapAlpha(&row, @as(u8, 1), 1, false, 4, 1, 3, 0));
 }
+
+test "special sprite covers kitty shade families" {
+    var pixels: [256]u8 = .{0} ** 256;
+    for ([_]u32{ 0x25cb, 0x25cf, 0x25d6, 0x25e2, 0x1fb3c, 0x1fb7c, 0x1fba0, 0x1fb8c, 0x1fb98, 0x1fb9a, 0x1fb9c }) |cp| {
+        @memset(&pixels, 0);
+        special_sprite.rasterizeSpecialSpriteAlpha(&pixels, 16, 16, cp);
+        var any = false;
+        for (pixels) |px| {
+            if (px != 0) {
+                any = true;
+                break;
+            }
+        }
+        try std.testing.expect(any);
+    }
+}
 fn cellBitmapOrigin(cell_width: u16, baseline: i32, bitmap_left: i32, bitmap_top: i32, bitmap_width: u16, x_offset: i32, y_offset: i32, glyph_index: u32) struct { x_px: i32, y_px: i32 } {
     var x_px = x_offset + bitmap_left;
     if (glyph_index < 4 and x_px > 0 and x_px + @as(i32, @intCast(bitmap_width)) > @as(i32, @intCast(cell_width))) {

@@ -56,8 +56,11 @@ pub fn rasterizeGeneratedSpecialAlphaWithMetrics(pixels: []u8, width_px: u16, he
     @memset(pixels, 0);
     const width = @max(width_px, 1);
     const height = @max(height_px, 1);
-    rasterizeSupportedGeneratedSpecialAlpha(pixels, width, height, codepoint, box_drawing);
-    return true;
+    if (generatedSpecialFamily(codepoint)) |family| {
+        rasterizeSupportedGeneratedSpecialAlpha(pixels, width, height, codepoint, box_drawing, family);
+        return true;
+    }
+    return false;
 }
 
 fn generatedSpecialMetrics(width_px: u16, height_px: u16) contract.BoxDrawingRasterMetrics {
@@ -70,11 +73,12 @@ fn boxDrawingRasterMetrics(cell_metrics: contract.CellMetrics) contract.BoxDrawi
     return .{ .light_stroke_px = light, .heavy_stroke_px = @intCast(@min(@as(u32, light) * 2, std.math.maxInt(u16))) };
 }
 
-fn rasterizeSupportedGeneratedSpecialAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: contract.BoxDrawingRasterMetrics) void {
-    switch (generatedSpecialFamily(codepoint) orelse unreachable) {
+fn rasterizeSupportedGeneratedSpecialAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: contract.BoxDrawingRasterMetrics, family: GeneratedSpecialFamily) void {
+    switch (family) {
         .box => rasterizeGeneratedBoxAlpha(pixels, width, height, codepoint, box_drawing),
         .powerline => rasterizeGeneratedPowerlineAlpha(pixels, width, height, codepoint, box_drawing),
         .block => rasterizeGeneratedBlockAlpha(pixels, width, height, codepoint),
+        .eight_bar => rasterizeGeneratedEightBarAlpha(pixels, width, height, codepoint),
         .sextant => rasterizeGeneratedSextantAlpha(pixels, width, height, codepoint),
         .octant => rasterizeGeneratedOctantAlpha(pixels, width, height, codepoint),
     }
@@ -84,6 +88,7 @@ const GeneratedSpecialFamily = enum {
     box,
     powerline,
     block,
+    eight_bar,
     sextant,
     octant,
 };
@@ -93,6 +98,7 @@ fn generatedSpecialFamily(codepoint: u32) ?GeneratedSpecialFamily {
         0x2500...0x257f => .box,
         0xe0b0...0xe0bf => .powerline,
         0x2580...0x259f, 0x2800...0x28ff => .block,
+        0x1fb70...0x1fb75, 0x1fb76...0x1fb7b => .eight_bar,
         0x1fb00...0x1fb3b => .sextant,
         0x1cd00...0x1cde5, 0x1fbe6, 0x1fbe7 => .octant,
         else => null,
@@ -156,9 +162,48 @@ fn rasterizeGeneratedBlockAlpha(pixels: []u8, width: u16, height: u16, codepoint
     }
 }
 
+fn rasterizeGeneratedEightBarAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32) void {
+    if (codepoint <= 0x1fb75) {
+        rasterizeEightBarAlpha(pixels, width, height, @intCast(codepoint - 0x1fb6f), false);
+    } else {
+        rasterizeEightBarAlpha(pixels, width, height, @intCast(codepoint - 0x1fb75), true);
+    }
+}
+
 fn rasterizeGeneratedSextantAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32) void {
     const sextant = generatedSextantPattern(codepoint) orelse unreachable;
     rasterizeSextantAlpha(pixels, width, height, sextant);
+}
+
+fn rasterizeEightBarAlpha(pixels: []u8, width: u16, height: u16, which: u8, horizontal: bool) void {
+    const x_range: Range = if (horizontal) .{ .start = 0, .end = width } else eightRange(width, which);
+    const y_range: Range = if (horizontal) eightRange(height, which) else .{ .start = 0, .end = height };
+    if (x_range.end > x_range.start and y_range.end > y_range.start) {
+        fillRectAlpha(pixels, width, x_range.start, y_range.start, x_range.end - x_range.start, y_range.end - y_range.start, 255);
+    }
+}
+
+fn eightRange(size: u16, which: u8) Range {
+    const thickness = @max(@as(u16, 1), size / 8);
+    const block = thickness * 8;
+    if (block == size) return .{ .start = thickness * which, .end = thickness * (@as(u16, which) + 1) };
+    if (block > size) {
+        const start = @min(@as(u16, which) * thickness, saturatingSubU16(size, thickness));
+        return .{ .start = start, .end = start + thickness };
+    }
+
+    var thicknesses = [_]u16{thickness} ** 8;
+    var extra = size - block;
+    const order = [_]u8{ 3, 4, 2, 5, 6, 1, 7, 0 };
+    for (order) |idx| {
+        if (extra == 0) break;
+        thicknesses[idx] += 1;
+        extra -= 1;
+    }
+    var pos: u16 = 0;
+    var idx: u8 = 0;
+    while (idx < which) : (idx += 1) pos += thicknesses[idx];
+    return .{ .start = pos, .end = pos + thicknesses[which] };
 }
 
 fn generatedSextantPattern(codepoint: u32) ?u8 {
@@ -1217,6 +1262,8 @@ test "generated special support table matches rasterizer dispatch" {
         .{ .start = 0x2580, .end = 0x259f },
         .{ .start = 0x2800, .end = 0x28ff },
         .{ .start = 0xe0b0, .end = 0xe0bf },
+        .{ .start = 0x1fb70, .end = 0x1fb75 },
+        .{ .start = 0x1fb76, .end = 0x1fb7b },
         .{ .start = 0x1fb00, .end = 0x1fb13 },
         .{ .start = 0x1fb14, .end = 0x1fb27 },
         .{ .start = 0x1fb28, .end = 0x1fb3b },
@@ -1233,9 +1280,10 @@ test "generated special support table matches rasterizer dispatch" {
         }
     }
 
-    try std.testing.expect(!special_glyphs.isGeneratedSpecialSupported(0x1fb70));
+    try std.testing.expect(special_glyphs.isGeneratedSpecialSupported(0x1fb93));
     var pixels = [_]u8{0} ** (12 * 18);
-    try std.testing.expect(!rasterizeGeneratedSpecialAlpha(&pixels, 12, 18, 0x1fb70));
+    try std.testing.expect(!rasterizeGeneratedSpecialAlpha(&pixels, 12, 18, 0x1fb93));
+    try std.testing.expect(!rasterizeGeneratedSpecialAlpha(&pixels, 12, 18, 0x1fbae));
 }
 
 test "generated special raster draws braille dots" {

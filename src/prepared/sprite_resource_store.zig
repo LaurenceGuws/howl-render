@@ -86,6 +86,12 @@ pub const SpriteResourceStore = struct {
         return .{};
     }
 
+    pub fn clear(self: *SpriteResourceStore) void {
+        const next_value = self.value_next;
+        self.* = .{};
+        self.value_next = next_value;
+    }
+
     pub fn fillForTest(self: *SpriteResourceStore, count: u32) void {
         comptime std.debug.assert(builtin.is_test);
         std.debug.assert(count <= c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
