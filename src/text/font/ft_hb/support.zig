@@ -5,6 +5,7 @@ const contract = @import("../../contract.zig");
 const text_session = @import("../../../session/text.zig");
 const text_mod = @import("../../text.zig");
 const font_resolve = @import("../resolve.zig");
+const text_paths = @import("../paths.zig");
 const geometry_contract = @import("../../../render/geometry_contract.zig");
 const text_cache = @import("cache.zig");
 const c_api = @import("c_api.zig");
@@ -14,8 +15,10 @@ pub const FtLibrary = c_api.FtLibrary;
 pub const FtFace = c_api.FtFace;
 pub const HbFont = c_api.HbFont;
 pub const primary_face_id: u32 = 1;
-pub const FallbackFontCount = u8;
-pub const max_fallback_fonts: FallbackFontCount = 24;
+pub const FallbackFontCount = text_paths.FallbackFontCount;
+pub const max_fallback_fonts: FallbackFontCount = text_paths.max_fallback_fonts;
+pub const fallbackFontCount = text_paths.fallbackFontCount;
+pub const fallbackFontLen = text_paths.fallbackFontLen;
 
 const ThreadMutex = struct {
     state: std.Io.Mutex = .init,
@@ -90,17 +93,6 @@ pub const FtHbCapacity = struct {
     max_shape_input_codepoints: u32,
     max_glyphs_per_run: u32,
 };
-
-// Slice lengths translate immediately into FallbackFontCount before owner state keeps them.
-pub fn fallbackFontCount(value: u32) ?FallbackFontCount {
-    if (value > max_fallback_fonts) return null;
-    return @intCast(value);
-}
-
-// Keep fallback lengths owner-typed until a caller reaches an actual slice or allocator edge.
-pub fn fallbackFontLen(value: FallbackFontCount) u32 {
-    return value;
-}
 
 fn textState(self: anytype) *State {
     const T = @TypeOf(self.*);
