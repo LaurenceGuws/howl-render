@@ -73,6 +73,34 @@ test "render ffi prepared render-surface retrieval status values are stable" {
     try std.testing.expectEqual(@as(i32, 10), c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_ALLOCATION_FAILED);
 }
 
+test "render ffi prepared render-surface maps every owner emission failure" {
+    const Case = struct {
+        failure: prepared_owner_model.RenderSurfaceEmissionFailure,
+        status: c.HowlRenderPreparedSurfaceRenderSurfaceStatus,
+    };
+    const cases = [_]Case{
+        .{ .failure = .none, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK },
+        .{ .failure = .allocation_failed, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_ALLOCATION_FAILED },
+        .{ .failure = .command_bound_overflow, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_COMMAND_BOUND_OVERFLOW },
+        .{ .failure = .create_bound_overflow, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_CREATE_BOUND_OVERFLOW },
+        .{ .failure = .damage_bound_overflow, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_DAMAGE_BOUND_OVERFLOW },
+        .{ .failure = .retire_bound_overflow, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RETIRE_BOUND_OVERFLOW },
+        .{ .failure = .resource_bound_overflow, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RESOURCE_BOUND_OVERFLOW },
+        .{ .failure = .upload_bound_overflow, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BOUND_OVERFLOW },
+        .{ .failure = .upload_bytes_overflow, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BYTES_OVERFLOW },
+        .{ .failure = .invalid_prepared_sprite, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_PREPARED_SPRITE },
+        .{ .failure = .missing_prepared_sprite, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_PREPARED_SPRITE },
+    };
+
+    for (cases) |case| {
+        var owner = preparedOwnerWithFailure(case.failure);
+        var surface_storage = std.mem.zeroes(c.HowlRenderSurface);
+        var surface: ?*const c.HowlRenderSurface = &surface_storage;
+        try std.testing.expectEqual(case.status, prepared_surface.renderSurface(@ptrCast(&owner), &surface));
+        try std.testing.expect(surface == null);
+    }
+}
+
 test "render ffi prepared info layout excludes render-surface retrieval status" {
     try std.testing.expectEqual(@as(usize, 0), @offsetOf(c.HowlRenderPreparedSurfaceInfo, "status"));
     try std.testing.expectEqual(@as(usize, 8), @offsetOf(c.HowlRenderPreparedSurfaceInfo, "snapshot_seq"));
@@ -586,6 +614,24 @@ fn validPartialPreparedSurfaceToken() c.HowlRenderPreparedSurfaceToken {
         .damage_base_seq = 1,
         .required_base_seq = 1,
         .damage_kind = damagePartial(),
+    };
+}
+
+fn preparedOwnerWithFailure(failure: prepared_owner_model.RenderSurfaceEmissionFailure) prepared_owner_model.Owner {
+    return .{
+        .session_owner = undefined,
+        .prepared = undefined,
+        .state = .prepared,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .geometry_epoch = 1,
+        .required_base_seq = 0,
+        .render_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 1, .rows = 1 },
+        .damage_kind = damageFull(),
+        .uploads_required = 0,
+        .render_surface_failure = failure,
     };
 }
 

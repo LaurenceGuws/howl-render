@@ -46,8 +46,24 @@ pub fn renderSurface(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle,
     };
     const value = out orelse return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;
     if (!owner.isLive()) return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;
-    value.* = owner.renderSurface() orelse return owner.render_surface_status;
+    value.* = owner.renderSurface() orelse return renderSurfaceStatus(owner.renderSurfaceFailure());
     return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK;
+}
+
+fn renderSurfaceStatus(failure: prepared_owner.RenderSurfaceEmissionFailure) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
+    return switch (failure) {
+        .none => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK,
+        .allocation_failed => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_ALLOCATION_FAILED,
+        .command_bound_overflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_COMMAND_BOUND_OVERFLOW,
+        .create_bound_overflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_CREATE_BOUND_OVERFLOW,
+        .damage_bound_overflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_DAMAGE_BOUND_OVERFLOW,
+        .retire_bound_overflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RETIRE_BOUND_OVERFLOW,
+        .resource_bound_overflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RESOURCE_BOUND_OVERFLOW,
+        .upload_bound_overflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BOUND_OVERFLOW,
+        .upload_bytes_overflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BYTES_OVERFLOW,
+        .invalid_prepared_sprite => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_PREPARED_SPRITE,
+        .missing_prepared_sprite => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_PREPARED_SPRITE,
+    };
 }
 
 pub fn preparedInfoOut(value: prepared_owner.PreparedInfo) c.HowlRenderPreparedSurfaceInfo {
