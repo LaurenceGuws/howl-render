@@ -38,16 +38,16 @@ pub fn describe(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, info
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn renderSurface(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, surface_out: ?*?*const c.HowlRenderSurface) callconv(.c) c_int {
+pub fn renderSurface(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, surface_out: ?*?*const c.HowlRenderSurface) callconv(.c) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
     const out = surface_out;
     if (out) |value| value.* = null;
     const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
-        return c.HOWL_RENDER_CALL_MISSING_HANDLE;
+        return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_HANDLE;
     };
-    const value = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!owner.isLive()) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    value.* = owner.renderSurface() orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    return c.HOWL_RENDER_CALL_OK;
+    const value = out orelse return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;
+    if (!owner.isLive()) return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;
+    value.* = owner.renderSurface() orelse return owner.render_surface_status;
+    return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK;
 }
 
 pub fn preparedInfoOut(value: prepared_owner.PreparedInfo) c.HowlRenderPreparedSurfaceInfo {
@@ -61,7 +61,6 @@ pub fn preparedInfoOut(value: prepared_owner.PreparedInfo) c.HowlRenderPreparedS
         .cell_px = .{ .width = value.cell_px.width, .height = value.cell_px.height },
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
         .damage_kind = value.damage_kind,
-        .render_surface_emit_status = value.render_surface_emit_status,
     };
 }
 
@@ -76,6 +75,5 @@ pub fn infoFailure(status: c_int) c.HowlRenderPreparedSurfaceInfo {
         .cell_px = .{ .width = 0, .height = 0 },
         .grid = .{ .cols = 0, .rows = 0 },
         .damage_kind = 0,
-        .render_surface_emit_status = c.HOWL_RENDER_SURFACE_EMIT_OK,
     };
 }

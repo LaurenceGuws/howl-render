@@ -22,7 +22,6 @@ pub const PreparedInfo = struct {
     render_px: geometry_contract.PixelSize,
     cell_px: geometry_contract.CellSize,
     grid: geometry_contract.GridSize,
-    render_surface_emit_status: i32,
     damage_kind: u8,
 };
 
@@ -47,7 +46,7 @@ pub const Owner = struct {
     grid: geometry_contract.GridSize,
     damage_kind: u8,
     uploads_required: u64,
-    render_surface_emit_status: i32 = c.HOWL_RENDER_SURFACE_EMIT_OK,
+    render_surface_status: c.HowlRenderPreparedSurfaceRenderSurfaceStatus = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK,
 
     pub const SubmitResult = union(enum) {
         rendered: prepared_submit_result.SubmitResult,
@@ -63,9 +62,9 @@ pub const Owner = struct {
         errdefer owner.destroy();
         try session_owner.registerPreparedHandle(owner);
         owner.emitRenderSurfacePayload() catch |err| {
-            owner.render_surface_emit_status = switch (err) {
-                error.OutOfMemory => c.HOWL_RENDER_SURFACE_EMIT_ALLOCATION_FAILED,
-                else => renderSurfaceEmitStatus(@errorCast(err)),
+            owner.render_surface_status = switch (err) {
+                error.OutOfMemory => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_ALLOCATION_FAILED,
+                else => renderSurfaceStatus(@errorCast(err)),
             };
         };
         return owner;
@@ -120,7 +119,6 @@ pub const Owner = struct {
             .render_px = self.render_px,
             .cell_px = self.cell_px,
             .grid = self.grid,
-            .render_surface_emit_status = self.render_surface_emit_status,
             .damage_kind = self.damage_kind,
         };
     }
@@ -236,21 +234,21 @@ fn ownerBase(session_owner: *text_session.TextSessionOwner, value: prepared_surf
         .grid = .{ .cols = value.grid.cols, .rows = value.grid.rows },
         .damage_kind = @intFromEnum(value.damageKind()),
         .uploads_required = value.text_frame.raster_plan.outputs.len,
-        .render_surface_emit_status = c.HOWL_RENDER_SURFACE_EMIT_OK,
+        .render_surface_status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK,
     };
 }
 
-fn renderSurfaceEmitStatus(err: render_surface_emitter.Error) i32 {
+fn renderSurfaceStatus(err: render_surface_emitter.Error) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
     return switch (err) {
-        error.CommandBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW,
-        error.CreateBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_CREATE_BOUND_OVERFLOW,
-        error.DamageBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_DAMAGE_BOUND_OVERFLOW,
-        error.RetireBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_RETIRE_BOUND_OVERFLOW,
-        error.ResourceBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_RESOURCE_BOUND_OVERFLOW,
-        error.UploadBoundOverflow => c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BOUND_OVERFLOW,
-        error.UploadBytesOverflow => c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW,
-        error.InvalidPreparedSprite => c.HOWL_RENDER_SURFACE_EMIT_INVALID_PREPARED_SPRITE,
-        error.MissingPreparedSprite => c.HOWL_RENDER_SURFACE_EMIT_MISSING_PREPARED_SPRITE,
+        error.CommandBoundOverflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_COMMAND_BOUND_OVERFLOW,
+        error.CreateBoundOverflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_CREATE_BOUND_OVERFLOW,
+        error.DamageBoundOverflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_DAMAGE_BOUND_OVERFLOW,
+        error.RetireBoundOverflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RETIRE_BOUND_OVERFLOW,
+        error.ResourceBoundOverflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RESOURCE_BOUND_OVERFLOW,
+        error.UploadBoundOverflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BOUND_OVERFLOW,
+        error.UploadBytesOverflow => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BYTES_OVERFLOW,
+        error.InvalidPreparedSprite => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_PREPARED_SPRITE,
+        error.MissingPreparedSprite => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_PREPARED_SPRITE,
     };
 }
 
@@ -348,8 +346,8 @@ test "create reports missing-sprite diagnostic without double free" {
     const owner = try Owner.create(session_owner, &owned_prepared);
     try std.testing.expect(owner.renderSurface() == null);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_MISSING_PREPARED_SPRITE,
-        owner.info().render_surface_emit_status,
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_PREPARED_SPRITE,
+        owner.render_surface_status,
     );
 }
 
@@ -371,7 +369,7 @@ test "owner exports prepared info and required upload count truth" {
         .grid = .{ .cols = 4, .rows = 5 },
         .damage_kind = 1,
         .uploads_required = 3,
-        .render_surface_emit_status = c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW,
+        .render_surface_status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BYTES_OVERFLOW,
     };
 
     owner.prepared = .{
@@ -406,48 +404,48 @@ test "owner exports prepared info and required upload count truth" {
     const info = owner.info();
     try std.testing.expectEqual(@as(u64, 7), info.snapshot_seq);
     try std.testing.expectEqual(@as(u64, 6), info.required_base_seq);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW, info.render_surface_emit_status);
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BYTES_OVERFLOW, owner.render_surface_status);
 
     const buffer = owner.buffer();
     try std.testing.expectEqual(@as(u64, 3), buffer.uploads_required);
 }
 
-test "owner maps every render-surface surface emit error to info status" {
+test "owner maps every render-surface emission error to retrieval status" {
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW,
-        renderSurfaceEmitStatus(error.CommandBoundOverflow),
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_COMMAND_BOUND_OVERFLOW,
+        renderSurfaceStatus(error.CommandBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_CREATE_BOUND_OVERFLOW,
-        renderSurfaceEmitStatus(error.CreateBoundOverflow),
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_CREATE_BOUND_OVERFLOW,
+        renderSurfaceStatus(error.CreateBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_DAMAGE_BOUND_OVERFLOW,
-        renderSurfaceEmitStatus(error.DamageBoundOverflow),
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_DAMAGE_BOUND_OVERFLOW,
+        renderSurfaceStatus(error.DamageBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_RETIRE_BOUND_OVERFLOW,
-        renderSurfaceEmitStatus(error.RetireBoundOverflow),
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RETIRE_BOUND_OVERFLOW,
+        renderSurfaceStatus(error.RetireBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_RESOURCE_BOUND_OVERFLOW,
-        renderSurfaceEmitStatus(error.ResourceBoundOverflow),
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RESOURCE_BOUND_OVERFLOW,
+        renderSurfaceStatus(error.ResourceBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BOUND_OVERFLOW,
-        renderSurfaceEmitStatus(error.UploadBoundOverflow),
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BOUND_OVERFLOW,
+        renderSurfaceStatus(error.UploadBoundOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_UPLOAD_BYTES_OVERFLOW,
-        renderSurfaceEmitStatus(error.UploadBytesOverflow),
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BYTES_OVERFLOW,
+        renderSurfaceStatus(error.UploadBytesOverflow),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_INVALID_PREPARED_SPRITE,
-        renderSurfaceEmitStatus(error.InvalidPreparedSprite),
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_PREPARED_SPRITE,
+        renderSurfaceStatus(error.InvalidPreparedSprite),
     );
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_MISSING_PREPARED_SPRITE,
-        renderSurfaceEmitStatus(error.MissingPreparedSprite),
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_PREPARED_SPRITE,
+        renderSurfaceStatus(error.MissingPreparedSprite),
     );
 }
 
@@ -594,8 +592,8 @@ test "render surface prepared owner reports missing surface when render_surface 
 
     try std.testing.expect(owner.renderSurface() == null);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW,
-        owner.info().render_surface_emit_status,
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_COMMAND_BOUND_OVERFLOW,
+        owner.render_surface_status,
     );
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
 }
@@ -613,8 +611,8 @@ test "render surface prepared owner overflow still consumes prepare surface once
 
     try std.testing.expect(owner.renderSurface() == null);
     try std.testing.expectEqual(
-        c.HOWL_RENDER_SURFACE_EMIT_COMMAND_BOUND_OVERFLOW,
-        owner.info().render_surface_emit_status,
+        c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_COMMAND_BOUND_OVERFLOW,
+        owner.render_surface_status,
     );
     try std.testing.expectEqual(@as(u64, 0), prepared.request.token.snapshot_seq);
     try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
@@ -660,8 +658,8 @@ test "render surface prepared owner allocation failure is reported in info" {
             .height_px = 1,
         });
         const owner = Owner.create(session_owner, &prepared) catch continue;
-        if (owner.info().render_surface_emit_status !=
-            c.HOWL_RENDER_SURFACE_EMIT_ALLOCATION_FAILED) continue;
+        if (owner.render_surface_status !=
+            c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_ALLOCATION_FAILED) continue;
         try std.testing.expect(owner.renderSurface() == null);
         return;
     }
