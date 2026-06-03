@@ -322,7 +322,6 @@ pub const TextSessionOwner = struct {
     prepared_handles: std.ArrayList(*prepared_owner.Owner) = .empty,
     font_paths: text_paths.FontPaths,
     render_surface_sprite_resources: sprite_resource_store.SpriteResourceStore = .init(),
-    prepare_handle_failure_count: u64 = 0,
 
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };
 
@@ -389,31 +388,12 @@ pub const TextSessionOwner = struct {
             .layout = consume.layout,
             .state = consume.state,
         }) catch |err| {
-            self.recordPrepareHandleFailure(err, token);
             return err;
         };
         errdefer prepared.deinit();
         return prepared_owner.Owner.create(self, &prepared) catch |err| {
-            self.recordPrepareHandleFailure(err, token);
             return err;
         };
-    }
-
-    fn recordPrepareHandleFailure(self: *TextSessionOwner, err: anyerror, token: tokens.SnapshotToken) void {
-        self.prepare_handle_failure_count +|= 1;
-        const count = self.prepare_handle_failure_count;
-        if (count > 8 and count % 120 != 0) return;
-        std.debug.print(
-            "howl-debug render-prepare-handle-failed count={} err={s} snapshot={} damage_kind={s} damage_base={} geometry={}\n",
-            .{
-                count,
-                @errorName(err),
-                token.snapshot_seq,
-                @tagName(token.damage_kind),
-                token.damage_base_seq,
-                token.geometry_epoch,
-            },
-        );
     }
 
     pub fn registerPreparedHandle(self: *TextSessionOwner, prepared: *prepared_owner.Owner) !void {

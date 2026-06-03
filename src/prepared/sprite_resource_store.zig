@@ -48,6 +48,8 @@ pub const SpriteResourceStore = struct {
     atlas_next_x: u16 = 0,
     atlas_next_y: u16 = 0,
     atlas_row_height: u16 = 0,
+    last_resource_entry_index: ?u32 = null,
+    last_atlas_entry_index: ?u32 = null,
 
     pub const Result = struct {
         resource: ResourceId,
@@ -121,7 +123,26 @@ pub const SpriteResourceStore = struct {
     pub fn resourceFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!Result {
         const format = uploadFormatForPrepared(sprite.color_mode);
         const bytes_hash = hashSpriteBytes(sprite, width_px, height_px, bytes);
-        for (self.entries[0..@intCast(self.count)]) |entry| {
+        if (self.last_resource_entry_index) |index| {
+            if (index < self.count) {
+                const entry = self.entries[index];
+                if (entry.key.value == sprite.key.value and
+                    entry.bytes_hash == bytes_hash and
+                    entry.width_px == width_px and
+                    entry.height_px == height_px and
+                    entry.format == format)
+                {
+                    const bytes_end = std.math.add(u32, entry.bytes_offset, entry.bytes_count) catch {
+                        return error.ResourceBoundOverflow;
+                    };
+                    std.debug.assert(bytes_end <= self.bytes_count);
+                    if (std.mem.eql(u8, self.bytes[entry.bytes_offset..bytes_end], bytes)) {
+                        return .{ .resource = entry.resource, .lifetime = .reused };
+                    }
+                }
+            }
+        }
+        for (self.entries[0..@intCast(self.count)], 0..) |entry, i| {
             if (entry.key.value != sprite.key.value) continue;
             if (entry.bytes_hash != bytes_hash) continue;
             if (entry.width_px != width_px) continue;
@@ -132,6 +153,7 @@ pub const SpriteResourceStore = struct {
             };
             std.debug.assert(bytes_end <= self.bytes_count);
             if (!std.mem.eql(u8, self.bytes[entry.bytes_offset..bytes_end], bytes)) continue;
+            self.last_resource_entry_index = @intCast(i);
             return .{ .resource = entry.resource, .lifetime = .reused };
         }
         const bytes_count: u32 = std.math.cast(u32, bytes.len) orelse {
@@ -160,17 +182,31 @@ pub const SpriteResourceStore = struct {
         @memcpy(self.bytes[self.bytes_count..bytes_end], bytes);
         self.bytes_count = bytes_end;
         self.count += 1;
+        self.last_resource_entry_index = self.count - 1;
         return .{ .resource = resource, .lifetime = .persistent };
     }
 
     pub fn atlasRegionFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!AtlasResult {
         std.debug.assert(sprite.color_mode == .alpha);
         const bytes_hash = hashSpriteBytes(sprite, width_px, height_px, bytes);
-        for (self.atlas_entries[0..@intCast(self.atlas_count)]) |entry| {
+        if (self.last_atlas_entry_index) |index| {
+            if (index < self.atlas_count) {
+                const entry = self.atlas_entries[index];
+                if (entry.key.value == sprite.key.value and
+                    entry.bytes_hash == bytes_hash and
+                    entry.width_px == width_px and
+                    entry.height_px == height_px)
+                {
+                    return .{ .resource = self.atlas_resource, .rect = entry.rect, .created = false, .uploaded = false };
+                }
+            }
+        }
+        for (self.atlas_entries[0..@intCast(self.atlas_count)], 0..) |entry, i| {
             if (entry.key.value != sprite.key.value) continue;
             if (entry.bytes_hash != bytes_hash) continue;
             if (entry.width_px != width_px) continue;
             if (entry.height_px != height_px) continue;
+            self.last_atlas_entry_index = @intCast(i);
             return .{ .resource = self.atlas_resource, .rect = entry.rect, .created = false, .uploaded = false };
         }
         if (self.atlas_count >= alpha_atlas_entries_max) return error.ResourceBoundOverflow;
@@ -185,6 +221,7 @@ pub const SpriteResourceStore = struct {
             .rect = rect_value,
         };
         self.atlas_count += 1;
+        self.last_atlas_entry_index = self.atlas_count - 1;
         return .{ .resource = resource, .rect = rect_value, .created = !had_resource, .uploaded = true };
     }
 
@@ -319,4 +356,44 @@ test "render-surface sprite resource store alpha atlas reports explicit entry ex
         resources.atlasRegionFor(overflow_sprite, 1, 1, &pixel),
     );
     try std.testing.expectEqual(alpha_atlas_entries_max, resources.atlas_count);
+}
+
+test "render-surface sprite resource store reuses last atlas and resource lookups" {
+    var resources = SpriteResourceStore.init();
+    const alpha_pixel = [_]u8{255};
+    const color_bytes = [_]u8{1, 2, 3, 4};
+    const atlas_sprite = PreparedSprite{
+        .key = .{ .value = 1 },
+        .pixels = &alpha_pixel,
+        .width_px = 1,
+        .height_px = 1,
+        .stride_bytes = 1,
+        .color_mode = .alpha,
+        .visual_bounds = .{},
+    };
+    const color_sprite = PreparedSprite{
+        .key = .{ .value = 2 },
+        .pixels = &color_bytes,
+        .width_px = 1,
+        .height_px = 1,
+        .stride_bytes = 4,
+        .color_mode = .color,
+        .visual_bounds = .{},
+    };
+
+    const first_atlas = try resources.atlasRegionFor(atlas_sprite, 1, 1, &alpha_pixel);
+    try std.testing.expect(first_atlas.created);
+    try std.testing.expect(first_atlas.uploaded);
+    const second_atlas = try resources.atlasRegionFor(atlas_sprite, 1, 1, &alpha_pixel);
+    try std.testing.expect(!second_atlas.created);
+    try std.testing.expect(!second_atlas.uploaded);
+    try std.testing.expectEqual(first_atlas.rect, second_atlas.rect);
+    try std.testing.expectEqual(@as(u32, 1), resources.atlas_count);
+
+    const first_resource = try resources.resourceFor(color_sprite, 1, 1, &color_bytes);
+    try std.testing.expectEqual(SpriteResourceStore.Result.Lifetime.persistent, first_resource.lifetime);
+    const second_resource = try resources.resourceFor(color_sprite, 1, 1, &color_bytes);
+    try std.testing.expectEqual(SpriteResourceStore.Result.Lifetime.reused, second_resource.lifetime);
+    try std.testing.expectEqual(first_resource.resource, second_resource.resource);
+    try std.testing.expectEqual(@as(u32, 1), resources.count);
 }
