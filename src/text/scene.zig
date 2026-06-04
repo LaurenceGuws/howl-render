@@ -128,14 +128,7 @@ pub fn buildSceneWithAtlasCacheOptions(
     const damage = normalizedDamage(options.damage, grid_metrics.rows);
     var assembly = SceneAssembly{ .allocator = allocator };
     errdefer assembly.deinit();
-    try assembly.missing.appendSlice(allocator, missing);
-
-    try appendGroupSpriteDraws(&assembly, cache, cells, groups, cell_metrics, grid_metrics, damage);
-    try appendSceneCursorDraws(&assembly, options.cursor, damage, cell_metrics);
-
-    try appendClearDraws(allocator, &assembly.clear_draws, cells, cell_metrics, grid_metrics, damage);
-    try appendBackgroundDraws(allocator, &assembly.background_draws, cells, cell_metrics, grid_metrics, damage);
-    try appendDecorationDraws(&assembly, cache, cells, cell_metrics, grid_metrics, damage);
+    try appendSceneAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
     return assembly.toOwnedScene(damage);
 }
 
@@ -157,15 +150,29 @@ pub fn buildBorrowedSceneWithAtlasCacheOptions(
     var assembly = SceneAssembly{ .allocator = allocator };
     assembly.adoptRetainedScratch(scratch);
     errdefer assembly.deinit();
-    try assembly.missing.appendSlice(allocator, missing);
-
-    try appendGroupSpriteDraws(&assembly, cache, cells, groups, cell_metrics, grid_metrics, damage);
-    try appendSceneCursorDraws(&assembly, options.cursor, damage, cell_metrics);
-
-    try appendClearDraws(allocator, &assembly.clear_draws, cells, cell_metrics, grid_metrics, damage);
-    try appendBackgroundDraws(allocator, &assembly.background_draws, cells, cell_metrics, grid_metrics, damage);
-    try appendDecorationDraws(&assembly, cache, cells, cell_metrics, grid_metrics, damage);
+    try appendSceneAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
     return assembly.toBorrowedScene(damage);
+}
+
+fn appendSceneAssemblyPopulation(
+    assembly: *SceneAssembly,
+    cache: *atlas_cache.OwnedAtlasCache,
+    cells: []const contract.RenderableCell,
+    groups: []const contract.GlyphGroup,
+    missing: []const contract.MissingGlyph,
+    cell_metrics: contract.CellMetrics,
+    grid_metrics: contract.GridMetrics,
+    damage: NormalizedDamage,
+    cursor: ?CursorInput,
+) !void {
+    try assembly.missing.appendSlice(assembly.allocator, missing);
+
+    try appendGroupSpriteDraws(assembly, cache, cells, groups, cell_metrics, grid_metrics, damage);
+    try appendSceneCursorDraws(assembly, cursor, damage, cell_metrics);
+
+    try appendClearDraws(assembly.allocator, &assembly.clear_draws, cells, cell_metrics, grid_metrics, damage);
+    try appendBackgroundDraws(assembly.allocator, &assembly.background_draws, cells, cell_metrics, grid_metrics, damage);
+    try appendDecorationDraws(assembly, cache, cells, cell_metrics, grid_metrics, damage);
 }
 
 const NormalizedDamage = struct {
