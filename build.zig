@@ -34,28 +34,52 @@ pub fn build(b: *std.Build) void {
         .optimize = perf_optimize,
     });
     const perf_harfbuzz_lib = perf_harfbuzz_dep.artifact("harfbuzz");
-    const test_mod = b.createModule(.{
-        .root_source_file = b.path("src/test.zig"),
+    const unit_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/test_unit.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
-    test_mod.addIncludePath(b.path("include"));
-    test_mod.addIncludePath(b.path("../howl-vt/include"));
-    test_mod.addImport("test_font_options", test_font_options.createModule());
-    test_mod.linkLibrary(freetype_lib);
-    test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
-    test_mod.linkLibrary(harfbuzz_lib);
-    test_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    const render_tests = b.addTest(.{
-        .name = "test-render",
-        .root_module = test_mod,
+    unit_test_mod.addIncludePath(b.path("include"));
+    unit_test_mod.addIncludePath(b.path("../howl-vt/include"));
+    unit_test_mod.addImport("test_font_options", test_font_options.createModule());
+    unit_test_mod.linkLibrary(freetype_lib);
+    unit_test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
+    unit_test_mod.linkLibrary(harfbuzz_lib);
+    unit_test_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    const unit_tests = b.addTest(.{
+        .name = "test-unit",
+        .root_module = unit_test_mod,
         .filters = b.args orelse &.{},
     });
-    render_tests.use_llvm = true;
-    const run_render_tests = b.addRunArtifact(render_tests);
+    unit_tests.use_llvm = true;
+    const run_unit_tests = b.addRunArtifact(unit_tests);
     if (b.args != null) {
-        run_render_tests.has_side_effects = true;
+        run_unit_tests.has_side_effects = true;
+    }
+
+    const abi_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/test_abi.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    abi_test_mod.addIncludePath(b.path("include"));
+    abi_test_mod.addIncludePath(b.path("../howl-vt/include"));
+    abi_test_mod.addImport("test_font_options", test_font_options.createModule());
+    abi_test_mod.linkLibrary(freetype_lib);
+    abi_test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
+    abi_test_mod.linkLibrary(harfbuzz_lib);
+    abi_test_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    const abi_tests = b.addTest(.{
+        .name = "test-abi",
+        .root_module = abi_test_mod,
+        .filters = b.args orelse &.{},
+    });
+    abi_tests.use_llvm = true;
+    const run_abi_tests = b.addRunArtifact(abi_tests);
+    if (b.args != null) {
+        run_abi_tests.has_side_effects = true;
     }
 
     const check_step = b.step("check", "Compile owner surfaces without installing or running");
@@ -65,10 +89,10 @@ pub fn build(b: *std.Build) void {
     const unit_test_build_step = b.step("test:unit:build", "Build render unit tests");
     const abi_test_step = b.step("test:abi", "Run shipped render ABI contract tests");
     const abi_test_build_step = b.step("test:abi:build", "Build shipped render ABI contract tests");
-    unit_test_build_step.dependOn(&render_tests.step);
-    unit_test_step.dependOn(&run_render_tests.step);
-    abi_test_build_step.dependOn(&render_tests.step);
-    abi_test_step.dependOn(&run_render_tests.step);
+    unit_test_build_step.dependOn(&unit_tests.step);
+    unit_test_step.dependOn(&run_unit_tests.step);
+    abi_test_build_step.dependOn(&abi_tests.step);
+    abi_test_step.dependOn(&run_abi_tests.step);
     test_build_step.dependOn(unit_test_build_step);
     test_build_step.dependOn(abi_test_build_step);
     test_step.dependOn(unit_test_step);
@@ -97,7 +121,7 @@ pub fn build(b: *std.Build) void {
     check_step.dependOn(test_build_step);
 
     const benchmark_mod = b.createModule(.{
-        .root_source_file = b.path("src/test.zig"),
+        .root_source_file = b.path("src/benchmark_main.zig"),
         .target = target,
         .optimize = perf_optimize,
         .link_libc = true,
