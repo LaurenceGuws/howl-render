@@ -1,6 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
-
 const c = @import("../ffi.zig").c;
 const contract = @import("../text/contract.zig");
 const text = @import("../text/text.zig");
@@ -92,32 +90,6 @@ pub const SpriteResourceStore = struct {
         const next_value = self.value_next;
         self.* = .{};
         self.value_next = next_value;
-    }
-
-    pub fn fillForTest(self: *SpriteResourceStore, count: u32) void {
-        comptime std.debug.assert(builtin.is_test);
-        std.debug.assert(count <= c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
-        self.count = count;
-        self.bytes_count = 0;
-        self.value_next = @as(u64, count) + 1;
-        var index: u32 = 0;
-        while (index < count) : (index += 1) {
-            const value = @as(u64, index) + 1;
-            self.entries[@intCast(index)] = .{
-                .key = .{ .value = value },
-                .bytes_hash = value,
-                .bytes_offset = 0,
-                .bytes_count = 0,
-                .resource = .{
-                    .value = value,
-                    .generation = 1,
-                    .kind = c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
-                },
-                .width_px = 1,
-                .height_px = 1,
-                .format = c.HOWL_RENDER_UPLOAD_ALPHA8,
-            };
-        }
     }
 
     pub fn resourceFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!Result {

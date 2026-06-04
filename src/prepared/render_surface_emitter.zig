@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 const c = @import("../ffi.zig").c;
 const contract = @import("../text/contract.zig");
@@ -854,20 +853,7 @@ fn rect(x_px: i32, y_px: i32, width_px: u16, height_px: u16) Rect {
     return .{ .x_px = x_px, .y_px = y_px, .width_px = width_px, .height_px = height_px };
 }
 
-fn spriteFixture(sprite_rect: Rect, color_rgba: u32, bytes: []const u8, width_px: u16, height_px: u16, stride_bytes: u32, color_mode: ColorMode) Sprite {
-    return .{
-        .rect = sprite_rect,
-        .color_rgba = color_rgba,
-        .bytes = bytes,
-        .width_px = width_px,
-        .height_px = height_px,
-        .stride_bytes = stride_bytes,
-        .color_mode = color_mode,
-    };
-}
-
 fn glyphRefForTest(glyph_id: u32) GlyphRef {
-    comptime std.debug.assert(builtin.is_test);
     return .{
         .atlas_resource = .{
             .value = 1,
@@ -880,6 +866,31 @@ fn glyphRefForTest(glyph_id: u32) GlyphRef {
         .glyph_id = glyph_id,
         .color_rgba = 0xffffffff,
     };
+}
+
+fn fillResourcesForTest(resources: *sprite_resource_store.SpriteResourceStore, count: u32) void {
+    std.debug.assert(count <= c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
+    resources.count = count;
+    resources.bytes_count = 0;
+    resources.value_next = @as(u64, count) + 1;
+    var index: u32 = 0;
+    while (index < count) : (index += 1) {
+        const value = @as(u64, index) + 1;
+        resources.entries[@intCast(index)] = .{
+            .key = .{ .value = value },
+            .bytes_hash = value,
+            .bytes_offset = 0,
+            .bytes_count = 0,
+            .resource = .{
+                .value = value,
+                .generation = 1,
+                .kind = c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
+            },
+            .width_px = 1,
+            .height_px = 1,
+            .format = c.HOWL_RENDER_UPLOAD_ALPHA8,
+        };
+    }
 }
 
 fn realizeFixture(comptime limits: Limits, fixture: Fixture, pixels: []u8) !void {
@@ -1054,8 +1065,8 @@ test "render surface surface emitter rejects upload bound overflow" {
     };
     const one = [_]u8{255};
     const sprites = [_]Sprite{
-        spriteFixture(rect(0, 0, 1, 1), 0xffffffff, &one, 1, 1, 1, .alpha),
-        spriteFixture(rect(0, 0, 1, 1), 0xffffffff, &one, 1, 1, 1, .alpha),
+        .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
+        .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
     };
     var emitter = Emitter(limits).init();
     try std.testing.expectError(error.UploadBoundOverflow, emitter.emit(&.{
@@ -1074,8 +1085,8 @@ test "render surface surface emitter rejects retire bound overflow" {
     };
     const one = [_]u8{255};
     const sprites = [_]Sprite{
-        spriteFixture(rect(0, 0, 1, 1), 0xffffffff, &one, 1, 1, 1, .alpha),
-        spriteFixture(rect(0, 0, 1, 1), 0xffffffff, &one, 1, 1, 1, .alpha),
+        .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
+        .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
     };
     var emitter = Emitter(limits).init();
     try std.testing.expectError(error.RetireBoundOverflow, emitter.emit(&.{
@@ -2025,7 +2036,7 @@ test "render surface surface emitter emits transient sprite beyond persistent bu
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    resources.fillForTest(sprite_resource_store.persistent_sprite_resources_max);
+    fillResourcesForTest(&resources, sprite_resource_store.persistent_sprite_resources_max);
     const surface = try emitter.emitPrepared(&resources, &session, &prepared);
     try std.testing.expectEqual(sprite_resource_store.persistent_sprite_resources_max, resources.count);
     try std.testing.expectEqual(@as(u32, 1), surface.creates.count);
@@ -2064,7 +2075,7 @@ test "render surface surface emitter reports exact transient retire bound" {
         .retires_max = 1,
     }).init();
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    resources.fillForTest(sprite_resource_store.persistent_sprite_resources_max);
+    fillResourcesForTest(&resources, sprite_resource_store.persistent_sprite_resources_max);
     try std.testing.expectError(
         error.RetireBoundOverflow,
         emitter.emitPrepared(&resources, &session, &prepared),

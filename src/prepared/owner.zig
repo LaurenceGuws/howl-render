@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const tokens = @import("../render/tokens.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const prepared_buffer = @import("buffer.zig");
@@ -151,17 +150,6 @@ pub const Owner = struct {
     pub fn renderSurfaceEmissionFailure(self: *const Owner) RenderSurfaceEmissionFailure {
         std.debug.assert(self.isLive());
         return self.render_surface_emission_failure;
-    }
-
-    pub fn renderSurfaceForTest(self: *const Owner) *const render_surface_emitter.Surface {
-        comptime std.debug.assert(builtin.is_test);
-        return self.renderSurface().?;
-    }
-
-    pub fn renderSurfaceStorageEmptyForTest(self: *const Owner) bool {
-        comptime std.debug.assert(builtin.is_test);
-        std.debug.assert(!self.isLive());
-        return self.render_surface_payload == null;
     }
 
     pub fn preparedSurfaceToken(self: *const Owner) tokens.PreparedSurfaceToken {
@@ -481,7 +469,7 @@ test "render surface prepared owner surface equals explicit rgba oracle" {
     const oracle = try prepared_buffer.compose(allocator, null, &session_owner.session, &prepared);
     defer allocator.free(oracle);
     const owner = try Owner.create(session_owner, &prepared);
-    const surface = owner.renderSurfaceForTest();
+    const surface = owner.renderSurface().?;
     try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
     try std.testing.expect(surface.uploads.ptr[0].bytes_ptr != null);
     const upload_bytes_ptr = surface.uploads.ptr[0].bytes_ptr;
@@ -491,7 +479,7 @@ test "render surface prepared owner surface equals explicit rgba oracle" {
     try render_surface_realizer.realize(surface, realized, null);
     try std.testing.expectEqual(
         upload_bytes_ptr,
-        owner.renderSurfaceForTest().uploads.ptr[0].bytes_ptr,
+        owner.renderSurface().?.uploads.ptr[0].bytes_ptr,
     );
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
@@ -524,7 +512,7 @@ test "render surface prepared owner partial surface equals explicit base rgba or
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
     try render_surface_realizer.realize(
-        owner.renderSurfaceForTest(),
+        owner.renderSurface().?,
         realized,
         &base,
     );
@@ -549,11 +537,11 @@ test "render surface prepared owner releases render_surface payload with handle"
     });
 
     const owner = try Owner.create(session_owner, &prepared);
-    try std.testing.expectEqual(@as(u32, 2), owner.renderSurfaceForTest().commands.count);
+    try std.testing.expectEqual(@as(u32, 2), owner.renderSurface().?.commands.count);
 
     owner.release();
 
-    try std.testing.expect(owner.renderSurfaceStorageEmptyForTest());
+    try std.testing.expect(owner.render_surface_payload == null);
 }
 
 test "render surface prepared owner reports missing surface when render_surface emission overflows" {

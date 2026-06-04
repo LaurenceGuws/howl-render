@@ -549,36 +549,6 @@ pub const TextSessionOwner = struct {
     }
 };
 
-fn testPublicationSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !source_vt.PublicationSource {
-    const cells = try allocator.alloc(source_vt.SourceCell, 1);
-    errdefer allocator.free(cells);
-    cells[0] = std.mem.zeroes(source_vt.SourceCell);
-    cells[0].codepoint = codepoint;
-    const dirty_rows = try allocator.dupe(u8, &.{1});
-    errdefer allocator.free(dirty_rows);
-    const dirty_cols_start = try allocator.dupe(u16, &.{0});
-    errdefer allocator.free(dirty_cols_start);
-    const dirty_cols_end = try allocator.dupe(u16, &.{0});
-    errdefer allocator.free(dirty_cols_end);
-    return .{
-        .cols = 1,
-        .rows = 1,
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = snapshot_seq,
-        .dirty_epoch = snapshot_seq,
-        .is_alternate_screen = false,
-        .cells = cells,
-        .cursor = std.mem.zeroes(source_cell.CursorInfo),
-        .colors = std.mem.zeroes(source_vt.SourceColors),
-        .selection = std.mem.zeroes(source_vt.SourceSelection),
-        .cursor_phase_visible = true,
-        .dirty_rows = dirty_rows,
-        .dirty_cols_start = dirty_cols_start,
-        .dirty_cols_end = dirty_cols_end,
-    };
-}
-
 test "ft hb retained capacities separate cache slots from run scratch" {
     var session = TextSession.init(std.testing.allocator);
     defer session.deinit();
