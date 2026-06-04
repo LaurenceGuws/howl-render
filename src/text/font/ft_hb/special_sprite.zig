@@ -10,65 +10,7 @@ const PointF = struct { x: f64, y: f64 };
 pub fn rasterizeSpecialSpriteAlpha(dst: []u8, width: u16, height: u16, codepoint: u32) void {
     const w = @max(width, 1);
     const h = @max(height, 1);
-    const th_h: u16 = @max(1, h / 8);
-    const th_v: u16 = th_h;
     switch (codepoint) {
-        0x2500, 0x2501, 0x2574, 0x2576 => drawAlphaH(dst, w, h, th_h, .full),
-        0x2502, 0x2503, 0x2575, 0x2577 => drawAlphaV(dst, w, h, th_v, .full),
-        0x250c, 0x250d, 0x250e, 0x250f => {
-            drawAlphaH(dst, w, h, th_h, .right);
-            drawAlphaV(dst, w, h, th_v, .bottom);
-        },
-        0x2510, 0x2511, 0x2512, 0x2513 => {
-            drawAlphaH(dst, w, h, th_h, .left);
-            drawAlphaV(dst, w, h, th_v, .bottom);
-        },
-        0x2514, 0x2515, 0x2516, 0x2517 => {
-            drawAlphaH(dst, w, h, th_h, .right);
-            drawAlphaV(dst, w, h, th_v, .top);
-        },
-        0x2518, 0x2519, 0x251a, 0x251b => {
-            drawAlphaH(dst, w, h, th_h, .left);
-            drawAlphaV(dst, w, h, th_v, .top);
-        },
-        0x251c...0x2523 => {
-            drawAlphaH(dst, w, h, th_h, .right);
-            drawAlphaV(dst, w, h, th_v, .full);
-        },
-        0x2524...0x252b => {
-            drawAlphaH(dst, w, h, th_h, .left);
-            drawAlphaV(dst, w, h, th_v, .full);
-        },
-        0x252c...0x2533 => {
-            drawAlphaH(dst, w, h, th_h, .full);
-            drawAlphaV(dst, w, h, th_v, .bottom);
-        },
-        0x2534...0x253b => {
-            drawAlphaH(dst, w, h, th_h, .full);
-            drawAlphaV(dst, w, h, th_v, .top);
-        },
-        0x253c...0x254b => {
-            drawAlphaH(dst, w, h, th_h, .full);
-            drawAlphaV(dst, w, h, th_v, .full);
-        },
-        0x256d => drawAlphaRoundedCorner(dst, w, h, .top_left, @max(th_h, th_v)),
-        0x256e => drawAlphaRoundedCorner(dst, w, h, .top_right, @max(th_h, th_v)),
-        0x2570 => drawAlphaRoundedCorner(dst, w, h, .bottom_left, @max(th_h, th_v)),
-        0x256f => drawAlphaRoundedCorner(dst, w, h, .bottom_right, @max(th_h, th_v)),
-        0x2580 => drawAlphaRect(dst, w, 0, 0, w, @max(1, h / 2), 255),
-        0x2584 => {
-            const hh = @max(1, h / 2);
-            drawAlphaRect(dst, w, 0, h - hh, w, hh, 255);
-        },
-        0x2588 => drawAlphaRect(dst, w, 0, 0, w, h, 255),
-        0x258c => drawAlphaRect(dst, w, 0, 0, @max(1, w / 2), h, 255),
-        0x2590 => {
-            const hw = @max(1, w / 2);
-            drawAlphaRect(dst, w, w - hw, 0, hw, h, 255);
-        },
-        0x2591 => fillAlphaChecker(dst, w, h, 0x33),
-        0x2592 => fillAlphaChecker(dst, w, h, 0x77),
-        0x2593 => fillAlphaChecker(dst, w, h, 0xbb),
         0xe0d6 => drawAlphaTriangle(dst, w, h, false, true),
         0xe0d7 => drawAlphaTriangle(dst, w, h, true, true),
         0xee00 => drawAlphaProgressBar(dst, w, h, .left, false),
