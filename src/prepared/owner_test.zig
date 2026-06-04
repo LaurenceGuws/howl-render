@@ -6,7 +6,7 @@ const prepared_surface = @import("surface.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
 const render_surface_realizer = @import("../render/render_surface_realizer.zig");
 const text_session = @import("../session/text.zig");
-const text = @import("../text/text.zig");
+const rasterizer = @import("../text/raster/rasterizer.zig");
 const contract = @import("../text/contract.zig");
 
 const Owner = prepared_owner.Owner;
@@ -60,7 +60,7 @@ test "create reports missing-sprite diagnostic without double free" {
 }
 
 test "owner exports prepared info and required upload count truth" {
-    var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{ undefined, undefined, undefined };
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{ undefined, undefined, undefined };
     var owner = Owner{
         .session_owner = undefined,
         .prepared = undefined,
@@ -147,7 +147,7 @@ test "render surface prepared owner surface equals explicit rgba oracle" {
 
     var sprite_bytes = [_]u8{ 255, 128 };
     var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(21, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
-    var raster_outputs = [_]text.Rasterizer.RasterSpriteOutput{rasterOutput(allocator, 21, 2, 1, .alpha, &sprite_bytes, .{})};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 21, 2, 1, .alpha, &sprite_bytes, .{})};
     var prepared = preparedSurface(.{
         .sprite_draws = &sprite_draws,
         .raster_outputs = &raster_outputs,
@@ -304,7 +304,7 @@ const PreparedOptions = struct {
     sprite_draws: []const contract.TextSpriteDraw = &.{},
     decoration_draws: []const contract.TextDecorationDraw = &.{},
     cursor_draws: []const contract.TextCursorDraw = &.{},
-    raster_outputs: []text.Rasterizer.RasterSpriteOutput = &.{},
+    raster_outputs: []rasterizer.RasterSpriteOutput = &.{},
     width_px: u16,
     height_px: u16,
     full_redraw: bool = true,
@@ -338,7 +338,7 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     };
 }
 
-fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: contract.SpriteColorMode, pixels: []u8, visual_bounds: text.Rasterizer.SpriteBounds) text.Rasterizer.RasterSpriteOutput {
+fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: contract.SpriteColorMode, pixels: []u8, visual_bounds: rasterizer.SpriteBounds) rasterizer.RasterSpriteOutput {
     return .{ .allocator = allocator, .key = .{ .value = key }, .width_px = width_px, .height_px = height_px, .color_mode = color_mode, .visual_bounds = visual_bounds, .pixels = pixels };
 }
 

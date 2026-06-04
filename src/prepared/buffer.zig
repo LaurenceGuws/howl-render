@@ -2,7 +2,7 @@ const std = @import("std");
 const prepared_surface = @import("surface.zig");
 const text_session = @import("../session/text.zig");
 const contract = @import("../text/contract.zig");
-const text = @import("../text/text.zig");
+const rasterizer = @import("../text/raster/rasterizer.zig");
 
 pub fn compose(allocator: std.mem.Allocator, base_pixels: ?[]const u8, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) ![]u8 {
     const width = prepared.render_px.width;
@@ -85,7 +85,7 @@ const SpriteRaster = struct {
     pixels: []const u8,
     stride: u16,
     color_mode: contract.SpriteColorMode,
-    visual_bounds: text.Rasterizer.SpriteBounds,
+    visual_bounds: rasterizer.SpriteBounds,
 };
 
 fn clearSurfacePixels(pixels: []u8) void {
@@ -162,7 +162,7 @@ fn lookupSprite(session: *text_session.TextSession, prepared: *const prepared_su
     };
 }
 
-fn packedStrideForOutput(output: text.Rasterizer.RasterSpriteOutput) u16 {
+fn packedStrideForOutput(output: rasterizer.RasterSpriteOutput) u16 {
     const channels: u16 = switch (output.color_mode) {
         .alpha => 1,
         .color => 4,
@@ -175,7 +175,7 @@ fn drawSpriteInstance(pixels: []u8, width: u16, height: u16, draw: contract.Text
         sprite.visual_bounds.height_px != 0)
         sprite.visual_bounds
     else
-        text.Rasterizer.SpriteBounds{
+        rasterizer.SpriteBounds{
             .x_px = 0,
             .y_px = 0,
             .width_px = draw.width_px,

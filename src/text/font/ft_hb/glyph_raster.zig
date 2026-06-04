@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const contract = @import("../../contract.zig");
 const text_session = @import("../../../session/text.zig");
-const text = @import("../../text.zig");
+const rasterizer = @import("../../raster/rasterizer.zig");
 const provider_mod = @import("support.zig");
 const special_sprite = @import("special_sprite.zig");
 const c_api = @import("c_api.zig");
@@ -43,7 +43,7 @@ fn configView(self: anytype) text_session.TextSessionConfig {
     @compileError("text config owner missing session config");
 }
 
-pub fn providerRasterizeSprite(comptime ContextType: type, ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!text.Rasterizer.RasterSpriteOutput {
+pub fn providerRasterizeSprite(comptime ContextType: type, ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
     const context: *ContextType = @ptrCast(@alignCast(ctx));
     const width = @max(req.width_px, 1);
     const height = @max(req.height_px, 1);
@@ -150,11 +150,11 @@ fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
 }
 fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, height: u16, req: contract.SpriteRasterRequest) bool {
     if (req.kind == .undercurl) {
-        text.Rasterizer.rasterizeUndercurlAlpha(pixels, width, height, req.decoration);
+        rasterizer.rasterizeUndercurlAlpha(pixels, width, height, req.decoration);
         return true;
     }
     if (req.group.kind == .box_fallback) {
-        if (!text.Rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing)) {
+        if (!rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing)) {
             special_sprite.rasterizeSpecialSpriteAlpha(pixels, width, height, req.group.first_cp);
         }
         return true;
@@ -163,7 +163,7 @@ fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, h
     special_sprite.rasterizeFallbackGlyph(pixels, width, height, @intCast(req.group.first_cp), width, height);
     return true;
 }
-fn providerSpriteOutput(allocator: std.mem.Allocator, req: contract.SpriteRasterRequest, width: u16, height: u16, pixels: []u8) text.Rasterizer.RasterSpriteOutput {
+fn providerSpriteOutput(allocator: std.mem.Allocator, req: contract.SpriteRasterRequest, width: u16, height: u16, pixels: []u8) rasterizer.RasterSpriteOutput {
     return .{ .allocator = allocator, .key = req.key, .width_px = width, .height_px = height, .color_mode = req.color_mode, .pixels = pixels };
 }
 fn rasterPixelCount(width: u16, height: u16) u32 {

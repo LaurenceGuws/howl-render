@@ -7,7 +7,6 @@ const prepared_submit_result = @import("submit_result.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
 const render_surface_realizer = @import("../render/render_surface_realizer.zig");
 const text_session = @import("../session/text.zig");
-const text = @import("../text/text.zig");
 const contract = @import("../text/contract.zig");
 
 pub const PreparedSurfaceHandle = ?*anyopaque;

@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @import("../ffi.zig").c;
 const contract = @import("../text/contract.zig");
-const text = @import("../text/text.zig");
+const rasterizer = @import("../text/raster/rasterizer.zig");
 
 const ResourceId = c.HowlRenderResourceId;
 const Rect = c.HowlRenderSurfaceRect;
@@ -31,7 +31,7 @@ pub const PreparedSprite = struct {
     height_px: u16,
     stride_bytes: u32,
     color_mode: contract.SpriteColorMode,
-    visual_bounds: text.Rasterizer.SpriteBounds,
+    visual_bounds: rasterizer.SpriteBounds,
 };
 
 pub const SpriteResourceStore = struct {
@@ -333,7 +333,7 @@ test "render-surface sprite resource store alpha atlas reports explicit entry ex
 test "render-surface sprite resource store reuses last atlas and resource lookups" {
     var resources = SpriteResourceStore.init();
     const alpha_pixel = [_]u8{255};
-    const color_bytes = [_]u8{1, 2, 3, 4};
+    const color_bytes = [_]u8{ 1, 2, 3, 4 };
     const atlas_sprite = PreparedSprite{
         .key = .{ .value = 1 },
         .pixels = &alpha_pixel,

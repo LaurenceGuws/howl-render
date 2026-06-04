@@ -1,7 +1,8 @@
-const text = @import("../text/text.zig");
+const atlas_cache = @import("../text/raster/cache.zig");
+const rasterizer = @import("../text/raster/rasterizer.zig");
 const tokens = @import("../render/tokens.zig");
 
-pub fn markRendered(atlas: *text.AtlasCache.OwnedAtlasCache, outputs: []const text.Rasterizer.RasterSpriteOutput) void {
+pub fn markRendered(atlas: *atlas_cache.OwnedAtlasCache, outputs: []const rasterizer.RasterSpriteOutput) void {
     for (outputs) |output| {
         _ = atlas.storeRendered(output) catch {
             _ = atlas.markRendered(output.key);

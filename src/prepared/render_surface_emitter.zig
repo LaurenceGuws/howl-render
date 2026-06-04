@@ -7,7 +7,7 @@ const prepared_buffer = @import("buffer.zig");
 const prepared_surface = @import("surface.zig");
 const realize = @import("../render/render_surface_realizer.zig");
 const sprite_resource_store = @import("sprite_resource_store.zig");
-const text = @import("../text/text.zig");
+const rasterizer = @import("../text/raster/rasterizer.zig");
 const text_session = @import("../session/text.zig");
 
 const ResourceId = c.HowlRenderResourceId;
@@ -533,7 +533,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.upload_count += 1;
         }
 
-        fn stagePreparedUploadBytes(self: *Self, sprite: PreparedSprite, bounds: text.Rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!ByteRange {
+        fn stagePreparedUploadBytes(self: *Self, sprite: PreparedSprite, bounds: rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!ByteRange {
             const bytes_per_pixel = sprite_resource_store.bytesPerPixelForPrepared(sprite.color_mode);
             const upload_stride = std.math.mul(u32, width_px, bytes_per_pixel) catch {
                 return error.UploadBytesOverflow;
@@ -762,18 +762,18 @@ fn lookupPreparedSprite(session: *text_session.TextSession, prepared: *const pre
     };
 }
 
-fn packedStrideForOutput(output: text.Rasterizer.RasterSpriteOutput) u32 {
+fn packedStrideForOutput(output: rasterizer.RasterSpriteOutput) u32 {
     return @as(u32, output.width_px) * sprite_resource_store.bytesPerPixelForPrepared(output.color_mode);
 }
 
-fn visualBoundsForDraw(bounds: text.Rasterizer.SpriteBounds, draw: contract.TextSpriteDraw) text.Rasterizer.SpriteBounds {
+fn visualBoundsForDraw(bounds: rasterizer.SpriteBounds, draw: contract.TextSpriteDraw) rasterizer.SpriteBounds {
     if (bounds.width_px != 0) {
         if (bounds.height_px != 0) return bounds;
     }
     return .{ .x_px = 0, .y_px = 0, .width_px = draw.width_px, .height_px = draw.height_px };
 }
 
-fn copyPreparedSpriteBytes(target: []u8, target_stride: u32, sprite: PreparedSprite, bounds: text.Rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!void {
+fn copyPreparedSpriteBytes(target: []u8, target_stride: u32, sprite: PreparedSprite, bounds: rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!void {
     const bytes_per_pixel = sprite_resource_store.bytesPerPixelForPrepared(sprite.color_mode);
     const source_right = std.math.add(u32, bounds.x_px, width_px) catch {
         return error.InvalidPreparedSprite;

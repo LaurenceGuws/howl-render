@@ -1,6 +1,6 @@
 const std = @import("std");
 const contract = @import("../../contract.zig");
-const text_mod = @import("../../text.zig");
+const shape_run = @import("../../shape/run.zig");
 
 pub const FaceTextKey = struct {
     face_id: u32,
@@ -125,7 +125,7 @@ pub const ShapeRunCache = struct {
         self.used_slots = 0;
     }
 
-    pub fn getOwnedRun(self: *const ShapeRunCache, allocator: std.mem.Allocator, key: ShapeRunKey, run: contract.ResolvedRun) !?text_mod.ShapeRun.OwnedShapedRun {
+    pub fn getOwnedRun(self: *const ShapeRunCache, allocator: std.mem.Allocator, key: ShapeRunKey, run: contract.ResolvedRun) !?shape_run.OwnedShapedRun {
         const slot_index = self.map.get(key) orelse return null;
         const cached = self.slotGlyphs(slot_index);
         const glyphs = try allocator.alloc(contract.GlyphInstance, cached.len);
@@ -142,7 +142,7 @@ pub const ShapeRunCache = struct {
         return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
     }
 
-    pub fn putRun(self: *ShapeRunCache, key: ShapeRunKey, run: text_mod.ShapeRun.OwnedShapedRun) !void {
+    pub fn putRun(self: *ShapeRunCache, key: ShapeRunKey, run: shape_run.OwnedShapedRun) !void {
         if (run.glyphs.len > self.max_glyphs_per_run) return error.CachedRunTooLarge;
 
         const slot_index = if (self.map.get(key)) |existing|

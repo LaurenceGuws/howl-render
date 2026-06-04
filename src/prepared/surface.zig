@@ -2,7 +2,7 @@ const std = @import("std");
 const geometry_contract = @import("../render/geometry_contract.zig");
 const tokens = @import("../render/tokens.zig");
 const font_resolve = @import("../text/font/resolve.zig");
-const text = @import("../text/text.zig");
+const frame_preparer = @import("../text/frame_preparer.zig");
 
 pub const PreparedSurface = struct {
     allocator: std.mem.Allocator,
@@ -11,7 +11,7 @@ pub const PreparedSurface = struct {
     render_px: geometry_contract.PixelSize,
     cell_px: geometry_contract.CellSize,
     grid: geometry_contract.GridSize,
-    text_frame: text.OwnedPreparedTextFrame,
+    text_frame: frame_preparer.OwnedPreparedTextFrame,
     resolve: font_resolve.ResolveObservability = .{},
 
     pub fn deinit(self: *PreparedSurface) void {

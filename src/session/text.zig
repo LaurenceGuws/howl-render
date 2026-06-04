@@ -17,7 +17,13 @@ const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
 const contract = @import("../text/contract.zig");
 const font_resolve = @import("../text/font/resolve.zig");
 const text_paths = @import("../text/font/paths.zig");
-const text = @import("../text/text.zig");
+const frame_preparer = @import("../text/frame_preparer.zig");
+const font_session = @import("../text/font/session.zig");
+const ft_hb_provider = @import("../text/font/ft_hb/provider.zig");
+const provider = @import("../text/font/provider.zig");
+const atlas_cache = @import("../text/raster/cache.zig");
+const rasterizer = @import("../text/raster/rasterizer.zig");
+const shape_run = @import("../text/shape/run.zig");
 const text_support = @import("../text/font/ft_hb/support.zig");
 const text_glyph_raster = @import("../text/font/ft_hb/glyph_raster.zig");
 const text_raster_operation = @import("../text/raster/operation.zig");
@@ -67,7 +73,7 @@ pub const TextSession = struct {
     allocator: std.mem.Allocator,
     text_state: text_support.State,
     mutex: ThreadMutex = .{},
-    text_preparer: ?text.TextFramePreparer = null,
+    text_preparer: ?frame_preparer.TextFramePreparer = null,
     cell_input_scratch: []contract.CellInput = &.{},
 
     const TextContext = struct {
@@ -135,7 +141,7 @@ pub const TextSession = struct {
     }
 
     pub fn prepareSurface(self: *TextSession, prepare: PrepareInput) !prepared_surface.PreparedSurface {
-        var faces: [max_font_faces]text.FontSession.FontFaceRecord = undefined;
+        var faces: [max_font_faces]font_session.FontFaceRecord = undefined;
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
@@ -162,7 +168,7 @@ pub const TextSession = struct {
         return submitted;
     }
 
-    pub fn atlasRaster(self: *TextSession, key: contract.SpriteKey) ?text.AtlasCache.StoredRaster {
+    pub fn atlasRaster(self: *TextSession, key: contract.SpriteKey) ?atlas_cache.StoredRaster {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         const preparer = self.text_preparer orelse return null;
@@ -173,7 +179,7 @@ pub const TextSession = struct {
         allocator: std.mem.Allocator,
         prepare: PrepareInput,
         grid: contract.GridMetrics,
-        prepared: text.OwnedPreparedTextFrame,
+        prepared: frame_preparer.OwnedPreparedTextFrame,
         resolve: font_resolve.ResolveObservability,
     ) prepared_surface.PreparedSurface {
         return .{
@@ -188,11 +194,11 @@ pub const TextSession = struct {
         };
     }
 
-    fn ensureTextPreparer(self: *TextSession, context: *TextContext) !*text.TextFramePreparer {
+    fn ensureTextPreparer(self: *TextSession, context: *TextContext) !*frame_preparer.TextFramePreparer {
         const capacity = ftHbCapacity(context);
         if (self.text_preparer == null) {
             var ft_hb = ftHbSource(context);
-            self.text_preparer = try text.TextFramePreparer.initWithProvider(self.allocator, 2048, ft_hb.textProvider());
+            self.text_preparer = try frame_preparer.TextFramePreparer.initWithProvider(self.allocator, 2048, ft_hb.textProvider());
         }
         try self.text_state.configureFtHbCapacity(capacity);
         try self.text_preparer.?.ensureClusterScratchCapacity(maxResolveClusters(context), capacity.max_shape_input_codepoints);
@@ -227,7 +233,7 @@ pub const TextSession = struct {
         self.cell_input_scratch = scratch;
     }
 
-    fn ftHbSource(context: *TextContext) text.FtHbProvider.FtHbSource {
+    fn ftHbSource(context: *TextContext) ft_hb_provider.FtHbSource {
         return .{
             .ctx = context,
             .has_codepoint = providerHasCodepointThunk,
@@ -238,7 +244,7 @@ pub const TextSession = struct {
         };
     }
 
-    fn fontSession(context: *TextContext, faces: []text.FontSession.FontFaceRecord, active_resolve: ?*font_resolve.ResolveObservability) text.FontSession.FontSession {
+    fn fontSession(context: *TextContext, faces: []font_session.FontFaceRecord, active_resolve: ?*font_resolve.ResolveObservability) font_session.FontSession {
         context.session.text_state.active_resolve = active_resolve;
         var len: text_support.FallbackFontCount = 0;
         if (count32(faces) > text_support.fallbackFontLen(len)) {
@@ -274,15 +280,15 @@ pub const TextSession = struct {
         text_cache_view: contract.LineTextCache,
         clusters: []const contract.CellCluster,
         cell_metrics: contract.CellMetrics,
-    ) anyerror!text.ShapeRun.OwnedShapedRun {
+    ) anyerror!shape_run.OwnedShapedRun {
         return text_support.providerShapeRun(TextContext, ctx, allocator, run, text_cache_view, clusters, cell_metrics);
     }
 
-    fn providerRasterizeSpriteThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!text.Rasterizer.RasterSpriteOutput {
+    fn providerRasterizeSpriteThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
         return text_glyph_raster.providerRasterizeSprite(TextContext, ctx, allocator, req);
     }
 
-    fn providerLookupGlyphThunk(ctx: *anyopaque, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) text.Provider.LookupGlyphResult {
+    fn providerLookupGlyphThunk(ctx: *anyopaque, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) provider.LookupGlyphResult {
         return text_support.providerLookupGlyph(TextContext, ctx, face_id, codepoint, cell_metrics);
     }
 

@@ -13,7 +13,7 @@ const prepared_owner_model = @import("../prepared/owner.zig");
 const prepared_surface_model = @import("../prepared/surface.zig");
 const render_surface_realizer = @import("../render/render_surface_realizer.zig");
 const text_contract = @import("../text/contract.zig");
-const text_model = @import("../text/text.zig");
+const rasterizer = @import("../text/raster/rasterizer.zig");
 const text_session_model = @import("../session/text.zig");
 
 pub const c = ffi_root.c;
@@ -29,7 +29,7 @@ pub const prepared_owner = prepared_owner_model;
 pub const prepared_surface_model_ns = prepared_surface_model;
 pub const realizer = render_surface_realizer;
 pub const text_contract_ns = text_contract;
-pub const text_model_ns = text_model;
+pub const text_rasterizer = rasterizer;
 pub const text_session_model_ns = text_session_model;
 
 pub const RenderVtSurfaceSlot = @field(c, "Howl" ++ "RenderVtSurfaceSlot");
@@ -156,9 +156,15 @@ pub fn testCell() RenderSourceCell {
     return .{ .codepoint = 'a', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = std.mem.zeroes(RenderSourceCellAttrs), .link_id = 0 };
 }
 
-pub fn damageNone() u8 { return @intCast(c.HOWL_RENDER_DAMAGE_NONE); }
-pub fn damagePartial() u8 { return @intCast(c.HOWL_RENDER_DAMAGE_PARTIAL); }
-pub fn damageFull() u8 { return @intCast(c.HOWL_RENDER_DAMAGE_FULL); }
+pub fn damageNone() u8 {
+    return @intCast(c.HOWL_RENDER_DAMAGE_NONE);
+}
+pub fn damagePartial() u8 {
+    return @intCast(c.HOWL_RENDER_DAMAGE_PARTIAL);
+}
+pub fn damageFull() u8 {
+    return @intCast(c.HOWL_RENDER_DAMAGE_FULL);
+}
 
 pub fn expectInvalidPreparedSurfaceTokenRejected(handle: c.HowlRenderTextSessionHandle, prepared_handle: c.HowlRenderPreparedSurfaceHandle, prepared_token: c.HowlRenderPreparedSurfaceToken) !void {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.publishPrepared(handle, prepared_token));
@@ -196,7 +202,7 @@ pub const PreparedOptions = struct {
     sprite_draws: []const text_contract.TextSpriteDraw = &.{},
     decoration_draws: []const text_contract.TextDecorationDraw = &.{},
     cursor_draws: []const text_contract.TextCursorDraw = &.{},
-    raster_outputs: []text_model.Rasterizer.RasterSpriteOutput = &.{},
+    raster_outputs: []rasterizer.RasterSpriteOutput = &.{},
     width_px: u16,
     height_px: u16,
     full_redraw: bool = true,

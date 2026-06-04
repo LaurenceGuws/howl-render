@@ -1,5 +1,5 @@
 const std = @import("std");
-const text = @import("../../text.zig");
+const fallback = @import("../../raster/fallback.zig");
 
 const AlphaSegment = enum { full, left, right, top, bottom };
 const AlphaCorner = enum { top_left, top_right, bottom_left, bottom_right };
@@ -146,7 +146,7 @@ pub fn rasterizeSpecialSpriteAlpha(dst: []u8, width: u16, height: u16, codepoint
 }
 
 pub fn rasterizeFallbackGlyph(dst: []u8, cell_w: u16, cell_h: u16, codepoint: u21, gw: u16, gh: u16) void {
-    text.Fallback.rasterAsciiOrPlaceholder(dst, cell_w, codepoint, gw, gh);
+    fallback.rasterAsciiOrPlaceholder(dst, cell_w, codepoint, gw, gh);
     _ = cell_h;
 }
 
@@ -488,32 +488,108 @@ fn drawAlphaHalfTriangleCodepoint(dst: []u8, w: u16, h: u16, codepoint: u32) voi
 
 fn drawAlphaEightBlockCodepoint(dst: []u8, w: u16, h: u16, codepoint: u32) void {
     switch (codepoint) {
-        0x1fb7c => { drawAlphaEightBar(dst, w, h, 0, false); drawAlphaEightBar(dst, w, h, 7, true); },
-        0x1fb7d => { drawAlphaEightBar(dst, w, h, 0, false); drawAlphaEightBar(dst, w, h, 0, true); },
-        0x1fb7e => { drawAlphaEightBar(dst, w, h, 7, false); drawAlphaEightBar(dst, w, h, 0, true); },
-        0x1fb7f => { drawAlphaEightBar(dst, w, h, 7, false); drawAlphaEightBar(dst, w, h, 7, true); },
-        0x1fb80 => { drawAlphaEightBar(dst, w, h, 0, true); drawAlphaEightBar(dst, w, h, 7, true); },
-        0x1fb81 => { drawAlphaEightBar(dst, w, h, 0, true); drawAlphaEightBar(dst, w, h, 2, true); drawAlphaEightBar(dst, w, h, 4, true); drawAlphaEightBar(dst, w, h, 7, true); },
-        0x1fb82 => { drawAlphaEightBar(dst, w, h, 0, true); drawAlphaEightBar(dst, w, h, 1, true); },
-        0x1fb83 => { drawAlphaEightBar(dst, w, h, 0, true); drawAlphaEightBar(dst, w, h, 1, true); drawAlphaEightBar(dst, w, h, 2, true); },
-        0x1fb84 => { drawAlphaEightBar(dst, w, h, 0, true); drawAlphaEightBar(dst, w, h, 1, true); drawAlphaEightBar(dst, w, h, 2, true); drawAlphaEightBar(dst, w, h, 3, true); drawAlphaEightBar(dst, w, h, 4, true); },
-        0x1fb85 => { drawAlphaEightBar(dst, w, h, 0, true); drawAlphaEightBar(dst, w, h, 1, true); drawAlphaEightBar(dst, w, h, 2, true); drawAlphaEightBar(dst, w, h, 3, true); drawAlphaEightBar(dst, w, h, 4, true); drawAlphaEightBar(dst, w, h, 5, true); },
-        0x1fb86 => { drawAlphaEightBar(dst, w, h, 0, true); drawAlphaEightBar(dst, w, h, 1, true); drawAlphaEightBar(dst, w, h, 2, true); drawAlphaEightBar(dst, w, h, 3, true); drawAlphaEightBar(dst, w, h, 4, true); drawAlphaEightBar(dst, w, h, 5, true); drawAlphaEightBar(dst, w, h, 6, true); },
-        0x1fb87 => { drawAlphaEightBar(dst, w, h, 6, false); drawAlphaEightBar(dst, w, h, 7, false); },
-        0x1fb88 => { drawAlphaEightBar(dst, w, h, 5, false); drawAlphaEightBar(dst, w, h, 6, false); drawAlphaEightBar(dst, w, h, 7, false); },
-        0x1fb89 => { drawAlphaEightBar(dst, w, h, 3, false); drawAlphaEightBar(dst, w, h, 4, false); drawAlphaEightBar(dst, w, h, 5, false); drawAlphaEightBar(dst, w, h, 6, false); drawAlphaEightBar(dst, w, h, 7, false); },
-        0x1fb8a => { drawAlphaEightBar(dst, w, h, 2, false); drawAlphaEightBar(dst, w, h, 3, false); drawAlphaEightBar(dst, w, h, 4, false); drawAlphaEightBar(dst, w, h, 5, false); drawAlphaEightBar(dst, w, h, 6, false); drawAlphaEightBar(dst, w, h, 7, false); },
-        0x1fb8b => { drawAlphaEightBar(dst, w, h, 1, false); drawAlphaEightBar(dst, w, h, 2, false); drawAlphaEightBar(dst, w, h, 3, false); drawAlphaEightBar(dst, w, h, 4, false); drawAlphaEightBar(dst, w, h, 5, false); drawAlphaEightBar(dst, w, h, 6, false); drawAlphaEightBar(dst, w, h, 7, false); },
+        0x1fb7c => {
+            drawAlphaEightBar(dst, w, h, 0, false);
+            drawAlphaEightBar(dst, w, h, 7, true);
+        },
+        0x1fb7d => {
+            drawAlphaEightBar(dst, w, h, 0, false);
+            drawAlphaEightBar(dst, w, h, 0, true);
+        },
+        0x1fb7e => {
+            drawAlphaEightBar(dst, w, h, 7, false);
+            drawAlphaEightBar(dst, w, h, 0, true);
+        },
+        0x1fb7f => {
+            drawAlphaEightBar(dst, w, h, 7, false);
+            drawAlphaEightBar(dst, w, h, 7, true);
+        },
+        0x1fb80 => {
+            drawAlphaEightBar(dst, w, h, 0, true);
+            drawAlphaEightBar(dst, w, h, 7, true);
+        },
+        0x1fb81 => {
+            drawAlphaEightBar(dst, w, h, 0, true);
+            drawAlphaEightBar(dst, w, h, 2, true);
+            drawAlphaEightBar(dst, w, h, 4, true);
+            drawAlphaEightBar(dst, w, h, 7, true);
+        },
+        0x1fb82 => {
+            drawAlphaEightBar(dst, w, h, 0, true);
+            drawAlphaEightBar(dst, w, h, 1, true);
+        },
+        0x1fb83 => {
+            drawAlphaEightBar(dst, w, h, 0, true);
+            drawAlphaEightBar(dst, w, h, 1, true);
+            drawAlphaEightBar(dst, w, h, 2, true);
+        },
+        0x1fb84 => {
+            drawAlphaEightBar(dst, w, h, 0, true);
+            drawAlphaEightBar(dst, w, h, 1, true);
+            drawAlphaEightBar(dst, w, h, 2, true);
+            drawAlphaEightBar(dst, w, h, 3, true);
+            drawAlphaEightBar(dst, w, h, 4, true);
+        },
+        0x1fb85 => {
+            drawAlphaEightBar(dst, w, h, 0, true);
+            drawAlphaEightBar(dst, w, h, 1, true);
+            drawAlphaEightBar(dst, w, h, 2, true);
+            drawAlphaEightBar(dst, w, h, 3, true);
+            drawAlphaEightBar(dst, w, h, 4, true);
+            drawAlphaEightBar(dst, w, h, 5, true);
+        },
+        0x1fb86 => {
+            drawAlphaEightBar(dst, w, h, 0, true);
+            drawAlphaEightBar(dst, w, h, 1, true);
+            drawAlphaEightBar(dst, w, h, 2, true);
+            drawAlphaEightBar(dst, w, h, 3, true);
+            drawAlphaEightBar(dst, w, h, 4, true);
+            drawAlphaEightBar(dst, w, h, 5, true);
+            drawAlphaEightBar(dst, w, h, 6, true);
+        },
+        0x1fb87 => {
+            drawAlphaEightBar(dst, w, h, 6, false);
+            drawAlphaEightBar(dst, w, h, 7, false);
+        },
+        0x1fb88 => {
+            drawAlphaEightBar(dst, w, h, 5, false);
+            drawAlphaEightBar(dst, w, h, 6, false);
+            drawAlphaEightBar(dst, w, h, 7, false);
+        },
+        0x1fb89 => {
+            drawAlphaEightBar(dst, w, h, 3, false);
+            drawAlphaEightBar(dst, w, h, 4, false);
+            drawAlphaEightBar(dst, w, h, 5, false);
+            drawAlphaEightBar(dst, w, h, 6, false);
+            drawAlphaEightBar(dst, w, h, 7, false);
+        },
+        0x1fb8a => {
+            drawAlphaEightBar(dst, w, h, 2, false);
+            drawAlphaEightBar(dst, w, h, 3, false);
+            drawAlphaEightBar(dst, w, h, 4, false);
+            drawAlphaEightBar(dst, w, h, 5, false);
+            drawAlphaEightBar(dst, w, h, 6, false);
+            drawAlphaEightBar(dst, w, h, 7, false);
+        },
+        0x1fb8b => {
+            drawAlphaEightBar(dst, w, h, 1, false);
+            drawAlphaEightBar(dst, w, h, 2, false);
+            drawAlphaEightBar(dst, w, h, 3, false);
+            drawAlphaEightBar(dst, w, h, 4, false);
+            drawAlphaEightBar(dst, w, h, 5, false);
+            drawAlphaEightBar(dst, w, h, 6, false);
+            drawAlphaEightBar(dst, w, h, 7, false);
+        },
         else => {},
     }
 }
 
 fn drawAlphaMidLinesCodepoint(dst: []u8, w: u16, h: u16, codepoint: u32) void {
     switch (codepoint) {
-        0x1fba0 => drawAlphaMidLines(dst, w, h, &.{ .top_left }),
-        0x1fba1 => drawAlphaMidLines(dst, w, h, &.{ .top_right }),
-        0x1fba2 => drawAlphaMidLines(dst, w, h, &.{ .bottom_left }),
-        0x1fba3 => drawAlphaMidLines(dst, w, h, &.{ .bottom_right }),
+        0x1fba0 => drawAlphaMidLines(dst, w, h, &.{.top_left}),
+        0x1fba1 => drawAlphaMidLines(dst, w, h, &.{.top_right}),
+        0x1fba2 => drawAlphaMidLines(dst, w, h, &.{.bottom_left}),
+        0x1fba3 => drawAlphaMidLines(dst, w, h, &.{.bottom_right}),
         0x1fba4 => drawAlphaMidLines(dst, w, h, &.{ .top_left, .bottom_left }),
         0x1fba5 => drawAlphaMidLines(dst, w, h, &.{ .top_right, .bottom_right }),
         0x1fba6 => drawAlphaMidLines(dst, w, h, &.{ .bottom_right, .bottom_left }),
@@ -541,26 +617,94 @@ fn drawAlphaBranchCodepoint(dst: []u8, w: u16, h: u16, codepoint: u32) void {
         0xf5d7 => drawAlphaBranchArc(dst, w, h, .bottom_left),
         0xf5d8 => drawAlphaBranchArc(dst, w, h, .top_right),
         0xf5d9 => drawAlphaBranchArc(dst, w, h, .top_left),
-        0xf5da => { drawAlphaBranchLine(dst, w, h, .vline); drawAlphaBranchArc(dst, w, h, .top_right); },
-        0xf5db => { drawAlphaBranchLine(dst, w, h, .vline); drawAlphaBranchArc(dst, w, h, .bottom_right); },
-        0xf5dc => { drawAlphaBranchArc(dst, w, h, .top_right); drawAlphaBranchArc(dst, w, h, .bottom_right); },
-        0xf5dd => { drawAlphaBranchLine(dst, w, h, .vline); drawAlphaBranchArc(dst, w, h, .top_left); },
-        0xf5de => { drawAlphaBranchLine(dst, w, h, .vline); drawAlphaBranchArc(dst, w, h, .bottom_left); },
-        0xf5df => { drawAlphaBranchArc(dst, w, h, .top_left); drawAlphaBranchArc(dst, w, h, .bottom_left); },
-        0xf5e0 => { drawAlphaBranchArc(dst, w, h, .bottom_left); drawAlphaBranchLine(dst, w, h, .hline); },
-        0xf5e1 => { drawAlphaBranchArc(dst, w, h, .bottom_right); drawAlphaBranchLine(dst, w, h, .hline); },
-        0xf5e2 => { drawAlphaBranchArc(dst, w, h, .bottom_right); drawAlphaBranchArc(dst, w, h, .bottom_left); },
-        0xf5e3 => { drawAlphaBranchArc(dst, w, h, .top_left); drawAlphaBranchLine(dst, w, h, .hline); },
-        0xf5e4 => { drawAlphaBranchArc(dst, w, h, .top_right); drawAlphaBranchLine(dst, w, h, .hline); },
-        0xf5e5 => { drawAlphaBranchArc(dst, w, h, .top_right); drawAlphaBranchArc(dst, w, h, .top_left); },
-        0xf5e6 => { drawAlphaBranchLine(dst, w, h, .vline); drawAlphaBranchArc(dst, w, h, .top_left); drawAlphaBranchArc(dst, w, h, .top_right); },
-        0xf5e7 => { drawAlphaBranchLine(dst, w, h, .vline); drawAlphaBranchArc(dst, w, h, .bottom_left); drawAlphaBranchArc(dst, w, h, .bottom_right); },
-        0xf5e8 => { drawAlphaBranchLine(dst, w, h, .hline); drawAlphaBranchArc(dst, w, h, .bottom_left); drawAlphaBranchArc(dst, w, h, .top_left); },
-        0xf5e9 => { drawAlphaBranchLine(dst, w, h, .hline); drawAlphaBranchArc(dst, w, h, .top_right); drawAlphaBranchArc(dst, w, h, .bottom_right); },
-        0xf5ea => { drawAlphaBranchLine(dst, w, h, .vline); drawAlphaBranchArc(dst, w, h, .top_left); drawAlphaBranchArc(dst, w, h, .bottom_right); },
-        0xf5eb => { drawAlphaBranchLine(dst, w, h, .vline); drawAlphaBranchArc(dst, w, h, .top_right); drawAlphaBranchArc(dst, w, h, .bottom_left); },
-        0xf5ec => { drawAlphaBranchLine(dst, w, h, .hline); drawAlphaBranchArc(dst, w, h, .top_left); drawAlphaBranchArc(dst, w, h, .bottom_right); },
-        0xf5ed => { drawAlphaBranchLine(dst, w, h, .hline); drawAlphaBranchArc(dst, w, h, .top_right); drawAlphaBranchArc(dst, w, h, .bottom_left); },
+        0xf5da => {
+            drawAlphaBranchLine(dst, w, h, .vline);
+            drawAlphaBranchArc(dst, w, h, .top_right);
+        },
+        0xf5db => {
+            drawAlphaBranchLine(dst, w, h, .vline);
+            drawAlphaBranchArc(dst, w, h, .bottom_right);
+        },
+        0xf5dc => {
+            drawAlphaBranchArc(dst, w, h, .top_right);
+            drawAlphaBranchArc(dst, w, h, .bottom_right);
+        },
+        0xf5dd => {
+            drawAlphaBranchLine(dst, w, h, .vline);
+            drawAlphaBranchArc(dst, w, h, .top_left);
+        },
+        0xf5de => {
+            drawAlphaBranchLine(dst, w, h, .vline);
+            drawAlphaBranchArc(dst, w, h, .bottom_left);
+        },
+        0xf5df => {
+            drawAlphaBranchArc(dst, w, h, .top_left);
+            drawAlphaBranchArc(dst, w, h, .bottom_left);
+        },
+        0xf5e0 => {
+            drawAlphaBranchArc(dst, w, h, .bottom_left);
+            drawAlphaBranchLine(dst, w, h, .hline);
+        },
+        0xf5e1 => {
+            drawAlphaBranchArc(dst, w, h, .bottom_right);
+            drawAlphaBranchLine(dst, w, h, .hline);
+        },
+        0xf5e2 => {
+            drawAlphaBranchArc(dst, w, h, .bottom_right);
+            drawAlphaBranchArc(dst, w, h, .bottom_left);
+        },
+        0xf5e3 => {
+            drawAlphaBranchArc(dst, w, h, .top_left);
+            drawAlphaBranchLine(dst, w, h, .hline);
+        },
+        0xf5e4 => {
+            drawAlphaBranchArc(dst, w, h, .top_right);
+            drawAlphaBranchLine(dst, w, h, .hline);
+        },
+        0xf5e5 => {
+            drawAlphaBranchArc(dst, w, h, .top_right);
+            drawAlphaBranchArc(dst, w, h, .top_left);
+        },
+        0xf5e6 => {
+            drawAlphaBranchLine(dst, w, h, .vline);
+            drawAlphaBranchArc(dst, w, h, .top_left);
+            drawAlphaBranchArc(dst, w, h, .top_right);
+        },
+        0xf5e7 => {
+            drawAlphaBranchLine(dst, w, h, .vline);
+            drawAlphaBranchArc(dst, w, h, .bottom_left);
+            drawAlphaBranchArc(dst, w, h, .bottom_right);
+        },
+        0xf5e8 => {
+            drawAlphaBranchLine(dst, w, h, .hline);
+            drawAlphaBranchArc(dst, w, h, .bottom_left);
+            drawAlphaBranchArc(dst, w, h, .top_left);
+        },
+        0xf5e9 => {
+            drawAlphaBranchLine(dst, w, h, .hline);
+            drawAlphaBranchArc(dst, w, h, .top_right);
+            drawAlphaBranchArc(dst, w, h, .bottom_right);
+        },
+        0xf5ea => {
+            drawAlphaBranchLine(dst, w, h, .vline);
+            drawAlphaBranchArc(dst, w, h, .top_left);
+            drawAlphaBranchArc(dst, w, h, .bottom_right);
+        },
+        0xf5eb => {
+            drawAlphaBranchLine(dst, w, h, .vline);
+            drawAlphaBranchArc(dst, w, h, .top_right);
+            drawAlphaBranchArc(dst, w, h, .bottom_left);
+        },
+        0xf5ec => {
+            drawAlphaBranchLine(dst, w, h, .hline);
+            drawAlphaBranchArc(dst, w, h, .top_left);
+            drawAlphaBranchArc(dst, w, h, .bottom_right);
+        },
+        0xf5ed => {
+            drawAlphaBranchLine(dst, w, h, .hline);
+            drawAlphaBranchArc(dst, w, h, .top_right);
+            drawAlphaBranchArc(dst, w, h, .bottom_left);
+        },
         0xf5ee => drawAlphaBranchNode(dst, w, h, .{ .filled = true }),
         0xf5ef => drawAlphaBranchNode(dst, w, h, .{}),
         0xf5f0 => drawAlphaBranchNode(dst, w, h, .{ .right = true, .filled = true }),

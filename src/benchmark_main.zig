@@ -1,14 +1,16 @@
 const std = @import("std");
 const geometry_contract = @import("render/geometry_contract.zig");
 const contract = @import("text/contract.zig");
-const text_mod = @import("text/text.zig");
+const frame_preparer = @import("text/frame_preparer.zig");
+const font_session = @import("text/font/session.zig");
+const cluster = @import("text/shape/cluster.zig");
 
 const RunCount = u32;
 
 const OutputFormat = enum { ndjson, text };
 const WorkloadInput = union(enum) {
     cells: []contract.CellInput,
-    cell_texts: []const text_mod.Cluster.CellTextInput,
+    cell_texts: []const cluster.CellTextInput,
 };
 
 const Options = struct {
@@ -78,8 +80,8 @@ const Workload = struct {
 };
 
 const WorkloadPrepareContext = struct {
-    session: text_mod.FontSession.FontSession,
-    options: text_mod.PrepareOptions,
+    session: font_session.FontSession,
+    options: frame_preparer.PrepareOptions,
 };
 
 const ColdRun = struct {
@@ -480,7 +482,7 @@ fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
     const fg = rgba(232, 236, 242);
     const combining = &[_]u32{ 'i', 0x0332 };
     const emoji = &[_]u32{0x1f642};
-    const cells = try allocator.alloc(text_mod.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
+    const cells = try allocator.alloc(cluster.CellTextInput, @intCast(cellCount(rows, cols)));
     const dirty = try initDirtyAll(allocator, rows, cols);
     for (cells, 0..) |*cell, idx| {
         const cp = if (idx % 2 == 0) combining else emoji;
@@ -507,7 +509,7 @@ fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
     const bg = rgba(12, 12, 18);
     const fg = rgba(235, 238, 242);
     const ascii = [_]u32{'a'};
-    const cells = try allocator.alloc(text_mod.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
+    const cells = try allocator.alloc(cluster.CellTextInput, @intCast(cellCount(rows, cols)));
     const dirty = try initDirtyAll(allocator, rows, cols);
     for (cells) |*cell| {
         cell.* = .{
@@ -534,7 +536,7 @@ fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
     const accent = rgba(166, 212, 255);
     const ascii = [_]u32{'a'};
     const combining = [_]u32{ 'i', 0x0332 };
-    const cells = try allocator.alloc(text_mod.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
+    const cells = try allocator.alloc(cluster.CellTextInput, @intCast(cellCount(rows, cols)));
     const dirty = try initDirtyAll(allocator, rows, cols);
     for (cells, 0..) |*cell, idx| {
         const even = idx % 2 == 0;
@@ -628,7 +630,7 @@ fn initPrepareContext(workload: Workload) WorkloadPrepareContext {
     };
 }
 
-fn prepareWorkloadFrame(preparer: *text_mod.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !text_mod.OwnedPreparedTextFrame {
+fn prepareWorkloadFrame(preparer: *frame_preparer.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !frame_preparer.OwnedPreparedTextFrame {
     return switch (workload.input) {
         .cells => |cells| preparer.prepareCellsWithSessionOptions(
             cells,
@@ -645,7 +647,7 @@ fn prepareWorkloadFrame(preparer: *text_mod.TextFramePreparer, workload: Workloa
     };
 }
 
-fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: text_mod.OwnedPreparedTextFrame) RunObservation {
+fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: frame_preparer.OwnedPreparedTextFrame) RunObservation {
     return .{
         .ns = duration_ns,
         .alloc_count = counting.window_alloc_count,
@@ -658,19 +660,19 @@ fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: t
     };
 }
 
-fn countSceneFills(analysis: text_mod.OwnedPreparedTextFrame) u64 {
+fn countSceneFills(analysis: frame_preparer.OwnedPreparedTextFrame) u64 {
     return count64(analysis.scene.scene.background_draws) +
         count64(analysis.scene.scene.decoration_draws) +
         count64(analysis.scene.scene.cursor_draws);
 }
 
-fn markAtlasOutputs(preparer: *text_mod.TextFramePreparer, analysis: text_mod.OwnedPreparedTextFrame) void {
+fn markAtlasOutputs(preparer: *frame_preparer.TextFramePreparer, analysis: frame_preparer.OwnedPreparedTextFrame) void {
     for (analysis.raster_plan.outputs) |output| {
         _ = preparer.atlas.markRendered(output.key);
     }
 }
 
-fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *text_mod.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !ColdRun {
+fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *frame_preparer.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !ColdRun {
     counting.resetWindow();
     const start_ns = nowNs(io);
     var analysis = try prepareWorkloadFrame(preparer, workload, context);
@@ -690,7 +692,7 @@ fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *text_mod
 fn runWorkloadWarm(
     io: std.Io,
     counting: *CountingAllocator,
-    preparer: *text_mod.TextFramePreparer,
+    preparer: *frame_preparer.TextFramePreparer,
     workload: Workload,
     context: WorkloadPrepareContext,
     observations: []RunObservation,
@@ -757,10 +759,10 @@ fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObse
     };
 }
 
-fn runWorkloadInitState(allocator: std.mem.Allocator, workload: Workload, counting: *CountingAllocator, preparer: *text_mod.TextFramePreparer, context: *WorkloadPrepareContext) void {
+fn runWorkloadInitState(allocator: std.mem.Allocator, workload: Workload, counting: *CountingAllocator, preparer: *frame_preparer.TextFramePreparer, context: *WorkloadPrepareContext) void {
     context.* = initPrepareContext(workload);
     counting.* = CountingAllocator.init(allocator);
-    preparer.* = text_mod.TextFramePreparer.init(counting.allocator());
+    preparer.* = frame_preparer.TextFramePreparer.init(counting.allocator());
 }
 
 fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: WarmSummary) WorkloadResult {
@@ -808,7 +810,7 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
 
     var context: WorkloadPrepareContext = undefined;
     var counting: CountingAllocator = undefined;
-    var preparer: text_mod.TextFramePreparer = undefined;
+    var preparer: frame_preparer.TextFramePreparer = undefined;
     runWorkloadInitState(allocator, workload, &counting, &preparer, &context);
     defer preparer.deinit();
 

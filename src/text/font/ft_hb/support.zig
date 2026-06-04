@@ -3,7 +3,8 @@ const std = @import("std");
 const test_font_options = @import("test_font_options");
 const contract = @import("../../contract.zig");
 const text_session = @import("../../../session/text.zig");
-const text_mod = @import("../../text.zig");
+const provider = @import("../provider.zig");
+const shape_run = @import("../../shape/run.zig");
 const font_resolve = @import("../resolve.zig");
 const text_paths = @import("../paths.zig");
 const geometry_contract = @import("../../../render/geometry_contract.zig");
@@ -199,7 +200,7 @@ pub fn providerShapeRun(
     text_cache_view: contract.LineTextCache,
     clusters: []const contract.CellCluster,
     cell_metrics: contract.CellMetrics,
-) anyerror!text_mod.ShapeRun.OwnedShapedRun {
+) anyerror!shape_run.OwnedShapedRun {
     const context: *ContextType = @ptrCast(@alignCast(ctx));
     const state = textState(context);
     const window = ClusterWindow.init(run, @intCast(clusters.len));
@@ -238,7 +239,7 @@ fn shapeRunViaProviderOrFallback(
     clusters: []const contract.CellCluster,
     cell_metrics: contract.CellMetrics,
     window: ClusterWindow,
-) anyerror!text_mod.ShapeRun.OwnedShapedRun {
+) anyerror!shape_run.OwnedShapedRun {
     const input = try gatherShapeRunInput(textState(context), text_cache_view, clusters, window);
     if (input.codepoints.len == 0) return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
     const buffer = c.hb_buffer_create() orelse return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
@@ -266,7 +267,7 @@ fn shapeRunViaProvider(
     cell_metrics: contract.CellMetrics,
     buffer: ?*c.hb_buffer_t,
     cluster_map: []const u32,
-) anyerror!?text_mod.ShapeRun.OwnedShapedRun {
+) anyerror!?shape_run.OwnedShapedRun {
     lockFt(context);
     defer unlockFt(context);
     const shaped_face = acquireShapingFaceLocked(context, run.run.font.face_id) orelse return null;
@@ -287,7 +288,7 @@ fn shapePlainAsciiRun(
     clusters: []const contract.CellCluster,
     cell_metrics: contract.CellMetrics,
     window: ClusterWindow,
-) anyerror!?text_mod.ShapeRun.OwnedShapedRun {
+) anyerror!?shape_run.OwnedShapedRun {
     if (run.features_id != 0) return null;
     if (run.run.font.presentation == .emoji) return null;
     for (window.slice(clusters)) |cluster| {
@@ -349,7 +350,7 @@ pub fn providerLookupGlyph(
     face_id: contract.FontFaceId,
     codepoint: u32,
     cell_metrics: contract.CellMetrics,
-) text_mod.Provider.LookupGlyphResult {
+) provider.LookupGlyphResult {
     const context: *ContextType = @ptrCast(@alignCast(ctx));
     const state = textState(context);
     const key = text_cache.GlyphCellKey{
@@ -367,12 +368,12 @@ pub fn providerLookupGlyph(
     return result;
 }
 
-fn uncachedProviderLookupGlyph(context: anytype, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) text_mod.Provider.LookupGlyphResult {
+fn uncachedProviderLookupGlyph(context: anytype, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) provider.LookupGlyphResult {
     const glyph_id = providerGlyphId(context, face_id, codepoint);
     return .{ .glyph_id = glyph_id, .advance_px = providerGlyphAdvance(context, face_id, glyph_id, cell_metrics) };
 }
 
-fn glyphCellValue(result: text_mod.Provider.LookupGlyphResult) text_cache.GlyphCellValue {
+fn glyphCellValue(result: provider.LookupGlyphResult) text_cache.GlyphCellValue {
     return .{ .glyph_id = result.glyph_id, .advance_px = result.advance_px };
 }
 
@@ -578,7 +579,7 @@ fn fallbackProviderShapeRun(
     clusters: []const contract.CellCluster,
     cell_metrics: contract.CellMetrics,
     window: ClusterWindow,
-) anyerror!text_mod.ShapeRun.OwnedShapedRun {
+) anyerror!shape_run.OwnedShapedRun {
     const glyphs = try allocator.alloc(contract.GlyphInstance, window.len());
     errdefer allocator.free(glyphs);
     for (window.slice(clusters), 0..) |cluster, idx| {
@@ -723,7 +724,7 @@ fn buildProviderShapedRun(
     positions: [*c]c.hb_glyph_position_t,
     glyph_count: c_uint,
     cluster_map: []const u32,
-) !text_mod.ShapeRun.OwnedShapedRun {
+) !shape_run.OwnedShapedRun {
     const glyphs = try allocator.alloc(contract.GlyphInstance, glyph_count);
     errdefer allocator.free(glyphs);
     for (glyphs, 0..) |*glyph, idx| {
