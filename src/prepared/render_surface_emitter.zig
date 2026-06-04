@@ -208,48 +208,31 @@ pub fn Emitter(comptime limits: Limits) type {
             });
         }
 
-        fn appendPreparedClears(self: *Self, draws: []const contract.TextClearDraw) Error!void {
+        fn appendPreparedFillPass(self: *Self, draws: anytype, kind: u8) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
                 draw.width_px,
                 draw.height_px,
                 draw.color,
-                c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT,
+                kind,
             );
+        }
+
+        fn appendPreparedClears(self: *Self, draws: []const contract.TextClearDraw) Error!void {
+            try self.appendPreparedFillPass(draws, c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT);
         }
 
         fn appendPreparedBackgrounds(self: *Self, draws: []const contract.TextBackgroundDraw) Error!void {
-            for (draws) |draw| try self.appendPreparedFillCommand(
-                draw.x_px,
-                draw.y_px,
-                draw.width_px,
-                draw.height_px,
-                draw.color,
-                c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
-            );
+            try self.appendPreparedFillPass(draws, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
         }
 
         fn appendPreparedDecorations(self: *Self, draws: []const contract.TextDecorationDraw) Error!void {
-            for (draws) |draw| try self.appendPreparedFillCommand(
-                draw.x_px,
-                draw.y_px,
-                draw.width_px,
-                draw.height_px,
-                draw.color,
-                c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
-            );
+            try self.appendPreparedFillPass(draws, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
         }
 
         fn appendPreparedCursors(self: *Self, draws: []const contract.TextCursorDraw) Error!void {
-            for (draws) |draw| try self.appendPreparedFillCommand(
-                draw.x_px,
-                draw.y_px,
-                draw.width_px,
-                draw.height_px,
-                draw.color,
-                c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
-            );
+            try self.appendPreparedFillPass(draws, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
         }
 
         fn appendPreparedFillCommand(self: *Self, x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: contract.Rgba8, kind: u8) Error!void {
