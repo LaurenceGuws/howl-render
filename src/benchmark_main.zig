@@ -1,1 +1,959 @@
-pub const main = @import("test/benchmark.zig").main;
+const std = @import("std");
+const geometry_contract = @import("render/geometry_contract.zig");
+const contract = @import("text/contract.zig");
+const text_mod = @import("text/text.zig");
+
+const RunCount = u32;
+
+const OutputFormat = enum { ndjson, text };
+const WorkloadInput = union(enum) {
+    cells: []contract.CellInput,
+    cell_texts: []const text_mod.Cluster.CellTextInput,
+};
+
+const Options = struct {
+    runs: RunCount = 10,
+    format: OutputFormat = .ndjson,
+};
+
+const RunObservation = struct {
+    ns: u64,
+    alloc_count: u64,
+    alloc_bytes: u64,
+    peak_live_bytes: u64,
+    resolve_us: u64,
+    shape_us: u64,
+    group_us: u64,
+    scene_us: u64,
+};
+
+const WorkloadResult = struct {
+    name: []const u8,
+    grid_cols: u16,
+    grid_rows: u16,
+    dirty_cells_per_run: u32,
+    runs: RunCount,
+    cold_ns: u64,
+    cold_resolve_us: u64,
+    cold_shape_us: u64,
+    cold_group_us: u64,
+    cold_scene_us: u64,
+    cold_alloc_count: u64,
+    cold_alloc_bytes: u64,
+    cold_peak_live_bytes: u64,
+    cold_fills: u64,
+    cold_glyphs: u64,
+    cold_uploads: u64,
+    warm_median_ns: u64,
+    warm_p95_ns: u64,
+    warm_median_resolve_us: u64,
+    warm_median_shape_us: u64,
+    warm_median_group_us: u64,
+    warm_median_scene_us: u64,
+    warm_median_alloc_count: u64,
+    warm_median_alloc_bytes: u64,
+    warm_median_peak_live_bytes: u64,
+    warm_median_fills: u64,
+    warm_median_glyphs: u64,
+    warm_median_uploads: u64,
+    fn dirtyCellsPerSecond(self: WorkloadResult) f64 {
+        const median_seconds = @as(f64, @floatFromInt(self.warm_median_ns)) / 1_000_000_000.0;
+        if (median_seconds <= 0) return 0;
+        return @as(f64, @floatFromInt(self.dirty_cells_per_run)) / median_seconds;
+    }
+};
+
+const Workload = struct {
+    name: []const u8,
+    input: WorkloadInput,
+    grid: contract.GridMetrics,
+    damage: struct {
+        full: bool,
+        dirty_rows: []const bool,
+        dirty_cols_start: []const u16,
+        dirty_cols_end: []const u16,
+    },
+    cell_px: geometry_contract.CellSize,
+    dirty_cells_per_run: u32,
+};
+
+const WorkloadPrepareContext = struct {
+    session: text_mod.FontSession.FontSession,
+    options: text_mod.PrepareOptions,
+};
+
+const ColdRun = struct {
+    observation: RunObservation,
+    fills: u64,
+    glyphs: u64,
+    uploads: u64,
+};
+
+const WarmSummary = struct {
+    median_ns: u64,
+    p95_ns: u64,
+    median_resolve_us: u64,
+    median_shape_us: u64,
+    median_group_us: u64,
+    median_scene_us: u64,
+    median_alloc_count: u64,
+    median_alloc_bytes: u64,
+    median_peak_live_bytes: u64,
+    median_fills: u64,
+    median_glyphs: u64,
+    median_uploads: u64,
+};
+
+const CountingAllocator = struct {
+    child: std.mem.Allocator,
+    alloc_count: u64 = 0,
+    alloc_bytes: u64 = 0,
+    live_bytes: u64 = 0,
+    peak_live_bytes: u64 = 0,
+    window_alloc_count: u64 = 0,
+    window_alloc_bytes: u64 = 0,
+    window_peak_live_bytes: u64 = 0,
+    window_live_baseline: u64 = 0,
+
+    const vtable = std.mem.Allocator.VTable{
+        .alloc = alloc,
+        .resize = resize,
+        .remap = remap,
+        .free = free,
+    };
+
+    fn init(child: std.mem.Allocator) CountingAllocator {
+        return .{ .child = child };
+    }
+
+    fn allocator(self: *CountingAllocator) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+
+    fn resetWindow(self: *CountingAllocator) void {
+        self.window_alloc_count = 0;
+        self.window_alloc_bytes = 0;
+        self.window_peak_live_bytes = 0;
+        self.window_live_baseline = self.live_bytes;
+    }
+
+    fn updateWindowPeak(self: *CountingAllocator) void {
+        if (self.live_bytes >= self.window_live_baseline) {
+            const delta = self.live_bytes - self.window_live_baseline;
+            if (delta > self.window_peak_live_bytes) self.window_peak_live_bytes = delta;
+        }
+    }
+
+    // std.mem.Allocator owns architecture-sized lengths and return addresses at this callback seam.
+    // We translate those edge values into fixed-width benchmark counters immediately below.
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        const ptr = self.child.rawAlloc(len, alignment, ret_addr) orelse return null;
+        self.alloc_count += 1;
+        self.alloc_bytes += len;
+        self.live_bytes += len;
+        if (self.live_bytes > self.peak_live_bytes) self.peak_live_bytes = self.live_bytes;
+        self.window_alloc_count += 1;
+        self.window_alloc_bytes += len;
+        self.updateWindowPeak();
+        return ptr;
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        if (!self.child.rawResize(memory, alignment, new_len, ret_addr)) return false;
+        if (new_len > memory.len) {
+            const delta = new_len - memory.len;
+            self.alloc_bytes += delta;
+            self.window_alloc_bytes += delta;
+            self.live_bytes += delta;
+        } else {
+            const delta = memory.len - new_len;
+            self.live_bytes -|= delta;
+        }
+        self.updateWindowPeak();
+        return true;
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        const ptr = self.child.rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
+        if (new_len > memory.len) {
+            const delta = new_len - memory.len;
+            self.alloc_bytes += delta;
+            self.window_alloc_bytes += delta;
+            self.live_bytes += delta;
+        } else {
+            const delta = memory.len - new_len;
+            self.live_bytes -|= delta;
+        }
+        self.updateWindowPeak();
+        return ptr;
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        self.child.rawFree(memory, alignment, ret_addr);
+        self.live_bytes -|= memory.len;
+        self.updateWindowPeak();
+    }
+};
+
+fn lessU64(_: void, lhs: u64, rhs: u64) bool {
+    return lhs < rhs;
+}
+
+fn medianU64(scratch: []u64) u64 {
+    std.sort.heap(u64, scratch, {}, lessU64);
+    return scratch[scratch.len / 2];
+}
+
+fn p95U64(scratch: []u64) u64 {
+    std.sort.heap(u64, scratch, {}, lessU64);
+    const n = scratch.len;
+    const idx = ((95 * n) + 99) / 100 - 1;
+    return scratch[@min(idx, n - 1)];
+}
+
+fn nowNs(io: std.Io) u64 {
+    return @intCast(std.Io.Clock.awake.now(io).toNanoseconds());
+}
+
+fn rgba(r: u8, g: u8, b: u8) contract.Rgba8 {
+    return .{ .r = r, .g = g, .b = b, .a = 255 };
+}
+
+fn defaultCellMetrics(cell_px: geometry_contract.CellSize) contract.CellMetrics {
+    const h = @max(cell_px.height, 1);
+    return .{
+        .cell_w_px = @max(cell_px.width, 1),
+        .cell_h_px = h,
+        .baseline_px = @intCast(@max(h - @divFloor(h, 5), 1)),
+    };
+}
+
+fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
+}
+
+fn count64(items: anytype) u64 {
+    return count32(items);
+}
+
+fn cellCount(rows: u16, cols: u16) u32 {
+    return @as(u32, rows) * @as(u32, cols);
+}
+
+fn initCells(allocator: std.mem.Allocator, rows: u16, cols: u16, bg: contract.Rgba8) ![]contract.CellInput {
+    const len = cellCount(rows, cols);
+    const cells = try allocator.alloc(contract.CellInput, @intCast(len));
+    for (cells) |*cell| {
+        cell.* = .{ .codepoint = ' ', .fg = rgba(240, 240, 240), .bg = bg };
+    }
+    return cells;
+}
+
+fn initDirtyAll(allocator: std.mem.Allocator, rows: u16, cols: u16) !struct {
+    rows: []bool,
+    starts: []u16,
+    ends: []u16,
+} {
+    const dirty_rows = try allocator.alloc(bool, rows);
+    const dirty_starts = try allocator.alloc(u16, rows);
+    const dirty_ends = try allocator.alloc(u16, rows);
+    @memset(dirty_rows, true);
+    @memset(dirty_starts, 0);
+    @memset(dirty_ends, cols -| 1);
+    return .{ .rows = dirty_rows, .starts = dirty_starts, .ends = dirty_ends };
+}
+
+fn initDirtySparse(allocator: std.mem.Allocator, rows: u16, active_rows: []const u16, start_col: u16, end_col: u16) !struct {
+    rows: []bool,
+    starts: []u16,
+    ends: []u16,
+} {
+    const dirty_rows = try allocator.alloc(bool, rows);
+    const dirty_starts = try allocator.alloc(u16, rows);
+    const dirty_ends = try allocator.alloc(u16, rows);
+    @memset(dirty_rows, false);
+    @memset(dirty_starts, 0);
+    @memset(dirty_ends, 0);
+    for (active_rows) |row| {
+        dirty_rows[row] = true;
+        dirty_starts[row] = start_col;
+        dirty_ends[row] = end_col;
+    }
+    return .{ .rows = dirty_rows, .starts = dirty_starts, .ends = dirty_ends };
+}
+
+fn buildAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 24;
+    const cols: u16 = 80;
+    const bg = rgba(12, 12, 18);
+    const fg = rgba(235, 238, 242);
+    const cells = try initCells(allocator, rows, cols, bg);
+    const dirty = try initDirtyAll(allocator, rows, cols);
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        const row_base = @as(u32, row) * cols;
+        var col: u16 = 0;
+        while (col < cols) : (col += 1) {
+            const idx = row_base + col;
+            cells[@intCast(idx)].codepoint = @as(u21, 'A') + @as(u21, @intCast(col % 26));
+            cells[@intCast(idx)].fg = fg;
+        }
+    }
+    return .{
+        .name = "ascii_full",
+        .cell_px = .{ .width = 9, .height = 18 },
+        .dirty_cells_per_run = cellCount(rows, cols),
+        .input = .{ .cells = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn buildLsdLikeWorkload(allocator: std.mem.Allocator, colored: bool) !Workload {
+    const rows: u16 = 52;
+    const cols: u16 = 119;
+    const bg = rgba(0, 0, 0);
+    const fg = rgba(204, 204, 204);
+    const dir_fg = rgba(97, 175, 239);
+    const exec_fg = rgba(152, 195, 121);
+    const link_fg = rgba(198, 120, 221);
+    const perm_fg = rgba(224, 108, 117);
+    const size_fg = rgba(229, 192, 123);
+    const date_fg = rgba(86, 182, 194);
+    const cells = try initCells(allocator, rows, cols, bg);
+    const dirty = try initDirtyAll(allocator, rows, cols);
+
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        const row_base: u32 = @as(u32, row) * cols;
+        var col: u16 = 0;
+        const kind = row % 3;
+        const name_fg = if (!colored)
+            fg
+        else switch (kind) {
+            0 => dir_fg,
+            1 => exec_fg,
+            else => link_fg,
+        };
+        const size_color = if (colored) size_fg else fg;
+        const date_color = if (colored) date_fg else fg;
+        const perm_color = if (colored) perm_fg else fg;
+
+        writeText(cells, row_base, cols, &col, if (kind == 1) "-rwxr-xr-x" else "drwxr-xr-x", perm_color, bg);
+        padSpaces(cells, row_base, cols, &col, 1, name_fg, bg);
+        writeText(cells, row_base, cols, &col, "user", fg, bg);
+        padSpaces(cells, row_base, cols, &col, 1, name_fg, bg);
+        writeText(cells, row_base, cols, &col, "group", fg, bg);
+        padSpaces(cells, row_base, cols, &col, 2, name_fg, bg);
+        writeText(cells, row_base, cols, &col, if (kind == 0) "4.0K" else "128K", size_color, bg);
+        padSpaces(cells, row_base, cols, &col, 2, name_fg, bg);
+        writeText(cells, row_base, cols, &col, "2026-05-18", date_color, bg);
+        padSpaces(cells, row_base, cols, &col, 1, name_fg, bg);
+        writeText(cells, row_base, cols, &col, if (kind == 0) "src" else if (kind == 1) "build.zig" else "README.md", name_fg, bg);
+        if (kind == 2) {
+            padSpaces(cells, row_base, cols, &col, 1, name_fg, bg);
+            writeText(cells, row_base, cols, &col, "->", fg, bg);
+            padSpaces(cells, row_base, cols, &col, 1, name_fg, bg);
+            writeText(cells, row_base, cols, &col, "target", link_fg, bg);
+        }
+        padSpaces(cells, row_base, cols, &col, cols -| col, name_fg, bg);
+    }
+
+    return .{
+        .name = if (colored) "lsd_like_color" else "lsd_like_plain",
+        .cell_px = .{ .width = 9, .height = 18 },
+        .dirty_cells_per_run = @intCast(@as(u32, rows) * cols),
+        .input = .{ .cells = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn writeText(cells: []contract.CellInput, row_base: u32, cols: u16, col: *u16, text: []const u8, fg: contract.Rgba8, bg: contract.Rgba8) void {
+    for (text) |byte| {
+        if (col.* >= cols) break;
+        cells[@intCast(row_base + col.*)] = .{ .codepoint = byte, .fg = fg, .bg = bg };
+        col.* += 1;
+    }
+}
+
+fn padSpaces(cells: []contract.CellInput, row_base: u32, cols: u16, col: *u16, count: u16, fg: contract.Rgba8, bg: contract.Rgba8) void {
+    var left = count;
+    while (left > 0 and col.* < cols) : (left -= 1) {
+        cells[@intCast(row_base + col.*)] = .{ .codepoint = ' ', .fg = fg, .bg = bg };
+        col.* += 1;
+    }
+}
+
+fn buildSparseRowsWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 30;
+    const cols: u16 = 120;
+    const bg = rgba(10, 14, 20);
+    const fg = rgba(220, 230, 240);
+    const accent = rgba(140, 200, 255);
+    const cells = try initCells(allocator, rows, cols, bg);
+    const active_rows = [_]u16{ 4, 17, 18 };
+    const dirty = try initDirtySparse(allocator, rows, &active_rows, 8, 87);
+    for (active_rows) |row| {
+        var col: u16 = 8;
+        while (col <= 87) : (col += 1) {
+            const idx = @as(u32, row) * cols + col;
+            cells[@intCast(idx)].codepoint = if ((col - 8) % 9 == 0) 0x2500 else 'x';
+            cells[@intCast(idx)].fg = if ((col - 8) % 16 < 8) fg else accent;
+            cells[@intCast(idx)].bg = if (row == 17) rgba(28, 18, 36) else bg;
+        }
+    }
+    return .{
+        .name = "sparse_rows",
+        .cell_px = .{ .width = 9, .height = 18 },
+        .dirty_cells_per_run = active_rows.len * 80,
+        .input = .{ .cells = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = false, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn buildMixedBoxWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 40;
+    const cols: u16 = 100;
+    const bg = rgba(15, 15, 15);
+    const cells = try initCells(allocator, rows, cols, bg);
+    const dirty = try initDirtyAll(allocator, rows, cols);
+    const glyph_cycle = [_]u21{ 'A', 'B', 0x2500, 0x2502, 0x253C, 0x2588, 0x2592, 0x03BB };
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        const row_base = @as(u32, row) * cols;
+        var col: u16 = 0;
+        while (col < cols) : (col += 1) {
+            const idx = row_base + col;
+            cells[@intCast(idx)].codepoint = glyph_cycle[(row + col) % glyph_cycle.len];
+            cells[@intCast(idx)].fg = rgba(@intCast(80 + (col % 120)), @intCast(90 + (row % 100)), @intCast(140 + ((row + col) % 100)));
+            cells[@intCast(idx)].bg = if ((row / 4) % 2 == 0) bg else rgba(24, 24, 32);
+        }
+    }
+    return .{
+        .name = "mixed_box_full",
+        .cell_px = .{ .width = 10, .height = 18 },
+        .dirty_cells_per_run = cellCount(rows, cols),
+        .input = .{ .cells = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn buildWideDirtySpansWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 36;
+    const cols: u16 = 132;
+    const bg = rgba(7, 10, 13);
+    const fg = rgba(225, 230, 235);
+    const cells = try initCells(allocator, rows, cols, bg);
+    const dirty_rows_list = [_]u16{ 5, 6, 7, 8, 14, 15, 16, 22, 23, 24, 25, 31 };
+    const dirty = try initDirtySparse(allocator, rows, &dirty_rows_list, 12, 119);
+    for (dirty_rows_list) |row| {
+        var col: u16 = 12;
+        while (col <= 119) : (col += 1) {
+            const idx = @as(u32, row) * cols + col;
+            cells[@intCast(idx)].codepoint = if (col % 17 == 0) 0x251C else if (col % 7 == 0) 0x2580 else 'm';
+            cells[@intCast(idx)].fg = fg;
+            cells[@intCast(idx)].bg = if ((col / 8) % 2 == 0) rgba(18, 24, 30) else rgba(32, 18, 18);
+        }
+    }
+    return .{
+        .name = "wide_dirty_spans",
+        .cell_px = .{ .width = 9, .height = 17 },
+        .dirty_cells_per_run = dirty_rows_list.len * 108,
+        .input = .{ .cells = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = false, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 12;
+    const cols: u16 = 32;
+    const bg = rgba(14, 12, 18);
+    const fg = rgba(232, 236, 242);
+    const combining = &[_]u32{ 'i', 0x0332 };
+    const emoji = &[_]u32{0x1f642};
+    const cells = try allocator.alloc(text_mod.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
+    const dirty = try initDirtyAll(allocator, rows, cols);
+    for (cells, 0..) |*cell, idx| {
+        const cp = if (idx % 2 == 0) combining else emoji;
+        cell.* = .{
+            .codepoints = cp,
+            .fg = fg,
+            .bg = bg,
+            .presentation = if (idx % 2 == 0) .any else .emoji,
+        };
+    }
+    return .{
+        .name = "complex_text_full",
+        .cell_px = .{ .width = 9, .height = 18 },
+        .dirty_cells_per_run = count32(cells),
+        .input = .{ .cell_texts = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 24;
+    const cols: u16 = 80;
+    const bg = rgba(12, 12, 18);
+    const fg = rgba(235, 238, 242);
+    const ascii = [_]u32{'a'};
+    const cells = try allocator.alloc(text_mod.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
+    const dirty = try initDirtyAll(allocator, rows, cols);
+    for (cells) |*cell| {
+        cell.* = .{
+            .codepoints = &ascii,
+            .fg = fg,
+            .bg = bg,
+        };
+    }
+    return .{
+        .name = "cell_text_ascii_full",
+        .cell_px = .{ .width = 9, .height = 18 },
+        .dirty_cells_per_run = count32(cells),
+        .input = .{ .cell_texts = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 16;
+    const cols: u16 = 48;
+    const bg = rgba(16, 14, 22);
+    const fg = rgba(232, 236, 242);
+    const accent = rgba(166, 212, 255);
+    const ascii = [_]u32{'a'};
+    const combining = [_]u32{ 'i', 0x0332 };
+    const cells = try allocator.alloc(text_mod.Cluster.CellTextInput, @intCast(cellCount(rows, cols)));
+    const dirty = try initDirtyAll(allocator, rows, cols);
+    for (cells, 0..) |*cell, idx| {
+        const even = idx % 2 == 0;
+        cell.* = .{
+            .codepoints = if (even) &ascii else &combining,
+            .fg = if (even) fg else accent,
+            .bg = bg,
+            .presentation = .any,
+        };
+    }
+    return .{
+        .name = "cell_text_mixed",
+        .cell_px = .{ .width = 9, .height = 18 },
+        .dirty_cells_per_run = count32(cells),
+        .input = .{ .cell_texts = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn buildCurlyUnderlineMixedWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 18;
+    const cols: u16 = 64;
+    const bg = rgba(12, 16, 20);
+    const fg = rgba(234, 238, 242);
+    const accent = rgba(255, 180, 120);
+    const cells = try initCells(allocator, rows, cols, bg);
+    const dirty = try initDirtyAll(allocator, rows, cols);
+    for (cells, 0..) |*cell, idx| {
+        const curly = idx % 3 == 1;
+        cell.* = .{
+            .codepoint = if (curly) 'u' else 'n',
+            .fg = if (curly) accent else fg,
+            .bg = bg,
+            .underline = curly,
+            .underline_style = if (curly) .curly else .straight,
+        };
+    }
+    return .{
+        .name = "curly_underline_mixed",
+        .cell_px = .{ .width = 9, .height = 18 },
+        .dirty_cells_per_run = count32(cells),
+        .input = .{ .cells = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn buildIconPuaMixedWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 12;
+    const cols: u16 = 48;
+    const bg = rgba(14, 16, 22);
+    const fg = rgba(236, 239, 243);
+    const accent = rgba(255, 196, 96);
+    const cells = try initCells(allocator, rows, cols, bg);
+    const dirty = try initDirtyAll(allocator, rows, cols);
+    for (cells, 0..) |*cell, idx| {
+        const icon = idx % 4 == 1;
+        cell.* = .{
+            .codepoint = if (icon) 0xf101 else 'n',
+            .fg = if (icon) accent else fg,
+            .bg = bg,
+        };
+    }
+    return .{
+        .name = "icon_pua_mixed",
+        .cell_px = .{ .width = 9, .height = 18 },
+        .dirty_cells_per_run = count32(cells),
+        .input = .{ .cells = cells },
+        .grid = .{ .cols = cols, .rows = rows },
+        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
+    };
+}
+
+fn initPrepareContext(workload: Workload) WorkloadPrepareContext {
+    return .{
+        .session = .{
+            .primary_face = .{ .value = 1 },
+            .metrics = defaultCellMetrics(workload.cell_px),
+        },
+        .options = .{
+            .scene = .{
+                .damage = .{
+                    .full = workload.damage.full,
+                    .dirty_rows = workload.damage.dirty_rows,
+                    .dirty_cols_start = workload.damage.dirty_cols_start,
+                    .dirty_cols_end = workload.damage.dirty_cols_end,
+                },
+            },
+        },
+    };
+}
+
+fn prepareWorkloadFrame(preparer: *text_mod.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !text_mod.OwnedPreparedTextFrame {
+    return switch (workload.input) {
+        .cells => |cells| preparer.prepareCellsWithSessionOptions(
+            cells,
+            workload.grid,
+            context.session,
+            context.options,
+        ),
+        .cell_texts => |cells| preparer.prepareCellTextInputsWithSessionOptions(
+            cells,
+            workload.grid,
+            context.session,
+            context.options,
+        ),
+    };
+}
+
+fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: text_mod.OwnedPreparedTextFrame) RunObservation {
+    return .{
+        .ns = duration_ns,
+        .alloc_count = counting.window_alloc_count,
+        .alloc_bytes = counting.window_alloc_bytes,
+        .peak_live_bytes = counting.window_peak_live_bytes,
+        .resolve_us = analysis.timings.resolve_us,
+        .shape_us = analysis.timings.shape_us,
+        .group_us = analysis.timings.group_us,
+        .scene_us = analysis.timings.scene_us,
+    };
+}
+
+fn countSceneFills(analysis: text_mod.OwnedPreparedTextFrame) u64 {
+    return count64(analysis.scene.scene.background_draws) +
+        count64(analysis.scene.scene.decoration_draws) +
+        count64(analysis.scene.scene.cursor_draws);
+}
+
+fn markAtlasOutputs(preparer: *text_mod.TextFramePreparer, analysis: text_mod.OwnedPreparedTextFrame) void {
+    for (analysis.raster_plan.outputs) |output| {
+        _ = preparer.atlas.markRendered(output.key);
+    }
+}
+
+fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *text_mod.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !ColdRun {
+    counting.resetWindow();
+    const start_ns = nowNs(io);
+    var analysis = try prepareWorkloadFrame(preparer, workload, context);
+    defer analysis.deinit();
+    const duration_ns = nowNs(io) - start_ns;
+    const uploads = count64(analysis.raster_plan.outputs);
+    const result: ColdRun = .{
+        .observation = extractObservation(duration_ns, counting.*, analysis),
+        .fills = countSceneFills(analysis),
+        .glyphs = count64(analysis.scene.scene.sprite_draws),
+        .uploads = uploads,
+    };
+    markAtlasOutputs(preparer, analysis);
+    return result;
+}
+
+fn runWorkloadWarm(
+    io: std.Io,
+    counting: *CountingAllocator,
+    preparer: *text_mod.TextFramePreparer,
+    workload: Workload,
+    context: WorkloadPrepareContext,
+    observations: []RunObservation,
+    fill_values: []u64,
+    glyph_values: []u64,
+    upload_values: []u64,
+) !void {
+    for (observations, 0..) |*observation, idx| {
+        counting.resetWindow();
+        const start_ns = nowNs(io);
+        var analysis = try prepareWorkloadFrame(preparer, workload, context);
+        defer analysis.deinit();
+        const duration_ns = nowNs(io) - start_ns;
+        observation.* = extractObservation(duration_ns, counting.*, analysis);
+        markAtlasOutputs(preparer, analysis);
+        fill_values[idx] = countSceneFills(analysis);
+        glyph_values[idx] = count64(analysis.scene.scene.sprite_draws);
+        upload_values[idx] = count64(analysis.raster_plan.outputs);
+    }
+}
+
+fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObservation, fill_values: []u64, glyph_values: []u64, upload_values: []u64) !WarmSummary {
+    const ns_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(ns_values);
+    const alloc_count_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(alloc_count_values);
+    const alloc_bytes_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(alloc_bytes_values);
+    const peak_live_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(peak_live_values);
+    const resolve_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(resolve_values);
+    const shape_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(shape_values);
+    const group_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(group_values);
+    const scene_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(scene_values);
+
+    for (observations, 0..) |observation, idx| {
+        ns_values[idx] = observation.ns;
+        alloc_count_values[idx] = observation.alloc_count;
+        alloc_bytes_values[idx] = observation.alloc_bytes;
+        peak_live_values[idx] = observation.peak_live_bytes;
+        resolve_values[idx] = observation.resolve_us;
+        shape_values[idx] = observation.shape_us;
+        group_values[idx] = observation.group_us;
+        scene_values[idx] = observation.scene_us;
+    }
+
+    return .{
+        .median_ns = medianU64(ns_values),
+        .p95_ns = p95U64(ns_values),
+        .median_resolve_us = medianU64(resolve_values),
+        .median_shape_us = medianU64(shape_values),
+        .median_group_us = medianU64(group_values),
+        .median_scene_us = medianU64(scene_values),
+        .median_alloc_count = medianU64(alloc_count_values),
+        .median_alloc_bytes = medianU64(alloc_bytes_values),
+        .median_peak_live_bytes = medianU64(peak_live_values),
+        .median_fills = medianU64(fill_values),
+        .median_glyphs = medianU64(glyph_values),
+        .median_uploads = medianU64(upload_values),
+    };
+}
+
+fn runWorkloadInitState(allocator: std.mem.Allocator, workload: Workload, counting: *CountingAllocator, preparer: *text_mod.TextFramePreparer, context: *WorkloadPrepareContext) void {
+    context.* = initPrepareContext(workload);
+    counting.* = CountingAllocator.init(allocator);
+    preparer.* = text_mod.TextFramePreparer.init(counting.allocator());
+}
+
+fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: WarmSummary) WorkloadResult {
+    return .{
+        .name = workload.name,
+        .grid_cols = workload.grid.cols,
+        .grid_rows = workload.grid.rows,
+        .dirty_cells_per_run = workload.dirty_cells_per_run,
+        .runs = runs,
+        .cold_ns = cold.observation.ns,
+        .cold_resolve_us = cold.observation.resolve_us,
+        .cold_shape_us = cold.observation.shape_us,
+        .cold_group_us = cold.observation.group_us,
+        .cold_scene_us = cold.observation.scene_us,
+        .cold_alloc_count = cold.observation.alloc_count,
+        .cold_alloc_bytes = cold.observation.alloc_bytes,
+        .cold_peak_live_bytes = cold.observation.peak_live_bytes,
+        .cold_fills = cold.fills,
+        .cold_glyphs = cold.glyphs,
+        .cold_uploads = cold.uploads,
+        .warm_median_ns = warm.median_ns,
+        .warm_p95_ns = warm.p95_ns,
+        .warm_median_resolve_us = warm.median_resolve_us,
+        .warm_median_shape_us = warm.median_shape_us,
+        .warm_median_group_us = warm.median_group_us,
+        .warm_median_scene_us = warm.median_scene_us,
+        .warm_median_alloc_count = warm.median_alloc_count,
+        .warm_median_alloc_bytes = warm.median_alloc_bytes,
+        .warm_median_peak_live_bytes = warm.median_peak_live_bytes,
+        .warm_median_fills = warm.median_fills,
+        .warm_median_glyphs = warm.median_glyphs,
+        .warm_median_uploads = warm.median_uploads,
+    };
+}
+
+fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, runs: RunCount) !WorkloadResult {
+    const observations = try allocator.alloc(RunObservation, runs);
+    defer allocator.free(observations);
+    const fill_values = try allocator.alloc(u64, runs);
+    defer allocator.free(fill_values);
+    const glyph_values = try allocator.alloc(u64, runs);
+    defer allocator.free(glyph_values);
+    const upload_values = try allocator.alloc(u64, runs);
+    defer allocator.free(upload_values);
+
+    var context: WorkloadPrepareContext = undefined;
+    var counting: CountingAllocator = undefined;
+    var preparer: text_mod.TextFramePreparer = undefined;
+    runWorkloadInitState(allocator, workload, &counting, &preparer, &context);
+    defer preparer.deinit();
+
+    const cold = try runWorkloadCold(io, &counting, &preparer, workload, context);
+    try runWorkloadWarm(io, &counting, &preparer, workload, context, observations, fill_values, glyph_values, upload_values);
+    const warm = try summarizeWarmRuns(allocator, observations, fill_values, glyph_values, upload_values);
+    std.debug.assert(cold.uploads >= warm.median_uploads);
+    return runWorkloadResult(workload, runs, cold, warm);
+}
+
+fn parseArgs(argv: []const [:0]const u8) !Options {
+    var opts = Options{};
+    var args = argv[1..];
+    while (args.len > 0) {
+        const arg = args[0];
+        args = args[1..];
+        if (std.mem.eql(u8, arg, "--text")) {
+            opts.format = .text;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--runs=")) {
+            opts.runs = std.fmt.parseUnsigned(RunCount, arg["--runs=".len..], 10) catch return error.InvalidRuns;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--runs")) {
+            if (args.len == 0) return error.MissingRuns;
+            opts.runs = std.fmt.parseUnsigned(RunCount, args[0], 10) catch return error.InvalidRuns;
+            args = args[1..];
+            continue;
+        }
+        return error.UnknownArgument;
+    }
+    return opts;
+}
+
+fn printTextResult(result: WorkloadResult) void {
+    const cold_ms = @as(f64, @floatFromInt(result.cold_ns)) / 1_000_000.0;
+    const warm_median_ms = @as(f64, @floatFromInt(result.warm_median_ns)) / 1_000_000.0;
+    const warm_p95_ms = @as(f64, @floatFromInt(result.warm_p95_ns)) / 1_000_000.0;
+    std.debug.print("workload={s}\n", .{result.name});
+    std.debug.print("grid_cols={d}\n", .{result.grid_cols});
+    std.debug.print("grid_rows={d}\n", .{result.grid_rows});
+    std.debug.print("runs={d}\n", .{result.runs});
+    std.debug.print("dirty_cells_per_run={d}\n", .{result.dirty_cells_per_run});
+    std.debug.print("cold_ms={d:.3}\n", .{cold_ms});
+    std.debug.print("cold_resolve_us={d}\n", .{result.cold_resolve_us});
+    std.debug.print("cold_shape_us={d}\n", .{result.cold_shape_us});
+    std.debug.print("cold_group_us={d}\n", .{result.cold_group_us});
+    std.debug.print("cold_scene_us={d}\n", .{result.cold_scene_us});
+    std.debug.print("cold_alloc_count={d}\n", .{result.cold_alloc_count});
+    std.debug.print("cold_alloc_bytes={d}\n", .{result.cold_alloc_bytes});
+    std.debug.print("cold_peak_live_bytes={d}\n", .{result.cold_peak_live_bytes});
+    std.debug.print("cold_fills={d}\n", .{result.cold_fills});
+    std.debug.print("cold_glyphs={d}\n", .{result.cold_glyphs});
+    std.debug.print("cold_uploads={d}\n", .{result.cold_uploads});
+    std.debug.print("warm_median_ms={d:.3}\n", .{warm_median_ms});
+    std.debug.print("warm_p95_ms={d:.3}\n", .{warm_p95_ms});
+    std.debug.print("warm_median_resolve_us={d}\n", .{result.warm_median_resolve_us});
+    std.debug.print("warm_median_shape_us={d}\n", .{result.warm_median_shape_us});
+    std.debug.print("warm_median_group_us={d}\n", .{result.warm_median_group_us});
+    std.debug.print("warm_median_scene_us={d}\n", .{result.warm_median_scene_us});
+    std.debug.print("dirty_cells_per_second={d:.0}\n", .{result.dirtyCellsPerSecond()});
+    std.debug.print("warm_median_alloc_count={d}\n", .{result.warm_median_alloc_count});
+    std.debug.print("warm_median_alloc_bytes={d}\n", .{result.warm_median_alloc_bytes});
+    std.debug.print("warm_median_peak_live_bytes={d}\n", .{result.warm_median_peak_live_bytes});
+    std.debug.print("warm_median_fills={d}\n", .{result.warm_median_fills});
+    std.debug.print("warm_median_glyphs={d}\n", .{result.warm_median_glyphs});
+    std.debug.print("warm_median_uploads={d}\n", .{result.warm_median_uploads});
+    std.debug.print("---\n", .{});
+}
+
+fn printNdjsonResult(result: WorkloadResult) void {
+    std.debug.print(
+        "{{\"workload\":\"{s}\",\"grid_cols\":{d},\"grid_rows\":{d},",
+        .{
+            result.name,
+            result.grid_cols,
+            result.grid_rows,
+        },
+    );
+    std.debug.print(
+        "\"runs\":{d},\"dirty_cells_per_run\":{d},\"cold_ns\":{d},\"cold_resolve_us\":{d}," ++
+            "\"cold_shape_us\":{d},\"cold_group_us\":{d},\"cold_scene_us\":{d},\"cold_alloc_count\":{d}," ++
+            "\"cold_alloc_bytes\":{d},\"cold_peak_live_bytes\":{d},\"cold_fills\":{d},\"cold_glyphs\":{d}," ++
+            "\"cold_uploads\":{d},\"warm_median_ns\":{d},\"warm_p95_ns\":{d},\"warm_median_resolve_us\":{d}," ++
+            "\"warm_median_shape_us\":{d},\"warm_median_group_us\":{d},\"warm_median_scene_us\":{d}," ++
+            "\"dirty_cells_per_second\":{d:.0},\"warm_median_alloc_count\":{d},\"warm_median_alloc_bytes\":{d}," ++
+            "\"warm_median_peak_live_bytes\":{d},\"warm_median_fills\":{d},\"warm_median_glyphs\":{d}," ++
+            "\"warm_median_uploads\":{d}}}\n",
+        .{
+            result.runs,
+            result.dirty_cells_per_run,
+            result.cold_ns,
+            result.cold_resolve_us,
+            result.cold_shape_us,
+            result.cold_group_us,
+            result.cold_scene_us,
+            result.cold_alloc_count,
+            result.cold_alloc_bytes,
+            result.cold_peak_live_bytes,
+            result.cold_fills,
+            result.cold_glyphs,
+            result.cold_uploads,
+            result.warm_median_ns,
+            result.warm_p95_ns,
+            result.warm_median_resolve_us,
+            result.warm_median_shape_us,
+            result.warm_median_group_us,
+            result.warm_median_scene_us,
+            result.dirtyCellsPerSecond(),
+            result.warm_median_alloc_count,
+            result.warm_median_alloc_bytes,
+            result.warm_median_peak_live_bytes,
+            result.warm_median_fills,
+            result.warm_median_glyphs,
+            result.warm_median_uploads,
+        },
+    );
+}
+
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const argv = try init.minimal.args.toSlice(arena);
+    const opts = try parseArgs(argv);
+    const io = init.io;
+
+    const workloads = [_]Workload{
+        try buildAsciiFullWorkload(arena),
+        try buildLsdLikeWorkload(arena, false),
+        try buildLsdLikeWorkload(arena, true),
+        try buildCellTextAsciiFullWorkload(arena),
+        try buildSparseRowsWorkload(arena),
+        try buildMixedBoxWorkload(arena),
+        try buildWideDirtySpansWorkload(arena),
+        try buildCellTextMixedWorkload(arena),
+        try buildCurlyUnderlineMixedWorkload(arena),
+        try buildIconPuaMixedWorkload(arena),
+        try buildComplexTextWorkload(arena),
+    };
+
+    for (workloads) |workload| {
+        const result = try runWorkload(io, arena, workload, opts.runs);
+        switch (opts.format) {
+            .ndjson => printNdjsonResult(result),
+            .text => printTextResult(result),
+        }
+    }
+}
