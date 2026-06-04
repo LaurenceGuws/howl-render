@@ -47,16 +47,8 @@ pub fn build(b: *std.Build) void {
     unit_test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     unit_test_mod.linkLibrary(harfbuzz_lib);
     unit_test_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    const unit_tests = b.addTest(.{
-        .name = "test-unit",
-        .root_module = unit_test_mod,
-        .filters = b.args orelse &.{},
-    });
-    unit_tests.use_llvm = true;
-    const run_unit_tests = b.addRunArtifact(unit_tests);
-    if (b.args != null) {
-        run_unit_tests.has_side_effects = true;
-    }
+    const unit_tests = add_test_artifact(b, "test-unit", unit_test_mod);
+    const run_unit_tests = add_test_run_artifact(b, unit_tests);
 
     const abi_test_mod = b.createModule(.{
         .root_source_file = b.path("src/test_abi.zig"),
@@ -71,16 +63,8 @@ pub fn build(b: *std.Build) void {
     abi_test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     abi_test_mod.linkLibrary(harfbuzz_lib);
     abi_test_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
-    const abi_tests = b.addTest(.{
-        .name = "test-abi",
-        .root_module = abi_test_mod,
-        .filters = b.args orelse &.{},
-    });
-    abi_tests.use_llvm = true;
-    const run_abi_tests = b.addRunArtifact(abi_tests);
-    if (b.args != null) {
-        run_abi_tests.has_side_effects = true;
-    }
+    const abi_tests = add_test_artifact(b, "test-abi", abi_test_mod);
+    const run_abi_tests = add_test_run_artifact(b, abi_tests);
 
     const check_step = b.step("check", "Compile owner surfaces without installing or running");
     const test_step = b.step("test", "Run all tests");
@@ -146,4 +130,22 @@ pub fn build(b: *std.Build) void {
     const benchmark_step = b.step("benchmark:render", "Run the render measurement benchmark");
     benchmark_step.dependOn(&run_benchmark.step);
     check_step.dependOn(benchmark_build_step);
+}
+
+fn add_test_artifact(b: *std.Build, name: []const u8, root_module: *std.Build.Module) *std.Build.Step.Compile {
+    const tests = b.addTest(.{
+        .name = name,
+        .root_module = root_module,
+        .filters = b.args orelse &.{},
+    });
+    tests.use_llvm = true;
+    return tests;
+}
+
+fn add_test_run_artifact(b: *std.Build, tests: *std.Build.Step.Compile) *std.Build.Step.Run {
+    const run_tests = b.addRunArtifact(tests);
+    if (b.args != null) {
+        run_tests.has_side_effects = true;
+    }
+    return run_tests;
 }
