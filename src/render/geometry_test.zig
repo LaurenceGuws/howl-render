@@ -1,6 +1,6 @@
 const std = @import("std");
-const geometry = @import("../../render/grid_geometry.zig");
-const geometry_contract = @import("../../render/geometry_contract.zig");
+const geometry = @import("grid_geometry.zig");
+const geometry_contract = @import("geometry_contract.zig");
 
 test "render surface pixel geometry clamps to drawable size" {
     const pixels = geometry_contract.FramePixels{ .render_width = 0, .render_height = -2, .grid_width = 80, .grid_height = 24 };

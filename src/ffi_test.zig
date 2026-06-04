@@ -1,23 +1,23 @@
 const std = @import("std");
 
 test {
-    std.testing.refAllDecls(@import("../libhowl_render.zig"));
+    std.testing.refAllDecls(@import("libhowl_render.zig"));
 }
-const ffi_root = @import("../ffi.zig");
-const prepare_request = @import("../ffi/prepare_request.zig");
-const prepared_surface = @import("../ffi/prepared_surface.zig");
-const submission = @import("../ffi/submission.zig");
-const surface_geometry = @import("../ffi/surface_geometry.zig");
-const text_session = @import("../ffi/text_session.zig");
-const vt_surface = @import("../ffi/vt_surface.zig");
-const work_state = @import("../ffi/work_state.zig");
-const prepared_buffer_model = @import("../prepared/buffer.zig");
-const prepared_owner_model = @import("../prepared/owner.zig");
-const prepared_surface_model = @import("../prepared/surface.zig");
-const render_surface_realizer = @import("../render/render_surface_realizer.zig");
-const text_contract = @import("../text/contract.zig");
-const text_model = @import("../text/text.zig");
-const text_session_model = @import("../session/text.zig");
+const ffi_root = @import("ffi.zig");
+const prepare_request = @import("ffi/prepare_request.zig");
+const prepared_surface = @import("ffi/prepared_surface.zig");
+const submission = @import("ffi/submission.zig");
+const surface_geometry = @import("ffi/surface_geometry.zig");
+const text_session = @import("ffi/text_session.zig");
+const vt_surface = @import("ffi/vt_surface.zig");
+const work_state = @import("ffi/work_state.zig");
+const prepared_buffer_model = @import("prepared/buffer.zig");
+const prepared_owner_model = @import("prepared/owner.zig");
+const prepared_surface_model = @import("prepared/surface.zig");
+const render_surface_realizer = @import("render/render_surface_realizer.zig");
+const text_contract = @import("text/contract.zig");
+const text_model = @import("text/text.zig");
+const text_session_model = @import("session/text.zig");
 
 const c = ffi_root.c;
 const RenderVtSurfaceSlot = @field(c, "Howl" ++ "RenderVtSurfaceSlot");
@@ -660,7 +660,7 @@ fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, snaps
 }
 
 fn createTestTextSessionHandle() !c.HowlRenderTextSessionHandle {
-    const owner = @import("../session/text.zig").TextSessionOwner.create(
+    const owner = @import("session/text.zig").TextSessionOwner.create(
         std.testing.allocator,
         .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 },
     ) orelse return error.OutOfMemory;
