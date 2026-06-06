@@ -60,11 +60,6 @@ pub const Limits = struct {
     }
 };
 
-const ColorMode = enum {
-    alpha,
-    color,
-};
-
 pub fn Emitter(comptime limits: Limits) type {
     comptime limits.assertValid();
 
@@ -96,20 +91,6 @@ pub fn Emitter(comptime limits: Limits) type {
             return &self.surface_storage;
         }
 
-        fn emitTesting(self: *Self, fixture: *const testing.Fixture) Error!*const Surface {
-            var next = self.*;
-            next.resetTesting(fixture);
-            try next.appendFullDamage(fixture.render_px);
-            try next.appendTestingFillPass(fixture.clear_fills, c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT);
-            try next.appendTestingFillPass(fixture.background_fills, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
-            try next.appendTestingFillPass(fixture.decoration_fills, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
-            try next.appendTestingSprites(fixture.sprites);
-            try next.appendTestingFillPass(fixture.cursor_fills, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
-            self.* = next;
-            self.publishSurface();
-            return &self.surface_storage;
-        }
-
         pub fn emitPrepared(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
             var next = self.*;
             var next_resources = resources.*;
@@ -125,21 +106,6 @@ pub fn Emitter(comptime limits: Limits) type {
             resources.* = next_resources;
             self.publishSurface();
             return &self.surface_storage;
-        }
-
-        fn resetTesting(self: *Self, fixture: *const testing.Fixture) void {
-            self.damage_count = 0;
-            self.create_count = 0;
-            self.upload_count = 0;
-            self.command_count = 0;
-            self.glyph_count = 0;
-            self.retire_count = 0;
-            self.upload_bytes_count = 0;
-            self.surface_storage = emptySurface();
-            self.surface_storage.token = fixture.token;
-            self.surface_storage.render_px = fixture.render_px;
-            self.surface_storage.cell_px = fixture.cell_px;
-            self.surface_storage.grid = fixture.grid;
         }
 
         fn resetPrepared(self: *Self, prepared: *const prepared_surface.PreparedSurface) void {
@@ -191,18 +157,6 @@ pub fn Emitter(comptime limits: Limits) type {
                     .height_px = prepared.render_px.height,
                 },
                 .color_rgba = packRgba(.{ .r = 0, .g = 0, .b = 0, .a = 255 }),
-                .resource = zeroResource(),
-                .glyphs = emptyGlyphs(),
-            });
-        }
-
-        fn appendTestingFillPass(self: *Self, fills: []const testing.Fill, kind: u8) Error!void {
-            for (fills) |fill| try self.appendCommand(.{
-                .kind = kind,
-                .reserved0 = 0,
-                .reserved1 = 0,
-                .rect = fill.rect,
-                .color_rgba = fill.color_rgba,
                 .resource = zeroResource(),
                 .glyphs = emptyGlyphs(),
             });
@@ -296,24 +250,6 @@ pub fn Emitter(comptime limits: Limits) type {
             if (merged_width > std.math.maxInt(u16)) return false;
             prior.rect.width_px = @intCast(merged_width);
             return true;
-        }
-
-        fn appendTestingSprites(self: *Self, sprites: []const testing.Sprite) Error!void {
-            for (sprites, 0..) |sprite, sprite_index| {
-                const resource = spriteResource(sprite, @intCast(sprite_index + 1));
-                try self.appendTestingCreate(resource, sprite);
-                try self.appendTestingUpload(resource, sprite);
-                try self.appendCommand(.{
-                    .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE,
-                    .reserved0 = 0,
-                    .reserved1 = 0,
-                    .rect = sprite.rect,
-                    .color_rgba = if (sprite.color_mode == .alpha) sprite.color_rgba else 0,
-                    .resource = resource,
-                    .glyphs = emptyGlyphs(),
-                });
-                try self.appendRetire(resource, self.command_count);
-            }
         }
 
         fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!void {
@@ -410,18 +346,6 @@ pub fn Emitter(comptime limits: Limits) type {
             }
         }
 
-        fn appendTestingCreate(self: *Self, resource: ResourceId, sprite: testing.Sprite) Error!void {
-            if (self.create_count >= limits.creates_max) return error.CreateBoundOverflow;
-            self.creates[self.create_count] = .{
-                .resource = resource,
-                .width_px = sprite.width_px,
-                .height_px = sprite.height_px,
-                .format = uploadFormat(sprite.color_mode),
-                .create_seq = 0,
-            };
-            self.create_count += 1;
-        }
-
         fn appendPreparedCreate(self: *Self, resource: ResourceId, sprite: PreparedSprite, width_px: u16, height_px: u16) Error!void {
             if (self.create_count >= limits.creates_max) return error.CreateBoundOverflow;
             self.creates[self.create_count] = .{
@@ -444,35 +368,6 @@ pub fn Emitter(comptime limits: Limits) type {
                 .create_seq = 0,
             };
             self.create_count += 1;
-        }
-
-        fn appendTestingUpload(self: *Self, resource: ResourceId, sprite: testing.Sprite) Error!void {
-            if (self.upload_count >= limits.uploads_max) return error.UploadBoundOverflow;
-            const bytes_count: u32 = std.math.cast(u32, sprite.bytes.len) orelse {
-                return error.UploadBytesOverflow;
-            };
-            const next_bytes_count = std.math.add(u32, self.upload_bytes_count, bytes_count) catch {
-                return error.UploadBytesOverflow;
-            };
-            if (next_bytes_count > limits.upload_bytes_max) return error.UploadBytesOverflow;
-            @memcpy(self.upload_bytes[self.upload_bytes_count..next_bytes_count], sprite.bytes);
-            self.uploads[self.upload_count] = .{
-                .resource = resource,
-                .rect = .{
-                    .x_px = 0,
-                    .y_px = 0,
-                    .width_px = sprite.width_px,
-                    .height_px = sprite.height_px,
-                },
-                .bytes_ptr = &self.upload_bytes[self.upload_bytes_count],
-                .bytes_count = bytes_count,
-                .stride_bytes = sprite.stride_bytes,
-                .format = uploadFormat(sprite.color_mode),
-                .upload_seq = 0,
-            };
-            self.upload_byte_offsets[self.upload_count] = self.upload_bytes_count;
-            self.upload_bytes_count = next_bytes_count;
-            self.upload_count += 1;
         }
 
         fn appendPreparedUpload(self: *Self, resource: ResourceId, sprite: PreparedSprite, width_px: u16, height_px: u16, upload_range: ByteRange) Error!void {
@@ -675,28 +570,10 @@ fn zeroResource() ResourceId {
     return .{ .value = 0, .generation = 0, .kind = 0 };
 }
 
-fn spriteResource(sprite: testing.Sprite, value: u64) ResourceId {
-    return .{
-        .value = value,
-        .generation = 1,
-        .kind = switch (sprite.color_mode) {
-            .alpha => c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
-            .color => c.HOWL_RENDER_RESOURCE_SPRITE_COLOR,
-        },
-    };
-}
-
 const ByteRange = struct {
     start: u32,
     end: u32,
 };
-
-fn uploadFormat(color_mode: ColorMode) u32 {
-    return switch (color_mode) {
-        .alpha => c.HOWL_RENDER_UPLOAD_ALPHA8,
-        .color => c.HOWL_RENDER_UPLOAD_RGBA8,
-    };
-}
 
 fn packRgba(color: contract.Rgba8) u32 {
     return (@as(u32, color.r) << 24) |
@@ -801,42 +678,6 @@ fn copyPreparedSpriteBytes(target: []u8, target_stride: u32, sprite: PreparedSpr
 }
 
 pub const testing = struct {
-    pub const Fill = struct {
-        rect: Rect,
-        color_rgba: u32,
-    };
-
-    pub const Sprite = struct {
-        rect: Rect,
-        color_rgba: u32,
-        bytes: []const u8,
-        width_px: u16,
-        height_px: u16,
-        stride_bytes: u32,
-        color_mode: ColorMode,
-    };
-
-    pub const Fixture = struct {
-        render_px: c.HowlRenderPixelSize,
-        cell_px: c.HowlRenderCellSize = .{ .width = 1, .height = 1 },
-        grid: c.HowlRenderGridSize = .{ .cols = 1, .rows = 1 },
-        token: c.HowlRenderSurfaceToken = .{
-            .snapshot_seq = 0,
-            .surface_seq = 0,
-            .geometry_epoch = 0,
-            .resource_epoch = 0,
-        },
-        clear_fills: []const Fill = &.{},
-        background_fills: []const Fill = &.{},
-        decoration_fills: []const Fill = &.{},
-        sprites: []const Sprite = &.{},
-        cursor_fills: []const Fill = &.{},
-    };
-
-    pub fn emit(comptime limits: Limits, emitter: *Emitter(limits), fixture: *const Fixture) Error!*const Surface {
-        return emitter.emitTesting(fixture);
-    }
-
     pub fn appendGlyphRef(comptime limits: Limits, emitter: *Emitter(limits), glyph: GlyphRef) Error!void {
         return emitter.appendGlyphRef(glyph);
     }

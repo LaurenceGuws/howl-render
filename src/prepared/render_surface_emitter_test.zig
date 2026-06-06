@@ -14,10 +14,47 @@ const GlyphRef = c.HowlRenderGlyphRef;
 const Limits = render_surface_emitter.Limits;
 const Emitter = render_surface_emitter.Emitter;
 const Surface = render_surface_emitter.Surface;
+const Error = render_surface_emitter.Error;
+const Rect = c.HowlRenderSurfaceRect;
+const ResourceId = c.HowlRenderResourceId;
 const emitter_testing = render_surface_emitter.testing;
-const Fill = emitter_testing.Fill;
-const Sprite = emitter_testing.Sprite;
-const Fixture = emitter_testing.Fixture;
+
+const ColorMode = enum {
+    alpha,
+    color,
+};
+
+const Fill = struct {
+    rect: Rect,
+    color_rgba: u32,
+};
+
+const Sprite = struct {
+    rect: Rect,
+    color_rgba: u32,
+    bytes: []const u8,
+    width_px: u16,
+    height_px: u16,
+    stride_bytes: u32,
+    color_mode: ColorMode,
+};
+
+const Fixture = struct {
+    render_px: c.HowlRenderPixelSize,
+    cell_px: c.HowlRenderCellSize = .{ .width = 1, .height = 1 },
+    grid: c.HowlRenderGridSize = .{ .cols = 1, .rows = 1 },
+    token: c.HowlRenderSurfaceToken = .{
+        .snapshot_seq = 0,
+        .surface_seq = 0,
+        .geometry_epoch = 0,
+        .resource_epoch = 0,
+    },
+    clear_fills: []const Fill = &.{},
+    background_fills: []const Fill = &.{},
+    decoration_fills: []const Fill = &.{},
+    sprites: []const Sprite = &.{},
+    cursor_fills: []const Fill = &.{},
+};
 
 fn rect(x_px: i32, y_px: i32, width_px: u16, height_px: u16) c.HowlRenderSurfaceRect {
     return .{ .x_px = x_px, .y_px = y_px, .width_px = width_px, .height_px = height_px };
@@ -65,8 +102,164 @@ fn fillResourcesForTest(resources: *sprite_resource_store.SpriteResourceStore, c
 
 fn realizeFixture(comptime limits: Limits, fixture: Fixture, pixels: []u8) !void {
     var emitter = Emitter(limits).init();
-    const surface = try emitter_testing.emit(limits, &emitter, &fixture);
+    const surface = try emitTesting(limits, &emitter, &fixture);
     try realize.realize(surface, pixels, null);
+}
+
+fn emitTesting(comptime limits: Limits, emitter: *Emitter(limits), fixture: *const Fixture) Error!*const Surface {
+    var next = emitter.*;
+    resetTesting(limits, &next, fixture);
+    try appendFullDamage(limits, &next, fixture.render_px);
+    try appendTestingFillPass(limits, &next, fixture.clear_fills, c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT);
+    try appendTestingFillPass(limits, &next, fixture.background_fills, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
+    try appendTestingFillPass(limits, &next, fixture.decoration_fills, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
+    try appendTestingSprites(limits, &next, fixture.sprites);
+    try appendTestingFillPass(limits, &next, fixture.cursor_fills, c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT);
+    emitter.* = next;
+    emitter_testing.publishSurface(limits, emitter);
+    return emitter.surface();
+}
+
+fn resetTesting(comptime limits: Limits, emitter: *Emitter(limits), fixture: *const Fixture) void {
+    emitter.damage_count = 0;
+    emitter.create_count = 0;
+    emitter.upload_count = 0;
+    emitter.command_count = 0;
+    emitter.glyph_count = 0;
+    emitter.retire_count = 0;
+    emitter.upload_bytes_count = 0;
+    emitter.surface_storage = emptySurface();
+    emitter.surface_storage.token = fixture.token;
+    emitter.surface_storage.render_px = fixture.render_px;
+    emitter.surface_storage.cell_px = fixture.cell_px;
+    emitter.surface_storage.grid = fixture.grid;
+}
+
+fn appendFullDamage(comptime limits: Limits, emitter: *Emitter(limits), render_px: c.HowlRenderPixelSize) Error!void {
+    if (emitter.damage_count >= limits.damage_max) return error.DamageBoundOverflow;
+    emitter.damage[emitter.damage_count] = .{
+        .kind = c.HOWL_RENDER_SURFACE_DAMAGE_FULL,
+        .reserved0 = 0,
+        .reserved1 = 0,
+        .rect = .{ .x_px = 0, .y_px = 0, .width_px = render_px.width, .height_px = render_px.height },
+    };
+    emitter.damage_count += 1;
+}
+
+fn appendTestingFillPass(comptime limits: Limits, emitter: *Emitter(limits), fills: []const Fill, kind: u8) Error!void {
+    for (fills) |fill| try appendCommand(limits, emitter, .{
+        .kind = kind,
+        .reserved0 = 0,
+        .reserved1 = 0,
+        .rect = fill.rect,
+        .color_rgba = fill.color_rgba,
+        .resource = zeroResource(),
+        .glyphs = emptyGlyphs(),
+    });
+}
+
+fn appendTestingSprites(comptime limits: Limits, emitter: *Emitter(limits), sprites: []const Sprite) Error!void {
+    for (sprites, 0..) |sprite, sprite_index| {
+        const resource = spriteResource(sprite, @intCast(sprite_index + 1));
+        try appendTestingCreate(limits, emitter, resource, sprite);
+        try appendTestingUpload(limits, emitter, resource, sprite);
+        try appendCommand(limits, emitter, .{
+            .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE,
+            .reserved0 = 0,
+            .reserved1 = 0,
+            .rect = sprite.rect,
+            .color_rgba = if (sprite.color_mode == .alpha) sprite.color_rgba else 0,
+            .resource = resource,
+            .glyphs = emptyGlyphs(),
+        });
+        try appendRetire(limits, emitter, resource, emitter.command_count);
+    }
+}
+
+fn appendTestingCreate(comptime limits: Limits, emitter: *Emitter(limits), resource: ResourceId, sprite: Sprite) Error!void {
+    if (emitter.create_count >= limits.creates_max) return error.CreateBoundOverflow;
+    emitter.creates[emitter.create_count] = .{
+        .resource = resource,
+        .width_px = sprite.width_px,
+        .height_px = sprite.height_px,
+        .format = uploadFormat(sprite.color_mode),
+        .create_seq = 0,
+    };
+    emitter.create_count += 1;
+}
+
+fn appendTestingUpload(comptime limits: Limits, emitter: *Emitter(limits), resource: ResourceId, sprite: Sprite) Error!void {
+    if (emitter.upload_count >= limits.uploads_max) return error.UploadBoundOverflow;
+    const bytes_count: u32 = std.math.cast(u32, sprite.bytes.len) orelse return error.UploadBytesOverflow;
+    const next_bytes_count = std.math.add(u32, emitter.upload_bytes_count, bytes_count) catch return error.UploadBytesOverflow;
+    if (next_bytes_count > limits.upload_bytes_max) return error.UploadBytesOverflow;
+    @memcpy(emitter.upload_bytes[emitter.upload_bytes_count..next_bytes_count], sprite.bytes);
+    emitter.uploads[emitter.upload_count] = .{
+        .resource = resource,
+        .rect = .{ .x_px = 0, .y_px = 0, .width_px = sprite.width_px, .height_px = sprite.height_px },
+        .bytes_ptr = &emitter.upload_bytes[emitter.upload_bytes_count],
+        .bytes_count = bytes_count,
+        .stride_bytes = sprite.stride_bytes,
+        .format = uploadFormat(sprite.color_mode),
+        .upload_seq = 0,
+    };
+    emitter.upload_byte_offsets[emitter.upload_count] = emitter.upload_bytes_count;
+    emitter.upload_bytes_count = next_bytes_count;
+    emitter.upload_count += 1;
+}
+
+fn appendCommand(comptime limits: Limits, emitter: *Emitter(limits), command: c.HowlRenderSurfaceCommand) Error!void {
+    if (emitter.command_count >= limits.commands_max) return error.CommandBoundOverflow;
+    emitter.commands[emitter.command_count] = command;
+    emitter.command_count += 1;
+}
+
+fn appendRetire(comptime limits: Limits, emitter: *Emitter(limits), resource: ResourceId, retire_seq: u32) Error!void {
+    if (emitter.retire_count >= limits.retires_max) return error.RetireBoundOverflow;
+    emitter.retires[emitter.retire_count] = .{ .resource = resource, .retire_seq = retire_seq };
+    emitter.retire_count += 1;
+}
+
+fn emptySurface() Surface {
+    return .{
+        .surface_version = c.HOWL_RENDER_SURFACE_VERSION,
+        .reserved0 = 0,
+        .token = .{ .snapshot_seq = 0, .surface_seq = 0, .geometry_epoch = 0, .resource_epoch = 0 },
+        .render_px = .{ .width = 1, .height = 1 },
+        .cell_px = .{ .width = 1, .height = 1 },
+        .grid = .{ .cols = 1, .rows = 1 },
+        .damage = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX },
+        .creates = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_CREATES_MAX },
+        .uploads = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_UPLOADS_MAX, .bytes_count_total = 0, .bytes_count_max = c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX },
+        .commands = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_COMMANDS_MAX },
+        .retires = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_RETIRES_MAX },
+    };
+}
+
+fn emptyGlyphs() c.HowlRenderGlyphRunSpan {
+    return .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX };
+}
+
+fn zeroResource() ResourceId {
+    return .{ .value = 0, .generation = 0, .kind = 0 };
+}
+
+fn spriteResource(sprite: Sprite, value: u64) ResourceId {
+    return .{
+        .value = value,
+        .generation = 1,
+        .kind = switch (sprite.color_mode) {
+            .alpha => c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA,
+            .color => c.HOWL_RENDER_RESOURCE_SPRITE_COLOR,
+        },
+    };
+}
+
+fn uploadFormat(color_mode: ColorMode) u32 {
+    return switch (color_mode) {
+        .alpha => c.HOWL_RENDER_UPLOAD_ALPHA8,
+        .color => c.HOWL_RENDER_UPLOAD_RGBA8,
+    };
 }
 
 test "render surface surface emitter realizes fill pass order equal to oracle" {
@@ -193,7 +386,7 @@ test "render surface surface emitter emits sprite retires after final use" {
         .color_mode = .alpha,
     }};
     var emitter = Emitter(limits).init();
-    const surface = try emitter_testing.emit(limits, &emitter, &.{
+    const surface = try emitTesting(limits, &emitter, &.{
         .render_px = .{ .width = 1, .height = 1 },
         .sprites = &sprites,
     });
@@ -212,7 +405,7 @@ test "render surface surface emitter rejects command bound overflow" {
         .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff },
     };
     var emitter = Emitter(limits).init();
-    try std.testing.expectError(error.CommandBoundOverflow, emitter_testing.emit(limits, &emitter, &.{
+    try std.testing.expectError(error.CommandBoundOverflow, emitTesting(limits, &emitter, &.{
         .render_px = .{ .width = 1, .height = 1 },
         .background_fills = &fills,
     }));
@@ -232,7 +425,7 @@ test "render surface surface emitter rejects upload bound overflow" {
         .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
     };
     var emitter = Emitter(limits).init();
-    try std.testing.expectError(error.UploadBoundOverflow, emitter_testing.emit(limits, &emitter, &.{
+    try std.testing.expectError(error.UploadBoundOverflow, emitTesting(limits, &emitter, &.{
         .render_px = .{ .width = 1, .height = 1 },
         .sprites = &sprites,
     }));
@@ -252,7 +445,7 @@ test "render surface surface emitter rejects retire bound overflow" {
         .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0xffffffff, .bytes = &one, .width_px = 1, .height_px = 1, .stride_bytes = 1, .color_mode = .alpha },
     };
     var emitter = Emitter(limits).init();
-    try std.testing.expectError(error.RetireBoundOverflow, emitter_testing.emit(limits, &emitter, &.{
+    try std.testing.expectError(error.RetireBoundOverflow, emitTesting(limits, &emitter, &.{
         .render_px = .{ .width = 1, .height = 1 },
         .sprites = &sprites,
     }));
@@ -277,7 +470,7 @@ test "render surface surface emitter rejects upload byte total overflow" {
         .color_mode = .alpha,
     }};
     var emitter = Emitter(limits).init();
-    try std.testing.expectError(error.UploadBytesOverflow, emitter_testing.emit(limits, &emitter, &.{
+    try std.testing.expectError(error.UploadBytesOverflow, emitTesting(limits, &emitter, &.{
         .render_px = .{ .width = 2, .height = 1 },
         .sprites = &sprites,
     }));
@@ -291,11 +484,11 @@ test "render surface surface emitter leaves oracle path independent after emissi
         .{ .rect = rect(0, 0, 1, 1), .color_rgba = 0x0000ffff },
     };
     var emitter = Emitter(limits).init();
-    const accepted = try emitter_testing.emit(limits, &emitter, &.{
+    const accepted = try emitTesting(limits, &emitter, &.{
         .render_px = .{ .width = 1, .height = 1 },
         .background_fills = &fill,
     });
-    try std.testing.expectError(error.CommandBoundOverflow, emitter_testing.emit(limits, &emitter, &.{
+    try std.testing.expectError(error.CommandBoundOverflow, emitTesting(limits, &emitter, &.{
         .render_px = .{ .width = 1, .height = 1 },
         .background_fills = &too_many,
     }));
