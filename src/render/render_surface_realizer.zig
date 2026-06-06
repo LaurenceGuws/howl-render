@@ -446,7 +446,6 @@ fn validateSpriteCommand(surface: *const Surface, store: ?*const ResourceStore, 
         if (command.color_rgba != 0) return error.InvalidResource;
     } else {
         try validateResourceKind(command.resource.kind);
-        if (isGlyphAtlas(command.resource.kind)) return error.InvalidResource;
         return error.InvalidResource;
     }
     try validateResourceVisibleAtCommand(surface, store, command.resource, command_index);
@@ -828,11 +827,6 @@ fn sameResource(a: ResourceId, b: ResourceId) bool {
 
 fn resourceIsZero(resource: ResourceId) bool {
     return resource.value == 0 and resource.generation == 0 and resource.kind == 0;
-}
-
-fn isGlyphAtlas(kind: u32) bool {
-    return kind == c.HOWL_RENDER_RESOURCE_GLYPH_ATLAS_ALPHA or
-        kind == c.HOWL_RENDER_RESOURCE_GLYPH_ATLAS_COLOR;
 }
 
 fn rectFitsResource(upload_rect: c.HowlRenderSurfaceRect, width_px: u32, height_px: u32) bool {
