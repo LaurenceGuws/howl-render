@@ -3,6 +3,7 @@ const std = @import("std");
 const contract = @import("../../contract.zig");
 const text_session = @import("../../../session/text.zig");
 const rasterizer = @import("../../raster/rasterizer.zig");
+const fallback = @import("../../raster/fallback.zig");
 const provider_mod = @import("support.zig");
 const special_sprite = @import("special_sprite.zig");
 const c_api = @import("c_api.zig");
@@ -73,7 +74,7 @@ pub fn rasterizeProviderGlyph(
     glyph_index: u32,
 ) bool {
     if (useDeterministicTestTextFallback(self)) {
-        special_sprite.rasterizeFallbackGlyph(dst, width, height, @intCast(glyph_id), width, height);
+        fallback.rasterAsciiOrPlaceholder(dst, width, @intCast(glyph_id), width, height);
         return true;
     }
     if (!provider_mod.ensureFont(self)) return false;
@@ -160,7 +161,7 @@ fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, h
         return true;
     }
     if (!useDeterministicTestTextFallback(context)) return false;
-    special_sprite.rasterizeFallbackGlyph(pixels, width, height, @intCast(req.group.first_cp), width, height);
+    fallback.rasterAsciiOrPlaceholder(pixels, width, @intCast(req.group.first_cp), width, height);
     return true;
 }
 fn providerSpriteOutput(allocator: std.mem.Allocator, req: contract.SpriteRasterRequest, width: u16, height: u16, pixels: []u8) rasterizer.RasterSpriteOutput {
@@ -269,4 +270,65 @@ fn useDeterministicTestTextFallback(context: anytype) bool {
         if (@hasField(T, "text_state")) break :blk context.text_state.fallback_font_paths_len == 0;
         break :blk context.session.text_state.fallback_font_paths_len == 0;
     };
+}
+
+const DeterministicFallbackContext = struct {
+    text_state: provider_mod.State,
+    config: text_session.TextSessionConfig,
+
+    fn init(allocator: std.mem.Allocator) DeterministicFallbackContext {
+        return .{
+            .text_state = provider_mod.State.init(allocator),
+            .config = .{
+                .surface_px = .{ .width = 1, .height = 1 },
+                .font_size_px = 16,
+                .font_path = null,
+            },
+        };
+    }
+
+    fn deinit(self: *DeterministicFallbackContext) void {
+        self.text_state.deinit();
+        self.* = undefined;
+    }
+};
+
+test "provider deterministic fallback matches fallback raster for glyph and sprite entry points" {
+    var context = DeterministicFallbackContext.init(std.testing.allocator);
+    defer context.deinit();
+
+    try std.testing.expect(useDeterministicTestTextFallback(&context));
+
+    const codepoint: u21 = 0x263a;
+    const width: u16 = 6;
+    const height: u16 = 5;
+
+    var expected_glyph: [width * height]u8 = .{0} ** (width * height);
+    fallback.rasterAsciiOrPlaceholder(&expected_glyph, width, codepoint, width, height);
+
+    var glyph_pixels: [width * height]u8 = .{0} ** (width * height);
+    try std.testing.expect(rasterizeProviderGlyph(&context, &glyph_pixels, width, height, 0, .{ .value = 1 }, codepoint, 0, 0, 0));
+    try std.testing.expectEqualSlices(u8, &expected_glyph, &glyph_pixels);
+
+    const sprite_group = contract.GlyphGroup{
+        .first_cell = 0,
+        .first_cp = codepoint,
+        .cell_span = 1,
+        .glyphs = &.{},
+        .sprite_key = .{ .value = 9 },
+        .kind = .missing,
+    };
+    const sprite_request = contract.SpriteRasterRequest{
+        .key = .{ .value = 10 },
+        .group = sprite_group,
+        .width_px = width,
+        .height_px = height,
+    };
+
+    var expected_sprite: [width * height]u8 = .{0} ** (width * height);
+    fallback.rasterAsciiOrPlaceholder(&expected_sprite, width, codepoint, width, height);
+
+    var sprite_output = try providerRasterizeSprite(DeterministicFallbackContext, @ptrCast(&context), std.testing.allocator, sprite_request);
+    defer sprite_output.deinit();
+    try std.testing.expectEqualSlices(u8, &expected_sprite, sprite_output.pixels);
 }

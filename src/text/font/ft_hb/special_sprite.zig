@@ -1,5 +1,4 @@
 const std = @import("std");
-const fallback = @import("../../raster/fallback.zig");
 
 const AlphaCorner = enum { top_left, top_right, bottom_left, bottom_right };
 const Edge = enum { left, top, right, bottom };
@@ -84,11 +83,6 @@ pub fn rasterizeSpecialSpriteAlpha(dst: []u8, width: u16, height: u16, codepoint
         0xf5d0...0xf60d => drawAlphaBranchCodepoint(dst, w, h, codepoint),
         else => {},
     }
-}
-
-pub fn rasterizeFallbackGlyph(dst: []u8, cell_w: u16, cell_h: u16, codepoint: u21, gw: u16, gh: u16) void {
-    fallback.rasterAsciiOrPlaceholder(dst, cell_w, codepoint, gw, gh);
-    _ = cell_h;
 }
 
 fn drawAlphaRect(dst: []u8, stride: u16, x: u16, y: u16, width: u16, height: u16, alpha: u8) void {
