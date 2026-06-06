@@ -883,6 +883,7 @@ fn rasterizePowerlineFilledD(pixels: []u8, width: u16, height: u16, left: bool) 
 
 const TriangleCoverageCtx = struct { x1: f64, x2: f64, y_mid: f64, height: u16, inverted: bool };
 const FilledDCoverageCtx = struct { cb: CubicBezier, width: u16, left: bool };
+const BrailleDotCoverageCtx = struct { cx: f64, cy: f64, rx: f64, ry: f64 };
 
 fn supersampledTriangleCoverage(x: u16, y: u16, ctx: TriangleCoverageCtx) u8 {
     return supersampledCoverage(x, y, triangleContains, ctx);
@@ -890,6 +891,10 @@ fn supersampledTriangleCoverage(x: u16, y: u16, ctx: TriangleCoverageCtx) u8 {
 
 fn supersampledFilledDCoverage(x: u16, y: u16, ctx: FilledDCoverageCtx) u8 {
     return supersampledCoverage(x, y, filledDContains, ctx);
+}
+
+fn supersampledBrailleDotCoverage(x: u16, y: u16, ctx: BrailleDotCoverageCtx) u8 {
+    return supersampledCoverage(x, y, brailleDotContains, ctx);
 }
 
 fn triangleContains(px: f64, py: f64, ctx: TriangleCoverageCtx) bool {
@@ -905,6 +910,12 @@ fn filledDContains(px_raw: f64, py: f64, ctx: FilledDCoverageCtx) bool {
     const upper = bezierY(ctx.cb, t);
     const lower = bezierY(ctx.cb, 1.0 - t);
     return py >= upper and py <= lower;
+}
+
+fn brailleDotContains(px: f64, py: f64, ctx: BrailleDotCoverageCtx) bool {
+    const nx = (px - ctx.cx) / ctx.rx;
+    const ny = (py - ctx.cy) / ctx.ry;
+    return nx * nx + ny * ny <= 1.0;
 }
 
 fn supersampledCoverage(x: u16, y: u16, comptime inside: anytype, ctx: anytype) u8 {
@@ -1086,28 +1097,17 @@ fn drawBrailleDotAlpha(pixels: []u8, width: u16, height: u16, x0: u16, y0: u16, 
         return;
     }
 
-    const factor = 4;
-    const cx = @as(f64, @floatFromInt(x0)) + @as(f64, @floatFromInt(w)) / 2.0;
-    const cy = @as(f64, @floatFromInt(y0)) + @as(f64, @floatFromInt(h)) / 2.0;
-    const rx = @max(@as(f64, @floatFromInt(w)) / 2.0, 0.5);
-    const ry = @max(@as(f64, @floatFromInt(h)) / 2.0, 0.5);
+    const coverage = BrailleDotCoverageCtx{
+        .cx = @as(f64, @floatFromInt(x0)) + @as(f64, @floatFromInt(w)) / 2.0,
+        .cy = @as(f64, @floatFromInt(y0)) + @as(f64, @floatFromInt(h)) / 2.0,
+        .rx = @max(@as(f64, @floatFromInt(w)) / 2.0, 0.5),
+        .ry = @max(@as(f64, @floatFromInt(h)) / 2.0, 0.5),
+    };
     var y: u16 = 0;
     while (y < h) : (y += 1) {
         var x: u16 = 0;
         while (x < w) : (x += 1) {
-            var hits: u16 = 0;
-            var sy: u8 = 0;
-            while (sy < factor) : (sy += 1) {
-                var sx: u8 = 0;
-                while (sx < factor) : (sx += 1) {
-                    const px = @as(f64, @floatFromInt(x0 + x)) + (@as(f64, @floatFromInt(sx)) + 0.5) / factor;
-                    const py = @as(f64, @floatFromInt(y0 + y)) + (@as(f64, @floatFromInt(sy)) + 0.5) / factor;
-                    const nx = (px - cx) / rx;
-                    const ny = (py - cy) / ry;
-                    if (nx * nx + ny * ny <= 1.0) hits += 1;
-                }
-            }
-            const alpha: u8 = @intCast((hits * 255 + (factor * factor / 2)) / (factor * factor));
+            const alpha = supersampledBrailleDotCoverage(x0 + x, y0 + y, coverage);
             if (alpha == 0) continue;
             const idx = pixelOffset(width, x0 + x, y0 + y);
             pixels[idx] = @max(pixels[idx], alpha);
