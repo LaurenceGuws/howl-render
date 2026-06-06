@@ -4,5 +4,6 @@ test {
     _ = @import("../../prepared/owner_test.zig");
     _ = @import("../../render/geometry_test.zig");
     _ = @import("../../session/text_test.zig");
+    _ = @import("../../text/font/ft_hb/support_test.zig");
     _ = @import("../../text/raster/special_test.zig");
 }
