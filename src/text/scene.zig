@@ -426,18 +426,20 @@ fn countDecorationDraws(cells: []const contract.RenderableCell, cell_metrics: co
 }
 
 fn countUnderlineDecorationDraws(width_px: u16, height_px: u16, style: contract.UnderlineStyle) usize {
+    const cadence = underlineSteppedCadence(width_px, height_px, style);
+    if (cadence) |value| return countSteppedDecorationDraws(width_px, value.step_px);
     return switch (underlineRoute(style)) {
         .straight => 1,
         .double => 2,
         .curly => 0,
-        .dotted => countSteppedDecorationDraws(width_px, @max(height_px, 1) * 2),
-        .dashed => countSteppedDecorationDraws(width_px, @max(@max(width_px / 3, @as(u16, 2)) + 2, 3)),
+        .dotted, .dashed => unreachable,
     };
 }
 
 fn countSteppedDecorationDraws(width_px: u16, step_px: u16) usize {
     std.debug.assert(step_px > 0);
-    const width = @as(usize, @max(width_px, 1));
+    if (width_px == 0) return 0;
+    const width = @as(usize, width_px);
     const step = @as(usize, step_px);
     return (width + step - 1) / step;
 }
@@ -584,6 +586,12 @@ const CursorRoute = enum(u2) {
 const DecorationEffect = enum(u2) {
     underline,
     strikethrough,
+};
+
+const SteppedUnderlineCadence = struct {
+    kind: contract.DecorationKind,
+    segment_px: u16,
+    step_px: u16,
 };
 
 const IconSpan = enum(u3) {
@@ -914,12 +922,15 @@ fn appendUnderlineDraws(
     const color = if (cell.underline_color.a == 0) cell.fg else cell.underline_color;
     const y = row_y + deco.underline_y_px;
     const height = deco.underline_h_px;
+    if (underlineSteppedCadence(width, height, cell.underline_style)) |cadence| {
+        try appendSteppedUnderline(assembly, cadence, cell, x, y, width, height, color);
+        return;
+    }
     const route = underlineRoute(cell.underline_style);
     switch (route) {
         .straight => try appendStraightUnderline(assembly, cell, x, y, width, height, color),
         .double => try appendDoubleUnderline(assembly, cell, x, y, width, height, color),
-        .dotted => try appendDottedUnderline(assembly, cell, x, y, width, height, color),
-        .dashed => try appendDashedUnderline(assembly, cell, x, y, width, height, color),
+        .dotted, .dashed => unreachable,
         .curly => try assembly.appendUndercurl(cache, cell, x, row_y, width, deco, cell_metrics, color),
     }
 }
@@ -938,18 +949,36 @@ fn appendDoubleUnderline(assembly: *SceneAssembly, cell: contract.RenderableCell
     try appendDecorationDraw(assembly, .underline, cell, x, y, width, height, color);
 }
 
-fn appendDottedUnderline(assembly: *SceneAssembly, cell: contract.RenderableCell, x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) !void {
-    const dot: u16 = @max(height, 1);
-    const step: u16 = @max(dot * 2, 2);
-    var off: u16 = 0;
-    while (off < width) : (off += step) try appendDecorationDraw(assembly, .underline_dotted, cell, x + @as(i32, @intCast(off)), y, @min(dot, width - off), height, color);
+fn underlineSteppedCadence(width_px: u16, height_px: u16, style: contract.UnderlineStyle) ?SteppedUnderlineCadence {
+    return switch (underlineRoute(style)) {
+        .dotted => .{
+            .kind = .underline_dotted,
+            .segment_px = @max(height_px, 1),
+            .step_px = @max(@max(height_px, 1) * 2, 2),
+        },
+        .dashed => .{
+            .kind = .underline_dashed,
+            .segment_px = @max(width_px / 3, @as(u16, 2)),
+            .step_px = @max(@max(width_px / 3, @as(u16, 2)) + 2, 3),
+        },
+        .straight, .double, .curly => null,
+    };
 }
 
-fn appendDashedUnderline(assembly: *SceneAssembly, cell: contract.RenderableCell, x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) !void {
-    const dash: u16 = @max(width / 3, @as(u16, 2));
-    const step: u16 = @max(dash + 2, 3);
+fn appendSteppedUnderline(
+    assembly: *SceneAssembly,
+    cadence: SteppedUnderlineCadence,
+    cell: contract.RenderableCell,
+    x: i32,
+    y: i32,
+    width: u16,
+    height: u16,
+    color: contract.Rgba8,
+) !void {
     var off: u16 = 0;
-    while (off < width) : (off += step) try appendDecorationDraw(assembly, .underline_dashed, cell, x + @as(i32, @intCast(off)), y, @min(dash, width - off), height, color);
+    while (off < width) : (off += cadence.step_px) {
+        try appendDecorationDraw(assembly, cadence.kind, cell, x + @as(i32, @intCast(off)), y, @min(cadence.segment_px, width - off), height, color);
+    }
 }
 
 fn saturatingSub(a: u16, b: u16) u16 {
@@ -1282,6 +1311,72 @@ test "scene emits undercurl sprite for curly underline" {
     try std.testing.expectEqual(contract.SpriteRasterKind.undercurl, owned.scene.raster_requests[0].kind);
     try std.testing.expectEqual(@as(u16, 32), owned.scene.sprite_draws[0].width_px);
     try std.testing.expect(owned.scene.raster_requests[0].decoration.amplitude_px >= 1);
+}
+
+test "scene dotted underline geometry stays aligned with counted capacity" {
+    const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cell_metrics = contract.CellMetrics{ .cell_w_px = 9, .cell_h_px = 16, .baseline_px = 13 };
+    const font_metrics = defaultFontMetrics(cell_metrics);
+    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const cells = [_]contract.RenderableCell{.{
+        .text_id = .{ .value = 0 },
+        .first_cell = 0,
+        .cell_span = 2,
+        .style = .regular,
+        .presentation = .any,
+        .fg = color,
+        .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        .underline = true,
+        .underline_style = .dotted,
+    }};
+    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 2, .rows = 1 }, .{});
+    defer owned.deinit();
+
+    const width_px: u16 = cell_metrics.cell_w_px * 2;
+    try std.testing.expectEqual(countUnderlineDecorationDraws(width_px, deco.underline_h_px, .dotted), owned.scene.decoration_draws.len);
+    try std.testing.expectEqual(@as(u32, 9), count32(owned.scene.decoration_draws));
+    for (owned.scene.decoration_draws, 0..) |draw, index| {
+        try std.testing.expectEqual(contract.DecorationKind.underline_dotted, draw.kind);
+        try std.testing.expectEqual(@as(i32, @intCast(index * 2)), draw.x_px);
+        try std.testing.expectEqual(deco.underline_y_px, draw.y_px);
+        try std.testing.expectEqual(deco.underline_h_px, draw.height_px);
+        try std.testing.expectEqual(@as(u16, 1), draw.width_px);
+    }
+}
+
+test "scene dashed underline geometry stays aligned with counted capacity" {
+    const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cell_metrics = contract.CellMetrics{ .cell_w_px = 17, .cell_h_px = 16, .baseline_px = 13 };
+    const font_metrics = defaultFontMetrics(cell_metrics);
+    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const cells = [_]contract.RenderableCell{.{
+        .text_id = .{ .value = 0 },
+        .first_cell = 0,
+        .cell_span = 1,
+        .style = .regular,
+        .presentation = .any,
+        .fg = color,
+        .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        .underline = true,
+        .underline_style = .dashed,
+    }};
+    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 1, .rows = 1 }, .{});
+    defer owned.deinit();
+
+    try std.testing.expectEqual(countUnderlineDecorationDraws(cell_metrics.cell_w_px, deco.underline_h_px, .dashed), owned.scene.decoration_draws.len);
+    try std.testing.expectEqual(@as(u32, 3), count32(owned.scene.decoration_draws));
+    try std.testing.expectEqual(contract.DecorationKind.underline_dashed, owned.scene.decoration_draws[0].kind);
+    try std.testing.expectEqual(@as(i32, 0), owned.scene.decoration_draws[0].x_px);
+    try std.testing.expectEqual(@as(u16, 5), owned.scene.decoration_draws[0].width_px);
+    try std.testing.expectEqual(@as(i32, 7), owned.scene.decoration_draws[1].x_px);
+    try std.testing.expectEqual(@as(u16, 5), owned.scene.decoration_draws[1].width_px);
+    try std.testing.expectEqual(@as(i32, 14), owned.scene.decoration_draws[2].x_px);
+    try std.testing.expectEqual(@as(u16, 3), owned.scene.decoration_draws[2].width_px);
+    for (owned.scene.decoration_draws) |draw| {
+        try std.testing.expectEqual(contract.DecorationKind.underline_dashed, draw.kind);
+        try std.testing.expectEqual(deco.underline_y_px, draw.y_px);
+        try std.testing.expectEqual(deco.underline_h_px, draw.height_px);
+    }
 }
 
 test "scene merges contiguous strikethrough spans" {
