@@ -1,7 +1,6 @@
 const std = @import("std");
 const fallback = @import("../../raster/fallback.zig");
 
-const AlphaSegment = enum { full, left, right, top, bottom };
 const AlphaCorner = enum { top_left, top_right, bottom_left, bottom_right };
 const Edge = enum { left, top, right, bottom };
 const Range = struct { start: u16, end: u16 };
@@ -92,34 +91,6 @@ pub fn rasterizeFallbackGlyph(dst: []u8, cell_w: u16, cell_h: u16, codepoint: u2
     _ = cell_h;
 }
 
-fn drawAlphaH(dst: []u8, w: u16, h: u16, t: u16, segment: AlphaSegment) void {
-    const y = (h - t) / 2;
-    const mid = (w - @min(t, w)) / 2;
-    const x: u16 = switch (segment) {
-        .full, .top, .bottom, .left => 0,
-        .right => mid,
-    };
-    const width: u16 = switch (segment) {
-        .full, .top, .bottom => w,
-        .left => @max(mid + t, 1),
-        .right => w - mid,
-    };
-    drawAlphaRect(dst, w, x, y, width, t, 255);
-}
-fn drawAlphaV(dst: []u8, w: u16, h: u16, t: u16, segment: AlphaSegment) void {
-    const x = (w - t) / 2;
-    const mid = (h - @min(t, h)) / 2;
-    const y: u16 = switch (segment) {
-        .full, .left, .right, .top => 0,
-        .bottom => mid,
-    };
-    const height: u16 = switch (segment) {
-        .full, .left, .right => h,
-        .top => @max(mid + t, 1),
-        .bottom => h - mid,
-    };
-    drawAlphaRect(dst, w, x, y, t, height, 255);
-}
 fn drawAlphaRect(dst: []u8, stride: u16, x: u16, y: u16, width: u16, height: u16, alpha: u8) void {
     // Raster geometry stays typed until these final slice-bound checks and writes.
     const stride_index = @as(u32, stride);
@@ -134,32 +105,6 @@ fn drawAlphaRect(dst: []u8, stride: u16, x: u16, y: u16, width: u16, height: u16
         for (x..x + width) |xx| dst[@intCast(row + @as(u32, @intCast(xx)))] = alpha;
     }
 }
-fn fillAlphaChecker(target: []u8, width: u16, height: u16, alpha: u8) void {
-    std.debug.assert(pixelCount(width, height) <= count32(target));
-    for (0..height) |yy| {
-        for (0..width) |xx| {
-            if (((xx + yy) & 1) == 0) target[@intCast(pixelOffset(width, @intCast(xx), @intCast(yy)))] = alpha;
-        }
-    }
-}
-fn drawAlphaRoundedCorner(dst: []u8, w: u16, h: u16, corner: AlphaCorner, thickness: u16) void {
-    const wf = @as(f64, @floatFromInt(w));
-    const hf = @as(f64, @floatFromInt(h));
-    const mid_x = wf / 2.0;
-    const mid_y = hf / 2.0;
-    const t = @max(@as(f64, @floatFromInt(thickness)), 1.0);
-    const p0 = switch (corner) {
-        .top_left, .bottom_left => PointF{ .x = wf, .y = mid_y },
-        .top_right, .bottom_right => PointF{ .x = 0.0, .y = mid_y },
-    };
-    const p1 = PointF{ .x = mid_x, .y = mid_y };
-    const p2 = switch (corner) {
-        .top_left, .top_right => PointF{ .x = mid_x, .y = hf },
-        .bottom_left, .bottom_right => PointF{ .x = mid_x, .y = 0.0 },
-    };
-    drawAlphaQuadraticStroke(dst, w, h, p0, p1, p2, t);
-}
-
 const ProgressSegment = enum { left, middle, right };
 
 const Shade = struct {
@@ -416,14 +361,6 @@ fn drawAlphaHalfTriangleCodepoint(dst: []u8, w: u16, h: u16, codepoint: u32) voi
         0x1fb6d => drawAlphaHalfTriangle(dst, w, h, .right, false),
         0x1fb6e => drawAlphaHalfTriangle(dst, w, h, .top, false),
         0x1fb6f => drawAlphaHalfTriangle(dst, w, h, .bottom, false),
-        0x1fb9a => {
-            drawAlphaHalfTriangle(dst, w, h, .bottom, false);
-            drawAlphaHalfTriangle(dst, w, h, .top, false);
-        },
-        0x1fb9b => {
-            drawAlphaHalfTriangle(dst, w, h, .left, false);
-            drawAlphaHalfTriangle(dst, w, h, .right, false);
-        },
         else => {},
     }
 }
@@ -709,7 +646,7 @@ fn drawAlphaBranchNode(dst: []u8, w: u16, h: u16, node: BranchNode) void {
     if (node.down) drawAlphaRect(dst, w, v_left, @as(u16, @intFromFloat(@floor(cy + r - float_thick / 2.0))), thick_px, h - @as(u16, @intFromFloat(@floor(cy + r - float_thick / 2.0))), 255);
     if (node.left) drawAlphaRect(dst, w, 0, h_top, @as(u16, @intFromFloat(@ceil(cx - r + float_thick / 2.0))), thick_px, 255);
 
-    if (node.filled) drawAlphaCircle(dst, w, h, float_thick, 0.0, 360.0) else drawAlphaCircle(dst, w, h, float_thick, 0.0, 360.0);
+    drawAlphaCircle(dst, w, h, float_thick, 0.0, 360.0);
     if (node.filled) fillCircleOfRadius(dst, w, h, cx, cy, r, 255);
 }
 
@@ -976,7 +913,6 @@ fn drawAlphaSpinner(dst: []u8, w: u16, h: u16, start_degrees: u16, end_degrees: 
     const radius = @max(0.0, @min(cx, cy) - (line_width / 2.0));
     const start = @as(f64, @floatFromInt(start_degrees)) * std.math.pi / 180.0;
     const end = @as(f64, @floatFromInt(end_degrees)) * std.math.pi / 180.0;
-    const steps: u16 = @max(48, @max(w, h) * 3);
     for (0..h) |yy| {
         for (0..w) |xx| {
             const px = @as(f64, @floatFromInt(xx)) + 0.5;
@@ -993,7 +929,6 @@ fn drawAlphaSpinner(dst: []u8, w: u16, h: u16, start_degrees: u16, end_degrees: 
             dst[@intCast(off)] = 255;
         }
     }
-    _ = steps;
 }
 
 fn isOdd(value: u16) bool {
