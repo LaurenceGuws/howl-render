@@ -341,22 +341,6 @@ const SceneAssembly = struct {
     }
 };
 
-const UnderlineRoute = enum(u3) {
-    straight,
-    double,
-    dotted,
-    dashed,
-    curly,
-};
-
-const underline_routes = [5]UnderlineRoute{
-    .straight,
-    .double,
-    .curly,
-    .dotted,
-    .dashed,
-};
-
 fn appendSceneCursorDraws(assembly: *SceneAssembly, cursor: ?CursorInput, damage: NormalizedDamage, cell_metrics: contract.CellMetrics) !void {
     const cursor_value = cursor orelse return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
@@ -394,7 +378,7 @@ fn countCurlyUnderlineSprites(cells: []const contract.RenderableCell, grid_metri
     for (cells) |cell| {
         if (classifyDecorationLead(damage, grid_metrics, cell) != .draw) continue;
         if (!cell.underline) continue;
-        if (underlineRoute(cell.underline_style) != .curly) continue;
+        if (cell.underline_style != .curly) continue;
         count += 1;
     }
     return count;
@@ -428,7 +412,7 @@ fn countDecorationDraws(cells: []const contract.RenderableCell, cell_metrics: co
 fn countUnderlineDecorationDraws(width_px: u16, height_px: u16, style: contract.UnderlineStyle) usize {
     const cadence = underlineSteppedCadence(width_px, height_px, style);
     if (cadence) |value| return countSteppedDecorationDraws(width_px, value.step_px);
-    return switch (underlineRoute(style)) {
+    return switch (style) {
         .straight => 1,
         .double => 2,
         .curly => 0,
@@ -453,15 +437,6 @@ fn countCursorDraws(cursor: ?CursorInput, damage: NormalizedDamage) usize {
 fn classifyCursorLead(damage: NormalizedDamage, cursor: CursorInput) CursorLead {
     if (!damage.full and !rowDirty(damage, cursor.cell_row)) return .skip;
     return .draw;
-}
-
-fn cursorRoute(shape: CursorShape) CursorRoute {
-    return switch (shape) {
-        .block => .block,
-        .beam => .beam,
-        .underline => .underline,
-        .hollow_block => .hollow_block,
-    };
 }
 
 fn classifyDecorationAppend(last: contract.TextDecorationDraw, draw: contract.TextDecorationDraw) DecorationAppend {
@@ -574,13 +549,6 @@ const CursorLead = enum(u2) {
 const DecorationAppend = enum(u2) {
     append,
     merge,
-};
-
-const CursorRoute = enum(u2) {
-    block,
-    beam,
-    underline,
-    hollow_block,
 };
 
 const DecorationEffect = enum(u2) {
@@ -723,7 +691,7 @@ fn cursorDrawRects(out: []contract.TextCursorDraw, cursor: CursorInput, cell_met
     const base_y: i32 = @as(i32, @intCast(cursor.cell_row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
     const geom = cursorGeometry(cell_metrics);
 
-    switch (cursorRoute(cursor.shape)) {
+    switch (cursor.shape) {
         .block => out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
         .beam => out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
         .underline => out[0] = .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - geom.underline_h_px)), .width_px = cell_metrics.cell_w_px, .height_px = geom.underline_h_px, .color = cursor.color },
@@ -926,17 +894,12 @@ fn appendUnderlineDraws(
         try appendSteppedUnderline(assembly, cadence, cell, x, y, width, height, color);
         return;
     }
-    const route = underlineRoute(cell.underline_style);
-    switch (route) {
+    switch (cell.underline_style) {
         .straight => try appendStraightUnderline(assembly, cell, x, y, width, height, color),
         .double => try appendDoubleUnderline(assembly, cell, x, y, width, height, color),
         .dotted, .dashed => unreachable,
         .curly => try assembly.appendUndercurl(cache, cell, x, row_y, width, deco, cell_metrics, color),
     }
-}
-
-fn underlineRoute(style: contract.UnderlineStyle) UnderlineRoute {
-    return underline_routes[@intFromEnum(style)];
 }
 
 fn appendStraightUnderline(assembly: *SceneAssembly, cell: contract.RenderableCell, x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) !void {
@@ -950,7 +913,7 @@ fn appendDoubleUnderline(assembly: *SceneAssembly, cell: contract.RenderableCell
 }
 
 fn underlineSteppedCadence(width_px: u16, height_px: u16, style: contract.UnderlineStyle) ?SteppedUnderlineCadence {
-    return switch (underlineRoute(style)) {
+    return switch (style) {
         .dotted => .{
             .kind = .underline_dotted,
             .segment_px = @max(height_px, 1),
@@ -1287,6 +1250,35 @@ test "scene merges contiguous straight underline spans" {
     try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.decoration_draws));
     try std.testing.expectEqual(@as(u16, 24), owned.scene.decoration_draws[0].width_px);
     try std.testing.expectEqual(@as(u8, 3), owned.scene.decoration_draws[0].cell_span);
+}
+
+test "scene double underline count and geometry stay aligned" {
+    const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cell_metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 };
+    const font_metrics = defaultFontMetrics(cell_metrics);
+    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const cells = [_]contract.RenderableCell{.{
+        .text_id = .{ .value = 0 },
+        .first_cell = 0,
+        .cell_span = 2,
+        .style = .regular,
+        .presentation = .any,
+        .fg = color,
+        .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        .underline = true,
+        .underline_style = .double,
+    }};
+    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 2, .rows = 1 }, .{});
+    defer owned.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), countUnderlineDecorationDraws(cell_metrics.cell_w_px * 2, deco.underline_h_px, .double));
+    try std.testing.expectEqual(@as(u32, 2), count32(owned.scene.decoration_draws));
+    try std.testing.expectEqual(contract.DecorationKind.underline, owned.scene.decoration_draws[0].kind);
+    try std.testing.expectEqual(contract.DecorationKind.underline, owned.scene.decoration_draws[1].kind);
+    try std.testing.expectEqual(@as(i32, 12), owned.scene.decoration_draws[0].y_px);
+    try std.testing.expectEqual(@as(i32, 14), owned.scene.decoration_draws[1].y_px);
+    try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[0].width_px);
+    try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[1].width_px);
 }
 
 test "scene emits undercurl sprite for curly underline" {
