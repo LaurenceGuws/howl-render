@@ -549,42 +549,59 @@ const DamageFilter = struct {
 };
 
 fn renderableFromCellInput(text_id: contract.CellTextId, first_cell: u32, cell_span: u8, cell: contract.CellInput, continuation: bool) contract.RenderableCell {
-    return .{
-        .text_id = text_id,
-        .first_cell = first_cell,
-        .cell_span = cell_span,
-        .style = cell.style,
-        .presentation = cell.presentation,
-        .fg = cell.fg,
-        .bg = cell.bg,
-        .underline_color = cell.underline_color,
-        .underline_style = switch (cell.underline_style) {
+    return renderableCell(
+        text_id,
+        first_cell,
+        cell_span,
+        cell.style,
+        cell.presentation,
+        cell.fg,
+        cell.bg,
+        cell.underline_color,
+        switch (cell.underline_style) {
             .straight => .straight,
             .double => .double,
             .curly => .curly,
             .dotted => .dotted,
             .dashed => .dashed,
         },
-        .underline = cell.underline,
-        .strikethrough = cell.strikethrough,
-        .continuation = continuation,
-    };
+        cell.underline,
+        cell.strikethrough,
+        continuation,
+    );
 }
 
 fn renderableFromInput(text_id: contract.CellTextId, first_cell: u32, cell_span: u8, presentation: contract.TextPresentation, input: CellTextInput) contract.RenderableCell {
+    return renderableCell(
+        text_id,
+        first_cell,
+        cell_span,
+        input.style,
+        presentation,
+        input.fg,
+        input.bg,
+        input.underline_color,
+        input.underline_style,
+        input.underline,
+        input.strikethrough,
+        input.continuation,
+    );
+}
+
+fn renderableCell(text_id: contract.CellTextId, first_cell: u32, cell_span: u8, style: contract.FontStyle, presentation: contract.TextPresentation, fg: contract.Rgba8, bg: contract.Rgba8, underline_color: contract.Rgba8, underline_style: contract.UnderlineStyle, underline: bool, strikethrough: bool, continuation: bool) contract.RenderableCell {
     return .{
         .text_id = text_id,
         .first_cell = first_cell,
         .cell_span = cell_span,
-        .style = input.style,
+        .style = style,
         .presentation = presentation,
-        .fg = input.fg,
-        .bg = input.bg,
-        .underline_color = input.underline_color,
-        .underline_style = input.underline_style,
-        .underline = input.underline,
-        .strikethrough = input.strikethrough,
-        .continuation = input.continuation,
+        .fg = fg,
+        .bg = bg,
+        .underline_color = underline_color,
+        .underline_style = underline_style,
+        .underline = underline,
+        .strikethrough = strikethrough,
+        .continuation = continuation,
     };
 }
 
