@@ -171,6 +171,25 @@ test "generated special raster draws eighth block" {
     try std.testing.expect(bottom_lit > 0);
 }
 
+test "generated special raster draws top half block" {
+    const width = 8;
+    const height = 16;
+    var pixels = [_]u8{0} ** (width * height);
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlpha(&pixels, width, height, 0x2580));
+    var top_lit: u16 = 0;
+    var bottom_lit: u16 = 0;
+    for (0..height) |yy| {
+        for (0..width) |xx| {
+            const x: u16 = @intCast(xx);
+            const y: u16 = @intCast(yy);
+            if (pixels[pixelOffset(width, x, y)] == 0) continue;
+            if (y < height / 2) top_lit += 1 else bottom_lit += 1;
+        }
+    }
+    try std.testing.expect(top_lit > 0);
+    try std.testing.expectEqual(@as(u16, 0), bottom_lit);
+}
+
 test "generated special raster draws quadrant block" {
     const width = 8;
     const height = 16;
@@ -198,6 +217,25 @@ test "generated special raster distributes eighth blocks" {
     }
     try std.testing.expectEqual(@as(u16, 0), left_lit);
     try std.testing.expectEqual(height, right_lit);
+}
+
+test "generated special raster draws left seven eighths block" {
+    const width = 8;
+    const height = 10;
+    var pixels = [_]u8{0} ** (width * height);
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlpha(&pixels, width, height, 0x2589));
+    var left_lit: u16 = 0;
+    var right_lit: u16 = 0;
+    for (0..height) |yy| {
+        for (0..width) |xx| {
+            const x: u16 = @intCast(xx);
+            const y: u16 = @intCast(yy);
+            if (pixels[pixelOffset(width, x, y)] == 0) continue;
+            if (x < width - 1) left_lit += 1 else right_lit += 1;
+        }
+    }
+    try std.testing.expect(left_lit > 0);
+    try std.testing.expectEqual(@as(u16, 0), right_lit);
 }
 
 test "generated special raster uses uniform shade intensity" {
