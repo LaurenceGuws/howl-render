@@ -184,6 +184,10 @@ fn rasterizeEightBarAlpha(pixels: []u8, width: u16, height: u16, which: u8, hori
 }
 
 fn eightRange(size: u16, which: u8) Range {
+    return eighthPartitionRange(size, which);
+}
+
+fn eighthPartitionRange(size: u16, which: u16) Range {
     const thickness = @max(@as(u16, 1), size / 8);
     const block = thickness * 8;
     if (block == size) return .{ .start = thickness * which, .end = thickness * (@as(u16, which) + 1) };
@@ -781,26 +785,7 @@ fn fillCols(pixels: []u8, width: u16, height: u16, start_eighth: u16, end_eighth
 }
 
 fn eighthRange(size: u16, which: u16) Range {
-    const thickness = @max(@as(u16, 1), size / 8);
-    const block = thickness * 8;
-    if (block == size) return .{ .start = thickness * which, .end = thickness * (which + 1) };
-    if (block > size) {
-        const start = @min(which * thickness, saturatingSubU16(size, thickness));
-        return .{ .start = start, .end = start + thickness };
-    }
-
-    var thicknesses = [_]u16{thickness} ** 8;
-    var extra = size - block;
-    const order = [_]u8{ 3, 4, 2, 5, 6, 1, 7, 0 };
-    for (order) |idx| {
-        if (extra == 0) break;
-        thicknesses[idx] += 1;
-        extra -= 1;
-    }
-    var pos: u16 = 0;
-    var idx: u16 = 0;
-    while (idx < which) : (idx += 1) pos += thicknesses[idx];
-    return .{ .start = pos, .end = pos + thicknesses[which] };
+    return eighthPartitionRange(size, which);
 }
 
 const BlockQuadrant = enum { top_left, top_right, bottom_left, bottom_right };
