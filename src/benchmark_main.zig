@@ -65,16 +65,18 @@ const WorkloadResult = struct {
     }
 };
 
+const WorkloadDamage = struct {
+    full: bool,
+    dirty_rows: []const bool,
+    dirty_cols_start: []const u16,
+    dirty_cols_end: []const u16,
+};
+
 const Workload = struct {
     name: []const u8,
     input: WorkloadInput,
     grid: contract.GridMetrics,
-    damage: struct {
-        full: bool,
-        dirty_rows: []const bool,
-        dirty_cols_start: []const u16,
-        dirty_cols_end: []const u16,
-    },
+    damage: WorkloadDamage,
     cell_px: geometry_contract.CellSize,
     dirty_cells_per_run: u32,
 };
@@ -289,6 +291,26 @@ fn initDirtySparse(allocator: std.mem.Allocator, rows: u16, active_rows: []const
     return .{ .rows = dirty_rows, .starts = dirty_starts, .ends = dirty_ends };
 }
 
+fn workloadDamage(full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16) WorkloadDamage {
+    return .{
+        .full = full,
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = dirty_cols_start,
+        .dirty_cols_end = dirty_cols_end,
+    };
+}
+
+fn buildWorkload(name: []const u8, input: WorkloadInput, grid: contract.GridMetrics, full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, cell_px: geometry_contract.CellSize, dirty_cells_per_run: u32) Workload {
+    return .{
+        .name = name,
+        .input = input,
+        .grid = grid,
+        .damage = workloadDamage(full, dirty_rows, dirty_cols_start, dirty_cols_end),
+        .cell_px = cell_px,
+        .dirty_cells_per_run = dirty_cells_per_run,
+    };
+}
+
 fn buildAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
     const rows: u16 = 24;
     const cols: u16 = 80;
@@ -306,14 +328,17 @@ fn buildAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
             cells[@intCast(idx)].fg = fg;
         }
     }
-    return .{
-        .name = "ascii_full",
-        .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = cellCount(rows, cols),
-        .input = .{ .cells = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        "ascii_full",
+        .{ .cells = cells },
+        .{ .cols = cols, .rows = rows },
+        true,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 18 },
+        cellCount(rows, cols),
+    );
 }
 
 fn buildLsdLikeWorkload(allocator: std.mem.Allocator, colored: bool) !Workload {
@@ -366,14 +391,17 @@ fn buildLsdLikeWorkload(allocator: std.mem.Allocator, colored: bool) !Workload {
         padSpaces(cells, row_base, cols, &col, cols -| col, name_fg, bg);
     }
 
-    return .{
-        .name = if (colored) "lsd_like_color" else "lsd_like_plain",
-        .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = @intCast(@as(u32, rows) * cols),
-        .input = .{ .cells = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        if (colored) "lsd_like_color" else "lsd_like_plain",
+        .{ .cells = cells },
+        .{ .cols = cols, .rows = rows },
+        true,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 18 },
+        @intCast(@as(u32, rows) * cols),
+    );
 }
 
 fn writeText(cells: []contract.CellInput, row_base: u32, cols: u16, col: *u16, text: []const u8, fg: contract.Rgba8, bg: contract.Rgba8) void {
@@ -410,14 +438,17 @@ fn buildSparseRowsWorkload(allocator: std.mem.Allocator) !Workload {
             cells[@intCast(idx)].bg = if (row == 17) rgba(28, 18, 36) else bg;
         }
     }
-    return .{
-        .name = "sparse_rows",
-        .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = active_rows.len * 80,
-        .input = .{ .cells = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = false, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        "sparse_rows",
+        .{ .cells = cells },
+        .{ .cols = cols, .rows = rows },
+        false,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 18 },
+        active_rows.len * 80,
+    );
 }
 
 fn buildMixedBoxWorkload(allocator: std.mem.Allocator) !Workload {
@@ -438,14 +469,17 @@ fn buildMixedBoxWorkload(allocator: std.mem.Allocator) !Workload {
             cells[@intCast(idx)].bg = if ((row / 4) % 2 == 0) bg else rgba(24, 24, 32);
         }
     }
-    return .{
-        .name = "mixed_box_full",
-        .cell_px = .{ .width = 10, .height = 18 },
-        .dirty_cells_per_run = cellCount(rows, cols),
-        .input = .{ .cells = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        "mixed_box_full",
+        .{ .cells = cells },
+        .{ .cols = cols, .rows = rows },
+        true,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 10, .height = 18 },
+        cellCount(rows, cols),
+    );
 }
 
 fn buildWideDirtySpansWorkload(allocator: std.mem.Allocator) !Workload {
@@ -465,14 +499,17 @@ fn buildWideDirtySpansWorkload(allocator: std.mem.Allocator) !Workload {
             cells[@intCast(idx)].bg = if ((col / 8) % 2 == 0) rgba(18, 24, 30) else rgba(32, 18, 18);
         }
     }
-    return .{
-        .name = "wide_dirty_spans",
-        .cell_px = .{ .width = 9, .height = 17 },
-        .dirty_cells_per_run = dirty_rows_list.len * 108,
-        .input = .{ .cells = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = false, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        "wide_dirty_spans",
+        .{ .cells = cells },
+        .{ .cols = cols, .rows = rows },
+        false,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 17 },
+        dirty_rows_list.len * 108,
+    );
 }
 
 fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
@@ -493,14 +530,17 @@ fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
             .presentation = if (idx % 2 == 0) .any else .emoji,
         };
     }
-    return .{
-        .name = "complex_text_full",
-        .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = count32(cells),
-        .input = .{ .cell_texts = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        "complex_text_full",
+        .{ .cell_texts = cells },
+        .{ .cols = cols, .rows = rows },
+        true,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 18 },
+        count32(cells),
+    );
 }
 
 fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
@@ -518,14 +558,17 @@ fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
             .bg = bg,
         };
     }
-    return .{
-        .name = "cell_text_ascii_full",
-        .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = count32(cells),
-        .input = .{ .cell_texts = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        "cell_text_ascii_full",
+        .{ .cell_texts = cells },
+        .{ .cols = cols, .rows = rows },
+        true,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 18 },
+        count32(cells),
+    );
 }
 
 fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
@@ -547,14 +590,17 @@ fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
             .presentation = .any,
         };
     }
-    return .{
-        .name = "cell_text_mixed",
-        .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = count32(cells),
-        .input = .{ .cell_texts = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        "cell_text_mixed",
+        .{ .cell_texts = cells },
+        .{ .cols = cols, .rows = rows },
+        true,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 18 },
+        count32(cells),
+    );
 }
 
 fn buildCurlyUnderlineMixedWorkload(allocator: std.mem.Allocator) !Workload {
@@ -575,14 +621,17 @@ fn buildCurlyUnderlineMixedWorkload(allocator: std.mem.Allocator) !Workload {
             .underline_style = if (curly) .curly else .straight,
         };
     }
-    return .{
-        .name = "curly_underline_mixed",
-        .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = count32(cells),
-        .input = .{ .cells = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        "curly_underline_mixed",
+        .{ .cells = cells },
+        .{ .cols = cols, .rows = rows },
+        true,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 18 },
+        count32(cells),
+    );
 }
 
 fn buildIconPuaMixedWorkload(allocator: std.mem.Allocator) !Workload {
@@ -601,14 +650,17 @@ fn buildIconPuaMixedWorkload(allocator: std.mem.Allocator) !Workload {
             .bg = bg,
         };
     }
-    return .{
-        .name = "icon_pua_mixed",
-        .cell_px = .{ .width = 9, .height = 18 },
-        .dirty_cells_per_run = count32(cells),
-        .input = .{ .cells = cells },
-        .grid = .{ .cols = cols, .rows = rows },
-        .damage = .{ .full = true, .dirty_rows = dirty.rows, .dirty_cols_start = dirty.starts, .dirty_cols_end = dirty.ends },
-    };
+    return buildWorkload(
+        "icon_pua_mixed",
+        .{ .cells = cells },
+        .{ .cols = cols, .rows = rows },
+        true,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 18 },
+        count32(cells),
+    );
 }
 
 fn initPrepareContext(workload: Workload) WorkloadPrepareContext {
