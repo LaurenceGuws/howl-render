@@ -336,42 +336,8 @@ const SceneAssembly = struct {
     }
 
     fn appendCursorDraws(self: *SceneAssembly, cursor: CursorInput, cell_metrics: contract.CellMetrics) !void {
-        const base_x: i32 = @as(i32, @intCast(cursor.cell_col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
-        const base_y: i32 = @as(i32, @intCast(cursor.cell_row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
-        const geom = cursorGeometry(cell_metrics);
-        switch (cursorRoute(cursor.shape)) {
-            .block => try self.cursor_draws.append(
-                self.allocator,
-                .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
-            ),
-            .beam => try self.cursor_draws.append(
-                self.allocator,
-                .{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
-            ),
-            .underline => try self.cursor_draws.append(
-                self.allocator,
-                .{
-                    .x_px = base_x,
-                    .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - geom.underline_h_px)),
-                    .width_px = cell_metrics.cell_w_px,
-                    .height_px = geom.underline_h_px,
-                    .color = cursor.color,
-                },
-            ),
-            .hollow_block => {
-                const stroke = geom.hollow_stroke_px;
-                try self.cursor_draws.append(self.allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor.color });
-                try self.cursor_draws.append(
-                    self.allocator,
-                    .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - stroke)), .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor.color },
-                );
-                try self.cursor_draws.append(self.allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor.color });
-                try self.cursor_draws.append(
-                    self.allocator,
-                    .{ .x_px = base_x + @as(i32, @intCast(cell_metrics.cell_w_px - stroke)), .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
-                );
-            },
-        }
+        var draws: [4]contract.TextCursorDraw = undefined;
+        try self.cursor_draws.appendSlice(self.allocator, cursorDrawRects(draws[0..], cursor, cell_metrics));
     }
 };
 
@@ -734,34 +700,35 @@ fn appendGroupSpriteDraws(
 }
 
 pub fn cursorDraws(allocator: std.mem.Allocator, cursor: CursorInput, cell_metrics: contract.CellMetrics) ![]contract.TextCursorDraw {
-    const base_x: i32 = @as(i32, @intCast(cursor.cell_col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
-    const base_y: i32 = @as(i32, @intCast(cursor.cell_row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
-    const geom = cursorGeometry(cell_metrics);
     const count = cursorDrawCount(cursor.shape);
     const draws = try allocator.alloc(contract.TextCursorDraw, @intCast(count));
     errdefer allocator.free(draws);
-    switch (cursor.shape) {
-        .block => draws[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
-        .beam => draws[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
-        .underline => draws[0] = .{ .x_px = base_x, .y_px = base_y + @as(
-            i32,
-            @intCast(cell_metrics.cell_h_px - geom.underline_h_px),
-        ), .width_px = cell_metrics.cell_w_px, .height_px = geom.underline_h_px, .color = cursor.color },
+    _ = cursorDrawRects(draws, cursor, cell_metrics);
+    return draws;
+}
+
+fn cursorDrawRects(out: []contract.TextCursorDraw, cursor: CursorInput, cell_metrics: contract.CellMetrics) []const contract.TextCursorDraw {
+    const count = cursorDrawCount(cursor.shape);
+    std.debug.assert(out.len >= count);
+
+    const base_x: i32 = @as(i32, @intCast(cursor.cell_col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
+    const base_y: i32 = @as(i32, @intCast(cursor.cell_row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
+    const geom = cursorGeometry(cell_metrics);
+
+    switch (cursorRoute(cursor.shape)) {
+        .block => out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
+        .beam => out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
+        .underline => out[0] = .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - geom.underline_h_px)), .width_px = cell_metrics.cell_w_px, .height_px = geom.underline_h_px, .color = cursor.color },
         .hollow_block => {
             const stroke = geom.hollow_stroke_px;
-            draws[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor.color };
-            draws[1] = .{ .x_px = base_x, .y_px = base_y + @as(
-                i32,
-                @intCast(cell_metrics.cell_h_px - stroke),
-            ), .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor.color };
-            draws[2] = .{ .x_px = base_x, .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor.color };
-            draws[3] = .{ .x_px = base_x + @as(
-                i32,
-                @intCast(cell_metrics.cell_w_px - stroke),
-            ), .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor.color };
+            out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor.color };
+            out[1] = .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - stroke)), .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor.color };
+            out[2] = .{ .x_px = base_x, .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor.color };
+            out[3] = .{ .x_px = base_x + @as(i32, @intCast(cell_metrics.cell_w_px - stroke)), .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor.color };
         },
     }
-    return draws;
+
+    return out[0..count];
 }
 
 fn appendBackgroundDraws(
