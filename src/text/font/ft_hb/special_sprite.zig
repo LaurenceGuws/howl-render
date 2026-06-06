@@ -962,39 +962,6 @@ fn fillTriangle(dst: []u8, w: u16, h: u16, p0: PointF, p1: PointF, p2: PointF) v
 fn edge(a: PointF, b: PointF, c: PointF) f64 {
     return (c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x);
 }
-fn drawAlphaQuadraticStroke(dst: []u8, w: u16, h: u16, p0: PointF, p1: PointF, p2: PointF, thickness: f64) void {
-    const half = thickness / 2.0;
-    const samples: u8 = 48;
-    for (0..h) |yy| {
-        for (0..w) |xx| {
-            const px = @as(f64, @floatFromInt(xx)) + 0.5;
-            const py = @as(f64, @floatFromInt(yy)) + 0.5;
-            var min_d2: f64 = std.math.floatMax(f64);
-            var i: u8 = 0;
-            while (i <= samples) : (i += 1) {
-                const u = @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(samples));
-                const inv = 1.0 - u;
-                const cx = inv * inv * p0.x + 2.0 * inv * u * p1.x + u * u * p2.x;
-                const cy = inv * inv * p0.y + 2.0 * inv * u * p1.y + u * u * p2.y;
-                const dx = px - cx;
-                const dy = py - cy;
-                min_d2 = @min(min_d2, dx * dx + dy * dy);
-            }
-            const dist = @sqrt(min_d2);
-            const coverage = std.math.clamp(half - dist + 0.5, 0.0, 1.0);
-            if (coverage <= 0.0) continue;
-            const alpha: u8 = @intFromFloat(@round(coverage * 255.0));
-            const off = pixelOffset(w, @intCast(xx), @intCast(yy));
-            dst[@intCast(off)] = @max(dst[@intCast(off)], alpha);
-        }
-    }
-}
-
-fn count32(items: anytype) u32 {
-    std.debug.assert(items.len <= std.math.maxInt(u32));
-    return @intCast(items.len);
-}
-
 // Rounded-sprite geometry stays typed until these final pixel-buffer index helpers.
 fn pixelRowOffset(width: u16, y: u16) u32 {
     return @as(u32, width) * @as(u32, y);
@@ -1002,8 +969,4 @@ fn pixelRowOffset(width: u16, y: u16) u32 {
 
 fn pixelOffset(width: u16, x: u16, y: u16) u32 {
     return pixelRowOffset(width, y) + x;
-}
-
-fn pixelCount(width: u16, height: u16) u32 {
-    return @as(u32, width) * @as(u32, height);
 }
