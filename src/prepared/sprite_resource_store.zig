@@ -49,14 +49,14 @@ pub const SpriteResourceStore = struct {
     last_resource_entry_index: ?u32 = null,
     last_atlas_entry_index: ?u32 = null,
 
-    pub const Result = struct {
+    pub const ResourceAllocation = struct {
         resource: ResourceId,
         lifetime: Lifetime,
 
         pub const Lifetime = enum { reused, persistent, transient };
     };
 
-    pub const AtlasResult = struct {
+    pub const AtlasPlacement = struct {
         resource: ResourceId,
         rect: Rect,
         created: bool,
@@ -92,7 +92,7 @@ pub const SpriteResourceStore = struct {
         self.value_next = next_value;
     }
 
-    pub fn resourceFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!Result {
+    pub fn resourceFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!ResourceAllocation {
         const format = uploadFormatForPrepared(sprite.color_mode);
         const bytes_hash = hashSpriteBytes(sprite, width_px, height_px, bytes);
         if (self.last_resource_entry_index) |index| {
@@ -158,7 +158,7 @@ pub const SpriteResourceStore = struct {
         return .{ .resource = resource, .lifetime = .persistent };
     }
 
-    pub fn atlasRegionFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!AtlasResult {
+    pub fn atlasRegionFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!AtlasPlacement {
         std.debug.assert(sprite.color_mode == .alpha);
         const bytes_hash = hashSpriteBytes(sprite, width_px, height_px, bytes);
         if (self.last_atlas_entry_index) |index| {
@@ -363,9 +363,9 @@ test "render-surface sprite resource store reuses last atlas and resource lookup
     try std.testing.expectEqual(@as(u32, 1), resources.atlas_count);
 
     const first_resource = try resources.resourceFor(color_sprite, 1, 1, &color_bytes);
-    try std.testing.expectEqual(SpriteResourceStore.Result.Lifetime.persistent, first_resource.lifetime);
+    try std.testing.expectEqual(SpriteResourceStore.ResourceAllocation.Lifetime.persistent, first_resource.lifetime);
     const second_resource = try resources.resourceFor(color_sprite, 1, 1, &color_bytes);
-    try std.testing.expectEqual(SpriteResourceStore.Result.Lifetime.reused, second_resource.lifetime);
+    try std.testing.expectEqual(SpriteResourceStore.ResourceAllocation.Lifetime.reused, second_resource.lifetime);
     try std.testing.expectEqual(first_resource.resource, second_resource.resource);
     try std.testing.expectEqual(@as(u32, 1), resources.count);
 }
