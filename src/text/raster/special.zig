@@ -176,15 +176,11 @@ fn rasterizeGeneratedSextantAlpha(pixels: []u8, width: u16, height: u16, codepoi
 }
 
 fn rasterizeEightBarAlpha(pixels: []u8, width: u16, height: u16, which: u8, horizontal: bool) void {
-    const x_range: Range = if (horizontal) .{ .start = 0, .end = width } else eightRange(width, which);
-    const y_range: Range = if (horizontal) eightRange(height, which) else .{ .start = 0, .end = height };
+    const x_range: Range = if (horizontal) .{ .start = 0, .end = width } else eighthPartitionRange(width, @as(u16, which));
+    const y_range: Range = if (horizontal) eighthPartitionRange(height, @as(u16, which)) else .{ .start = 0, .end = height };
     if (x_range.end > x_range.start and y_range.end > y_range.start) {
         fillRectAlpha(pixels, width, x_range.start, y_range.start, x_range.end - x_range.start, y_range.end - y_range.start, 255);
     }
-}
-
-fn eightRange(size: u16, which: u8) Range {
-    return eighthPartitionRange(size, which);
 }
 
 fn eighthPartitionRange(size: u16, which: u16) Range {
@@ -759,7 +755,7 @@ fn rasterizeBlockElementAlpha(pixels: []u8, width: u16, height: u16, codepoint: 
 fn fillRows(pixels: []u8, width: u16, height: u16, start_eighth: u16, end_eighth: u16) void {
     var eighth = start_eighth;
     while (eighth < end_eighth) : (eighth += 1) {
-        const range = eighthRange(height, eighth);
+        const range = eighthPartitionRange(height, eighth);
         if (range.end > range.start) fillRectAlpha(pixels, width, 0, range.start, width, range.end - range.start, 255);
     }
 }
@@ -767,13 +763,9 @@ fn fillRows(pixels: []u8, width: u16, height: u16, start_eighth: u16, end_eighth
 fn fillCols(pixels: []u8, width: u16, height: u16, start_eighth: u16, end_eighth: u16) void {
     var eighth = start_eighth;
     while (eighth < end_eighth) : (eighth += 1) {
-        const range = eighthRange(width, eighth);
+        const range = eighthPartitionRange(width, eighth);
         if (range.end > range.start) fillRectAlpha(pixels, width, range.start, 0, range.end - range.start, height, 255);
     }
-}
-
-fn eighthRange(size: u16, which: u16) Range {
-    return eighthPartitionRange(size, which);
 }
 
 const BlockQuadrant = enum { top_left, top_right, bottom_left, bottom_right };
