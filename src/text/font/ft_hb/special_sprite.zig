@@ -9,8 +9,8 @@ pub fn rasterizeSpecialSpriteAlpha(dst: []u8, width: u16, height: u16, codepoint
     const w = @max(width, 1);
     const h = @max(height, 1);
     switch (codepoint) {
-        0xe0d6 => drawAlphaTriangle(dst, w, h, false, true),
-        0xe0d7 => drawAlphaTriangle(dst, w, h, true, true),
+        0xe0d6 => drawAlphaTriangle(dst, w, h, false),
+        0xe0d7 => drawAlphaTriangle(dst, w, h, true),
         0xee00 => drawAlphaProgressBar(dst, w, h, .left, false),
         0xee01 => drawAlphaProgressBar(dst, w, h, .middle, false),
         0xee02 => drawAlphaProgressBar(dst, w, h, .right, false),
@@ -851,8 +851,7 @@ fn insideTriangle(px: u16, py: u16, ax: u16, ay: u16, bx: u16, by: u16, cx: u16,
     return if (area > 0) w0 >= 0 and w1 >= 0 and w2 >= 0 else w0 <= 0 and w1 <= 0 and w2 <= 0;
 }
 
-fn drawAlphaTriangle(dst: []u8, w: u16, h: u16, left: bool, inverted: bool) void {
-    _ = inverted;
+fn drawAlphaTriangle(dst: []u8, w: u16, h: u16, left: bool) void {
     const x0: f64 = if (left) 0.0 else @as(f64, @floatFromInt(w - 1));
     const x1: f64 = if (left) @as(f64, @floatFromInt(w - 1)) else 0.0;
     const y1 = @as(f64, @floatFromInt(h - 1));
