@@ -50,7 +50,7 @@ test "provider loads fallback face for symbol glyph with primary present" {
 }
 
 test "ft hb state configures explicit retained cache and input capacities" {
-    var state = support.State.init(std.testing.allocator);
+    var state = support.FtHbSupport.init(std.testing.allocator);
     defer state.deinit();
 
     try state.configureFtHbCapacity(.{
@@ -70,7 +70,7 @@ test "ft hb state configures explicit retained cache and input capacities" {
 }
 
 test "shape run input assembly reuses retained bounded buffers" {
-    var state = support.State.init(std.testing.allocator);
+    var state = support.FtHbSupport.init(std.testing.allocator);
     defer state.deinit();
     try state.configureFtHbCapacity(.{
         .face_text_cache_entries = 2,

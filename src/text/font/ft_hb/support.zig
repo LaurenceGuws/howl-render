@@ -32,7 +32,7 @@ const ThreadMutex = struct {
     }
 };
 
-pub const State = struct {
+pub const FtHbSupport = struct {
     allocator: std.mem.Allocator,
     ft_lib: ?FtLibrary = null,
     ft_face: ?FtFace = null,
@@ -53,7 +53,7 @@ pub const State = struct {
     fallback_font_paths: [max_fallback_fonts]?[:0]const u8 = [_]?[:0]const u8{null} ** max_fallback_fonts,
     fallback_font_paths_len: u8 = 0,
 
-    pub fn init(allocator: std.mem.Allocator) State {
+    pub fn init(allocator: std.mem.Allocator) FtHbSupport {
         return .{
             .allocator = allocator,
             .face_text_cache = text_cache.FaceTextCache.init(allocator),
@@ -62,7 +62,7 @@ pub const State = struct {
         };
     }
 
-    pub fn configureFtHbCapacity(self: *State, capacity: FtHbCapacity) !void {
+    pub fn configureFtHbCapacity(self: *FtHbSupport, capacity: FtHbCapacity) !void {
         try self.face_text_cache.configure(capacity.face_text_cache_entries);
         try self.shape_run_cache.configure(capacity.shape_run_cache_entries, capacity.max_glyphs_per_run);
         try self.glyph_cell_cache.configure(capacity.glyph_cell_cache_entries);
@@ -76,7 +76,7 @@ pub const State = struct {
         self.max_shape_input_codepoints = capacity.max_shape_input_codepoints;
     }
 
-    pub fn deinit(self: *State) void {
+    pub fn deinit(self: *FtHbSupport) void {
         if (self.shape_input_cluster_map.len > 0) self.allocator.free(self.shape_input_cluster_map);
         if (self.shape_input_codepoints.len > 0) self.allocator.free(self.shape_input_codepoints);
         self.shape_run_cache.deinit();
@@ -94,7 +94,7 @@ pub const FtHbCapacity = struct {
     max_glyphs_per_run: u32,
 };
 
-fn textState(self: anytype) *State {
+fn textState(self: anytype) *FtHbSupport {
     const T = @TypeOf(self.*);
     if (@hasField(T, "text_state")) return &self.text_state;
     if (@hasField(T, "session")) return &self.session.text_state;
@@ -684,7 +684,7 @@ fn resetFallbackFaces(self: anytype) void {
     }
 }
 
-fn gatherShapeRunInput(state: *State, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window: ClusterWindow) !ShapeRunInput {
+fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window: ClusterWindow) !ShapeRunInput {
     const required = shapeRunInputCodepointCount(text_cache_view, clusters, window);
     if (required > state.max_shape_input_codepoints) return error.ShapeRunInputOverflow;
     var count: u32 = 0;
@@ -779,7 +779,7 @@ pub const testing = struct {
         cluster_map: []u32,
     };
 
-    pub fn gatherShapeRunInput(state: *State, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window_start: u32, window_end: u32) !GatherShapeRunInput {
+    pub fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window_start: u32, window_end: u32) !GatherShapeRunInput {
         const input = try @import("support.zig").gatherShapeRunInput(state, text_cache_view, clusters, .{ .start = window_start, .end = window_end });
         return .{
             .codepoints = input.codepoints,

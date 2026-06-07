@@ -71,7 +71,7 @@ pub const TextSessionConfig = struct {
 
 pub const TextSession = struct {
     allocator: std.mem.Allocator,
-    text_state: text_support.State,
+    text_state: text_support.FtHbSupport,
     mutex: ThreadMutex = .{},
     text_preparer: ?frame_preparer.TextFramePreparer = null,
     cell_input_scratch: []contract.CellInput = &.{},
@@ -96,7 +96,7 @@ pub const TextSession = struct {
     pub fn init(allocator: std.mem.Allocator) TextSession {
         return .{
             .allocator = allocator,
-            .text_state = text_support.State.init(allocator),
+            .text_state = text_support.FtHbSupport.init(allocator),
         };
     }
 

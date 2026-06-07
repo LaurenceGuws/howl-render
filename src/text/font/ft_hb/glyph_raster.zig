@@ -273,12 +273,12 @@ fn useDeterministicTestTextFallback(context: anytype) bool {
 }
 
 const DeterministicFallbackContext = struct {
-    text_state: provider_mod.State,
+    text_state: provider_mod.FtHbSupport,
     config: text_session.TextSessionConfig,
 
     fn init(allocator: std.mem.Allocator) DeterministicFallbackContext {
         return .{
-            .text_state = provider_mod.State.init(allocator),
+            .text_state = provider_mod.FtHbSupport.init(allocator),
             .config = .{
                 .surface_px = .{ .width = 1, .height = 1 },
                 .font_size_px = 16,
