@@ -1,16 +1,12 @@
 const std = @import("std");
 const source_vt = @import("vt.zig");
 const source_cell = @import("cell.zig");
+const publication_cell_map = @import("publication_cell_map.zig");
 const contract = @import("../text/contract.zig");
 const frame_preparer = @import("../text/frame_preparer.zig");
 const scene = @import("../text/scene.zig");
 
-pub const FrameTheme = struct {
-    default_fg: contract.Rgba8,
-    default_bg: contract.Rgba8,
-    cursor_color: contract.Rgba8,
-    palette: [256]contract.Rgba8,
-};
+pub const FrameTheme = publication_cell_map.FrameTheme;
 pub const default_theme = defaultTheme();
 
 fn indexed256(idx: u8, t: FrameTheme) contract.Rgba8 {
@@ -70,14 +66,7 @@ fn rgbaFromVtRgb(color: source_vt.SourceRgb) contract.Rgba8 {
 }
 
 fn themeFromPublicationColors(colors: source_vt.SourceColors) FrameTheme {
-    var palette: [256]contract.Rgba8 = undefined;
-    for (colors.palette, 0..) |color, idx| palette[idx] = rgbaFromVtRgb(color);
-    return .{
-        .default_fg = rgbaFromVtRgb(colors.foreground),
-        .default_bg = rgbaFromVtRgb(colors.background),
-        .cursor_color = rgbaFromVtRgb(colors.cursor),
-        .palette = palette,
-    };
+    return publication_cell_map.themeFromPublicationColors(colors);
 }
 
 fn colorToRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
@@ -258,27 +247,7 @@ fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
 }
 
 fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contract.CellInput {
-    const bg = publicationColorToTextSceneRgba8(src.bg_color, false, t);
-    var out: contract.CellInput = .{
-        .codepoint = @intCast(src.codepoint),
-        .combining_len = src.combining_len,
-        .combining = src.combining,
-        .style = mapFontStyle(src.attrs.bold != 0, src.attrs.italic != 0),
-        .presentation = detectCellPresentation(@intCast(src.codepoint), src.combining_len, src.combining),
-        .fg = publicationColorToTextSceneRgba8(src.fg_color, true, t),
-        .bg = bg,
-        .underline_color = if (src.attrs.underline_color_set != 0) publicationColorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
-        .underline_style = publicationUnderlineStyle(src.underline_style),
-        .underline = src.attrs.underline != 0,
-        .strikethrough = src.attrs.strikethrough != 0,
-        .continuation = src.flags.continuation != 0,
-        .empty = isAlacrittyEmptyPublicationCell(src, bg),
-    };
-    if (src.attrs.inverse != 0) applyInverseStyle(&out, t);
-    if (src.attrs.dim != 0) applyDimStyle(&out);
-    if (src.attrs.selected != 0) applySelectionStyle(&out, t);
-    if (src.attrs.invisible != 0) applyInvisibleStyle(&out);
-    return out;
+    return publication_cell_map.mapPublicationCellInput(src, t);
 }
 
 fn applySelectionStyle(cell: *contract.CellInput, t: FrameTheme) void {

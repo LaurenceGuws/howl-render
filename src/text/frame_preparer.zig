@@ -16,6 +16,8 @@ const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
 const shape_run = @import("shape/run.zig");
 const lane = @import("classify/lane.zig");
+const source_vt = @import("../source/vt.zig");
+const publication_cell_map = @import("../source/publication_cell_map.zig");
 
 pub const PrepareTimings = struct {
     direct_normal_us: u64 = 0,
@@ -148,6 +150,22 @@ pub const TextFramePreparer = struct {
         var renderable = try cluster.buildRenderableCellsFromInputs(self.allocator, inputs, text_cache.view());
         errdefer renderable.deinit();
         return self.preparePreparedTextFrame(text_cache, renderable, grid_metrics, session, options, .{});
+    }
+
+    pub fn preparePublicationWithSessionOptions(
+        self: *TextFramePreparer,
+        source: source_vt.PublicationSource,
+        grid_metrics: contract.GridMetrics,
+        session: font_session.FontSession,
+        options: PrepareOptions,
+        theme: publication_cell_map.FrameTheme,
+    ) !?OwnedPreparedTextFrame {
+        var lane_report = lane.LaneReport{};
+        var timings = PrepareTimings{};
+        if (try self.prepareDirectNormal(.{ .publication = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings)) |direct| {
+            return self.finishNormalOnlyFrame(direct, lane_report, timings);
+        }
+        return null;
     }
 
     fn preparePreparedTextFrame(

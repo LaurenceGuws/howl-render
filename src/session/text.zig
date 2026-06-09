@@ -1,6 +1,7 @@
 const std = @import("std");
 const geometry_mod = @import("../render/grid_geometry.zig");
 const input = @import("../source/text_input.zig");
+const publication_cell_map = @import("../source/publication_cell_map.zig");
 const tokens = @import("../render/tokens.zig");
 const prepared_owner = @import("../prepared/owner.zig");
 const prepared_submit = @import("../prepared/submit.zig");
@@ -203,14 +204,43 @@ pub const TextSession = struct {
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
-        try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
-        const input_start_ns = monotonicNs();
-        const text_input = input.publicationSourceToTextSceneInputBorrowed(self.cell_input_scratch, prepare.state, prepare.request.token.damage_kind == .full);
-        const input_us = (monotonicNs() -| input_start_ns) / std.time.ns_per_us;
         var resolve: font_resolve.ResolveObservability = .{};
+        const theme = publication_cell_map.themeFromPublicationColors(prepare.state.colors);
+        const dirty_rows: []const bool = @ptrCast(prepare.state.dirty_rows);
+        const options: frame_preparer.PrepareOptions = .{ .scene = .{
+            .cursor = publication_cell_map.mapPublicationCursor(prepare.state, theme),
+            .damage = .{
+                .full = prepare.request.token.damage_kind == .full,
+                .dirty_rows = dirty_rows,
+                .dirty_cols_start = prepare.state.dirty_cols_start,
+                .dirty_cols_end = prepare.state.dirty_cols_end,
+            },
+        } };
         const ensure_preparer_start_ns = monotonicNs();
         const preparer = try self.ensureTextPreparer(&context);
         const session_preparer_us = (monotonicNs() -| ensure_preparer_start_ns) / std.time.ns_per_us;
+        if (try preparer.preparePublicationWithSessionOptions(
+            prepare.state,
+            .{ .cols = prepare.state.cols, .rows = prepare.state.rows },
+            fontSession(&context, &faces, &resolve),
+            options,
+            theme,
+        )) |prepared_direct| {
+            var direct = prepared_direct;
+            direct.timings.session_preparer_us += session_preparer_us;
+            const owned_direct = ownPreparedSurface(self.allocator, prepare, .{ .cols = prepare.state.cols, .rows = prepare.state.rows }, direct, resolve);
+            self.mutex.unlock();
+            return owned_direct;
+        }
+        try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
+        const input_start_ns = monotonicNs();
+        const text_input = input.publicationSourceToTextSceneInputBorrowedWithTheme(
+            self.cell_input_scratch,
+            prepare.state,
+            prepare.request.token.damage_kind == .full,
+            theme,
+        );
+        const input_us = (monotonicNs() -| input_start_ns) / std.time.ns_per_us;
         const prepare_cells_start_ns = monotonicNs();
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
         prepared.timings.input_us += input_us;

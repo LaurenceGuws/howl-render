@@ -11,6 +11,8 @@ const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
 const sprite_key = @import("raster/key.zig");
+const source_vt = @import("../source/vt.zig");
+const publication_cell_map = @import("../source/publication_cell_map.zig");
 
 pub const Product = struct {
     damage: direct_scene.Damage,
@@ -43,6 +45,10 @@ pub const Policy = enum {
 
 pub const Source = union(enum) {
     raw_cells: []const contract.CellInput,
+    publication: struct {
+        cells: []const source_vt.SourceCell,
+        theme: publication_cell_map.FrameTheme,
+    },
     inputs: []const cluster.CellTextInput,
     prepared: struct {
         cells: []const contract.RenderableCell,
@@ -207,6 +213,7 @@ fn sourceCandidate(source: Source, idx: u32, damage: direct_scene.Damage, grid_m
 fn sourceLen(source: Source) u32 {
     return switch (source) {
         .raw_cells => |cells| @intCast(cells.len),
+        .publication => |publication| @intCast(publication.cells.len),
         .inputs => |inputs| @intCast(inputs.len),
         .prepared => |prepared| @intCast(prepared.cells.len),
     };
@@ -218,6 +225,17 @@ fn sourceItem(source: Source, idx: u32) ?Item {
             const cell = cells[idx];
             if (cell.continuation or cell.empty) return null;
             return .{ .renderable = rawRenderableCell(cell, idx, cells), .first_cp = cell.codepoint, .inline_codepoints = .{cell.codepoint} };
+        },
+        .publication => |publication| {
+            const cell = publication.cells[idx];
+            if (cell.flags.continuation != 0) return null;
+            const mapped = publication_cell_map.mapPublicationCellInput(cell, publication.theme);
+            if (mapped.empty) return null;
+            return .{
+                .renderable = publicationRenderableCell(mapped, idx, publication.cells),
+                .first_cp = mapped.codepoint,
+                .inline_codepoints = .{mapped.codepoint},
+            };
         },
         .inputs => |inputs| {
             const input = inputs[idx];
@@ -358,6 +376,28 @@ fn rawRenderableCell(cell: contract.CellInput, idx: u32, cells: []const contract
     };
 }
 
+fn publicationRenderableCell(cell: contract.CellInput, idx: u32, cells: []const source_vt.SourceCell) contract.RenderableCell {
+    return .{
+        .text_id = .{ .value = 0 },
+        .first_cell = idx,
+        .cell_span = inferredPublicationCellSpan(cells, idx),
+        .style = cell.style,
+        .presentation = cell.presentation,
+        .fg = cell.fg,
+        .bg = cell.bg,
+        .underline_color = cell.underline_color,
+        .underline_style = switch (cell.underline_style) {
+            .straight => .straight,
+            .double => .double,
+            .curly => .curly,
+            .dotted => .dotted,
+            .dashed => .dashed,
+        },
+        .underline = cell.underline,
+        .strikethrough = cell.strikethrough,
+    };
+}
+
 fn inputRenderableCell(input: cluster.CellTextInput, idx: u32, inputs: []const cluster.CellTextInput) contract.RenderableCell {
     const cps = normalizedInputCodepoints(input.codepoints);
     return .{
@@ -407,6 +447,15 @@ fn inferredInputCellSpan(inputs: []const cluster.CellTextInput, idx: u32) u8 {
     var span: u8 = 1;
     for (inputs[@intCast(idx + 1)..]) |input| {
         if (!input.continuation or span == std.math.maxInt(u8)) break;
+        span += 1;
+    }
+    return span;
+}
+
+fn inferredPublicationCellSpan(cells: []const source_vt.SourceCell, idx: u32) u8 {
+    var span: u8 = 1;
+    for (cells[@intCast(idx + 1)..]) |cell| {
+        if (cell.flags.continuation == 0 or span == std.math.maxInt(u8)) break;
         span += 1;
     }
     return span;
