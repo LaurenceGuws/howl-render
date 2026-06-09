@@ -9,8 +9,9 @@ const text_session = @import("text_session.zig");
 const vt_surface = @import("vt_surface.zig");
 const work_state = @import("work_state.zig");
 const prepared_buffer_model = @import("../prepared/buffer.zig");
-const prepared_owner_model = @import("../prepared/owner.zig");
+const prepared_handle_model = @import("../prepared/handle.zig");
 const prepared_surface_model = @import("../prepared/surface.zig");
+const render_surface_emitter_model = @import("../prepared/render_surface_emitter.zig");
 const render_surface_realizer = @import("../render/render_surface_realizer.zig");
 const text_contract = @import("../text/contract.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
@@ -25,8 +26,9 @@ pub const text = text_session;
 pub const vt = vt_surface;
 pub const work = work_state;
 pub const prepared_buffer = prepared_buffer_model;
-pub const prepared_owner = prepared_owner_model;
+pub const prepared_handle_model_ns = prepared_handle_model;
 pub const prepared_surface_model_ns = prepared_surface_model;
+pub const render_surface_emitter_model_ns = render_surface_emitter_model;
 pub const realizer = render_surface_realizer;
 pub const text_contract_ns = text_contract;
 pub const text_rasterizer = rasterizer;
@@ -60,7 +62,7 @@ pub fn validPartialPreparedSurfaceToken() c.HowlRenderPreparedSurfaceToken {
     return .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .required_base_seq = 1, .damage_kind = damagePartial() };
 }
 
-pub fn preparedOwnerWithFailure(failure: prepared_owner_model.RenderSurfaceEmissionFailure) prepared_owner_model.Owner {
+pub fn preparedHandleWithFailure(failure: render_surface_emitter_model.RenderSurfaceEmissionFailure) prepared_handle_model.PreparedHandle {
     return .{
         .session_owner = undefined,
         .prepared = .{

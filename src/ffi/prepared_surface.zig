@@ -1,6 +1,8 @@
 const c = @import("../ffi.zig").c;
 const handle_owner = @import("handle.zig");
-const prepared_owner = @import("../prepared/owner.zig");
+const prepared_handle = @import("../prepared/handle.zig");
+const prepared_surface = @import("../prepared/surface.zig");
+const render_surface_emitter = @import("../prepared/render_surface_emitter.zig");
 const prepare_request_boundary = @import("prepare_request.zig");
 
 pub fn prepareHandle(
@@ -19,38 +21,38 @@ pub fn prepareHandle(
 }
 
 pub fn release(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle) callconv(.c) void {
-    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse return;
-    owner.release();
+    const prepared = prepared_handle.PreparedHandle.fromHandle(prepared_surface_handle) orelse return;
+    prepared.release();
 }
 
 pub fn describe(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, info_out: ?*c.HowlRenderPreparedSurfaceInfo) callconv(.c) c_int {
     const out = info_out;
-    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
+    const prepared = prepared_handle.PreparedHandle.fromHandle(prepared_surface_handle) orelse {
         if (out) |value| value.* = infoFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
         return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     };
     const value = out orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!owner.isLive()) {
+    if (!prepared.isLive()) {
         value.* = infoFailure(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
         return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     }
-    value.* = preparedInfoOut(owner.info());
+    value.* = preparedInfoOut(prepared.info());
     return c.HOWL_RENDER_CALL_OK;
 }
 
 pub fn renderSurface(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, surface_out: ?*?*const c.HowlRenderSurface) callconv(.c) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
     const out = surface_out;
     if (out) |value| value.* = null;
-    const owner = prepared_owner.Owner.fromHandle(prepared_surface_handle) orelse {
+    const prepared = prepared_handle.PreparedHandle.fromHandle(prepared_surface_handle) orelse {
         return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_HANDLE;
     };
     const value = out orelse return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;
-    if (!owner.isLive()) return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;
-    value.* = owner.renderSurface() orelse return renderSurfaceStatusFromFailure(owner.renderSurfaceEmissionFailure());
+    if (!prepared.isLive()) return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;
+    value.* = prepared.renderSurface() orelse return renderSurfaceStatusFromFailure(prepared.renderSurfaceEmissionFailure());
     return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK;
 }
 
-fn renderSurfaceStatusFromFailure(failure: prepared_owner.RenderSurfaceEmissionFailure) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
+fn renderSurfaceStatusFromFailure(failure: render_surface_emitter.RenderSurfaceEmissionFailure) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
     return switch (failure) {
         .none => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK,
         .allocation_failed => c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_ALLOCATION_FAILED,
@@ -66,7 +68,7 @@ fn renderSurfaceStatusFromFailure(failure: prepared_owner.RenderSurfaceEmissionF
     };
 }
 
-pub fn preparedInfoOut(value: prepared_owner.PreparedInfo) c.HowlRenderPreparedSurfaceInfo {
+pub fn preparedInfoOut(value: prepared_surface.PreparedInfo) c.HowlRenderPreparedSurfaceInfo {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .snapshot_seq = value.snapshot_seq,

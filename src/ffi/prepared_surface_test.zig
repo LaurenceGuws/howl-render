@@ -19,7 +19,7 @@ test "render ffi prepared render-surface retrieval status values are stable" {
 }
 
 test "render ffi prepared render-surface maps every owner emission failure" {
-    const Case = struct { failure: support.prepared_owner.RenderSurfaceEmissionFailure, status: c.HowlRenderPreparedSurfaceRenderSurfaceStatus };
+    const Case = struct { failure: support.render_surface_emitter_model_ns.RenderSurfaceEmissionFailure, status: c.HowlRenderPreparedSurfaceRenderSurfaceStatus };
     const cases = [_]Case{
         .{ .failure = .none, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK },
         .{ .failure = .allocation_failed, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_ALLOCATION_FAILED },
@@ -34,10 +34,10 @@ test "render ffi prepared render-surface maps every owner emission failure" {
         .{ .failure = .missing_prepared_sprite, .status = c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_PREPARED_SPRITE },
     };
     for (cases) |case| {
-        var owner = support.preparedOwnerWithFailure(case.failure);
+        var prepared = support.preparedHandleWithFailure(case.failure);
         var surface_storage = std.mem.zeroes(c.HowlRenderSurface);
         var surface: ?*const c.HowlRenderSurface = &surface_storage;
-        try std.testing.expectEqual(case.status, support.prepared.renderSurface(@ptrCast(&owner), &surface));
+        try std.testing.expectEqual(case.status, support.prepared.renderSurface(@ptrCast(&prepared), &surface));
         try std.testing.expect(surface == null);
     }
 }
@@ -77,9 +77,10 @@ test "render surface prepared ffi borrowed surface realizes explicit rgba oracle
     var prepared_surface_value = support.preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1 });
     const oracle = try support.prepared_buffer.compose(allocator, null, &session_owner.session, &prepared_surface_value);
     defer allocator.free(oracle);
-    const owner = try support.prepared_owner.Owner.create(session_owner, &prepared_surface_value);
+    const prepared = try support.prepared_handle_model_ns.PreparedHandle.create(session_owner, &prepared_surface_value);
+    defer prepared.destroy();
     var surface: ?*const c.HowlRenderSurface = null;
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK, support.prepared.renderSurface(@ptrCast(owner), &surface));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK, support.prepared.renderSurface(@ptrCast(prepared), &surface));
     const value = surface orelse return error.MissingSurface;
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
@@ -96,8 +97,9 @@ test "render ffi prepared render-surface retrieval reports emission failure" {
     defer allocator.free(background_draws);
     for (background_draws) |*draw| draw.* = support.backgroundDraw(0, 0, 1, 1, support.rgba(1, 2, 3, 255));
     var prepared_surface_value = support.preparedSurface(.{ .background_draws = background_draws, .width_px = 1, .height_px = 1 });
-    const owner = try support.prepared_owner.Owner.create(session_owner, &prepared_surface_value);
+    const prepared = try support.prepared_handle_model_ns.PreparedHandle.create(session_owner, &prepared_surface_value);
+    defer prepared.destroy();
     var surface: ?*const c.HowlRenderSurface = undefined;
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_COMMAND_BOUND_OVERFLOW, support.prepared.renderSurface(@ptrCast(owner), &surface));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_COMMAND_BOUND_OVERFLOW, support.prepared.renderSurface(@ptrCast(prepared), &surface));
     try std.testing.expect(surface == null);
 }
