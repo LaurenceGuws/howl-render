@@ -32,29 +32,71 @@ const DebugEmitPreparedTiming = struct {
     count: u64 = 0,
     copy_in_ns_total: u64 = 0,
     fills_ns_total: u64 = 0,
+    full_redraw_clear_ns_total: u64 = 0,
+    clear_pass_ns_total: u64 = 0,
+    background_pass_ns_total: u64 = 0,
+    decoration_pass_ns_total: u64 = 0,
+    cursor_pass_ns_total: u64 = 0,
     sprites_ns_total: u64 = 0,
     publish_ns_total: u64 = 0,
+    publish_glyph_fixup_ns_total: u64 = 0,
+    publish_upload_fixup_ns_total: u64 = 0,
+    publish_surface_spans_ns_total: u64 = 0,
     copy_out_ns_total: u64 = 0,
     stage_upload_ns_total: u64 = 0,
     atlas_resource_ns_total: u64 = 0,
     direct_resource_ns_total: u64 = 0,
+    sprite_lookup_ns_total: u64 = 0,
+    alpha_glyph_append_ns_total: u64 = 0,
+    direct_command_append_ns_total: u64 = 0,
+    transient_retire_ns_total: u64 = 0,
     sprite_count_total: u64 = 0,
     alpha_sprite_count_total: u64 = 0,
     copy_in_ns_max: u64 = 0,
     fills_ns_max: u64 = 0,
+    full_redraw_clear_ns_max: u64 = 0,
+    clear_pass_ns_max: u64 = 0,
+    background_pass_ns_max: u64 = 0,
+    decoration_pass_ns_max: u64 = 0,
+    cursor_pass_ns_max: u64 = 0,
     sprites_ns_max: u64 = 0,
     publish_ns_max: u64 = 0,
+    publish_glyph_fixup_ns_max: u64 = 0,
+    publish_upload_fixup_ns_max: u64 = 0,
+    publish_surface_spans_ns_max: u64 = 0,
     copy_out_ns_max: u64 = 0,
     stage_upload_ns_max: u64 = 0,
     atlas_resource_ns_max: u64 = 0,
     direct_resource_ns_max: u64 = 0,
+    sprite_lookup_ns_max: u64 = 0,
+    alpha_glyph_append_ns_max: u64 = 0,
+    direct_command_append_ns_max: u64 = 0,
+    transient_retire_ns_max: u64 = 0,
 
     const SpriteTotals = struct {
         stage_upload_ns: u64 = 0,
         atlas_resource_ns: u64 = 0,
         direct_resource_ns: u64 = 0,
+        lookup_ns: u64 = 0,
+        alpha_glyph_append_ns: u64 = 0,
+        direct_command_append_ns: u64 = 0,
+        transient_retire_ns: u64 = 0,
         sprite_count: u32 = 0,
         alpha_sprite_count: u32 = 0,
+    };
+
+    const FillTotals = struct {
+        full_redraw_clear_ns: u64 = 0,
+        clear_pass_ns: u64 = 0,
+        background_pass_ns: u64 = 0,
+        decoration_pass_ns: u64 = 0,
+        cursor_pass_ns: u64 = 0,
+    };
+
+    const PublishTotals = struct {
+        glyph_fixup_ns: u64 = 0,
+        upload_fixup_ns: u64 = 0,
+        surface_spans_ns: u64 = 0,
     };
 
     fn active(self: *DebugEmitPreparedTiming) bool {
@@ -65,40 +107,76 @@ const DebugEmitPreparedTiming = struct {
         return self.enabled;
     }
 
-    fn record(self: *DebugEmitPreparedTiming, copy_in_ns: u64, fills_ns: u64, sprites_ns: u64, publish_ns: u64, copy_out_ns: u64, sprite_totals: SpriteTotals) void {
+    fn record(self: *DebugEmitPreparedTiming, copy_in_ns: u64, fills_ns: u64, sprites_ns: u64, publish_ns: u64, copy_out_ns: u64, fill_totals: FillTotals, sprite_totals: SpriteTotals, publish_totals: PublishTotals) void {
         if (!self.active()) return;
         self.count += 1;
         self.copy_in_ns_total += copy_in_ns;
         self.fills_ns_total += fills_ns;
+        self.full_redraw_clear_ns_total += fill_totals.full_redraw_clear_ns;
+        self.clear_pass_ns_total += fill_totals.clear_pass_ns;
+        self.background_pass_ns_total += fill_totals.background_pass_ns;
+        self.decoration_pass_ns_total += fill_totals.decoration_pass_ns;
+        self.cursor_pass_ns_total += fill_totals.cursor_pass_ns;
         self.sprites_ns_total += sprites_ns;
         self.publish_ns_total += publish_ns;
+        self.publish_glyph_fixup_ns_total += publish_totals.glyph_fixup_ns;
+        self.publish_upload_fixup_ns_total += publish_totals.upload_fixup_ns;
+        self.publish_surface_spans_ns_total += publish_totals.surface_spans_ns;
         self.copy_out_ns_total += copy_out_ns;
         self.stage_upload_ns_total += sprite_totals.stage_upload_ns;
         self.atlas_resource_ns_total += sprite_totals.atlas_resource_ns;
         self.direct_resource_ns_total += sprite_totals.direct_resource_ns;
+        self.sprite_lookup_ns_total += sprite_totals.lookup_ns;
+        self.alpha_glyph_append_ns_total += sprite_totals.alpha_glyph_append_ns;
+        self.direct_command_append_ns_total += sprite_totals.direct_command_append_ns;
+        self.transient_retire_ns_total += sprite_totals.transient_retire_ns;
         self.sprite_count_total += sprite_totals.sprite_count;
         self.alpha_sprite_count_total += sprite_totals.alpha_sprite_count;
         self.copy_in_ns_max = @max(self.copy_in_ns_max, copy_in_ns);
         self.fills_ns_max = @max(self.fills_ns_max, fills_ns);
+        self.full_redraw_clear_ns_max = @max(self.full_redraw_clear_ns_max, fill_totals.full_redraw_clear_ns);
+        self.clear_pass_ns_max = @max(self.clear_pass_ns_max, fill_totals.clear_pass_ns);
+        self.background_pass_ns_max = @max(self.background_pass_ns_max, fill_totals.background_pass_ns);
+        self.decoration_pass_ns_max = @max(self.decoration_pass_ns_max, fill_totals.decoration_pass_ns);
+        self.cursor_pass_ns_max = @max(self.cursor_pass_ns_max, fill_totals.cursor_pass_ns);
         self.sprites_ns_max = @max(self.sprites_ns_max, sprites_ns);
         self.publish_ns_max = @max(self.publish_ns_max, publish_ns);
+        self.publish_glyph_fixup_ns_max = @max(self.publish_glyph_fixup_ns_max, publish_totals.glyph_fixup_ns);
+        self.publish_upload_fixup_ns_max = @max(self.publish_upload_fixup_ns_max, publish_totals.upload_fixup_ns);
+        self.publish_surface_spans_ns_max = @max(self.publish_surface_spans_ns_max, publish_totals.surface_spans_ns);
         self.copy_out_ns_max = @max(self.copy_out_ns_max, copy_out_ns);
         self.stage_upload_ns_max = @max(self.stage_upload_ns_max, sprite_totals.stage_upload_ns);
         self.atlas_resource_ns_max = @max(self.atlas_resource_ns_max, sprite_totals.atlas_resource_ns);
         self.direct_resource_ns_max = @max(self.direct_resource_ns_max, sprite_totals.direct_resource_ns);
+        self.sprite_lookup_ns_max = @max(self.sprite_lookup_ns_max, sprite_totals.lookup_ns);
+        self.alpha_glyph_append_ns_max = @max(self.alpha_glyph_append_ns_max, sprite_totals.alpha_glyph_append_ns);
+        self.direct_command_append_ns_max = @max(self.direct_command_append_ns_max, sprite_totals.direct_command_append_ns);
+        self.transient_retire_ns_max = @max(self.transient_retire_ns_max, sprite_totals.transient_retire_ns);
         if (self.count % 128 != 0) return;
         std.debug.print(
-            "howl-render-debug emit_prepared count={} copy_in_avg_us={} fills_avg_us={} sprites_avg_us={} publish_avg_us={} copy_out_avg_us={} stage_upload_avg_us={} atlas_resource_avg_us={} direct_resource_avg_us={} sprites_avg={} alpha_sprites_avg={}\n",
+            "howl-render-debug emit_prepared count={} copy_in_avg_us={} fills_avg_us={} full_redraw_clear_avg_us={} clear_pass_avg_us={} background_pass_avg_us={} decoration_pass_avg_us={} cursor_pass_avg_us={} sprites_avg_us={} sprite_lookup_avg_us={} stage_upload_avg_us={} atlas_resource_avg_us={} direct_resource_avg_us={} alpha_glyph_append_avg_us={} direct_command_append_avg_us={} transient_retire_avg_us={} publish_avg_us={} publish_glyph_fixup_avg_us={} publish_upload_fixup_avg_us={} publish_surface_spans_avg_us={} copy_out_avg_us={} sprites_avg={} alpha_sprites_avg={}\n",
             .{
                 self.count,
                 self.copy_in_ns_total / self.count / std.time.ns_per_us,
                 self.fills_ns_total / self.count / std.time.ns_per_us,
+                self.full_redraw_clear_ns_total / self.count / std.time.ns_per_us,
+                self.clear_pass_ns_total / self.count / std.time.ns_per_us,
+                self.background_pass_ns_total / self.count / std.time.ns_per_us,
+                self.decoration_pass_ns_total / self.count / std.time.ns_per_us,
+                self.cursor_pass_ns_total / self.count / std.time.ns_per_us,
                 self.sprites_ns_total / self.count / std.time.ns_per_us,
-                self.publish_ns_total / self.count / std.time.ns_per_us,
-                self.copy_out_ns_total / self.count / std.time.ns_per_us,
+                self.sprite_lookup_ns_total / self.count / std.time.ns_per_us,
                 self.stage_upload_ns_total / self.count / std.time.ns_per_us,
                 self.atlas_resource_ns_total / self.count / std.time.ns_per_us,
                 self.direct_resource_ns_total / self.count / std.time.ns_per_us,
+                self.alpha_glyph_append_ns_total / self.count / std.time.ns_per_us,
+                self.direct_command_append_ns_total / self.count / std.time.ns_per_us,
+                self.transient_retire_ns_total / self.count / std.time.ns_per_us,
+                self.publish_ns_total / self.count / std.time.ns_per_us,
+                self.publish_glyph_fixup_ns_total / self.count / std.time.ns_per_us,
+                self.publish_upload_fixup_ns_total / self.count / std.time.ns_per_us,
+                self.publish_surface_spans_ns_total / self.count / std.time.ns_per_us,
+                self.copy_out_ns_total / self.count / std.time.ns_per_us,
                 self.sprite_count_total / self.count,
                 self.alpha_sprite_count_total / self.count,
             },
@@ -213,25 +291,37 @@ pub fn Emitter(comptime limits: Limits) type {
             var next_resources = resources.*;
             const copy_in_ns = monotonicNs() -| copy_in_start_ns;
             next.resetPrepared(prepared);
-            const fills_start_ns = monotonicNs();
+            var fill_totals: DebugEmitPreparedTiming.FillTotals = .{};
+            var fill_step_start_ns = monotonicNs();
             try next.appendFullDamage(pixelSizeOut(prepared.render_px));
+            fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
+            fill_step_start_ns = monotonicNs();
             try next.appendPreparedFullRedrawClear(prepared);
+            fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
+            fill_step_start_ns = monotonicNs();
             try next.appendPreparedClears(prepared.text_frame.scene.scene.clear_draws);
+            fill_totals.clear_pass_ns = monotonicNs() -| fill_step_start_ns;
+            fill_step_start_ns = monotonicNs();
             try next.appendPreparedBackgrounds(prepared.text_frame.scene.scene.background_draws);
+            fill_totals.background_pass_ns = monotonicNs() -| fill_step_start_ns;
+            fill_step_start_ns = monotonicNs();
             try next.appendPreparedDecorations(prepared.text_frame.scene.scene.decoration_draws);
-            const fills_ns = monotonicNs() -| fills_start_ns;
+            fill_totals.decoration_pass_ns = monotonicNs() -| fill_step_start_ns;
             var sprite_totals: DebugEmitPreparedTiming.SpriteTotals = .{};
             const sprites_start_ns = monotonicNs();
             try next.appendPreparedSprites(&next_resources, session, prepared, &sprite_totals);
             const sprites_ns = monotonicNs() -| sprites_start_ns;
+            fill_step_start_ns = monotonicNs();
             try next.appendPreparedCursors(prepared.text_frame.scene.scene.cursor_draws);
+            fill_totals.cursor_pass_ns = monotonicNs() -| fill_step_start_ns;
+            const fills_ns = fill_totals.full_redraw_clear_ns + fill_totals.clear_pass_ns + fill_totals.background_pass_ns + fill_totals.decoration_pass_ns + fill_totals.cursor_pass_ns;
             const copy_out_start_ns = monotonicNs();
             self.* = next;
             resources.* = next_resources;
             const copy_out_ns = monotonicNs() -| copy_out_start_ns;
             const publish_start_ns = monotonicNs();
-            self.publishSurface();
-            debug_emit_prepared_timing.record(copy_in_ns, fills_ns, sprites_ns, monotonicNs() -| publish_start_ns, copy_out_ns, sprite_totals);
+            const publish_totals = self.publishSurface();
+            debug_emit_prepared_timing.record(copy_in_ns, fills_ns, sprites_ns, monotonicNs() -| publish_start_ns, copy_out_ns, fill_totals, sprite_totals, publish_totals);
             return &self.surface_storage;
         }
 
@@ -239,23 +329,35 @@ pub fn Emitter(comptime limits: Limits) type {
             var next_resources = resources.*;
             const copy_in_ns: u64 = 0;
             self.resetPrepared(prepared);
-            const fills_start_ns = monotonicNs();
+            var fill_totals: DebugEmitPreparedTiming.FillTotals = .{};
+            var fill_step_start_ns = monotonicNs();
             try self.appendFullDamage(pixelSizeOut(prepared.render_px));
+            fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
+            fill_step_start_ns = monotonicNs();
             try self.appendPreparedFullRedrawClear(prepared);
+            fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
+            fill_step_start_ns = monotonicNs();
             try self.appendPreparedClears(prepared.text_frame.scene.scene.clear_draws);
+            fill_totals.clear_pass_ns = monotonicNs() -| fill_step_start_ns;
+            fill_step_start_ns = monotonicNs();
             try self.appendPreparedBackgrounds(prepared.text_frame.scene.scene.background_draws);
+            fill_totals.background_pass_ns = monotonicNs() -| fill_step_start_ns;
+            fill_step_start_ns = monotonicNs();
             try self.appendPreparedDecorations(prepared.text_frame.scene.scene.decoration_draws);
-            const fills_ns = monotonicNs() -| fills_start_ns;
+            fill_totals.decoration_pass_ns = monotonicNs() -| fill_step_start_ns;
             var sprite_totals: DebugEmitPreparedTiming.SpriteTotals = .{};
             const sprites_start_ns = monotonicNs();
             try self.appendPreparedSprites(&next_resources, session, prepared, &sprite_totals);
             const sprites_ns = monotonicNs() -| sprites_start_ns;
+            fill_step_start_ns = monotonicNs();
             try self.appendPreparedCursors(prepared.text_frame.scene.scene.cursor_draws);
+            fill_totals.cursor_pass_ns = monotonicNs() -| fill_step_start_ns;
             resources.* = next_resources;
+            const fills_ns = fill_totals.full_redraw_clear_ns + fill_totals.clear_pass_ns + fill_totals.background_pass_ns + fill_totals.decoration_pass_ns + fill_totals.cursor_pass_ns;
             const copy_out_ns: u64 = 0;
             const publish_start_ns = monotonicNs();
-            self.publishSurface();
-            debug_emit_prepared_timing.record(copy_in_ns, fills_ns, sprites_ns, monotonicNs() -| publish_start_ns, copy_out_ns, sprite_totals);
+            const publish_totals = self.publishSurface();
+            debug_emit_prepared_timing.record(copy_in_ns, fills_ns, sprites_ns, monotonicNs() -| publish_start_ns, copy_out_ns, fill_totals, sprite_totals, publish_totals);
             return &self.surface_storage;
         }
 
@@ -406,6 +508,7 @@ pub fn Emitter(comptime limits: Limits) type {
         fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_totals: *DebugEmitPreparedTiming.SpriteTotals) Error!void {
             for (prepared.text_frame.scene.scene.sprite_draws) |draw| {
                 sprite_totals.sprite_count += 1;
+                const lookup_start_ns = monotonicNs();
                 const sprite = lookupPreparedSprite(
                     session,
                     prepared,
@@ -415,6 +518,7 @@ pub fn Emitter(comptime limits: Limits) type {
                         error.MissingSprite => error.MissingPreparedSprite,
                     };
                 };
+                sprite_totals.lookup_ns += monotonicNs() -| lookup_start_ns;
                 const bounds = visualBoundsForDraw(sprite.visual_bounds, draw);
                 const width_px = @min(draw.width_px, bounds.width_px);
                 const height_px = @min(draw.height_px, bounds.height_px);
@@ -452,6 +556,7 @@ pub fn Emitter(comptime limits: Limits) type {
                         atlas.rect,
                         upload_range,
                     ) else self.upload_bytes_count = upload_range.start;
+                    const alpha_append_start_ns = monotonicNs();
                     try self.appendGlyphRef(.{
                         .atlas_resource = atlas.resource,
                         .atlas_rect = atlas.rect,
@@ -460,6 +565,7 @@ pub fn Emitter(comptime limits: Limits) type {
                         .glyph_id = @intCast(draw.sprite.key.value & 0xffffffff),
                         .color_rgba = packRgba(draw.color),
                     });
+                    sprite_totals.alpha_glyph_append_ns += monotonicNs() -| alpha_append_start_ns;
                     continue;
                 }
                 const resource_start_ns = monotonicNs();
@@ -485,6 +591,7 @@ pub fn Emitter(comptime limits: Limits) type {
                         self.upload_bytes_count = upload_range.start;
                     },
                 }
+                const direct_command_start_ns = monotonicNs();
                 try self.appendCommand(.{
                     .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE,
                     .reserved0 = 0,
@@ -499,8 +606,11 @@ pub fn Emitter(comptime limits: Limits) type {
                     .resource = result.resource,
                     .glyphs = emptyGlyphs(),
                 });
+                sprite_totals.direct_command_append_ns += monotonicNs() -| direct_command_start_ns;
                 if (result.lifetime == .transient) {
+                    const retire_start_ns = monotonicNs();
                     try self.appendRetire(result.resource, self.command_count);
+                    sprite_totals.transient_retire_ns += monotonicNs() -| retire_start_ns;
                 }
             }
         }
@@ -647,7 +757,9 @@ pub fn Emitter(comptime limits: Limits) type {
             self.retire_count += 1;
         }
 
-        fn publishSurface(self: *Self) void {
+        fn publishSurface(self: *Self) DebugEmitPreparedTiming.PublishTotals {
+            var totals: DebugEmitPreparedTiming.PublishTotals = .{};
+            var publish_step_start_ns = monotonicNs();
             var glyph_offset: u32 = 0;
             var command_index: u32 = 0;
             while (command_index < self.command_count) : (command_index += 1) {
@@ -661,13 +773,16 @@ pub fn Emitter(comptime limits: Limits) type {
                 std.debug.assert(glyph_offset <= self.glyph_count);
             }
             std.debug.assert(glyph_offset == self.glyph_count);
-
+            totals.glyph_fixup_ns = monotonicNs() -| publish_step_start_ns;
+            publish_step_start_ns = monotonicNs();
             var upload_index: u32 = 0;
             while (upload_index < self.upload_count) : (upload_index += 1) {
                 const byte_offset = self.upload_byte_offsets[upload_index];
                 std.debug.assert(byte_offset < self.upload_bytes_count);
                 self.uploads[upload_index].bytes_ptr = &self.upload_bytes[byte_offset];
             }
+            totals.upload_fixup_ns = monotonicNs() -| publish_step_start_ns;
+            publish_step_start_ns = monotonicNs();
             self.surface_storage.damage = .{
                 .ptr = if (self.damage_count == 0) null else &self.damage[0],
                 .count = self.damage_count,
@@ -695,6 +810,8 @@ pub fn Emitter(comptime limits: Limits) type {
                 .count = self.retire_count,
                 .count_max = c.HOWL_RENDER_SURFACE_RETIRES_MAX,
             };
+            totals.surface_spans_ns = monotonicNs() -| publish_step_start_ns;
+            return totals;
         }
     };
 }
@@ -842,6 +959,6 @@ pub const testing = struct {
     }
 
     pub fn publishSurface(comptime limits: Limits, emitter: *Emitter(limits)) void {
-        return emitter.publishSurface();
+        _ = emitter.publishSurface();
     }
 };
