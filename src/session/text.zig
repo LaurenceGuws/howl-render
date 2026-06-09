@@ -3,7 +3,7 @@ const geometry_mod = @import("../render/grid_geometry.zig");
 const input = @import("../source/text_input.zig");
 const publication_cell_map = @import("../source/publication_cell_map.zig");
 const tokens = @import("../render/tokens.zig");
-const prepared_owner = @import("../prepared/owner.zig");
+const prepared_handle = @import("../prepared/handle.zig");
 const prepared_submit = @import("../prepared/submit.zig");
 const render_geometry = @import("../render/geometry.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
@@ -305,6 +305,7 @@ pub const TextSession = struct {
             .grid = .{ .cols = grid.cols, .rows = grid.rows },
             .text_frame = prepared,
             .resolve = resolve,
+            .render_surface_emission_failure = .none,
         };
     }
 
@@ -439,7 +440,7 @@ pub const TextSessionOwner = struct {
     config: TextSessionConfig,
     prepared_publish_handle: PreparedSurfaceHandle = null,
     prepared_submit_handle: PreparedSurfaceHandle = null,
-    prepared_handles: std.ArrayList(*prepared_owner.Owner) = .empty,
+    prepared_handles: std.ArrayList(*prepared_handle.PreparedHandle) = .empty,
     font_paths: text_paths.FontPaths,
     render_surface_sprite_resources: sprite_resource_store.SpriteResourceStore = .init(),
 
@@ -496,7 +497,7 @@ pub const TextSessionOwner = struct {
         return self.session.isValidFont(self.config);
     }
 
-    pub fn prepareHandle(self: *TextSessionOwner, token: tokens.SnapshotToken) !*prepared_owner.Owner {
+    pub fn prepareHandle(self: *TextSessionOwner, token: tokens.SnapshotToken) !*prepared_handle.PreparedHandle {
         const consume = try self.prepare_requests.consumePrepare(
             self.geometry.prepareLayout(token.geometry_epoch),
             token,
@@ -515,18 +516,16 @@ pub const TextSessionOwner = struct {
         const prepare_timings = prepared.text_frame.timings;
         errdefer prepared.deinit();
         const owner_create_start_ns = monotonicNs();
-        const owner = prepared_owner.Owner.create(self, &prepared) catch |err| {
-            return err;
-        };
+        const owner = prepared_handle.PreparedHandle.create(self, &prepared) catch |err| return err;
         debug_prepare_timing.record(prepare_timings, prepare_surface_ns, monotonicNs() -| owner_create_start_ns);
         return owner;
     }
 
-    pub fn registerPreparedHandle(self: *TextSessionOwner, prepared: *prepared_owner.Owner) !void {
+    pub fn registerPreparedHandle(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle) !void {
         try self.prepared_handles.append(self.allocator, prepared);
     }
 
-    pub fn clearCachedPreparedHandle(self: *TextSessionOwner, prepared: *prepared_owner.Owner) void {
+    pub fn clearCachedPreparedHandle(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle) void {
         const handle: PreparedSurfaceHandle = @ptrCast(prepared);
         if (self.prepared_publish_handle == handle) self.prepared_publish_handle = null;
         if (self.prepared_submit_handle == handle) self.prepared_submit_handle = null;

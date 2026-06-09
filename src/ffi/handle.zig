@@ -1,5 +1,5 @@
 const c = @import("../ffi.zig").c;
-const prepared_owner = @import("../prepared/owner.zig");
+const prepared_handle = @import("../prepared/handle.zig");
 const text_session = @import("../session/text.zig");
 
 pub fn textSessionOwner(handle: c.HowlRenderTextSessionHandle) ?*text_session.TextSessionOwner {
@@ -7,10 +7,10 @@ pub fn textSessionOwner(handle: c.HowlRenderTextSessionHandle) ?*text_session.Te
     return @ptrCast(@alignCast(owned));
 }
 
-pub fn opaquePreparedHandle(value: c.HowlRenderPreparedSurfaceHandle) prepared_owner.PreparedSurfaceHandle {
+pub fn opaquePreparedHandle(value: c.HowlRenderPreparedSurfaceHandle) prepared_handle.PreparedSurfaceHandle {
     return if (value) |handle| @ptrCast(handle) else null;
 }
 
-pub fn abiPreparedHandle(value: prepared_owner.PreparedSurfaceHandle) c.HowlRenderPreparedSurfaceHandle {
+pub fn abiPreparedHandle(value: prepared_handle.PreparedSurfaceHandle) c.HowlRenderPreparedSurfaceHandle {
     return if (value) |handle| @ptrCast(handle) else null;
 }

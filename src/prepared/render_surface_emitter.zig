@@ -126,6 +126,34 @@ pub const Error = error{
     MissingPreparedSprite,
 };
 
+pub const RenderSurfaceEmissionFailure = enum {
+    none,
+    allocation_failed,
+    command_bound_overflow,
+    create_bound_overflow,
+    damage_bound_overflow,
+    retire_bound_overflow,
+    resource_bound_overflow,
+    upload_bound_overflow,
+    upload_bytes_overflow,
+    invalid_prepared_sprite,
+    missing_prepared_sprite,
+};
+
+pub fn emissionFailureFromError(err: Error) RenderSurfaceEmissionFailure {
+    return switch (err) {
+        error.CommandBoundOverflow => .command_bound_overflow,
+        error.CreateBoundOverflow => .create_bound_overflow,
+        error.DamageBoundOverflow => .damage_bound_overflow,
+        error.RetireBoundOverflow => .retire_bound_overflow,
+        error.ResourceBoundOverflow => .resource_bound_overflow,
+        error.UploadBoundOverflow => .upload_bound_overflow,
+        error.UploadBytesOverflow => .upload_bytes_overflow,
+        error.InvalidPreparedSprite => .invalid_prepared_sprite,
+        error.MissingPreparedSprite => .missing_prepared_sprite,
+    };
+}
+
 pub const Limits = struct {
     damage_max: u32 = c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX,
     creates_max: u32 = c.HOWL_RENDER_SURFACE_CREATES_MAX,

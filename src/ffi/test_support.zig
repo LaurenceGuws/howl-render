@@ -63,18 +63,20 @@ pub fn validPartialPreparedSurfaceToken() c.HowlRenderPreparedSurfaceToken {
 pub fn preparedOwnerWithFailure(failure: prepared_owner_model.RenderSurfaceEmissionFailure) prepared_owner_model.Owner {
     return .{
         .session_owner = undefined,
-        .prepared = undefined,
+        .prepared = .{
+            .allocator = std.testing.allocator,
+            .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+            .geometry_epoch = 1,
+            .render_px = .{ .width = 1, .height = 1 },
+            .cell_px = .{ .width = 1, .height = 1 },
+            .grid = .{ .cols = 1, .rows = 1 },
+            .text_frame = .{
+                .scene = .{ .allocator = std.testing.allocator, .owned = false, .scene = .{ .clear_draws = &.{}, .background_draws = &.{}, .sprite_draws = &.{}, .decoration_draws = &.{}, .cursor_draws = &.{}, .raster_requests = &.{}, .missing = &.{}, .full_redraw = true } },
+                .raster_plan = .{ .allocator = std.testing.allocator, .outputs = &.{}, .owned = false },
+            },
+            .render_surface_emission_failure = failure,
+        },
         .state = .prepared,
-        .snapshot_seq = 1,
-        .dirty_epoch = 1,
-        .geometry_epoch = 1,
-        .required_base_seq = 0,
-        .render_px = .{ .width = 1, .height = 1 },
-        .cell_px = .{ .width = 1, .height = 1 },
-        .grid = .{ .cols = 1, .rows = 1 },
-        .damage_kind = damageFull(),
-        .uploads_required = 0,
-        .render_surface_emission_failure = failure,
     };
 }
 
@@ -220,6 +222,7 @@ pub fn preparedSurface(options: PreparedOptions) prepared_surface_model.Prepared
             .scene = .{ .allocator = std.testing.allocator, .owned = false, .scene = .{ .clear_draws = options.clear_draws, .background_draws = options.background_draws, .sprite_draws = options.sprite_draws, .decoration_draws = options.decoration_draws, .cursor_draws = options.cursor_draws, .raster_requests = &.{}, .missing = &.{}, .full_redraw = options.full_redraw } },
             .raster_plan = .{ .allocator = std.testing.allocator, .outputs = options.raster_outputs, .owned = false },
         },
+        .render_surface_emission_failure = .none,
     };
 }
 

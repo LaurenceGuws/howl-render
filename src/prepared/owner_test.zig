@@ -64,16 +64,6 @@ test "owner exports prepared info and required upload count truth" {
     var owner = Owner{
         .session_owner = undefined,
         .prepared = undefined,
-        .snapshot_seq = 7,
-        .dirty_epoch = 8,
-        .geometry_epoch = 9,
-        .required_base_seq = 6,
-        .render_px = .{ .width = 11, .height = 12 },
-        .cell_px = .{ .width = 2, .height = 3 },
-        .grid = .{ .cols = 4, .rows = 5 },
-        .damage_kind = 1,
-        .uploads_required = 3,
-        .render_surface_emission_failure = .upload_bytes_overflow,
     };
 
     owner.prepared = .{
@@ -100,10 +90,8 @@ test "owner exports prepared info and required upload count truth" {
             },
             .raster_plan = .{ .allocator = std.testing.allocator, .outputs = raster_outputs[0..], .owned = false },
         },
+        .render_surface_emission_failure = .upload_bytes_overflow,
     };
-
-    owner.required_base_seq = owner.prepared.preparedSurfaceToken().required_base_seq;
-    owner.damage_kind = @intFromEnum(owner.prepared.damageKind());
 
     const info = owner.info();
     try std.testing.expectEqual(@as(u64, 7), info.snapshot_seq);
@@ -295,6 +283,7 @@ fn ownedCommandOverflowPreparedSurface(allocator: std.mem.Allocator) !prepared_s
             },
             .raster_plan = .{ .allocator = allocator, .outputs = &.{}, .owned = false },
         },
+        .render_surface_emission_failure = .none,
     };
 }
 
@@ -335,6 +324,7 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
             },
             .raster_plan = .{ .allocator = std.testing.allocator, .outputs = options.raster_outputs, .owned = false },
         },
+        .render_surface_emission_failure = .none,
     };
 }
 
