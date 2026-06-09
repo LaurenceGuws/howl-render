@@ -1,7 +1,6 @@
 const std = @import("std");
 const tokens = @import("../render/tokens.zig");
 const geometry_contract = @import("../render/geometry_contract.zig");
-const prepared_submit_result = @import("submit_result.zig");
 const prepared_surface = @import("surface.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
 const text_session = @import("../session/text.zig");
@@ -69,12 +68,6 @@ pub const PreparedHandle = struct {
     render_surface_payload: ?*RenderSurfacePayload = null,
     state: State = .prepared,
 
-    pub const SubmitResult = union(enum) {
-        rendered: prepared_submit_result.SubmitResult,
-        needs_prepare,
-        failed,
-    };
-
     pub fn create(session_owner: *text_session.TextSessionOwner, value: *prepared_surface.PreparedSurface) !*PreparedHandle {
         const alloc_start_ns = monotonicNs();
         var prepared_handle = try session_owner.allocator.create(PreparedHandle);
@@ -128,18 +121,6 @@ pub const PreparedHandle = struct {
         };
     }
 
-    pub fn markPublished(self: *PreparedHandle) bool {
-        if (self.state != .prepared) return false;
-        self.state = .published;
-        return true;
-    }
-
-    pub fn markSubmitReady(self: *PreparedHandle) bool {
-        if (self.state != .published) return false;
-        self.state = .submit_ready;
-        return true;
-    }
-
     pub fn info(self: *const PreparedHandle) prepared_surface.PreparedInfo {
         return self.prepared.info();
     }
@@ -168,35 +149,7 @@ pub const PreparedHandle = struct {
         return self.session_owner == session_owner;
     }
 
-    pub fn submitOwned(self: *PreparedHandle, session_owner: *text_session.TextSessionOwner, execution: text_session.TextSession.SubmitExecution) SubmitResult {
-        if (self.state != .submit_ready) return .failed;
-        return self.performSubmit(session_owner, execution);
-    }
-
-    fn performSubmit(self: *PreparedHandle, session_owner: *text_session.TextSessionOwner, execution: text_session.TextSession.SubmitExecution) SubmitResult {
-        if (!self.belongsToSession(session_owner)) return .failed;
-        _ = self.prepared.buffer();
-        if (!executionMatchesPrepared(self.prepared.render_px, execution)) return .failed;
-        const result = session_owner.session.submitSurface(&self.prepared, execution) catch {
-            return .failed;
-        };
-        self.consume();
-        return .{ .rendered = result };
-    }
-
-    pub fn submit(
-        self: *PreparedHandle,
-        session_owner: *text_session.TextSessionOwner,
-        prepared_token: tokens.PreparedSurfaceToken,
-        execution: text_session.TextSession.SubmitExecution,
-    ) SubmitResult {
-        if (self.state != .prepared) return .failed;
-        if (!self.belongsToSession(session_owner)) return .failed;
-        if (!samePreparedSurfaceToken(self.prepared.preparedSurfaceToken(), prepared_token)) return .needs_prepare;
-        return self.performSubmit(session_owner, execution);
-    }
-
-    fn consume(self: *PreparedHandle) void {
+    pub fn consume(self: *PreparedHandle) void {
         std.debug.assert(self.state == .prepared or self.state == .submit_ready);
         self.session_owner.clearCachedPreparedHandle(self);
         self.deinitPayload();
@@ -267,23 +220,8 @@ fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedS
     };
 }
 
-fn samePreparedSurfaceToken(a: tokens.PreparedSurfaceToken, b: tokens.PreparedSurfaceToken) bool {
-    return a.token.snapshot_seq == b.token.snapshot_seq and
-        a.token.dirty_epoch == b.token.dirty_epoch and
-        a.token.geometry_epoch == b.token.geometry_epoch and
-        a.token.damage_base_seq == b.token.damage_base_seq and
-        a.token.damage_kind == b.token.damage_kind and
-        a.required_base_seq == b.required_base_seq;
-}
-
-fn executionMatchesPrepared(render_px: geometry_contract.PixelSize, execution: text_session.TextSession.SubmitExecution) bool {
-    if (execution.host_surface.width != render_px.width) return false;
-    if (execution.host_surface.height != render_px.height) return false;
-    return true;
-}
-
 pub const testing = struct {
     pub fn executionMatchesPrepared(render_px: geometry_contract.PixelSize, execution: text_session.TextSession.SubmitExecution) bool {
-        return @import("handle.zig").executionMatchesPrepared(render_px, execution);
+        return execution.host_surface.width == render_px.width and execution.host_surface.height == render_px.height;
     }
 };

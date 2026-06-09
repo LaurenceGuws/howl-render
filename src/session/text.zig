@@ -444,6 +444,20 @@ pub const TextSessionOwner = struct {
     font_paths: text_paths.FontPaths,
     render_surface_sprite_resources: sprite_resource_store.SpriteResourceStore = .init(),
 
+    pub const SubmitPreparedResult = union(enum) {
+        rendered: prepared_submit_result.SubmitResult,
+        needs_prepare,
+        failed,
+    };
+
+    pub const SubmitHandleDecision = union(enum) {
+        idle,
+        stale,
+        needs_full_prepare,
+        submit: *prepared_handle.PreparedHandle,
+        failed,
+    };
+
     pub const FontConfigError = error{ InvalidArgument, OutOfMemory };
 
     pub fn create(allocator: std.mem.Allocator, config: TextSessionConfig) ?*TextSessionOwner {
@@ -635,6 +649,16 @@ pub const TextSessionOwner = struct {
         self.submitted.publishPrepared(prepared);
     }
 
+    pub fn publishPreparedHandle(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle) bool {
+        if (!prepared.belongsToSession(self)) return false;
+        if (prepared.state != .prepared) return false;
+        prepared.state = .published;
+        self.prepared_submit_handle = null;
+        self.prepared_publish_handle = @ptrCast(prepared);
+        self.publishPrepared(prepared.preparedSurfaceToken());
+        return true;
+    }
+
     pub fn submit(self: *TextSessionOwner) session_submitted.SubmitDecision {
         const decision = self.submitted.takeValidatedSubmitWithLatest(self.prepare_requests.latestToken());
         switch (decision) {
@@ -645,6 +669,63 @@ pub const TextSessionOwner = struct {
             else => {},
         }
         return decision;
+    }
+
+    pub fn takeSubmitHandle(self: *TextSessionOwner) SubmitHandleDecision {
+        return switch (self.submit()) {
+            .idle => .idle,
+            .stale => blk: {
+                self.prepared_publish_handle = null;
+                self.prepared_submit_handle = null;
+                break :blk .stale;
+            },
+            .needs_full_prepare => blk: {
+                self.prepared_publish_handle = null;
+                self.prepared_submit_handle = null;
+                break :blk .needs_full_prepare;
+            },
+            .submit => |prepared_token| blk: {
+                const opaque_handle = self.prepared_publish_handle orelse break :blk .failed;
+                const prepared = prepared_handle.PreparedHandle.fromHandle(opaque_handle) orelse break :blk .failed;
+                if (!prepared.isLive()) {
+                    self.prepared_publish_handle = null;
+                    self.prepared_submit_handle = null;
+                    break :blk .failed;
+                }
+                if (!samePreparedSurfaceToken(prepared.preparedSurfaceToken(), prepared_token)) break :blk .failed;
+                if (prepared.state != .published) break :blk .failed;
+                prepared.state = .submit_ready;
+                self.prepared_publish_handle = null;
+                self.prepared_submit_handle = opaque_handle;
+                break :blk .{ .submit = prepared };
+            },
+        };
+    }
+
+    pub fn submitPrepared(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle, prepared_token: tokens.PreparedSurfaceToken, execution: TextSession.SubmitExecution) SubmitPreparedResult {
+        if (prepared.state != .prepared) return .failed;
+        if (!prepared.belongsToSession(self)) return .failed;
+        if (!samePreparedSurfaceToken(prepared.preparedSurfaceToken(), prepared_token)) return .needs_prepare;
+        return self.executePreparedSubmit(prepared, execution);
+    }
+
+    pub fn submitPreparedHandle(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle, execution: TextSession.SubmitExecution) SubmitPreparedResult {
+        if (self.prepared_submit_handle != @as(PreparedSurfaceHandle, @ptrCast(prepared))) return .failed;
+        if (!prepared.isLive()) {
+            self.prepared_submit_handle = null;
+            return .failed;
+        }
+        if (prepared.state != .submit_ready) return .failed;
+        const submitted = prepared.preparedSurfaceToken().token;
+        return switch (self.executePreparedSubmit(prepared, execution)) {
+            .rendered => |result| blk: {
+                self.prepared_submit_handle = null;
+                self.acceptSubmitted(.{ .token = submitted });
+                break :blk .{ .rendered = result };
+            },
+            .needs_prepare => .needs_prepare,
+            .failed => .failed,
+        };
     }
 
     pub fn acceptSubmitted(self: *TextSessionOwner, submitted: tokens.SubmittedSurfaceToken) void {
@@ -672,7 +753,29 @@ pub const TextSessionOwner = struct {
             &self.session.text_state.fallback_font_paths_len,
         );
     }
+
+    fn executePreparedSubmit(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle, execution: TextSession.SubmitExecution) SubmitPreparedResult {
+        if (!prepared.belongsToSession(self)) return .failed;
+        _ = prepared.buffer();
+        if (!executionMatchesPrepared(prepared.prepared.render_px, execution)) return .failed;
+        const result = self.session.submitSurface(&prepared.prepared, execution) catch return .failed;
+        prepared.consume();
+        return .{ .rendered = result };
+    }
 };
+
+fn samePreparedSurfaceToken(a: tokens.PreparedSurfaceToken, b: tokens.PreparedSurfaceToken) bool {
+    return a.token.snapshot_seq == b.token.snapshot_seq and
+        a.token.dirty_epoch == b.token.dirty_epoch and
+        a.token.geometry_epoch == b.token.geometry_epoch and
+        a.token.damage_base_seq == b.token.damage_base_seq and
+        a.token.damage_kind == b.token.damage_kind and
+        a.required_base_seq == b.required_base_seq;
+}
+
+fn executionMatchesPrepared(render_px: geometry_contract.PixelSize, execution: TextSession.SubmitExecution) bool {
+    return execution.host_surface.width == render_px.width and execution.host_surface.height == render_px.height;
+}
 
 pub const testing = struct {
     pub fn ensureCellInputScratchCapacity(session: *TextSession, cell_count: usize) !void {
