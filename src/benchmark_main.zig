@@ -1,5 +1,8 @@
 const std = @import("std");
 const geometry_contract = @import("render/geometry_contract.zig");
+const source_cell = @import("source/cell.zig");
+const source_text_input = @import("source/text_input.zig");
+const source_vt = @import("source/vt.zig");
 const contract = @import("text/contract.zig");
 const frame_preparer = @import("text/frame_preparer.zig");
 const font_session = @import("text/font/session.zig");
@@ -11,6 +14,7 @@ const OutputFormat = enum { ndjson, text };
 const WorkloadInput = union(enum) {
     cells: []contract.CellInput,
     cell_texts: []const cluster.CellTextInput,
+    publication: source_vt.PublicationSource,
 };
 
 const Options = struct {
@@ -23,6 +27,13 @@ const RunObservation = struct {
     alloc_count: u64,
     alloc_bytes: u64,
     peak_live_bytes: u64,
+    direct_normal_us: u64,
+    direct_normal_scan_us: u64,
+    direct_normal_backgrounds_us: u64,
+    direct_normal_clears_us: u64,
+    direct_normal_decorations_us: u64,
+    direct_normal_cursor_us: u64,
+    direct_normal_raster_us: u64,
     resolve_us: u64,
     shape_us: u64,
     group_us: u64,
@@ -36,6 +47,13 @@ const WorkloadResult = struct {
     dirty_cells_per_run: u32,
     runs: RunCount,
     cold_ns: u64,
+    cold_direct_normal_us: u64,
+    cold_direct_normal_scan_us: u64,
+    cold_direct_normal_backgrounds_us: u64,
+    cold_direct_normal_clears_us: u64,
+    cold_direct_normal_decorations_us: u64,
+    cold_direct_normal_cursor_us: u64,
+    cold_direct_normal_raster_us: u64,
     cold_resolve_us: u64,
     cold_shape_us: u64,
     cold_group_us: u64,
@@ -48,6 +66,13 @@ const WorkloadResult = struct {
     cold_uploads: u64,
     warm_median_ns: u64,
     warm_p95_ns: u64,
+    warm_median_direct_normal_us: u64,
+    warm_median_direct_normal_scan_us: u64,
+    warm_median_direct_normal_backgrounds_us: u64,
+    warm_median_direct_normal_clears_us: u64,
+    warm_median_direct_normal_decorations_us: u64,
+    warm_median_direct_normal_cursor_us: u64,
+    warm_median_direct_normal_raster_us: u64,
     warm_median_resolve_us: u64,
     warm_median_shape_us: u64,
     warm_median_group_us: u64,
@@ -84,6 +109,7 @@ const Workload = struct {
 const WorkloadPrepareContext = struct {
     session: font_session.FontSession,
     options: frame_preparer.PrepareOptions,
+    borrowed_cells: []contract.CellInput = &.{},
 };
 
 const ColdRun = struct {
@@ -96,6 +122,13 @@ const ColdRun = struct {
 const WarmSummary = struct {
     median_ns: u64,
     p95_ns: u64,
+    median_direct_normal_us: u64,
+    median_direct_normal_scan_us: u64,
+    median_direct_normal_backgrounds_us: u64,
+    median_direct_normal_clears_us: u64,
+    median_direct_normal_decorations_us: u64,
+    median_direct_normal_cursor_us: u64,
+    median_direct_normal_raster_us: u64,
     median_resolve_us: u64,
     median_shape_us: u64,
     median_group_us: u64,
@@ -227,6 +260,16 @@ fn rgba(r: u8, g: u8, b: u8) contract.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = 255 };
 }
 
+fn monotonicNs() u64 {
+    var ts: std.posix.timespec = undefined;
+    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
+    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+}
+
+fn elapsedUs(start_ns: u64) u64 {
+    return @divTrunc(monotonicNs() -| start_ns, std.time.ns_per_us);
+}
+
 fn defaultCellMetrics(cell_px: geometry_contract.CellSize) contract.CellMetrics {
     const h = @max(cell_px.height, 1);
     return .{
@@ -338,6 +381,140 @@ fn buildAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
         dirty.ends,
         .{ .width = 9, .height = 18 },
         cellCount(rows, cols),
+    );
+}
+
+fn buildPublicationAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 24;
+    const cols: u16 = 80;
+    const len = cellCount(rows, cols);
+    const cells = try allocator.alloc(source_vt.SourceCell, @intCast(len));
+    const dirty_rows = try allocator.alloc(u8, rows);
+    const dirty_cols_start = try allocator.alloc(u16, rows);
+    const dirty_cols_end = try allocator.alloc(u16, rows);
+    @memset(dirty_rows, 1);
+    @memset(dirty_cols_start, 0);
+    @memset(dirty_cols_end, cols -| 1);
+    for (cells, 0..) |*cell, idx| {
+        cell.* = std.mem.zeroes(source_vt.SourceCell);
+        cell.codepoint = @as(u32, 'A') + @as(u32, @intCast(idx % 26));
+    }
+    return buildWorkload(
+        "publication_ascii_full",
+        .{ .publication = .{
+            .cols = cols,
+            .rows = rows,
+            .history_count = 0,
+            .scroll_row = 0,
+            .snapshot_seq = 1,
+            .dirty_epoch = 1,
+            .is_alternate_screen = false,
+            .cells = cells,
+            .cursor = std.mem.zeroes(source_cell.CursorInfo),
+            .colors = defaultSourceColors(),
+            .selection = std.mem.zeroes(source_vt.SourceSelection),
+            .cursor_phase_visible = true,
+            .dirty_rows = dirty_rows,
+            .dirty_cols_start = dirty_cols_start,
+            .dirty_cols_end = dirty_cols_end,
+            .retained_storage = true,
+        } },
+        .{ .cols = cols, .rows = rows },
+        true,
+        @ptrCast(dirty_rows),
+        dirty_cols_start,
+        dirty_cols_end,
+        .{ .width = 9, .height = 18 },
+        len,
+    );
+}
+
+fn buildAsciiFullLargeWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 120;
+    const cols: u16 = 320;
+    const bg = rgba(12, 12, 18);
+    const fg = rgba(235, 238, 242);
+    const cells = try initCells(allocator, rows, cols, bg);
+    const dirty = try initDirtyAll(allocator, rows, cols);
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        const row_base = @as(u32, row) * cols;
+        var col: u16 = 0;
+        while (col < cols) : (col += 1) {
+            const idx = row_base + col;
+            cells[@intCast(idx)].codepoint = @as(u21, 'A') + @as(u21, @intCast(col % 26));
+            cells[@intCast(idx)].fg = fg;
+        }
+    }
+    return buildWorkload(
+        "ascii_full_large",
+        .{ .cells = cells },
+        .{ .cols = cols, .rows = rows },
+        true,
+        dirty.rows,
+        dirty.starts,
+        dirty.ends,
+        .{ .width = 9, .height = 18 },
+        cellCount(rows, cols),
+    );
+}
+
+fn sourceRgb(color: contract.Rgba8) source_vt.SourceRgb {
+    return .{ .r = color.r, .g = color.g, .b = color.b };
+}
+
+fn defaultSourceColors() source_vt.SourceColors {
+    const theme = source_text_input.default_theme;
+    var colors = std.mem.zeroes(source_vt.SourceColors);
+    colors.foreground = sourceRgb(theme.default_fg);
+    colors.background = sourceRgb(theme.default_bg);
+    colors.cursor = sourceRgb(theme.cursor_color);
+    for (theme.palette, 0..) |color, idx| colors.palette[idx] = sourceRgb(color);
+    return colors;
+}
+
+fn buildPublicationAsciiFullLargeWorkload(allocator: std.mem.Allocator) !Workload {
+    const rows: u16 = 120;
+    const cols: u16 = 320;
+    const len = cellCount(rows, cols);
+    const cells = try allocator.alloc(source_vt.SourceCell, @intCast(len));
+    const dirty_rows = try allocator.alloc(u8, rows);
+    const dirty_cols_start = try allocator.alloc(u16, rows);
+    const dirty_cols_end = try allocator.alloc(u16, rows);
+    @memset(dirty_rows, 1);
+    @memset(dirty_cols_start, 0);
+    @memset(dirty_cols_end, cols -| 1);
+    for (cells, 0..) |*cell, idx| {
+        cell.* = std.mem.zeroes(source_vt.SourceCell);
+        cell.codepoint = @as(u32, 'A') + @as(u32, @intCast(idx % 26));
+    }
+    return buildWorkload(
+        "publication_ascii_full_large",
+        .{ .publication = .{
+            .cols = cols,
+            .rows = rows,
+            .history_count = 0,
+            .scroll_row = 0,
+            .snapshot_seq = 1,
+            .dirty_epoch = 1,
+            .is_alternate_screen = false,
+            .cells = cells,
+            .cursor = std.mem.zeroes(source_cell.CursorInfo),
+            .colors = defaultSourceColors(),
+            .selection = std.mem.zeroes(source_vt.SourceSelection),
+            .cursor_phase_visible = true,
+            .dirty_rows = dirty_rows,
+            .dirty_cols_start = dirty_cols_start,
+            .dirty_cols_end = dirty_cols_end,
+            .retained_storage = true,
+        } },
+        .{ .cols = cols, .rows = rows },
+        true,
+        @ptrCast(dirty_rows),
+        dirty_cols_start,
+        dirty_cols_end,
+        .{ .width = 9, .height = 18 },
+        len,
     );
 }
 
@@ -696,6 +873,18 @@ fn prepareWorkloadFrame(preparer: *frame_preparer.TextFramePreparer, workload: W
             context.session,
             context.options,
         ),
+        .publication => |source| blk: {
+            const input_start_ns = monotonicNs();
+            const mapped = source_text_input.publicationSourceToTextSceneInputBorrowed(context.borrowed_cells, source, true);
+            var prepared = try preparer.prepareCellsWithSessionOptions(
+                mapped.cells,
+                mapped.grid,
+                context.session,
+                mapped.options,
+            );
+            prepared.timings.input_us += elapsedUs(input_start_ns);
+            break :blk prepared;
+        },
     };
 }
 
@@ -705,6 +894,13 @@ fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: f
         .alloc_count = counting.window_alloc_count,
         .alloc_bytes = counting.window_alloc_bytes,
         .peak_live_bytes = counting.window_peak_live_bytes,
+        .direct_normal_us = analysis.timings.direct_normal_us,
+        .direct_normal_scan_us = analysis.timings.direct_normal_scan_us,
+        .direct_normal_backgrounds_us = analysis.timings.direct_normal_backgrounds_us,
+        .direct_normal_clears_us = analysis.timings.direct_normal_clears_us,
+        .direct_normal_decorations_us = analysis.timings.direct_normal_decorations_us,
+        .direct_normal_cursor_us = analysis.timings.direct_normal_cursor_us,
+        .direct_normal_raster_us = analysis.timings.direct_normal_raster_us,
         .resolve_us = analysis.timings.resolve_us,
         .shape_us = analysis.timings.shape_us,
         .group_us = analysis.timings.group_us,
@@ -775,6 +971,20 @@ fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObse
     defer allocator.free(alloc_bytes_values);
     const peak_live_values = try allocator.alloc(u64, observations.len);
     defer allocator.free(peak_live_values);
+    const direct_normal_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(direct_normal_values);
+    const direct_normal_scan_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(direct_normal_scan_values);
+    const direct_normal_backgrounds_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(direct_normal_backgrounds_values);
+    const direct_normal_clears_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(direct_normal_clears_values);
+    const direct_normal_decorations_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(direct_normal_decorations_values);
+    const direct_normal_cursor_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(direct_normal_cursor_values);
+    const direct_normal_raster_values = try allocator.alloc(u64, observations.len);
+    defer allocator.free(direct_normal_raster_values);
     const resolve_values = try allocator.alloc(u64, observations.len);
     defer allocator.free(resolve_values);
     const shape_values = try allocator.alloc(u64, observations.len);
@@ -789,6 +999,13 @@ fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObse
         alloc_count_values[idx] = observation.alloc_count;
         alloc_bytes_values[idx] = observation.alloc_bytes;
         peak_live_values[idx] = observation.peak_live_bytes;
+        direct_normal_values[idx] = observation.direct_normal_us;
+        direct_normal_scan_values[idx] = observation.direct_normal_scan_us;
+        direct_normal_backgrounds_values[idx] = observation.direct_normal_backgrounds_us;
+        direct_normal_clears_values[idx] = observation.direct_normal_clears_us;
+        direct_normal_decorations_values[idx] = observation.direct_normal_decorations_us;
+        direct_normal_cursor_values[idx] = observation.direct_normal_cursor_us;
+        direct_normal_raster_values[idx] = observation.direct_normal_raster_us;
         resolve_values[idx] = observation.resolve_us;
         shape_values[idx] = observation.shape_us;
         group_values[idx] = observation.group_us;
@@ -798,6 +1015,13 @@ fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObse
     return .{
         .median_ns = medianU64(ns_values),
         .p95_ns = p95U64(ns_values),
+        .median_direct_normal_us = medianU64(direct_normal_values),
+        .median_direct_normal_scan_us = medianU64(direct_normal_scan_values),
+        .median_direct_normal_backgrounds_us = medianU64(direct_normal_backgrounds_values),
+        .median_direct_normal_clears_us = medianU64(direct_normal_clears_values),
+        .median_direct_normal_decorations_us = medianU64(direct_normal_decorations_values),
+        .median_direct_normal_cursor_us = medianU64(direct_normal_cursor_values),
+        .median_direct_normal_raster_us = medianU64(direct_normal_raster_values),
         .median_resolve_us = medianU64(resolve_values),
         .median_shape_us = medianU64(shape_values),
         .median_group_us = medianU64(group_values),
@@ -813,6 +1037,10 @@ fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObse
 
 fn runWorkloadInitState(allocator: std.mem.Allocator, workload: Workload, counting: *CountingAllocator, preparer: *frame_preparer.TextFramePreparer, context: *WorkloadPrepareContext) void {
     context.* = initPrepareContext(workload);
+    switch (workload.input) {
+        .publication => |source| context.borrowed_cells = allocator.alloc(contract.CellInput, source.cells.len) catch unreachable,
+        else => {},
+    }
     counting.* = CountingAllocator.init(allocator);
     preparer.* = frame_preparer.TextFramePreparer.init(counting.allocator());
 }
@@ -825,6 +1053,13 @@ fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: Wa
         .dirty_cells_per_run = workload.dirty_cells_per_run,
         .runs = runs,
         .cold_ns = cold.observation.ns,
+        .cold_direct_normal_us = cold.observation.direct_normal_us,
+        .cold_direct_normal_scan_us = cold.observation.direct_normal_scan_us,
+        .cold_direct_normal_backgrounds_us = cold.observation.direct_normal_backgrounds_us,
+        .cold_direct_normal_clears_us = cold.observation.direct_normal_clears_us,
+        .cold_direct_normal_decorations_us = cold.observation.direct_normal_decorations_us,
+        .cold_direct_normal_cursor_us = cold.observation.direct_normal_cursor_us,
+        .cold_direct_normal_raster_us = cold.observation.direct_normal_raster_us,
         .cold_resolve_us = cold.observation.resolve_us,
         .cold_shape_us = cold.observation.shape_us,
         .cold_group_us = cold.observation.group_us,
@@ -837,6 +1072,13 @@ fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: Wa
         .cold_uploads = cold.uploads,
         .warm_median_ns = warm.median_ns,
         .warm_p95_ns = warm.p95_ns,
+        .warm_median_direct_normal_us = warm.median_direct_normal_us,
+        .warm_median_direct_normal_scan_us = warm.median_direct_normal_scan_us,
+        .warm_median_direct_normal_backgrounds_us = warm.median_direct_normal_backgrounds_us,
+        .warm_median_direct_normal_clears_us = warm.median_direct_normal_clears_us,
+        .warm_median_direct_normal_decorations_us = warm.median_direct_normal_decorations_us,
+        .warm_median_direct_normal_cursor_us = warm.median_direct_normal_cursor_us,
+        .warm_median_direct_normal_raster_us = warm.median_direct_normal_raster_us,
         .warm_median_resolve_us = warm.median_resolve_us,
         .warm_median_shape_us = warm.median_shape_us,
         .warm_median_group_us = warm.median_group_us,
@@ -908,6 +1150,13 @@ fn printTextResult(result: WorkloadResult) void {
     std.debug.print("runs={d}\n", .{result.runs});
     std.debug.print("dirty_cells_per_run={d}\n", .{result.dirty_cells_per_run});
     std.debug.print("cold_ms={d:.3}\n", .{cold_ms});
+    std.debug.print("cold_direct_normal_us={d}\n", .{result.cold_direct_normal_us});
+    std.debug.print("cold_direct_normal_scan_us={d}\n", .{result.cold_direct_normal_scan_us});
+    std.debug.print("cold_direct_normal_backgrounds_us={d}\n", .{result.cold_direct_normal_backgrounds_us});
+    std.debug.print("cold_direct_normal_clears_us={d}\n", .{result.cold_direct_normal_clears_us});
+    std.debug.print("cold_direct_normal_decorations_us={d}\n", .{result.cold_direct_normal_decorations_us});
+    std.debug.print("cold_direct_normal_cursor_us={d}\n", .{result.cold_direct_normal_cursor_us});
+    std.debug.print("cold_direct_normal_raster_us={d}\n", .{result.cold_direct_normal_raster_us});
     std.debug.print("cold_resolve_us={d}\n", .{result.cold_resolve_us});
     std.debug.print("cold_shape_us={d}\n", .{result.cold_shape_us});
     std.debug.print("cold_group_us={d}\n", .{result.cold_group_us});
@@ -920,6 +1169,13 @@ fn printTextResult(result: WorkloadResult) void {
     std.debug.print("cold_uploads={d}\n", .{result.cold_uploads});
     std.debug.print("warm_median_ms={d:.3}\n", .{warm_median_ms});
     std.debug.print("warm_p95_ms={d:.3}\n", .{warm_p95_ms});
+    std.debug.print("warm_median_direct_normal_us={d}\n", .{result.warm_median_direct_normal_us});
+    std.debug.print("warm_median_direct_normal_scan_us={d}\n", .{result.warm_median_direct_normal_scan_us});
+    std.debug.print("warm_median_direct_normal_backgrounds_us={d}\n", .{result.warm_median_direct_normal_backgrounds_us});
+    std.debug.print("warm_median_direct_normal_clears_us={d}\n", .{result.warm_median_direct_normal_clears_us});
+    std.debug.print("warm_median_direct_normal_decorations_us={d}\n", .{result.warm_median_direct_normal_decorations_us});
+    std.debug.print("warm_median_direct_normal_cursor_us={d}\n", .{result.warm_median_direct_normal_cursor_us});
+    std.debug.print("warm_median_direct_normal_raster_us={d}\n", .{result.warm_median_direct_normal_raster_us});
     std.debug.print("warm_median_resolve_us={d}\n", .{result.warm_median_resolve_us});
     std.debug.print("warm_median_shape_us={d}\n", .{result.warm_median_shape_us});
     std.debug.print("warm_median_group_us={d}\n", .{result.warm_median_group_us});
@@ -935,52 +1191,63 @@ fn printTextResult(result: WorkloadResult) void {
 }
 
 fn printNdjsonResult(result: WorkloadResult) void {
-    std.debug.print(
-        "{{\"workload\":\"{s}\",\"grid_cols\":{d},\"grid_rows\":{d},",
-        .{
-            result.name,
-            result.grid_cols,
-            result.grid_rows,
-        },
-    );
-    std.debug.print(
-        "\"runs\":{d},\"dirty_cells_per_run\":{d},\"cold_ns\":{d},\"cold_resolve_us\":{d}," ++
-            "\"cold_shape_us\":{d},\"cold_group_us\":{d},\"cold_scene_us\":{d},\"cold_alloc_count\":{d}," ++
-            "\"cold_alloc_bytes\":{d},\"cold_peak_live_bytes\":{d},\"cold_fills\":{d},\"cold_glyphs\":{d}," ++
-            "\"cold_uploads\":{d},\"warm_median_ns\":{d},\"warm_p95_ns\":{d},\"warm_median_resolve_us\":{d}," ++
-            "\"warm_median_shape_us\":{d},\"warm_median_group_us\":{d},\"warm_median_scene_us\":{d}," ++
-            "\"dirty_cells_per_second\":{d:.0},\"warm_median_alloc_count\":{d},\"warm_median_alloc_bytes\":{d}," ++
-            "\"warm_median_peak_live_bytes\":{d},\"warm_median_fills\":{d},\"warm_median_glyphs\":{d}," ++
-            "\"warm_median_uploads\":{d}}}\n",
-        .{
-            result.runs,
-            result.dirty_cells_per_run,
-            result.cold_ns,
-            result.cold_resolve_us,
-            result.cold_shape_us,
-            result.cold_group_us,
-            result.cold_scene_us,
-            result.cold_alloc_count,
-            result.cold_alloc_bytes,
-            result.cold_peak_live_bytes,
-            result.cold_fills,
-            result.cold_glyphs,
-            result.cold_uploads,
-            result.warm_median_ns,
-            result.warm_p95_ns,
-            result.warm_median_resolve_us,
-            result.warm_median_shape_us,
-            result.warm_median_group_us,
-            result.warm_median_scene_us,
-            result.dirtyCellsPerSecond(),
-            result.warm_median_alloc_count,
-            result.warm_median_alloc_bytes,
-            result.warm_median_peak_live_bytes,
-            result.warm_median_fills,
-            result.warm_median_glyphs,
-            result.warm_median_uploads,
-        },
-    );
+    std.debug.print("{{\"workload\":\"{s}\",\"grid_cols\":{d},\"grid_rows\":{d},", .{
+        result.name,
+        result.grid_cols,
+        result.grid_rows,
+    });
+    std.debug.print("\"runs\":{d},\"dirty_cells_per_run\":{d},\"cold_ns\":{d},\"cold_direct_normal_us\":{d},\"cold_direct_normal_scan_us\":{d},\"cold_direct_normal_backgrounds_us\":{d},\"cold_direct_normal_clears_us\":{d},\"cold_direct_normal_decorations_us\":{d},", .{
+        result.runs,
+        result.dirty_cells_per_run,
+        result.cold_ns,
+        result.cold_direct_normal_us,
+        result.cold_direct_normal_scan_us,
+        result.cold_direct_normal_backgrounds_us,
+        result.cold_direct_normal_clears_us,
+        result.cold_direct_normal_decorations_us,
+    });
+    std.debug.print("\"cold_direct_normal_cursor_us\":{d},\"cold_direct_normal_raster_us\":{d},\"cold_resolve_us\":{d},\"cold_shape_us\":{d},\"cold_group_us\":{d},\"cold_scene_us\":{d},\"cold_alloc_count\":{d},\"cold_alloc_bytes\":{d},", .{
+        result.cold_direct_normal_cursor_us,
+        result.cold_direct_normal_raster_us,
+        result.cold_resolve_us,
+        result.cold_shape_us,
+        result.cold_group_us,
+        result.cold_scene_us,
+        result.cold_alloc_count,
+        result.cold_alloc_bytes,
+    });
+    std.debug.print("\"cold_peak_live_bytes\":{d},\"cold_fills\":{d},\"cold_glyphs\":{d},\"cold_uploads\":{d},\"warm_median_ns\":{d},\"warm_p95_ns\":{d},\"warm_median_direct_normal_us\":{d},\"warm_median_direct_normal_scan_us\":{d},", .{
+        result.cold_peak_live_bytes,
+        result.cold_fills,
+        result.cold_glyphs,
+        result.cold_uploads,
+        result.warm_median_ns,
+        result.warm_p95_ns,
+        result.warm_median_direct_normal_us,
+        result.warm_median_direct_normal_scan_us,
+    });
+    std.debug.print("\"warm_median_direct_normal_backgrounds_us\":{d},\"warm_median_direct_normal_clears_us\":{d},\"warm_median_direct_normal_decorations_us\":{d},\"warm_median_direct_normal_cursor_us\":{d},\"warm_median_direct_normal_raster_us\":{d},\"warm_median_resolve_us\":{d},", .{
+        result.warm_median_direct_normal_backgrounds_us,
+        result.warm_median_direct_normal_clears_us,
+        result.warm_median_direct_normal_decorations_us,
+        result.warm_median_direct_normal_cursor_us,
+        result.warm_median_direct_normal_raster_us,
+        result.warm_median_resolve_us,
+    });
+    std.debug.print("\"warm_median_shape_us\":{d},\"warm_median_group_us\":{d},\"warm_median_scene_us\":{d},\"dirty_cells_per_second\":{d:.0},\"warm_median_alloc_count\":{d},\"warm_median_alloc_bytes\":{d},\"warm_median_peak_live_bytes\":{d},", .{
+        result.warm_median_shape_us,
+        result.warm_median_group_us,
+        result.warm_median_scene_us,
+        result.dirtyCellsPerSecond(),
+        result.warm_median_alloc_count,
+        result.warm_median_alloc_bytes,
+        result.warm_median_peak_live_bytes,
+    });
+    std.debug.print("\"warm_median_fills\":{d},\"warm_median_glyphs\":{d},\"warm_median_uploads\":{d}}}\n", .{
+        result.warm_median_fills,
+        result.warm_median_glyphs,
+        result.warm_median_uploads,
+    });
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -991,6 +1258,9 @@ pub fn main(init: std.process.Init) !void {
 
     const workloads = [_]Workload{
         try buildAsciiFullWorkload(arena),
+        try buildPublicationAsciiFullWorkload(arena),
+        try buildAsciiFullLargeWorkload(arena),
+        try buildPublicationAsciiFullLargeWorkload(arena),
         try buildLsdLikeWorkload(arena, false),
         try buildLsdLikeWorkload(arena, true),
         try buildCellTextAsciiFullWorkload(arena),

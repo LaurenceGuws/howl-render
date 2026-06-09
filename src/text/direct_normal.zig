@@ -16,6 +16,7 @@ pub const Product = struct {
     damage: direct_scene.Damage,
     outputs: []rasterizer.RasterSpriteOutput = &.{},
     outputs_owned: bool = false,
+    timings: Timings = .{},
 
     pub fn deinit(self: *Product, allocator: std.mem.Allocator) void {
         if (!self.outputs_owned) return;
@@ -24,6 +25,15 @@ pub const Product = struct {
         self.outputs = &.{};
         self.outputs_owned = false;
     }
+};
+
+pub const Timings = struct {
+    scan_us: u64 = 0,
+    backgrounds_us: u64 = 0,
+    clears_us: u64 = 0,
+    decorations_us: u64 = 0,
+    cursor_us: u64 = 0,
+    raster_us: u64 = 0,
 };
 
 pub const Policy = enum {
@@ -101,16 +111,26 @@ pub fn prepare(
     cursor: ?scene.CursorInput,
     lane_report: *lane.LaneReport,
 ) !?Product {
+    var timings = Timings{};
     const damage = direct_scene.Damage.init(damage_input, grid_metrics.rows);
     const source_len = sourceLen(source);
-    const visible_count = countVisible(source, damage, grid_metrics, policy, lane_report) orelse return null;
-    try driver.scratch.reset(driver.allocator, visible_count, source_len, grid_metrics.rows);
-    try appendVisible(driver, source, damage, grid_metrics, session, policy, lane_report);
+    try driver.scratch.reset(driver.allocator, source_len, source_len, grid_metrics.rows);
+    const scan_start_ns = monotonicNs();
+    if (!try appendVisible(driver, source, damage, grid_metrics, session, policy, lane_report)) return null;
+    timings.scan_us = elapsedUs(scan_start_ns);
+    const backgrounds_start_ns = monotonicNs();
     direct_scene.appendBackgrounds(&driver.scratch.background_draws, driver.scratch.renderable.items, session.metrics, grid_metrics, damage);
+    timings.backgrounds_us = elapsedUs(backgrounds_start_ns);
+    const clears_start_ns = monotonicNs();
     direct_scene.appendClears(&driver.scratch.clear_draws, session.metrics, grid_metrics, damage);
+    timings.clears_us = elapsedUs(clears_start_ns);
+    const decorations_start_ns = monotonicNs();
     direct_scene.appendDecorations(&driver.scratch.decoration_draws, driver.scratch.renderable.items, session.metrics, grid_metrics, damage);
+    timings.decorations_us = elapsedUs(decorations_start_ns);
+    const cursor_start_ns = monotonicNs();
     direct_scene.appendCursor(&driver.scratch.cursor_draws, cursor, session.metrics, damage);
-    return try finishScene(driver, damage, lane_report);
+    timings.cursor_us = elapsedUs(cursor_start_ns);
+    return try finishScene(driver, damage, lane_report, timings);
 }
 
 pub fn counters(scratch: *const Scratch, lane_report: lane.LaneReport, direct: Product) prepare_counters.TextPrepareCounters {
@@ -149,20 +169,6 @@ const Item = struct {
     }
 };
 
-fn countVisible(source: Source, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics, policy: Policy, lane_report: *lane.LaneReport) ?u32 {
-    var visible_count: u32 = 0;
-    var idx: u32 = 0;
-    while (idx < sourceLen(source)) : (idx += 1) {
-        const candidate = sourceCandidate(source, idx, damage, grid_metrics) orelse continue;
-        switch (candidateDecision(policy, lane_report, candidate)) {
-            .include => visible_count += 1,
-            .skip => {},
-            .reject => return null,
-        }
-    }
-    return visible_count;
-}
-
 fn appendVisible(
     driver: Driver,
     source: Source,
@@ -171,18 +177,17 @@ fn appendVisible(
     session: font_session.FontSession,
     policy: Policy,
     lane_report: *lane.LaneReport,
-) !void {
+) !bool {
     var idx: u32 = 0;
     while (idx < sourceLen(source)) : (idx += 1) {
         const candidate = sourceCandidate(source, idx, damage, grid_metrics) orelse continue;
-        switch (candidate.choice.lane) {
-            .normal => try appendRenderable(driver, candidate.item.renderable, candidate.text, grid_metrics, session, lane_report),
-            .complex => switch (policy) {
-                .require_all_normal => unreachable,
-                .skip_complex => continue,
-            },
+        switch (candidateDecision(policy, lane_report, candidate)) {
+            .include => try appendRenderable(driver, candidate.item.renderable, candidate.text, grid_metrics, session, lane_report),
+            .skip => continue,
+            .reject => return false,
         }
     }
+    return true;
 }
 
 fn candidateDecision(policy: Policy, lane_report: *lane.LaneReport, candidate: Candidate) Decision {
@@ -282,11 +287,13 @@ fn appendRenderable(
     lane_report.direct_normal_draws += 1;
 }
 
-fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.LaneReport) !Product {
+fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.LaneReport, timings: Timings) !Product {
     var outputs: []rasterizer.RasterSpriteOutput = &.{};
     var outputs_owned = false;
+    var final_timings = timings;
     if (driver.scratch.raster_reqs.items.len > 0) {
         lane_report.direct_normal_raster_misses = @intCast(driver.scratch.raster_reqs.items.len);
+        const raster_start_ns = monotonicNs();
         outputs = try driver.allocator.alloc(rasterizer.RasterSpriteOutput, driver.scratch.raster_reqs.items.len);
         outputs_owned = true;
         var filled: u32 = 0;
@@ -300,8 +307,19 @@ fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.L
             raster.alpha_mask = &.{};
             filled += 1;
         }
+        final_timings.raster_us = elapsedUs(raster_start_ns);
     }
-    return .{ .damage = damage, .outputs = outputs, .outputs_owned = outputs_owned };
+    return .{ .damage = damage, .outputs = outputs, .outputs_owned = outputs_owned, .timings = final_timings };
+}
+
+fn monotonicNs() u64 {
+    var ts: std.posix.timespec = undefined;
+    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
+    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+}
+
+fn elapsedUs(start_ns: u64) u64 {
+    return @divTrunc(monotonicNs() -| start_ns, std.time.ns_per_us);
 }
 
 fn resolveFace(session: font_session.FontSession, cell: contract.RenderableCell, text: contract.CellText) ?font_session.FontFaceRecord {

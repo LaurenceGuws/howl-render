@@ -36,6 +36,64 @@ const ft_hb_shape_input_codepoints_per_cluster_cap: u32 = 16;
 const ft_hb_cached_glyphs_per_run_cap: u32 = 512;
 const PreparedSurfaceHandle = ?*anyopaque;
 
+fn monotonicNs() u64 {
+    var ts: std.posix.timespec = undefined;
+    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
+    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+}
+
+const DebugPrepareTiming = struct {
+    enabled_known: bool = false,
+    enabled: bool = false,
+    count: u64 = 0,
+    prepare_surface_ns_total: u64 = 0,
+    prepare_surface_ns_max: u64 = 0,
+    input_us_total: u64 = 0,
+    session_preparer_us_total: u64 = 0,
+    session_prepare_cells_us_total: u64 = 0,
+    direct_normal_us_total: u64 = 0,
+    owner_create_ns_total: u64 = 0,
+    owner_create_ns_max: u64 = 0,
+
+    fn active(self: *DebugPrepareTiming) bool {
+        if (!self.enabled_known) {
+            self.enabled = std.c.getenv("HOWL_RENDER_DEBUG_TIMING") != null;
+            self.enabled_known = true;
+        }
+        return self.enabled;
+    }
+
+    fn record(self: *DebugPrepareTiming, timings: frame_preparer.PrepareTimings, prepare_surface_ns: u64, owner_create_ns: u64) void {
+        if (!self.active()) return;
+        self.count += 1;
+        self.prepare_surface_ns_total += prepare_surface_ns;
+        self.prepare_surface_ns_max = @max(self.prepare_surface_ns_max, prepare_surface_ns);
+        self.input_us_total += timings.input_us;
+        self.session_preparer_us_total += timings.session_preparer_us;
+        self.session_prepare_cells_us_total += timings.session_prepare_cells_us;
+        self.direct_normal_us_total += timings.direct_normal_us;
+        self.owner_create_ns_total += owner_create_ns;
+        self.owner_create_ns_max = @max(self.owner_create_ns_max, owner_create_ns);
+        if (self.count % 128 != 0) return;
+        std.debug.print(
+            "howl-render-debug prepare_handle count={} prepare_surface_avg_us={} prepare_surface_max_us={} input_avg_us={} session_preparer_avg_us={} session_prepare_cells_avg_us={} direct_normal_avg_us={} owner_create_avg_us={} owner_create_max_us={}\n",
+            .{
+                self.count,
+                self.prepare_surface_ns_total / self.count / std.time.ns_per_us,
+                self.prepare_surface_ns_max / std.time.ns_per_us,
+                self.input_us_total / self.count,
+                self.session_preparer_us_total / self.count,
+                self.session_prepare_cells_us_total / self.count,
+                self.direct_normal_us_total / self.count,
+                self.owner_create_ns_total / self.count / std.time.ns_per_us,
+                self.owner_create_ns_max / std.time.ns_per_us,
+            },
+        );
+    }
+};
+
+var debug_prepare_timing: DebugPrepareTiming = .{};
+
 pub const SessionWorkState = struct {
     source_pending: bool,
     prepare_pending: bool,
@@ -146,10 +204,18 @@ pub const TextSession = struct {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
+        const input_start_ns = monotonicNs();
         const text_input = input.publicationSourceToTextSceneInputBorrowed(self.cell_input_scratch, prepare.state, prepare.request.token.damage_kind == .full);
+        const input_us = (monotonicNs() -| input_start_ns) / std.time.ns_per_us;
         var resolve: font_resolve.ResolveObservability = .{};
+        const ensure_preparer_start_ns = monotonicNs();
         const preparer = try self.ensureTextPreparer(&context);
+        const session_preparer_us = (monotonicNs() -| ensure_preparer_start_ns) / std.time.ns_per_us;
+        const prepare_cells_start_ns = monotonicNs();
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
+        prepared.timings.input_us += input_us;
+        prepared.timings.session_preparer_us += session_preparer_us;
+        prepared.timings.session_prepare_cells_us += (monotonicNs() -| prepare_cells_start_ns) / std.time.ns_per_us;
         errdefer prepared.deinit();
         const owned = ownPreparedSurface(self.allocator, prepare, text_input.grid, prepared, resolve);
         self.mutex.unlock();
@@ -388,6 +454,7 @@ pub const TextSessionOwner = struct {
             token,
         );
         errdefer _ = self.prepare_requests.retryTakenPrepare(token);
+        const prepare_surface_start_ns = monotonicNs();
         var prepared = self.session.prepareSurface(.{
             .config = self.config,
             .request = consume.request,
@@ -396,10 +463,15 @@ pub const TextSessionOwner = struct {
         }) catch |err| {
             return err;
         };
+        const prepare_surface_ns = monotonicNs() -| prepare_surface_start_ns;
+        const prepare_timings = prepared.text_frame.timings;
         errdefer prepared.deinit();
-        return prepared_owner.Owner.create(self, &prepared) catch |err| {
+        const owner_create_start_ns = monotonicNs();
+        const owner = prepared_owner.Owner.create(self, &prepared) catch |err| {
             return err;
         };
+        debug_prepare_timing.record(prepare_timings, prepare_surface_ns, monotonicNs() -| owner_create_start_ns);
+        return owner;
     }
 
     pub fn registerPreparedHandle(self: *TextSessionOwner, prepared: *prepared_owner.Owner) !void {

@@ -18,7 +18,16 @@ const shape_run = @import("shape/run.zig");
 const lane = @import("classify/lane.zig");
 
 pub const PrepareTimings = struct {
+    direct_normal_us: u64 = 0,
+    direct_normal_scan_us: u64 = 0,
+    direct_normal_backgrounds_us: u64 = 0,
+    direct_normal_clears_us: u64 = 0,
+    direct_normal_decorations_us: u64 = 0,
+    direct_normal_cursor_us: u64 = 0,
+    direct_normal_raster_us: u64 = 0,
     input_us: u64 = 0,
+    session_preparer_us: u64 = 0,
+    session_prepare_cells_us: u64 = 0,
     sparse_us: u64 = 0,
     clusters_us: u64 = 0,
     resolve_us: u64 = 0,
@@ -105,10 +114,10 @@ pub const TextFramePreparer = struct {
         options: PrepareOptions,
     ) !OwnedPreparedTextFrame {
         var lane_report = lane.LaneReport{};
-        if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report)) |direct| {
-            return self.finishNormalOnlyFrame(direct, lane_report, .{});
-        }
         var timings = PrepareTimings{};
+        if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings)) |direct| {
+            return self.finishNormalOnlyFrame(direct, lane_report, timings);
+        }
         const sparse_start_ns = monotonicNs();
         const cell_count = count32(cells);
         try self.ensureClusterScratchCapacity(cell_count, countCellInputCodepoints(cells));
@@ -126,8 +135,9 @@ pub const TextFramePreparer = struct {
         options: PrepareOptions,
     ) !OwnedPreparedTextFrame {
         var lane_report = lane.LaneReport{};
-        if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report)) |direct| {
-            return self.finishNormalOnlyFrame(direct, lane_report, .{});
+        var timings = PrepareTimings{};
+        if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings)) |direct| {
+            return self.finishNormalOnlyFrame(direct, lane_report, timings);
         }
         const input_count = count32(inputs);
         var input_codepoints: u32 = 0;
@@ -174,6 +184,7 @@ pub const TextFramePreparer = struct {
             session,
             options,
             &final_lane_report,
+            &timings,
         )).?;
 
         if (final_lane_report.complex_cells == 0) {
@@ -346,8 +357,10 @@ pub const TextFramePreparer = struct {
         session: font_session.FontSession,
         options: PrepareOptions,
         lane_report: *lane.LaneReport,
+        timings: *PrepareTimings,
     ) !?direct_normal.Product {
-        return try direct_normal.prepare(
+        const start_ns = monotonicNs();
+        const product = try direct_normal.prepare(
             .{
                 .allocator = self.allocator,
                 .atlas = &self.atlas,
@@ -363,6 +376,16 @@ pub const TextFramePreparer = struct {
             options.scene.cursor,
             lane_report,
         );
+        timings.direct_normal_us += elapsedUs(start_ns);
+        if (product) |direct| {
+            timings.direct_normal_scan_us += direct.timings.scan_us;
+            timings.direct_normal_backgrounds_us += direct.timings.backgrounds_us;
+            timings.direct_normal_clears_us += direct.timings.clears_us;
+            timings.direct_normal_decorations_us += direct.timings.decorations_us;
+            timings.direct_normal_cursor_us += direct.timings.cursor_us;
+            timings.direct_normal_raster_us += direct.timings.raster_us;
+        }
+        return product;
     }
 
     fn countCellInputCodepoints(cells: []const contract.CellInput) u32 {
