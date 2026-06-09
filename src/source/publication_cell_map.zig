@@ -79,7 +79,6 @@ fn colorToRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
 }
 
 fn publicationColorToTextSceneRgba8(color: source_vt.SourceColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
-    if (!is_fg and color.kind == 0) return .{ .r = t.default_bg.r, .g = t.default_bg.g, .b = t.default_bg.b, .a = 0 };
     return colorToRgba8(color, is_fg, t);
 }
 
@@ -155,4 +154,76 @@ fn mapTextSceneCursorShape(shape: anytype) scene.CursorShape {
     if (std.mem.eql(u8, name, "beam")) return .beam;
     if (std.mem.eql(u8, name, "hollow_block")) return .hollow_block;
     return .block;
+}
+
+test "publication cell map keeps opaque default background for ordinary cell" {
+    const theme = FrameTheme{
+        .default_fg = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC, .a = 255 },
+        .default_bg = .{ .r = 0x11, .g = 0x22, .b = 0x33, .a = 255 },
+        .cursor_color = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+        .palette = [_]contract.Rgba8{.{ .r = 0, .g = 0, .b = 0, .a = 255 }} ** 256,
+    };
+    const mapped = mapPublicationCellInput(.{
+        .codepoint = 'A',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    }, theme);
+
+    try std.testing.expectEqual(theme.default_bg.r, mapped.bg.r);
+    try std.testing.expectEqual(theme.default_bg.g, mapped.bg.g);
+    try std.testing.expectEqual(theme.default_bg.b, mapped.bg.b);
+    try std.testing.expectEqual(@as(u8, 255), mapped.bg.a);
+    try std.testing.expect(!mapped.empty);
+}
+
+test "publication cell map keeps default background truth through inverse and selection" {
+    const theme = FrameTheme{
+        .default_fg = .{ .r = 0xA1, .g = 0xB2, .b = 0xC3, .a = 255 },
+        .default_bg = .{ .r = 0x11, .g = 0x22, .b = 0x33, .a = 255 },
+        .cursor_color = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+        .palette = [_]contract.Rgba8{.{ .r = 0, .g = 0, .b = 0, .a = 255 }} ** 256,
+    };
+
+    const inverse = mapPublicationCellInput(.{
+        .codepoint = 'I',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 1, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    }, theme);
+    try std.testing.expectEqual(theme.default_bg.r, inverse.fg.r);
+    try std.testing.expectEqual(theme.default_bg.g, inverse.fg.g);
+    try std.testing.expectEqual(theme.default_bg.b, inverse.fg.b);
+    try std.testing.expectEqual(theme.default_fg.r, inverse.bg.r);
+    try std.testing.expectEqual(theme.default_fg.g, inverse.bg.g);
+    try std.testing.expectEqual(theme.default_fg.b, inverse.bg.b);
+    try std.testing.expectEqual(@as(u8, 255), inverse.bg.a);
+    try std.testing.expect(!inverse.empty);
+
+    const selected = mapPublicationCellInput(.{
+        .codepoint = 'S',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 1 },
+        .link_id = 0,
+    }, theme);
+    try std.testing.expectEqual(theme.default_bg.r, selected.fg.r);
+    try std.testing.expectEqual(theme.default_bg.g, selected.fg.g);
+    try std.testing.expectEqual(theme.default_bg.b, selected.fg.b);
+    try std.testing.expectEqual(theme.default_fg.r, selected.bg.r);
+    try std.testing.expectEqual(theme.default_fg.g, selected.bg.g);
+    try std.testing.expectEqual(theme.default_fg.b, selected.bg.b);
+    try std.testing.expectEqual(@as(u8, 255), selected.bg.a);
+    try std.testing.expect(!selected.empty);
 }

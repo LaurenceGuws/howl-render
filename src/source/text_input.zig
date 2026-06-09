@@ -83,7 +83,6 @@ fn colorToRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
 }
 
 fn colorToTextSceneRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
-    if (!is_fg and color.kind == .default) return .{ .r = t.default_bg.r, .g = t.default_bg.g, .b = t.default_bg.b, .a = 0 };
     return colorToRgba8(color, is_fg, t);
 }
 
@@ -114,14 +113,13 @@ fn mapUnderlineStyle(style: source_cell.UnderlineStyle) contract.UnderlineStyle 
     };
 }
 
-fn isAlacrittyEmptyCell(cell: source_cell.Cell) bool {
+fn isAlacrittyEmptyCell(cell: source_cell.Cell, bg: contract.Rgba8) bool {
     const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
-    const default_bg = cell.bg_color.kind == .default;
     const visible_flags = cell.flags.continuation or
         cell.attrs.inverse or
         cell.attrs.underline or
         cell.attrs.strikethrough;
-    return blank and default_bg and !visible_flags;
+    return blank and bg.a == 0 and !visible_flags;
 }
 
 fn publicationColorToRgba8(color: source_vt.SourceColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
@@ -224,6 +222,7 @@ fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) 
 }
 
 fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
+    const bg = colorToTextSceneRgba8(src.bg_color, false, t);
     var out: contract.CellInput = .{
         .codepoint = src.codepoint,
         .combining_len = src.combining_len,
@@ -231,13 +230,13 @@ fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
         .style = mapFontStyle(src.attrs.bold, src.attrs.italic),
         .presentation = detectCellPresentation(src.codepoint, src.combining_len, src.combining),
         .fg = colorToTextSceneRgba8(src.fg_color, true, t),
-        .bg = colorToTextSceneRgba8(src.bg_color, false, t),
+        .bg = bg,
         .underline_color = if (src.attrs.underline_color_set) colorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
         .underline_style = mapUnderlineStyle(src.underline_style),
         .underline = src.attrs.underline,
         .strikethrough = src.attrs.strikethrough,
         .continuation = src.flags.continuation,
-        .empty = isAlacrittyEmptyCell(src),
+        .empty = isAlacrittyEmptyCell(src, bg),
     };
     if (src.attrs.inverse) applyInverseStyle(&out, t);
     if (src.attrs.dim) applyDimStyle(&out);
@@ -514,6 +513,143 @@ test "source text input maps inverse VT source colors" {
     try std.testing.expectEqual(@as(u8, 0x20), input.cells[0].bg.g);
     try std.testing.expectEqual(@as(u8, 0x30), input.cells[0].bg.b);
     try std.testing.expect(!input.cells[0].empty);
+}
+
+test "source text input keeps opaque default background for blank VT cell" {
+    const cells = [_]source_cell.Cell{.{
+        .codepoint = ' ',
+        .bg_color = .{ .kind = .default, .value = 0 },
+    }};
+    const state = .{
+        .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
+        .cursor = .{ .visible = false, .col = 0, .row = 0, .shape = .block },
+        .damage = .{ .full = true, .dirty_rows = &[_]bool{}, .dirty_cols_start = &[_]u16{}, .dirty_cols_end = &[_]u16{} },
+    };
+
+    var input = try vtStateToTextSceneInput(std.testing.allocator, state);
+    defer input.deinit();
+
+    try std.testing.expectEqual(default_theme.default_bg.r, input.cells[0].bg.r);
+    try std.testing.expectEqual(default_theme.default_bg.g, input.cells[0].bg.g);
+    try std.testing.expectEqual(default_theme.default_bg.b, input.cells[0].bg.b);
+    try std.testing.expectEqual(@as(u8, 255), input.cells[0].bg.a);
+    try std.testing.expect(!input.cells[0].empty);
+}
+
+test "source text input keeps opaque default background for blank publication cell" {
+    var cells = [_]source_vt.SourceCell{.{
+        .codepoint = ' ',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    }};
+    var colors = std.mem.zeroes(source_vt.SourceColors);
+    colors.background = .{ .r = default_theme.default_bg.r, .g = default_theme.default_bg.g, .b = default_theme.default_bg.b };
+
+    var storage: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = colors,
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(default_theme.default_bg.r, mapped.cells[0].bg.r);
+    try std.testing.expectEqual(default_theme.default_bg.g, mapped.cells[0].bg.g);
+    try std.testing.expectEqual(default_theme.default_bg.b, mapped.cells[0].bg.b);
+    try std.testing.expectEqual(@as(u8, 255), mapped.cells[0].bg.a);
+    try std.testing.expect(!mapped.cells[0].empty);
+}
+
+test "source text input keeps default background truth through inverse VT cell" {
+    const cells = [_]source_cell.Cell{.{
+        .codepoint = 'I',
+        .fg_color = .{ .kind = .default, .value = 0 },
+        .bg_color = .{ .kind = .default, .value = 0 },
+        .attrs = .{ .inverse = true },
+    }};
+    const state = .{
+        .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
+        .cursor = .{ .visible = false, .col = 0, .row = 0, .shape = .block },
+        .damage = .{ .full = true, .dirty_rows = &[_]bool{}, .dirty_cols_start = &[_]u16{}, .dirty_cols_end = &[_]u16{} },
+    };
+
+    var input = try vtStateToTextSceneInput(std.testing.allocator, state);
+    defer input.deinit();
+
+    try std.testing.expectEqual(default_theme.default_bg.r, input.cells[0].fg.r);
+    try std.testing.expectEqual(default_theme.default_bg.g, input.cells[0].fg.g);
+    try std.testing.expectEqual(default_theme.default_bg.b, input.cells[0].fg.b);
+    try std.testing.expectEqual(default_theme.default_fg.r, input.cells[0].bg.r);
+    try std.testing.expectEqual(default_theme.default_fg.g, input.cells[0].bg.g);
+    try std.testing.expectEqual(default_theme.default_fg.b, input.cells[0].bg.b);
+    try std.testing.expectEqual(@as(u8, 255), input.cells[0].bg.a);
+    try std.testing.expect(!input.cells[0].empty);
+}
+
+test "source text input keeps default background truth through publication selection" {
+    var cells = [_]source_vt.SourceCell{.{
+        .codepoint = 'S',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 1 },
+        .link_id = 0,
+    }};
+    var colors = std.mem.zeroes(source_vt.SourceColors);
+    colors.foreground = .{ .r = default_theme.default_fg.r, .g = default_theme.default_fg.g, .b = default_theme.default_fg.b };
+    colors.background = .{ .r = default_theme.default_bg.r, .g = default_theme.default_bg.g, .b = default_theme.default_bg.b };
+
+    var storage: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = colors,
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+
+    try std.testing.expectEqual(default_theme.default_bg.r, mapped.cells[0].fg.r);
+    try std.testing.expectEqual(default_theme.default_bg.g, mapped.cells[0].fg.g);
+    try std.testing.expectEqual(default_theme.default_bg.b, mapped.cells[0].fg.b);
+    try std.testing.expectEqual(default_theme.default_fg.r, mapped.cells[0].bg.r);
+    try std.testing.expectEqual(default_theme.default_fg.g, mapped.cells[0].bg.g);
+    try std.testing.expectEqual(default_theme.default_fg.b, mapped.cells[0].bg.b);
+    try std.testing.expectEqual(@as(u8, 255), mapped.cells[0].bg.a);
+    try std.testing.expect(!mapped.cells[0].empty);
 }
 
 test "source text input maps publication combining truth" {
