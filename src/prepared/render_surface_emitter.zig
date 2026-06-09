@@ -20,6 +20,94 @@ const SpriteResourceStore = sprite_resource_store.SpriteResourceStore;
 const glyph_refs_max: u32 = 32 * 1024;
 const PreparedSprite = sprite_resource_store.PreparedSprite;
 
+fn monotonicNs() u64 {
+    var ts: std.posix.timespec = undefined;
+    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
+    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+}
+
+const DebugEmitPreparedTiming = struct {
+    enabled_known: bool = false,
+    enabled: bool = false,
+    count: u64 = 0,
+    copy_in_ns_total: u64 = 0,
+    fills_ns_total: u64 = 0,
+    sprites_ns_total: u64 = 0,
+    publish_ns_total: u64 = 0,
+    copy_out_ns_total: u64 = 0,
+    stage_upload_ns_total: u64 = 0,
+    atlas_resource_ns_total: u64 = 0,
+    direct_resource_ns_total: u64 = 0,
+    sprite_count_total: u64 = 0,
+    alpha_sprite_count_total: u64 = 0,
+    copy_in_ns_max: u64 = 0,
+    fills_ns_max: u64 = 0,
+    sprites_ns_max: u64 = 0,
+    publish_ns_max: u64 = 0,
+    copy_out_ns_max: u64 = 0,
+    stage_upload_ns_max: u64 = 0,
+    atlas_resource_ns_max: u64 = 0,
+    direct_resource_ns_max: u64 = 0,
+
+    const SpriteTotals = struct {
+        stage_upload_ns: u64 = 0,
+        atlas_resource_ns: u64 = 0,
+        direct_resource_ns: u64 = 0,
+        sprite_count: u32 = 0,
+        alpha_sprite_count: u32 = 0,
+    };
+
+    fn active(self: *DebugEmitPreparedTiming) bool {
+        if (!self.enabled_known) {
+            self.enabled = std.c.getenv("HOWL_RENDER_DEBUG_TIMING") != null;
+            self.enabled_known = true;
+        }
+        return self.enabled;
+    }
+
+    fn record(self: *DebugEmitPreparedTiming, copy_in_ns: u64, fills_ns: u64, sprites_ns: u64, publish_ns: u64, copy_out_ns: u64, sprite_totals: SpriteTotals) void {
+        if (!self.active()) return;
+        self.count += 1;
+        self.copy_in_ns_total += copy_in_ns;
+        self.fills_ns_total += fills_ns;
+        self.sprites_ns_total += sprites_ns;
+        self.publish_ns_total += publish_ns;
+        self.copy_out_ns_total += copy_out_ns;
+        self.stage_upload_ns_total += sprite_totals.stage_upload_ns;
+        self.atlas_resource_ns_total += sprite_totals.atlas_resource_ns;
+        self.direct_resource_ns_total += sprite_totals.direct_resource_ns;
+        self.sprite_count_total += sprite_totals.sprite_count;
+        self.alpha_sprite_count_total += sprite_totals.alpha_sprite_count;
+        self.copy_in_ns_max = @max(self.copy_in_ns_max, copy_in_ns);
+        self.fills_ns_max = @max(self.fills_ns_max, fills_ns);
+        self.sprites_ns_max = @max(self.sprites_ns_max, sprites_ns);
+        self.publish_ns_max = @max(self.publish_ns_max, publish_ns);
+        self.copy_out_ns_max = @max(self.copy_out_ns_max, copy_out_ns);
+        self.stage_upload_ns_max = @max(self.stage_upload_ns_max, sprite_totals.stage_upload_ns);
+        self.atlas_resource_ns_max = @max(self.atlas_resource_ns_max, sprite_totals.atlas_resource_ns);
+        self.direct_resource_ns_max = @max(self.direct_resource_ns_max, sprite_totals.direct_resource_ns);
+        if (self.count % 128 != 0) return;
+        std.debug.print(
+            "howl-render-debug emit_prepared count={} copy_in_avg_us={} fills_avg_us={} sprites_avg_us={} publish_avg_us={} copy_out_avg_us={} stage_upload_avg_us={} atlas_resource_avg_us={} direct_resource_avg_us={} sprites_avg={} alpha_sprites_avg={}\n",
+            .{
+                self.count,
+                self.copy_in_ns_total / self.count / std.time.ns_per_us,
+                self.fills_ns_total / self.count / std.time.ns_per_us,
+                self.sprites_ns_total / self.count / std.time.ns_per_us,
+                self.publish_ns_total / self.count / std.time.ns_per_us,
+                self.copy_out_ns_total / self.count / std.time.ns_per_us,
+                self.stage_upload_ns_total / self.count / std.time.ns_per_us,
+                self.atlas_resource_ns_total / self.count / std.time.ns_per_us,
+                self.direct_resource_ns_total / self.count / std.time.ns_per_us,
+                self.sprite_count_total / self.count,
+                self.alpha_sprite_count_total / self.count,
+            },
+        );
+    }
+};
+
+var debug_emit_prepared_timing: DebugEmitPreparedTiming = .{};
+
 comptime {
     std.debug.assert(glyph_refs_max > c.HOWL_RENDER_SURFACE_COMMANDS_MAX);
     std.debug.assert(glyph_refs_max <=
@@ -92,19 +180,54 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         pub fn emitPrepared(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
+            const copy_in_start_ns = monotonicNs();
             var next = self.*;
             var next_resources = resources.*;
+            const copy_in_ns = monotonicNs() -| copy_in_start_ns;
             next.resetPrepared(prepared);
+            const fills_start_ns = monotonicNs();
             try next.appendFullDamage(pixelSizeOut(prepared.render_px));
             try next.appendPreparedFullRedrawClear(prepared);
             try next.appendPreparedClears(prepared.text_frame.scene.scene.clear_draws);
             try next.appendPreparedBackgrounds(prepared.text_frame.scene.scene.background_draws);
             try next.appendPreparedDecorations(prepared.text_frame.scene.scene.decoration_draws);
-            try next.appendPreparedSprites(&next_resources, session, prepared);
+            const fills_ns = monotonicNs() -| fills_start_ns;
+            var sprite_totals: DebugEmitPreparedTiming.SpriteTotals = .{};
+            const sprites_start_ns = monotonicNs();
+            try next.appendPreparedSprites(&next_resources, session, prepared, &sprite_totals);
+            const sprites_ns = monotonicNs() -| sprites_start_ns;
             try next.appendPreparedCursors(prepared.text_frame.scene.scene.cursor_draws);
+            const copy_out_start_ns = monotonicNs();
             self.* = next;
             resources.* = next_resources;
+            const copy_out_ns = monotonicNs() -| copy_out_start_ns;
+            const publish_start_ns = monotonicNs();
             self.publishSurface();
+            debug_emit_prepared_timing.record(copy_in_ns, fills_ns, sprites_ns, monotonicNs() -| publish_start_ns, copy_out_ns, sprite_totals);
+            return &self.surface_storage;
+        }
+
+        pub fn emitPreparedFresh(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
+            var next_resources = resources.*;
+            const copy_in_ns: u64 = 0;
+            self.resetPrepared(prepared);
+            const fills_start_ns = monotonicNs();
+            try self.appendFullDamage(pixelSizeOut(prepared.render_px));
+            try self.appendPreparedFullRedrawClear(prepared);
+            try self.appendPreparedClears(prepared.text_frame.scene.scene.clear_draws);
+            try self.appendPreparedBackgrounds(prepared.text_frame.scene.scene.background_draws);
+            try self.appendPreparedDecorations(prepared.text_frame.scene.scene.decoration_draws);
+            const fills_ns = monotonicNs() -| fills_start_ns;
+            var sprite_totals: DebugEmitPreparedTiming.SpriteTotals = .{};
+            const sprites_start_ns = monotonicNs();
+            try self.appendPreparedSprites(&next_resources, session, prepared, &sprite_totals);
+            const sprites_ns = monotonicNs() -| sprites_start_ns;
+            try self.appendPreparedCursors(prepared.text_frame.scene.scene.cursor_draws);
+            resources.* = next_resources;
+            const copy_out_ns: u64 = 0;
+            const publish_start_ns = monotonicNs();
+            self.publishSurface();
+            debug_emit_prepared_timing.record(copy_in_ns, fills_ns, sprites_ns, monotonicNs() -| publish_start_ns, copy_out_ns, sprite_totals);
             return &self.surface_storage;
         }
 
@@ -252,8 +375,9 @@ pub fn Emitter(comptime limits: Limits) type {
             return true;
         }
 
-        fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!void {
+        fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_totals: *DebugEmitPreparedTiming.SpriteTotals) Error!void {
             for (prepared.text_frame.scene.scene.sprite_draws) |draw| {
+                sprite_totals.sprite_count += 1;
                 const sprite = lookupPreparedSprite(
                     session,
                     prepared,
@@ -276,19 +400,24 @@ pub fn Emitter(comptime limits: Limits) type {
                 };
                 if (!destinationOverlaps(self.surface_storage.render_px, dest_x, dest_y, width_px, height_px)) continue;
 
+                const upload_start_ns = monotonicNs();
                 const upload_range = try self.stagePreparedUploadBytes(
                     sprite,
                     bounds,
                     width_px,
                     height_px,
                 );
+                sprite_totals.stage_upload_ns += monotonicNs() -| upload_start_ns;
                 if (sprite.color_mode == .alpha) {
+                    sprite_totals.alpha_sprite_count += 1;
+                    const atlas_start_ns = monotonicNs();
                     const atlas = try resources.atlasRegionFor(
                         sprite,
                         width_px,
                         height_px,
                         self.upload_bytes[upload_range.start..upload_range.end],
                     );
+                    sprite_totals.atlas_resource_ns += monotonicNs() -| atlas_start_ns;
                     if (atlas.created) try self.appendGlyphAtlasCreate(atlas.resource);
                     if (atlas.uploaded) try self.appendPreparedAtlasUpload(
                         atlas.resource,
@@ -305,12 +434,14 @@ pub fn Emitter(comptime limits: Limits) type {
                     });
                     continue;
                 }
+                const resource_start_ns = monotonicNs();
                 const result = try resources.resourceFor(
                     sprite,
                     width_px,
                     height_px,
                     self.upload_bytes[upload_range.start..upload_range.end],
                 );
+                sprite_totals.direct_resource_ns += monotonicNs() -| resource_start_ns;
                 switch (result.lifetime) {
                     .persistent, .transient => {
                         try self.appendPreparedCreate(result.resource, sprite, width_px, height_px);
