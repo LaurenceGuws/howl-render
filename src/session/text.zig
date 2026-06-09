@@ -53,6 +53,12 @@ const DebugPrepareTiming = struct {
     session_preparer_us_total: u64 = 0,
     session_prepare_cells_us_total: u64 = 0,
     direct_normal_us_total: u64 = 0,
+    direct_normal_scan_us_total: u64 = 0,
+    direct_normal_backgrounds_us_total: u64 = 0,
+    direct_normal_clears_us_total: u64 = 0,
+    direct_normal_decorations_us_total: u64 = 0,
+    direct_normal_cursor_us_total: u64 = 0,
+    direct_normal_raster_us_total: u64 = 0,
     owner_create_ns_total: u64 = 0,
     owner_create_ns_max: u64 = 0,
 
@@ -73,11 +79,17 @@ const DebugPrepareTiming = struct {
         self.session_preparer_us_total += timings.session_preparer_us;
         self.session_prepare_cells_us_total += timings.session_prepare_cells_us;
         self.direct_normal_us_total += timings.direct_normal_us;
+        self.direct_normal_scan_us_total += timings.direct_normal_scan_us;
+        self.direct_normal_backgrounds_us_total += timings.direct_normal_backgrounds_us;
+        self.direct_normal_clears_us_total += timings.direct_normal_clears_us;
+        self.direct_normal_decorations_us_total += timings.direct_normal_decorations_us;
+        self.direct_normal_cursor_us_total += timings.direct_normal_cursor_us;
+        self.direct_normal_raster_us_total += timings.direct_normal_raster_us;
         self.owner_create_ns_total += owner_create_ns;
         self.owner_create_ns_max = @max(self.owner_create_ns_max, owner_create_ns);
         if (self.count % 128 != 0) return;
         std.debug.print(
-            "howl-render-debug prepare_handle count={} prepare_surface_avg_us={} prepare_surface_max_us={} input_avg_us={} session_preparer_avg_us={} session_prepare_cells_avg_us={} direct_normal_avg_us={} owner_create_avg_us={} owner_create_max_us={}\n",
+            "howl-render-debug prepare_handle count={} prepare_surface_avg_us={} prepare_surface_max_us={} input_avg_us={} session_preparer_avg_us={} session_prepare_cells_avg_us={} direct_normal_avg_us={} direct_normal_scan_avg_us={} direct_normal_backgrounds_avg_us={} direct_normal_clears_avg_us={} direct_normal_decorations_avg_us={} direct_normal_cursor_avg_us={} direct_normal_raster_avg_us={} owner_create_avg_us={} owner_create_max_us={}\n",
             .{
                 self.count,
                 self.prepare_surface_ns_total / self.count / std.time.ns_per_us,
@@ -86,6 +98,12 @@ const DebugPrepareTiming = struct {
                 self.session_preparer_us_total / self.count,
                 self.session_prepare_cells_us_total / self.count,
                 self.direct_normal_us_total / self.count,
+                self.direct_normal_scan_us_total / self.count,
+                self.direct_normal_backgrounds_us_total / self.count,
+                self.direct_normal_clears_us_total / self.count,
+                self.direct_normal_decorations_us_total / self.count,
+                self.direct_normal_cursor_us_total / self.count,
+                self.direct_normal_raster_us_total / self.count,
                 self.owner_create_ns_total / self.count / std.time.ns_per_us,
                 self.owner_create_ns_max / std.time.ns_per_us,
             },
