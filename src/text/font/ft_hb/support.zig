@@ -50,6 +50,9 @@ pub const FtHbSupport = struct {
     shape_input_codepoints: []u32 = &.{},
     shape_input_cluster_map: []u32 = &.{},
     max_shape_input_codepoints: u32 = 0,
+    cached_cell_metrics: contract.CellMetrics = undefined,
+    cached_cell_metrics_font_px: u16 = 0,
+    cached_cell_metrics_valid: bool = false,
     fallback_font_paths: [max_fallback_fonts]?[:0]const u8 = [_]?[:0]const u8{null} ** max_fallback_fonts,
     fallback_font_paths_len: u8 = 0,
 
@@ -430,6 +433,7 @@ pub fn resetLoadedFace(self: anytype) void {
     const state = textState(self);
     lockFt(self);
     defer unlockFt(self);
+    state.cached_cell_metrics_valid = false;
     resetFallbackFaces(self);
     if (state.ft_face != null) {
         c_api.destroyHbFont(state.hb_font);
@@ -447,6 +451,7 @@ pub fn resizeLoadedFaces(self: anytype) void {
     const state = textState(self);
     lockFt(self);
     defer unlockFt(self);
+    state.cached_cell_metrics_valid = false;
     if (state.ft_face) |face| _ = setFacePixelHeight(self, face);
     for (state.fallback_faces) |face_opt| {
         if (face_opt) |face| _ = setFacePixelHeight(self, face);
@@ -479,26 +484,36 @@ pub fn ensureFallbackFace(self: anytype, fallback_index: FallbackFontCount) ?FtF
 
 pub fn deriveCellMetrics(self: anytype) contract.CellMetrics {
     const state = textState(self);
-    if (ensurePrimaryFont(self)) {
+    const font_size_px = configView(self).font_size_px;
+    if (state.cached_cell_metrics_valid and state.cached_cell_metrics_font_px == font_size_px) {
+        return state.cached_cell_metrics;
+    }
+    const metrics = blk: {
+        if (ensurePrimaryFont(self)) {
+            lockFt(self);
+            defer unlockFt(self);
+            break :blk cellMetricsFromFace(state.ft_face.?, font_size_px);
+        }
         lockFt(self);
         defer unlockFt(self);
-        return cellMetricsFromFace(state.ft_face.?, configView(self).font_size_px);
-    }
-    lockFt(self);
-    defer unlockFt(self);
-    if (ensureFreeTypeLibraryLocked(self)) {
-        const lib = state.ft_lib.?;
-        var i: FallbackFontCount = 0;
-        while (i < state.fallback_font_paths_len) : (i += 1) {
-            const font_path = state.fallback_font_paths[i] orelse continue;
-            var face: FtFace = undefined;
-            if (c.FT_New_Face(lib, font_path.ptr, 0, &face) != 0) continue;
-            defer _ = c.FT_Done_Face(face);
-            if (!setFacePixelHeight(self, face)) continue;
-            return cellMetricsFromFace(face, configView(self).font_size_px);
+        if (ensureFreeTypeLibraryLocked(self)) {
+            const lib = state.ft_lib.?;
+            var i: FallbackFontCount = 0;
+            while (i < state.fallback_font_paths_len) : (i += 1) {
+                const font_path = state.fallback_font_paths[i] orelse continue;
+                var face: FtFace = undefined;
+                if (c.FT_New_Face(lib, font_path.ptr, 0, &face) != 0) continue;
+                defer _ = c.FT_Done_Face(face);
+                if (!setFacePixelHeight(self, face)) continue;
+                break :blk cellMetricsFromFace(face, font_size_px);
+            }
         }
-    }
-    return defaultCellMetrics(configView(self).font_size_px);
+        break :blk defaultCellMetrics(font_size_px);
+    };
+    state.cached_cell_metrics = metrics;
+    state.cached_cell_metrics_font_px = font_size_px;
+    state.cached_cell_metrics_valid = true;
+    return metrics;
 }
 
 pub fn configuredCellMetrics(self: anytype) contract.CellMetrics {
