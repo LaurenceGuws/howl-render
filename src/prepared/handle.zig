@@ -67,6 +67,7 @@ pub const PreparedHandle = struct {
     prepared: prepared_surface.PreparedSurface,
     render_surface_payload: ?*RenderSurfacePayload = null,
     state: State = .prepared,
+    registered: bool = false,
 
     pub fn create(session_owner: *text_session.TextSessionOwner, value: *prepared_surface.PreparedSurface) !*PreparedHandle {
         const alloc_start_ns = monotonicNs();
@@ -81,6 +82,7 @@ pub const PreparedHandle = struct {
         errdefer prepared_handle.destroy();
         const register_start_ns = monotonicNs();
         try session_owner.registerPreparedHandle(prepared_handle);
+        prepared_handle.registered = true;
         const register_ns = monotonicNs() -| register_start_ns;
         const emit_start_ns = monotonicNs();
         prepared_handle.emitRenderSurfacePayload() catch |err| {
@@ -99,6 +101,8 @@ pub const PreparedHandle = struct {
     }
 
     pub fn destroy(self: *PreparedHandle) void {
+        if (self == &destroyed_prepared_handle_sentinel) return;
+        self.detachFromSessionTracking();
         self.deinitPayload();
         self.session_owner.allocator.destroy(self);
     }
@@ -165,6 +169,18 @@ pub const PreparedHandle = struct {
         self.freeRenderSurfacePayload();
     }
 
+    fn detachFromSessionTracking(self: *PreparedHandle) void {
+        if (!self.registered) return;
+        self.session_owner.clearCachedPreparedHandle(self);
+        for (self.session_owner.prepared_handles.items, 0..) |prepared, index| {
+            if (prepared != self) continue;
+            self.session_owner.prepared_handles.items[index] = &destroyed_prepared_handle_sentinel;
+            self.registered = false;
+            return;
+        }
+        std.debug.panic("prepared handle registration missing during destroy", .{});
+    }
+
     fn emitRenderSurfacePayload(self: *PreparedHandle) !void {
         std.debug.assert(self.render_surface_payload == null);
         const payload = try self.session_owner.allocator.create(RenderSurfacePayload);
@@ -184,6 +200,8 @@ pub const PreparedHandle = struct {
         self.session_owner.allocator.destroy(payload);
     }
 };
+
+var destroyed_prepared_handle_sentinel: PreparedHandle = undefined;
 
 fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedSurface {
     return .{
