@@ -11,8 +11,6 @@ const InjectedTestFontPaths = struct {
 };
 
 fn injectedTestFontPaths() !InjectedTestFontPaths {
-    if (test_font_options.primary_path.len == 0) return error.SkipZigTest;
-    if (test_font_options.symbol_path.len == 0) return error.SkipZigTest;
     return .{
         .primary_path = test_font_options.primary_path,
         .symbol_path = test_font_options.symbol_path,
