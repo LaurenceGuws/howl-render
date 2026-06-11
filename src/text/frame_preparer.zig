@@ -294,7 +294,7 @@ pub const TextFramePreparer = struct {
         errdefer raster_plan.deinit();
         const complex_sprite_cache_hits = text_scene.scene.sprite_draws.len - text_scene.scene.raster_requests.len;
 
-        const merged = try self.mergePreparedScene(final_prepared.direct, &text_scene, &raster_plan);
+        const merged = try self.mergePreparedScene(final_prepared.direct, final_prepared.renderable.cells, grid_metrics, session.metrics, options.scene.cursor, &text_scene, &raster_plan);
         final_prepared.direct.outputs = &.{};
         final_prepared.direct.outputs_owned = false;
 
@@ -321,10 +321,25 @@ pub const TextFramePreparer = struct {
         };
     }
 
-    fn mergePreparedScene(self: *TextFramePreparer, direct: direct_normal.Product, text_scene: *scene.BorrowedTextScene, raster_plan: *rasterizer.OwnedRasterPlan) !PreparedSceneMerge {
-        const merged_clear_draws = try cloneSlice(contract.TextClearDraw, self.allocator, self.direct_normal.clear_draws.items);
+    fn mergePreparedScene(
+        self: *TextFramePreparer,
+        direct: direct_normal.Product,
+        cells: []const contract.RenderableCell,
+        grid_metrics: contract.GridMetrics,
+        cell_metrics: contract.CellMetrics,
+        cursor: ?scene.CursorInput,
+        text_scene: *scene.BorrowedTextScene,
+        raster_plan: *rasterizer.OwnedRasterPlan,
+    ) !PreparedSceneMerge {
+        const damage: scene.NormalizedDamage = .{
+            .full = direct.damage.full,
+            .dirty_rows = direct.damage.dirty_rows,
+            .dirty_cols_start = direct.damage.dirty_cols_start,
+            .dirty_cols_end = direct.damage.dirty_cols_end,
+        };
+        const merged_clear_draws = try buildClearDraws(self.allocator, cells, cell_metrics, grid_metrics, damage);
         errdefer self.allocator.free(merged_clear_draws);
-        const merged_cursor_draws = try cloneSlice(contract.TextCursorDraw, self.allocator, self.direct_normal.cursor_draws.items);
+        const merged_cursor_draws = try buildCursorDraws(self.allocator, cursor, cell_metrics, damage);
         errdefer self.allocator.free(merged_cursor_draws);
         const merged_background_draws = try mergeFirstCellSlices(contract.TextBackgroundDraw, self.allocator, self.direct_normal.background_draws.items, text_scene.scene.background_draws);
         errdefer self.allocator.free(merged_background_draws);
@@ -578,7 +593,38 @@ fn mergeFirstCellSlices(comptime T: type, allocator: std.mem.Allocator, lhs: []c
         out[@intCast(oi)] = rhs[@intCast(ri)];
         oi += 1;
     }
+    assertSortedByFirstCell(T, out);
     return out;
+}
+
+fn buildClearDraws(
+    allocator: std.mem.Allocator,
+    cells: []const contract.RenderableCell,
+    cell_metrics: contract.CellMetrics,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.NormalizedDamage,
+) ![]contract.TextClearDraw {
+    var draws = std.ArrayListUnmanaged(contract.TextClearDraw){};
+    defer draws.deinit(allocator);
+    try draws.ensureTotalCapacity(allocator, grid_metrics.rows);
+    scene.appendClearDrawsUnmanaged(&draws, cells, cell_metrics, grid_metrics, damage);
+    return draws.toOwnedSlice(allocator);
+}
+
+fn buildCursorDraws(allocator: std.mem.Allocator, cursor: ?scene.CursorInput, cell_metrics: contract.CellMetrics, damage: scene.NormalizedDamage) ![]contract.TextCursorDraw {
+    var draws = std.ArrayListUnmanaged(contract.TextCursorDraw){};
+    defer draws.deinit(allocator);
+    try draws.ensureTotalCapacity(allocator, 4);
+    scene.appendCursorDrawsUnmanaged(&draws, cursor, damage, cell_metrics);
+    return draws.toOwnedSlice(allocator);
+}
+
+fn assertSortedByFirstCell(comptime T: type, items: []const T) void {
+    if (items.len <= 1) return;
+    var index: usize = 1;
+    while (index < items.len) : (index += 1) {
+        std.debug.assert(@field(items[index - 1], "first_cell") <= @field(items[index], "first_cell"));
+    }
 }
 
 fn mergeRasterPlans(

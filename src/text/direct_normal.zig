@@ -128,7 +128,7 @@ pub fn prepare(
     direct_scene.appendBackgrounds(&driver.scratch.background_draws, driver.scratch.renderable.items, session.metrics, grid_metrics, damage);
     timings.backgrounds_us = elapsedUs(backgrounds_start_ns);
     const clears_start_ns = monotonicNs();
-    direct_scene.appendClears(&driver.scratch.clear_draws, session.metrics, grid_metrics, damage);
+    direct_scene.appendClears(&driver.scratch.clear_draws, driver.scratch.renderable.items, session.metrics, grid_metrics, damage);
     timings.clears_us = elapsedUs(clears_start_ns);
     const decorations_start_ns = monotonicNs();
     direct_scene.appendDecorations(&driver.scratch.decoration_draws, driver.scratch.renderable.items, session.metrics, grid_metrics, damage);
