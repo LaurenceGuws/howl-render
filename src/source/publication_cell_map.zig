@@ -44,6 +44,8 @@ pub fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contrac
         .combining = src.combining,
         .style = mapFontStyle(src.attrs.bold != 0, src.attrs.italic != 0),
         .presentation = detectCellPresentation(@intCast(src.codepoint), src.combining_len, src.combining),
+        .dim = src.attrs.dim != 0,
+        .invisible = src.attrs.invisible != 0,
         .semantic_fg = semantic_fg,
         .semantic_bg = semantic_bg,
         .fg = publicationColorToTextSceneRgba8(src.fg_color, true, t),
@@ -59,9 +61,7 @@ pub fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contrac
     };
     assertSemanticEmptyClassification(truth, t, out.bg, out.empty);
     if (src.attrs.inverse != 0) applyInverseStyle(&out, t, truth);
-    if (src.attrs.dim != 0) applyDimStyle(&out);
     if (src.attrs.selected != 0) applySelectionStyle(&out, t, truth);
-    if (src.attrs.invisible != 0) applyInvisibleStyle(&out);
     return out;
 }
 
@@ -171,16 +171,6 @@ fn publicationUnderlineStyle(value: u8) contract.UnderlineStyle {
         4 => .dashed,
         else => .straight,
     };
-}
-
-fn applyDimStyle(cell: *contract.CellInput) void {
-    cell.fg.r = @intCast(@as(u16, cell.fg.r) / 2);
-    cell.fg.g = @intCast(@as(u16, cell.fg.g) / 2);
-    cell.fg.b = @intCast(@as(u16, cell.fg.b) / 2);
-}
-
-fn applyInvisibleStyle(cell: *contract.CellInput) void {
-    cell.fg = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
 }
 
 fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) contract.TextPresentation {

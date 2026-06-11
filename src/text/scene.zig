@@ -18,6 +18,9 @@ pub const CursorShape = enum {
     hollow_block,
 };
 
+const kitty_dim_opacity_numerator: u16 = 2;
+const kitty_dim_opacity_denominator: u16 = 5;
+
 const CursorDrawCount = u3;
 
 pub const CursorInput = struct {
@@ -677,7 +680,7 @@ fn appendGroupSpriteDraws(
             .width_px = @intCast(@as(u32, width_cells) * @as(u32, cell_metrics.cell_w_px)),
             .height_px = cell_metrics.cell_h_px,
             .placement = group.placement,
-            .color = foregroundForGroup(cells, group.first_cell),
+            .color = spriteColorForGroup(cells, group.first_cell),
             .first_cell = group.first_cell,
             .cell_span = scene_group.cell_span,
         });
@@ -828,7 +831,7 @@ pub fn appendDecorationDrawsUnmanaged(
             .y_px = base_y + deco.strikethrough_y_px,
             .width_px = width_px,
             .height_px = deco.strikethrough_h_px,
-            .color = cell.fg,
+            .color = spriteDrawColor(cell),
             .first_cell = cell.first_cell,
             .cell_span = cell.cell_span,
         });
@@ -985,7 +988,7 @@ fn appendDecorationEffect(
             .y_px = base_y + deco.strikethrough_y_px,
             .width_px = width_px,
             .height_px = deco.strikethrough_h_px,
-            .color = cell.fg,
+            .color = spriteDrawColor(cell),
             .first_cell = cell.first_cell,
             .cell_span = cell.cell_span,
         }),
@@ -1013,7 +1016,7 @@ fn appendUnderlineDrawsUnmanaged(
     width: u16,
     deco: contract.DecorationGeometry,
 ) void {
-    const color = if (cell.underline_color.a == 0) cell.fg else cell.underline_color;
+    const color = underlineDrawColor(cell);
     const y = row_y + deco.underline_y_px;
     const height = deco.underline_h_px;
     if (underlineSteppedCadence(width, height, cell.underline_style)) |cadence| {
@@ -1067,7 +1070,7 @@ fn appendUnderlineDraws(
     deco: contract.DecorationGeometry,
     cell_metrics: contract.CellMetrics,
 ) !void {
-    const color = if (cell.underline_color.a == 0) cell.fg else cell.underline_color;
+    const color = underlineDrawColor(cell);
     const y = row_y + deco.underline_y_px;
     const height = deco.underline_h_px;
     if (underlineSteppedCadence(width, height, cell.underline_style)) |cadence| {
@@ -1128,9 +1131,29 @@ fn saturatingSub(a: u16, b: u16) u16 {
     return if (a > b) a - b else 0;
 }
 
-fn foregroundForGroup(cells: []const contract.RenderableCell, first_cell: u32) contract.Rgba8 {
-    if (findCellByFirstCell(cells, first_cell)) |cell| return cell.fg;
+pub fn spriteDrawColor(cell: contract.RenderableCell) contract.Rgba8 {
+    return textStyleColor(cell.fg, cell.dim, cell.invisible);
+}
+
+fn underlineDrawColor(cell: contract.RenderableCell) contract.Rgba8 {
+    const base = if (cell.underline_color.a == 0) cell.fg else cell.underline_color;
+    return textStyleColor(base, cell.dim, cell.invisible);
+}
+
+fn spriteColorForGroup(cells: []const contract.RenderableCell, first_cell: u32) contract.Rgba8 {
+    if (findCellByFirstCell(cells, first_cell)) |cell| return spriteDrawColor(cell);
     return .{ .r = 255, .g = 255, .b = 255, .a = 255 };
+}
+
+fn textStyleColor(color: contract.Rgba8, dim: bool, invisible: bool) contract.Rgba8 {
+    if (invisible) return .{ .r = color.r, .g = color.g, .b = color.b, .a = 0 };
+    if (!dim) return color;
+    return .{
+        .r = color.r,
+        .g = color.g,
+        .b = color.b,
+        .a = @intCast((@as(u16, color.a) * kitty_dim_opacity_numerator) / kitty_dim_opacity_denominator),
+    };
 }
 
 fn findCellByFirstCell(cells: []const contract.RenderableCell, first_cell: u32) ?contract.RenderableCell {
@@ -1715,6 +1738,38 @@ test "borrowed scene reuses retained draw list storage" {
     try std.testing.expectEqual(background_ptr, second.scene.background_draws.ptr);
     try std.testing.expectEqual(decoration_ptr, second.scene.decoration_draws.ptr);
     try std.testing.expectEqual(cursor_ptr, second.scene.cursor_draws.ptr);
+}
+
+test "text scene applies kitty dim opacity at render-time for sprite draws" {
+    const dim_fg = contract.Rgba8{ .r = 100, .g = 150, .b = 200, .a = 255 };
+    const transparent_bg = contract.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
+    const groups = [_]contract.GlyphGroup{
+        .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 1 }, .kind = .normal },
+    };
+    const cells = [_]contract.RenderableCell{
+        .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .dim = true, .fg = dim_fg, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
+        .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .invisible = true, .fg = .{ .r = 7, .g = 8, .b = 9, .a = 255 }, .bg = transparent_bg },
+    };
+
+    var owned = try buildSceneWithOptions(
+        std.testing.allocator,
+        &cells,
+        &groups,
+        &.{},
+        .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
+        .{ .cols = 2, .rows = 1 },
+        .{ .damage = .{ .full = false, .dirty_rows = &[_]bool{true}, .dirty_cols_start = &[_]u16{0}, .dirty_cols_end = &[_]u16{1} } },
+    );
+    defer owned.deinit();
+
+    try std.testing.expectEqual(@as(u8, dim_fg.r), owned.scene.sprite_draws[0].color.r);
+    try std.testing.expectEqual(@as(u8, dim_fg.g), owned.scene.sprite_draws[0].color.g);
+    try std.testing.expectEqual(@as(u8, dim_fg.b), owned.scene.sprite_draws[0].color.b);
+    try std.testing.expectEqual(@as(u8, 102), owned.scene.sprite_draws[0].color.a);
+    try std.testing.expectEqual(transparent_bg.r, owned.scene.clear_draws[0].color.r);
+    try std.testing.expectEqual(transparent_bg.g, owned.scene.clear_draws[0].color.g);
+    try std.testing.expectEqual(transparent_bg.b, owned.scene.clear_draws[0].color.b);
+    try std.testing.expectEqual(@as(u8, 255), owned.scene.clear_draws[0].color.a);
 }
 
 fn defaultFontMetrics(cell_metrics: contract.CellMetrics) contract.FontMetrics {

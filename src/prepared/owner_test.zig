@@ -123,13 +123,13 @@ test "prepared handle testing validates realized uploads and host surface dimens
     }));
 }
 
-test "render surface prepared owner surface equals explicit rgba oracle" {
+test "render surface prepared owner surface equals kitty dim rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
-    var sprite_bytes = [_]u8{ 255, 128 };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(21, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
+    var sprite_bytes = [_]u8{ 255, 255 };
+    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(21, 0, 0, 2, 1, rgba(255, 0, 0, 102))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 21, 2, 1, .alpha, &sprite_bytes, .{})};
     var prepared = preparedSurface(.{
         .sprite_draws = &sprite_draws,

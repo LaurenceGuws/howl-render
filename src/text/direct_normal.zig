@@ -280,7 +280,7 @@ fn appendRenderable(
         .width_px = @intCast(@as(u32, span) * @as(u32, session.metrics.cell_w_px)),
         .height_px = session.metrics.cell_h_px,
         .placement = .{ .advance_px = @max(lookup.advance_px, @as(f32, @floatFromInt(@as(u32, span) * @as(u32, session.metrics.cell_w_px)))) },
-        .color = renderable.fg,
+        .color = scene.spriteDrawColor(renderable),
         .first_cell = renderable.first_cell,
         .cell_span = span,
     });

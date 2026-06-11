@@ -162,29 +162,6 @@ fn mapFontStyle(bold: bool, italic: bool) contract.FontStyle {
     return .regular;
 }
 
-fn dimColor(color: contract.Rgba8) contract.Rgba8 {
-    return .{
-        .r = @intCast(@as(u16, color.r) * 66 / 100),
-        .g = @intCast(@as(u16, color.g) * 66 / 100),
-        .b = @intCast(@as(u16, color.b) * 66 / 100),
-        .a = color.a,
-    };
-}
-
-fn applyDimStyle(cell: *contract.CellInput) void {
-    cell.fg = dimColor(cell.fg);
-    if (cell.underline_color.a != 0) cell.underline_color = dimColor(cell.underline_color);
-}
-
-fn applyInvisibleStyle(cell: *contract.CellInput) void {
-    cell.codepoint = ' ';
-    cell.combining_len = 0;
-    cell.combining = [_]u32{0} ** 3;
-    cell.underline = false;
-    cell.underline_color = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
-    cell.strikethrough = false;
-}
-
 fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) contract.TextPresentation {
     _ = codepoint;
     std.debug.assert(combining_len <= combining.len);
@@ -210,6 +187,8 @@ fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
         .combining = src.combining,
         .style = mapFontStyle(src.attrs.bold, src.attrs.italic),
         .presentation = detectCellPresentation(src.codepoint, src.combining_len, src.combining),
+        .dim = src.attrs.dim,
+        .invisible = src.attrs.invisible,
         .semantic_fg = semantic_fg,
         .semantic_bg = semantic_bg,
         .fg = colorToTextSceneRgba8(src.fg_color, true, t),
@@ -225,9 +204,7 @@ fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
     };
     publication_cell_map.assertSemanticEmptyClassification(truth, t, out.bg, out.empty);
     if (src.attrs.inverse) publication_cell_map.applyInverseStyle(&out, t, truth);
-    if (src.attrs.dim) applyDimStyle(&out);
     if (src.attrs.selected) publication_cell_map.applySelectionStyle(&out, t, truth);
-    if (src.attrs.invisible) applyInvisibleStyle(&out);
     return out;
 }
 
@@ -774,18 +751,22 @@ test "source text input maps publication style attrs dim and invisible" {
     }, false);
 
     try std.testing.expectEqual(contract.FontStyle.italic, mapped.cells[0].style);
+    try std.testing.expect(mapped.cells[0].dim);
+    try std.testing.expect(!mapped.cells[0].invisible);
     try std.testing.expect(mapped.cells[0].strikethrough);
-    try std.testing.expectEqual(@as(u8, 66), mapped.cells[0].fg.r);
-    try std.testing.expectEqual(@as(u8, 99), mapped.cells[0].fg.g);
-    try std.testing.expectEqual(@as(u8, 132), mapped.cells[0].fg.b);
+    try std.testing.expectEqual(@as(u8, 100), mapped.cells[0].fg.r);
+    try std.testing.expectEqual(@as(u8, 150), mapped.cells[0].fg.g);
+    try std.testing.expectEqual(@as(u8, 200), mapped.cells[0].fg.b);
     try std.testing.expectEqual(@as(u8, 255), mapped.cells[0].fg.a);
-    try std.testing.expectEqual(@as(u8, 33), mapped.cells[0].underline_color.r);
+    try std.testing.expectEqual(@as(u8, 50), mapped.cells[0].underline_color.r);
 
-    try std.testing.expectEqual(@as(u21, ' '), mapped.cells[1].codepoint);
-    try std.testing.expectEqual(@as(u8, 0), mapped.cells[1].combining_len);
-    try std.testing.expectEqual(@as(u32, 0), mapped.cells[1].combining[0]);
-    try std.testing.expectEqual(false, mapped.cells[1].underline);
-    try std.testing.expectEqual(false, mapped.cells[1].strikethrough);
+    try std.testing.expect(!mapped.cells[1].dim);
+    try std.testing.expect(mapped.cells[1].invisible);
+    try std.testing.expectEqual(@as(u21, 'H'), mapped.cells[1].codepoint);
+    try std.testing.expectEqual(@as(u8, 2), mapped.cells[1].combining_len);
+    try std.testing.expectEqual(@as(u32, 0x0300), mapped.cells[1].combining[0]);
+    try std.testing.expect(mapped.cells[1].underline);
+    try std.testing.expect(mapped.cells[1].strikethrough);
     try std.testing.expectEqual(@as(u8, 0x11), mapped.cells[1].bg.r);
     try std.testing.expectEqual(@as(u8, 0x22), mapped.cells[1].bg.g);
     try std.testing.expectEqual(@as(u8, 0x33), mapped.cells[1].bg.b);

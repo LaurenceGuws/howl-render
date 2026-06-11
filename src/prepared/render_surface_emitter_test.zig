@@ -280,7 +280,7 @@ test "render surface surface emitter realizes fill pass order equal to oracle" {
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 
-test "render surface surface emitter realizes alpha sprite equal to oracle" {
+test "render surface surface emitter realizes kitty dim alpha sprite equal to full rgba oracle" {
     const limits = Limits{
         .creates_max = 1,
         .uploads_max = 1,
@@ -288,10 +288,10 @@ test "render surface surface emitter realizes alpha sprite equal to oracle" {
         .retires_max = 1,
         .upload_bytes_max = 2,
     };
-    const sprite_bytes = [_]u8{ 255, 128 };
+    const sprite_bytes = [_]u8{ 255, 255 };
     const sprites = [_]Sprite{.{
         .rect = rect(0, 0, 2, 1),
-        .color_rgba = 0xff000080,
+        .color_rgba = 0xff000066,
         .bytes = &sprite_bytes,
         .width_px = 2,
         .height_px = 1,
@@ -303,7 +303,7 @@ test "render surface surface emitter realizes alpha sprite equal to oracle" {
         .render_px = .{ .width = 2, .height = 1 },
         .sprites = &sprites,
     }, &pixels);
-    const oracle = [_]u8{ 128, 0, 0, 255, 64, 0, 0, 255 };
+    const oracle = [_]u8{ 102, 0, 0, 255, 102, 0, 0, 255 };
     try std.testing.expectEqualSlices(u8, &oracle, &pixels);
 }
 

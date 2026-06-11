@@ -677,6 +677,8 @@ fn renderableFromCellInput(text_id: contract.CellTextId, first_cell: u32, cell_s
         cell_span,
         cell.style,
         cell.presentation,
+        cell.dim,
+        cell.invisible,
         cell.semantic_fg,
         cell.semantic_bg,
         cell.fg,
@@ -704,6 +706,8 @@ fn renderableFromInput(text_id: contract.CellTextId, first_cell: u32, cell_span:
         cell_span,
         input.style,
         presentation,
+        false,
+        false,
         input.semantic_fg,
         input.semantic_bg,
         input.fg,
@@ -718,13 +722,15 @@ fn renderableFromInput(text_id: contract.CellTextId, first_cell: u32, cell_span:
     );
 }
 
-fn renderableCell(text_id: contract.CellTextId, first_cell: u32, cell_span: u8, style: contract.FontStyle, presentation: contract.TextPresentation, semantic_fg: contract.SemanticColor, semantic_bg: contract.SemanticColor, fg: contract.Rgba8, bg: contract.Rgba8, underline_color_set: bool, semantic_underline_color: contract.SemanticColor, underline_color: contract.Rgba8, underline_style: contract.UnderlineStyle, underline: bool, strikethrough: bool, continuation: bool) contract.RenderableCell {
+fn renderableCell(text_id: contract.CellTextId, first_cell: u32, cell_span: u8, style: contract.FontStyle, presentation: contract.TextPresentation, dim: bool, invisible: bool, semantic_fg: contract.SemanticColor, semantic_bg: contract.SemanticColor, fg: contract.Rgba8, bg: contract.Rgba8, underline_color_set: bool, semantic_underline_color: contract.SemanticColor, underline_color: contract.Rgba8, underline_style: contract.UnderlineStyle, underline: bool, strikethrough: bool, continuation: bool) contract.RenderableCell {
     return .{
         .text_id = text_id,
         .first_cell = first_cell,
         .cell_span = cell_span,
         .style = style,
         .presentation = presentation,
+        .dim = dim,
+        .invisible = invisible,
         .semantic_fg = semantic_fg,
         .semantic_bg = semantic_bg,
         .fg = fg,
