@@ -117,7 +117,7 @@ pub const TextFramePreparer = struct {
     ) !OwnedPreparedTextFrame {
         var lane_report = lane.LaneReport{};
         var timings = PrepareTimings{};
-        if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings)) |direct| {
+        if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings, null)) |direct| {
             return self.finishNormalOnlyFrame(direct, lane_report, timings);
         }
         const sparse_start_ns = monotonicNs();
@@ -138,7 +138,7 @@ pub const TextFramePreparer = struct {
     ) !OwnedPreparedTextFrame {
         var lane_report = lane.LaneReport{};
         var timings = PrepareTimings{};
-        if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings)) |direct| {
+        if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings, null)) |direct| {
             return self.finishNormalOnlyFrame(direct, lane_report, timings);
         }
         const input_count = count32(inputs);
@@ -162,12 +162,12 @@ pub const TextFramePreparer = struct {
     ) !?OwnedPreparedTextFrame {
         var lane_report = lane.LaneReport{};
         var timings = PrepareTimings{};
-        if (try self.prepareDirectNormal(.{ .publication = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings)) |direct| {
+        var publication_complex_cells: u64 = 0;
+        if (try self.prepareDirectNormal(.{ .publication = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings, &publication_complex_cells)) |direct| {
             return self.finishNormalOnlyFrame(direct, lane_report, timings);
         }
         const cell_count = count32(source.cells);
         try self.ensureClusterScratchCapacity(cell_count, countPublicationCodepoints(source.cells));
-        const publication_complex_cells = countPublicationComplexCells(source.cells, theme, grid_metrics, options.scene.damage);
         // If publication failed direct-normal, it must continue through the shared shaped-scene owner.
         std.debug.assert(publication_complex_cells != 0);
         const sparse_start_ns = monotonicNs();
@@ -229,6 +229,7 @@ pub const TextFramePreparer = struct {
             options,
             &final_lane_report,
             &timings,
+            null,
         )).?;
 
         if (final_lane_report.complex_cells == 0) {
@@ -420,6 +421,7 @@ pub const TextFramePreparer = struct {
         options: PrepareOptions,
         lane_report: *lane.LaneReport,
         timings: *PrepareTimings,
+        rejected_complex_cells: ?*u64,
     ) !?direct_normal.Product {
         const start_ns = monotonicNs();
         const product = try direct_normal.prepare(
@@ -437,6 +439,7 @@ pub const TextFramePreparer = struct {
             options.scene.damage,
             options.scene.cursor,
             lane_report,
+            rejected_complex_cells,
         );
         timings.direct_normal_us += elapsedUs(start_ns);
         if (product) |direct| {
@@ -459,17 +462,6 @@ pub const TextFramePreparer = struct {
     fn countPublicationCodepoints(cells: []const source_vt.SourceCell) u32 {
         var total: u32 = 0;
         for (cells) |cell| total += @as(u32, 1) + cell.combining_len;
-        return total;
-    }
-
-    fn countPublicationComplexCells(cells: []const source_vt.SourceCell, theme: publication_cell_map.FrameTheme, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) u64 {
-        var total: u64 = 0;
-        var idx: u32 = 0;
-        while (idx < count32(cells)) : (idx += 1) {
-            const item = cluster.sourceRenderableTextFromPublication(cells, theme, idx) orelse continue;
-            if (!cluster.includeDamage(grid_metrics, damage, item.renderable)) continue;
-            if (lane.classifyRenderableCell(item.renderable, item.text).lane == .complex) total += 1;
-        }
         return total;
     }
 };
@@ -966,6 +958,62 @@ test "text preparation publication clears use empty default background truth" {
     try std.testing.expectEqual(@as(u8, 255), analysis.scene.scene.background_draws[0].color.a);
 }
 
+test "text preparation publication ascii stays on direct normal path" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    var cells = [_]source_vt.SourceCell{
+        .{
+            .codepoint = 'A',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 0, .value = 0 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
+        .{
+            .codepoint = 'B',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 0, .value = 0 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
+    };
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{1};
+    const source = source_vt.PublicationSource{
+        .cols = 2,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = std.mem.zeroes(source_vt.SourceColors),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+        .retained_storage = true,
+    };
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(source.colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
+}
+
 test "text preparation direct-renders pure normal cell text inputs" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
@@ -1142,6 +1190,65 @@ test "text preparation prepares publication cells through shared full pipeline f
     try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.missing_glyphs);
+}
+
+test "text preparation publication complex rejection falls back once" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    var cells = [_]source_vt.SourceCell{
+        .{
+            .codepoint = 'A',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 0, .value = 0 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
+        .{
+            .codepoint = 0x2716,
+            .combining_len = 1,
+            .combining = .{ 0xFE0F, 0, 0 },
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 0, .value = 0 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
+    };
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{1};
+    const source = source_vt.PublicationSource{
+        .cols = 2,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = std.mem.zeroes(source_vt.SourceColors),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+        .retained_storage = true,
+    };
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(source.colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
 }
 
 test "text preparation uses ft hb source coverage for fallback" {

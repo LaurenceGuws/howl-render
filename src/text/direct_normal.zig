@@ -116,14 +116,25 @@ pub fn prepare(
     damage_input: scene.DamageInput,
     cursor: ?scene.CursorInput,
     lane_report: *lane.LaneReport,
+    rejected_complex_cells_out: ?*u64,
 ) !?Product {
     var timings = Timings{};
     const damage = direct_scene.Damage.init(damage_input, grid_metrics.rows);
     const source_len = sourceLen(source);
+    var rejected_complex_cells: u64 = 0;
     try driver.scratch.reset(driver.allocator, source_len, source_len, grid_metrics.rows);
     const scan_start_ns = monotonicNs();
-    if (!try appendVisible(driver, source, damage, grid_metrics, session, policy, lane_report)) return null;
+    if (!try appendVisible(driver, source, damage, grid_metrics, session, policy, lane_report, &rejected_complex_cells)) {
+        std.debug.assert(policy == .require_all_normal);
+        std.debug.assert(rejected_complex_cells != 0);
+        if (rejected_complex_cells_out) |out| out.* = rejected_complex_cells;
+        assertNoPartialDrawState(driver.scratch);
+        lane_report.assertValid();
+        return null;
+    }
     timings.scan_us = elapsedUs(scan_start_ns);
+    std.debug.assert(rejected_complex_cells == 0);
+    if (rejected_complex_cells_out) |out| out.* = 0;
     const backgrounds_start_ns = monotonicNs();
     direct_scene.appendBackgrounds(&driver.scratch.background_draws, driver.scratch.renderable.items, session.metrics, grid_metrics, damage);
     timings.backgrounds_us = elapsedUs(backgrounds_start_ns);
@@ -162,6 +173,17 @@ const Candidate = struct {
     choice: lane.LaneClass,
 };
 
+const ScratchCheckpoint = struct {
+    renderable_len: usize,
+    missing_len: usize,
+    sprite_draws_len: usize,
+    background_draws_len: usize,
+    clear_draws_len: usize,
+    decoration_draws_len: usize,
+    cursor_draws_len: usize,
+    raster_reqs_len: usize,
+};
+
 fn appendVisible(
     driver: Driver,
     source: Source,
@@ -170,27 +192,42 @@ fn appendVisible(
     session: font_session.FontSession,
     policy: Policy,
     lane_report: *lane.LaneReport,
+    rejected_complex_cells: *u64,
 ) !bool {
-    if (policy == .require_all_normal) {
-        var preflight_idx: u32 = 0;
-        while (preflight_idx < sourceLen(source)) : (preflight_idx += 1) {
-            const candidate = sourceCandidate(source, preflight_idx, damage, grid_metrics) orelse continue;
-            if (candidate.choice.renderableClass() != .normal) {
-                assertNoPartialDrawState(driver.scratch);
-                return false;
-            }
-        }
-    }
+    rejected_complex_cells.* = 0;
+    const lane_report_start = lane_report.*;
+    const scratch_start = checkpointScratch(driver.scratch);
+    var rejecting = false;
 
     var idx: u32 = 0;
     while (idx < sourceLen(source)) : (idx += 1) {
         const candidate = sourceCandidate(source, idx, damage, grid_metrics) orelse continue;
+        if (rejecting) {
+            if (candidate.choice.renderableClass() != .normal) rejected_complex_cells.* += 1;
+            continue;
+        }
         switch (candidateDecision(policy, lane_report, candidate)) {
             .include => try appendRenderable(driver, candidate.item.renderable, candidate.item.text, grid_metrics, session, lane_report),
             .skip => continue,
-            .reject => return false,
+            .reject => {
+                std.debug.assert(policy == .require_all_normal);
+                rejected_complex_cells.* = 1;
+                lane_report.* = lane_report_start;
+                restoreScratch(driver.scratch, scratch_start);
+                std.debug.assert(scratchEmpty(driver.scratch));
+                lane_report.assertValid();
+                rejecting = true;
+            },
         }
     }
+    if (rejecting) {
+        std.debug.assert(rejected_complex_cells.* != 0);
+        std.debug.assert(scratchEmpty(driver.scratch));
+        lane_report.assertValid();
+        return false;
+    }
+    std.debug.assert(rejected_complex_cells.* == 0);
+    lane_report.assertValid();
     return true;
 }
 
@@ -292,6 +329,34 @@ fn appendRenderable(
 }
 
 fn assertNoPartialDrawState(scratch: *const Scratch) void {
+    std.debug.assert(scratchEmpty(scratch));
+}
+
+fn checkpointScratch(scratch: *const Scratch) ScratchCheckpoint {
+    return .{
+        .renderable_len = scratch.renderable.items.len,
+        .missing_len = scratch.missing.items.len,
+        .sprite_draws_len = scratch.sprite_draws.items.len,
+        .background_draws_len = scratch.background_draws.items.len,
+        .clear_draws_len = scratch.clear_draws.items.len,
+        .decoration_draws_len = scratch.decoration_draws.items.len,
+        .cursor_draws_len = scratch.cursor_draws.items.len,
+        .raster_reqs_len = scratch.raster_reqs.items.len,
+    };
+}
+
+fn restoreScratch(scratch: *Scratch, checkpoint: ScratchCheckpoint) void {
+    scratch.renderable.items.len = checkpoint.renderable_len;
+    scratch.missing.items.len = checkpoint.missing_len;
+    scratch.sprite_draws.items.len = checkpoint.sprite_draws_len;
+    scratch.background_draws.items.len = checkpoint.background_draws_len;
+    scratch.clear_draws.items.len = checkpoint.clear_draws_len;
+    scratch.decoration_draws.items.len = checkpoint.decoration_draws_len;
+    scratch.cursor_draws.items.len = checkpoint.cursor_draws_len;
+    scratch.raster_reqs.items.len = checkpoint.raster_reqs_len;
+}
+
+fn scratchEmpty(scratch: *const Scratch) bool {
     std.debug.assert(scratch.renderable.items.len == 0);
     std.debug.assert(scratch.missing.items.len == 0);
     std.debug.assert(scratch.sprite_draws.items.len == 0);
@@ -300,6 +365,7 @@ fn assertNoPartialDrawState(scratch: *const Scratch) void {
     std.debug.assert(scratch.decoration_draws.items.len == 0);
     std.debug.assert(scratch.cursor_draws.items.len == 0);
     std.debug.assert(scratch.raster_reqs.items.len == 0);
+    return true;
 }
 
 fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.LaneReport, timings: Timings) !Product {
