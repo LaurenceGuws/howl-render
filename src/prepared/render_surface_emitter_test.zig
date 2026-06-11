@@ -910,6 +910,56 @@ test "render surface surface emitter persists prepared sprite resource across su
     try std.testing.expectEqualSlices(u8, oracle, realized2);
 }
 
+test "render surface surface emitter reused alpha atlas sprite skips uploads on second emission" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    var sprite_bytes = [_]u8{ 255, 128 };
+    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(32, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 32, 2, 1, .alpha, &sprite_bytes, .{})};
+    const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
+
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try allocator.create(PreparedEmitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+
+    const first_surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    try std.testing.expectEqual(@as(u32, 1), first_surface.uploads.count);
+    try std.testing.expectEqual(@as(u32, 2), emitter.upload_bytes_count);
+
+    const second_surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    try std.testing.expectEqual(@as(u32, 0), second_surface.uploads.count);
+    try std.testing.expectEqual(@as(u32, 0), emitter.upload_bytes_count);
+}
+
+test "render surface surface emitter reused persistent color sprite skips uploads on second emission" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    var sprite_bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(33, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 33, 2, 1, .color, &sprite_bytes, .{})};
+    const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
+
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try allocator.create(PreparedEmitter);
+    defer allocator.destroy(emitter);
+    emitter.* = .{};
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+
+    const first_surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    try std.testing.expectEqual(@as(u32, 1), first_surface.uploads.count);
+    try std.testing.expectEqual(@as(u32, 8), emitter.upload_bytes_count);
+
+    const second_surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    try std.testing.expectEqual(@as(u32, 0), second_surface.uploads.count);
+    try std.testing.expectEqual(@as(u32, 0), emitter.upload_bytes_count);
+}
+
 test "render surface surface emitter allocates distinct monotonic sprite resources" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);

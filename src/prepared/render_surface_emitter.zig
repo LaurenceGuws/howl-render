@@ -532,30 +532,40 @@ pub fn Emitter(comptime limits: Limits) type {
                 };
                 if (!destinationOverlaps(self.surface_storage.render_px, dest_x, dest_y, width_px, height_px)) continue;
 
-                const upload_start_ns = monotonicNs();
-                const upload_range = try self.stagePreparedUploadBytes(
-                    sprite,
-                    bounds,
-                    width_px,
-                    height_px,
-                );
-                sprite_totals.stage_upload_ns += monotonicNs() -| upload_start_ns;
+                const upload_start = self.upload_bytes_count;
                 if (sprite.color_mode == .alpha) {
                     sprite_totals.alpha_sprite_count += 1;
                     const atlas_start_ns = monotonicNs();
-                    const atlas = try resources.atlasRegionFor(
+                    const atlas = try resources.atlasAdmissionForPrepared(
                         sprite,
+                        bounds,
                         width_px,
                         height_px,
-                        self.upload_bytes[upload_range.start..upload_range.end],
                     );
                     sprite_totals.atlas_resource_ns += monotonicNs() -| atlas_start_ns;
                     if (atlas.created) try self.appendGlyphAtlasCreate(atlas.resource);
-                    if (atlas.uploaded) try self.appendPreparedAtlasUpload(
-                        atlas.resource,
-                        atlas.rect,
-                        upload_range,
-                    ) else self.upload_bytes_count = upload_range.start;
+                    if (atlas.uploaded) {
+                        const upload_count_start = self.upload_count;
+                        const upload_start_ns = monotonicNs();
+                        const upload_range = try self.stagePreparedUploadBytes(
+                            sprite,
+                            bounds,
+                            width_px,
+                            height_px,
+                        );
+                        sprite_totals.stage_upload_ns += monotonicNs() -| upload_start_ns;
+                        try self.appendPreparedAtlasUpload(
+                            atlas.resource,
+                            atlas.rect,
+                            upload_range,
+                        );
+                        std.debug.assert(upload_range.start == upload_start);
+                        std.debug.assert(self.upload_count == upload_count_start + 1);
+                        std.debug.assert(self.upload_bytes_count == upload_range.end);
+                    } else {
+                        self.rollbackUploadBytes(upload_start);
+                    }
+                    std.debug.assert(atlas.resource.value != 0);
                     const alpha_append_start_ns = monotonicNs();
                     try self.appendGlyphRef(.{
                         .atlas_resource = atlas.resource,
@@ -569,15 +579,24 @@ pub fn Emitter(comptime limits: Limits) type {
                     continue;
                 }
                 const resource_start_ns = monotonicNs();
-                const result = try resources.resourceFor(
+                const result = try resources.resourceAdmissionForPrepared(
                     sprite,
+                    bounds,
                     width_px,
                     height_px,
-                    self.upload_bytes[upload_range.start..upload_range.end],
                 );
                 sprite_totals.direct_resource_ns += monotonicNs() -| resource_start_ns;
                 switch (result.lifetime) {
                     .persistent, .transient => {
+                        const upload_count_start = self.upload_count;
+                        const upload_start_ns = monotonicNs();
+                        const upload_range = try self.stagePreparedUploadBytes(
+                            sprite,
+                            bounds,
+                            width_px,
+                            height_px,
+                        );
+                        sprite_totals.stage_upload_ns += monotonicNs() -| upload_start_ns;
                         try self.appendPreparedCreate(result.resource, sprite, width_px, height_px);
                         try self.appendPreparedUpload(
                             result.resource,
@@ -586,11 +605,15 @@ pub fn Emitter(comptime limits: Limits) type {
                             height_px,
                             upload_range,
                         );
+                        std.debug.assert(upload_range.start == upload_start);
+                        std.debug.assert(self.upload_count == upload_count_start + 1);
+                        std.debug.assert(self.upload_bytes_count == upload_range.end);
                     },
                     .reused => {
-                        self.upload_bytes_count = upload_range.start;
+                        self.rollbackUploadBytes(upload_start);
                     },
                 }
+                std.debug.assert(result.resource.value != 0);
                 const direct_command_start_ns = monotonicNs();
                 try self.appendCommand(.{
                     .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE,
@@ -703,6 +726,12 @@ pub fn Emitter(comptime limits: Limits) type {
             const range = ByteRange{ .start = self.upload_bytes_count, .end = next_bytes_count };
             self.upload_bytes_count = next_bytes_count;
             return range;
+        }
+
+        fn rollbackUploadBytes(self: *Self, upload_start: u32) void {
+            std.debug.assert(upload_start <= self.upload_bytes_count);
+            self.upload_bytes_count = upload_start;
+            std.debug.assert(self.upload_bytes_count == upload_start);
         }
 
         fn appendCommand(self: *Self, command: c.HowlRenderSurfaceCommand) Error!void {
