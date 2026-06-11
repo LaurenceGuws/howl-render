@@ -165,7 +165,16 @@ pub const TextFramePreparer = struct {
         if (try self.prepareDirectNormal(.{ .publication = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings)) |direct| {
             return self.finishNormalOnlyFrame(direct, lane_report, timings);
         }
-        return null;
+        const cell_count = count32(source.cells);
+        try self.ensureClusterScratchCapacity(cell_count, countPublicationCodepoints(source.cells));
+        const publication_complex_cells = countPublicationComplexCells(source.cells, theme, grid_metrics, options.scene.damage);
+        // If publication failed direct-normal, it must continue through the shared shaped-scene owner.
+        std.debug.assert(publication_complex_cells != 0);
+        const sparse_start_ns = monotonicNs();
+        var sparse = try cluster.buildSparsePublicationCellsWithDamageScratch(self.allocator, &self.cluster_scratch, source.cells, theme, grid_metrics, options.scene.damage);
+        timings.sparse_us = elapsedUs(sparse_start_ns);
+        errdefer sparse.deinit();
+        return try self.preparePreparedTextFrameWithExpectedComplexCells(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings, publication_complex_cells);
     }
 
     fn preparePreparedTextFrame(
@@ -176,6 +185,19 @@ pub const TextFramePreparer = struct {
         session: font_session.FontSession,
         options: PrepareOptions,
         initial_timings: PrepareTimings,
+    ) !OwnedPreparedTextFrame {
+        return self.preparePreparedTextFrameWithExpectedComplexCells(text_cache, renderable, grid_metrics, session, options, initial_timings, null);
+    }
+
+    fn preparePreparedTextFrameWithExpectedComplexCells(
+        self: *TextFramePreparer,
+        text_cache: cluster.OwnedLineTextCache,
+        renderable: cluster.OwnedRenderableCells,
+        grid_metrics: contract.GridMetrics,
+        session: font_session.FontSession,
+        options: PrepareOptions,
+        initial_timings: PrepareTimings,
+        expected_complex_cells: ?u64,
     ) !OwnedPreparedTextFrame {
         var timings = initial_timings;
         var owned_text_cache = text_cache;
@@ -195,6 +217,10 @@ pub const TextFramePreparer = struct {
         errdefer clusters.deinit();
         try self.ensureResolverScratchCapacity(count32(clusters.clusters));
         var final_lane_report = lane.LaneReport.init(owned_text_cache.view(), owned_renderable.cells, clusters.clusters);
+        if (expected_complex_cells) |expected| {
+            std.debug.assert(final_lane_report.complex_cells == expected);
+            std.debug.assert(final_lane_report.complex_cells != 0);
+        }
         const direct = (try self.prepareDirectNormal(
             .{ .prepared = .{ .cells = owned_renderable.cells, .text_cache = owned_text_cache.view() } },
             .skip_complex,
@@ -206,11 +232,14 @@ pub const TextFramePreparer = struct {
         )).?;
 
         if (final_lane_report.complex_cells == 0) {
+            std.debug.assert(expected_complex_cells == null);
             owned_text_cache.deinit();
             clusters.deinit();
             owned_renderable.deinit();
             return self.finishNormalOnlyFrame(direct, final_lane_report, timings);
         }
+
+        if (expected_complex_cells != null) std.debug.assert(final_lane_report.complex_cells != 0);
 
         return self.prepareComplexFrame(
             .{
@@ -426,6 +455,23 @@ pub const TextFramePreparer = struct {
         for (cells) |cell| total += @as(u32, 1) + cell.combining_len;
         return total;
     }
+
+    fn countPublicationCodepoints(cells: []const source_vt.SourceCell) u32 {
+        var total: u32 = 0;
+        for (cells) |cell| total += @as(u32, 1) + cell.combining_len;
+        return total;
+    }
+
+    fn countPublicationComplexCells(cells: []const source_vt.SourceCell, theme: publication_cell_map.FrameTheme, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) u64 {
+        var total: u64 = 0;
+        var idx: u32 = 0;
+        while (idx < count32(cells)) : (idx += 1) {
+            const item = cluster.sourceRenderableTextFromPublication(cells, theme, idx) orelse continue;
+            if (!cluster.includeDamage(grid_metrics, damage, item.renderable)) continue;
+            if (lane.classifyRenderableCell(item.renderable, item.text).lane == .complex) total += 1;
+        }
+        return total;
+    }
 };
 
 const PreparedSceneMerge = struct {
@@ -604,7 +650,7 @@ fn buildClearDraws(
     grid_metrics: contract.GridMetrics,
     damage: scene.NormalizedDamage,
 ) ![]contract.TextClearDraw {
-    var draws = std.ArrayListUnmanaged(contract.TextClearDraw){};
+    var draws: std.ArrayListUnmanaged(contract.TextClearDraw) = .empty;
     defer draws.deinit(allocator);
     try draws.ensureTotalCapacity(allocator, grid_metrics.rows);
     scene.appendClearDrawsUnmanaged(&draws, cells, cell_metrics, grid_metrics, damage);
@@ -612,7 +658,7 @@ fn buildClearDraws(
 }
 
 fn buildCursorDraws(allocator: std.mem.Allocator, cursor: ?scene.CursorInput, cell_metrics: contract.CellMetrics, damage: scene.NormalizedDamage) ![]contract.TextCursorDraw {
-    var draws = std.ArrayListUnmanaged(contract.TextCursorDraw){};
+    var draws: std.ArrayListUnmanaged(contract.TextCursorDraw) = .empty;
     defer draws.deinit(allocator);
     try draws.ensureTotalCapacity(allocator, 4);
     scene.appendCursorDrawsUnmanaged(&draws, cursor, damage, cell_metrics);
@@ -987,6 +1033,108 @@ test "text preparation keeps icon codepoints out of the normal lane" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
+}
+
+test "text preparation prepares mixed publication cells through non-null publication frame" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    var cells = [_]source_vt.SourceCell{
+        .{
+            .codepoint = 'A',
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 0, .value = 0 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
+        .{
+            .codepoint = 'i',
+            .combining_len = 1,
+            .combining = .{ 0x0332, 0, 0 },
+            .flags = .{ .continuation = 0 },
+            .fg_color = .{ .kind = 0, .value = 0 },
+            .bg_color = .{ .kind = 0, .value = 0 },
+            .underline_color = .{ .kind = 0, .value = 0 },
+            .underline_style = 0,
+            .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+            .link_id = 0,
+        },
+    };
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{1};
+    const source = source_vt.PublicationSource{
+        .cols = 2,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = std.mem.zeroes(source_vt.SourceColors),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+        .retained_storage = true,
+    };
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(source.colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
+}
+
+test "text preparation prepares complex publication cells through non-null publication frame" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    var cells = [_]source_vt.SourceCell{.{
+        .codepoint = 0x2716,
+        .combining_len = 1,
+        .combining = .{ 0xFE0F, 0, 0 },
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    }};
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const source = source_vt.PublicationSource{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = std.mem.zeroes(source_vt.SourceColors),
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+        .retained_storage = true,
+    };
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(source.colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
 }
 
 test "text preparation uses ft hb source coverage for fallback" {

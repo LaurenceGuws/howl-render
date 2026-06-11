@@ -325,6 +325,57 @@ pub fn buildSparseCellsWithDamageScratch(
     };
 }
 
+pub fn buildSparsePublicationCellsWithDamageScratch(
+    allocator: std.mem.Allocator,
+    scratch: *RetainedScratch,
+    cells: []const source_vt.SourceCell,
+    theme: publication_cell_map.FrameTheme,
+    grid_metrics: contract.GridMetrics,
+    damage: scene.DamageInput,
+) !SparseCells {
+    const damage_filter = DamageFilter.init(damage, grid_metrics);
+    const total_cells = count32(cells);
+    try scratch.require(total_cells, countPublicationCodepoints(cells));
+
+    var text_count: u32 = 0;
+    var codepoint_count: u32 = 0;
+    var renderable_count: u32 = 0;
+    var cell_idx: u32 = 0;
+    while (cell_idx < total_cells) {
+        if (damage_filter.cleanRowSkip(cell_idx, total_cells)) |next_idx| {
+            cell_idx = next_idx;
+            continue;
+        }
+        const idx = cell_idx;
+        cell_idx += 1;
+        const source_cell_value = cells[@intCast(idx)];
+        if (source_cell_value.flags.continuation != 0) continue;
+        const mapped = publication_cell_map.mapPublicationCellInput(source_cell_value, theme);
+        if (mapped.empty) continue;
+        const first_cell = idx;
+        const span = inferredPublicationCellSpan(cells, first_cell);
+        if (!damage_filter.includeSpan(first_cell, span)) continue;
+        var scratch_codepoints: [4]u32 = undefined;
+        const cps = cellCodepoints(mapped, &scratch_codepoints);
+        const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
+            const next_id = text_count;
+            appendScratchText(scratch, &text_count, &codepoint_count, cps);
+            break :blk contract.CellTextId{ .value = next_id };
+        };
+        scratch.renderable[@intCast(renderable_count)] = renderableFromCellInput(text_id, first_cell, span, mapped, false);
+        renderable_count += 1;
+    }
+
+    const renderable = try allocator.dupe(contract.RenderableCell, scratch.renderable[0..@intCast(renderable_count)]);
+    errdefer allocator.free(renderable);
+    const text_cache = try cloneTextCache(allocator, scratch.texts[0..@intCast(text_count)], scratch.codepoints[0..@intCast(codepoint_count)]);
+    errdefer text_cache.deinit();
+    return .{
+        .text_cache = text_cache,
+        .renderable = .{ .allocator = allocator, .cells = renderable },
+    };
+}
+
 pub fn buildLineTextCacheFromInputs(allocator: std.mem.Allocator, inputs: []const CellTextInput) !OwnedLineTextCache {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
@@ -831,6 +882,12 @@ fn countNormalizedInputCodepoints(inputs: []const CellTextInput) u32 {
 }
 
 fn countCellInputCodepoints(cells: []const contract.CellInput) u32 {
+    var total_codepoints: u32 = 0;
+    for (cells) |cell| total_codepoints += @as(u32, cell.combining_len) + 1;
+    return total_codepoints;
+}
+
+fn countPublicationCodepoints(cells: []const source_vt.SourceCell) u32 {
     var total_codepoints: u32 = 0;
     for (cells) |cell| total_codepoints += @as(u32, cell.combining_len) + 1;
     return total_codepoints;
