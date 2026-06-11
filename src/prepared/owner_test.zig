@@ -153,6 +153,51 @@ test "render surface prepared owner surface equals kitty dim rgba oracle" {
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
+test "prepared handle fresh alpha atlas sprite emits zero uploads on second create" {
+    const allocator = std.testing.allocator;
+    const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    var sprite_bytes = [_]u8{ 255, 128 };
+    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(22, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 22, 2, 1, .alpha, &sprite_bytes, .{})};
+    var first_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
+    var second_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
+
+    const first = try PreparedHandle.create(session_owner, &first_prepared);
+    try std.testing.expectEqual(@as(u32, 1), first.renderSurface().?.uploads.count);
+    const atlas_resource = first.renderSurface().?.commands.ptr[1].glyphs.ptr[0].atlas_resource;
+    try std.testing.expect(atlas_resource.value != 0);
+
+    const second = try PreparedHandle.create(session_owner, &second_prepared);
+    try std.testing.expectEqual(@as(u32, 0), second.renderSurface().?.creates.count);
+    try std.testing.expectEqual(@as(u32, 0), second.renderSurface().?.uploads.count);
+    try std.testing.expectEqual(atlas_resource.value, second.renderSurface().?.commands.ptr[1].glyphs.ptr[0].atlas_resource.value);
+}
+
+test "prepared handle fresh persistent color sprite emits zero uploads on second create" {
+    const allocator = std.testing.allocator;
+    const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    var sprite_bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(23, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 23, 2, 1, .color, &sprite_bytes, .{})};
+    var first_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
+    var second_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
+
+    const first = try PreparedHandle.create(session_owner, &first_prepared);
+    try std.testing.expectEqual(@as(u32, 1), first.renderSurface().?.creates.count);
+    try std.testing.expectEqual(@as(u32, 1), first.renderSurface().?.uploads.count);
+    const resource = first.renderSurface().?.commands.ptr[1].resource;
+    try std.testing.expect(resource.value != 0);
+
+    const second = try PreparedHandle.create(session_owner, &second_prepared);
+    try std.testing.expectEqual(@as(u32, 0), second.renderSurface().?.creates.count);
+    try std.testing.expectEqual(@as(u32, 0), second.renderSurface().?.uploads.count);
+    try std.testing.expectEqual(resource.value, second.renderSurface().?.commands.ptr[1].resource.value);
+}
+
 test "render surface prepared owner partial surface equals explicit base rgba oracle" {
     const allocator = std.testing.allocator;
     const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;

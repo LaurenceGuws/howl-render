@@ -63,6 +63,19 @@ pub const SpriteResourceStore = struct {
         uploaded: bool,
     };
 
+    pub const AdmissionRollback = struct {
+        count: u32,
+        bytes_count: u32,
+        value_next: u64,
+        atlas_resource: ResourceId,
+        atlas_count: u32,
+        atlas_next_x: u16,
+        atlas_next_y: u16,
+        atlas_row_height: u16,
+        last_resource_entry_index: ?u32,
+        last_atlas_entry_index: ?u32,
+    };
+
     const Entry = struct {
         key: contract.SpriteKey,
         bytes_hash: u64,
@@ -90,6 +103,56 @@ pub const SpriteResourceStore = struct {
         const next_value = self.value_next;
         self.* = .{};
         self.value_next = next_value;
+    }
+
+    pub fn admissionRollback(self: *const SpriteResourceStore) AdmissionRollback {
+        std.debug.assert(self.count <= persistent_sprite_resources_max);
+        std.debug.assert(self.bytes_count <= persistent_sprite_resource_bytes_max);
+        std.debug.assert(self.atlas_count <= alpha_atlas_entries_max);
+        if (self.last_resource_entry_index) |index| std.debug.assert(index < self.count);
+        if (self.last_atlas_entry_index) |index| std.debug.assert(index < self.atlas_count);
+        return .{
+            .count = self.count,
+            .bytes_count = self.bytes_count,
+            .value_next = self.value_next,
+            .atlas_resource = self.atlas_resource,
+            .atlas_count = self.atlas_count,
+            .atlas_next_x = self.atlas_next_x,
+            .atlas_next_y = self.atlas_next_y,
+            .atlas_row_height = self.atlas_row_height,
+            .last_resource_entry_index = self.last_resource_entry_index,
+            .last_atlas_entry_index = self.last_atlas_entry_index,
+        };
+    }
+
+    pub fn restoreAdmission(self: *SpriteResourceStore, rollback: AdmissionRollback) void {
+        std.debug.assert(rollback.count <= persistent_sprite_resources_max);
+        std.debug.assert(rollback.bytes_count <= persistent_sprite_resource_bytes_max);
+        std.debug.assert(rollback.atlas_count <= alpha_atlas_entries_max);
+        if (rollback.last_resource_entry_index) |index| std.debug.assert(index < rollback.count);
+        if (rollback.last_atlas_entry_index) |index| std.debug.assert(index < rollback.atlas_count);
+        self.count = rollback.count;
+        self.bytes_count = rollback.bytes_count;
+        self.value_next = rollback.value_next;
+        self.atlas_resource = rollback.atlas_resource;
+        self.atlas_count = rollback.atlas_count;
+        self.atlas_next_x = rollback.atlas_next_x;
+        self.atlas_next_y = rollback.atlas_next_y;
+        self.atlas_row_height = rollback.atlas_row_height;
+        self.last_resource_entry_index = rollback.last_resource_entry_index;
+        self.last_atlas_entry_index = rollback.last_atlas_entry_index;
+        std.debug.assert(self.count == rollback.count);
+        std.debug.assert(self.bytes_count == rollback.bytes_count);
+        std.debug.assert(self.value_next == rollback.value_next);
+        std.debug.assert(self.atlas_resource.value == rollback.atlas_resource.value);
+        std.debug.assert(self.atlas_resource.generation == rollback.atlas_resource.generation);
+        std.debug.assert(self.atlas_resource.kind == rollback.atlas_resource.kind);
+        std.debug.assert(self.atlas_count == rollback.atlas_count);
+        std.debug.assert(self.atlas_next_x == rollback.atlas_next_x);
+        std.debug.assert(self.atlas_next_y == rollback.atlas_next_y);
+        std.debug.assert(self.atlas_row_height == rollback.atlas_row_height);
+        std.debug.assert(self.last_resource_entry_index == rollback.last_resource_entry_index);
+        std.debug.assert(self.last_atlas_entry_index == rollback.last_atlas_entry_index);
     }
 
     pub fn resourceFor(self: *SpriteResourceStore, sprite: PreparedSprite, width_px: u16, height_px: u16, bytes: []const u8) Error!ResourceAllocation {

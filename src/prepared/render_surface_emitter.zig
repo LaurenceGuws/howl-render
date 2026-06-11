@@ -326,7 +326,8 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         pub fn emitPreparedFresh(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
-            var next_resources = resources.*;
+            const resource_rollback = resources.admissionRollback();
+            errdefer resources.restoreAdmission(resource_rollback);
             const copy_in_ns: u64 = 0;
             self.resetPrepared(prepared);
             var fill_totals: DebugEmitPreparedTiming.FillTotals = .{};
@@ -347,12 +348,11 @@ pub fn Emitter(comptime limits: Limits) type {
             fill_totals.decoration_pass_ns = monotonicNs() -| fill_step_start_ns;
             var sprite_totals: DebugEmitPreparedTiming.SpriteTotals = .{};
             const sprites_start_ns = monotonicNs();
-            try self.appendPreparedSprites(&next_resources, session, prepared, &sprite_totals);
+            try self.appendPreparedSprites(resources, session, prepared, &sprite_totals);
             const sprites_ns = monotonicNs() -| sprites_start_ns;
             fill_step_start_ns = monotonicNs();
             try self.appendPreparedCursors(prepared.text_frame.scene.scene.cursor_draws);
             fill_totals.cursor_pass_ns = monotonicNs() -| fill_step_start_ns;
-            resources.* = next_resources;
             const fills_ns = fill_totals.full_redraw_clear_ns + fill_totals.clear_pass_ns + fill_totals.background_pass_ns + fill_totals.decoration_pass_ns + fill_totals.cursor_pass_ns;
             const copy_out_ns: u64 = 0;
             const publish_start_ns = monotonicNs();

@@ -1068,6 +1068,66 @@ test "render surface surface emitter failure preserves accepted persistent resou
     try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
 }
 
+test "render surface surface emitter fresh failure restores retained resource admission state" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    var alpha_bytes = [_]u8{255};
+    var color_bytes = [_]u8{ 1, 2, 3, 4 };
+    var accepted_draws = [_]contract.TextSpriteDraw{
+        spriteDraw(52, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
+        spriteDraw(53, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
+    };
+    var accepted_outputs = [_]rasterizer.RasterSpriteOutput{
+        rasterOutput(allocator, 52, 1, 1, .alpha, &alpha_bytes, .{}),
+        rasterOutput(allocator, 53, 1, 1, .color, &color_bytes, .{}),
+    };
+    const accepted = preparedSurface(.{ .sprite_draws = &accepted_draws, .raster_outputs = &accepted_outputs, .width_px = 2, .height_px = 1 });
+
+    var accepted_emitter = Emitter(.{}).init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+    const accepted_surface = try accepted_emitter.emitPreparedFresh(&resources, &session, &accepted);
+    try std.testing.expectEqual(@as(u32, 2), accepted_surface.uploads.count);
+    try std.testing.expectEqual(@as(u32, 1), resources.count);
+    try std.testing.expectEqual(@as(u32, 4), resources.bytes_count);
+    try std.testing.expectEqual(@as(u32, 1), resources.atlas_count);
+    try std.testing.expectEqual(@as(u64, 3), resources.value_next);
+    try std.testing.expectEqual(@as(?u32, 0), resources.last_resource_entry_index);
+    try std.testing.expectEqual(@as(?u32, 0), resources.last_atlas_entry_index);
+    const rollback = resources.admissionRollback();
+    const accepted_entry = resources.entries[0];
+    const accepted_atlas_entry = resources.atlas_entries[0];
+
+    var fail_color_bytes = [_]u8{ 5, 6, 7, 8 };
+    var fail_alpha_bytes = [_]u8{128};
+    var fail_draws = [_]contract.TextSpriteDraw{
+        spriteDraw(54, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
+        spriteDraw(55, 1, 0, 1, 1, rgba(255, 255, 255, 255)),
+    };
+    var fail_outputs = [_]rasterizer.RasterSpriteOutput{
+        rasterOutput(allocator, 54, 1, 1, .color, &fail_color_bytes, .{}),
+        rasterOutput(allocator, 55, 1, 1, .alpha, &fail_alpha_bytes, .{}),
+    };
+    const failing = preparedSurface(.{ .sprite_draws = &fail_draws, .raster_outputs = &fail_outputs, .width_px = 2, .height_px = 1 });
+
+    var failing_emitter = Emitter(.{ .commands_max = 2, .glyph_refs_max = 2, .creates_max = 2, .uploads_max = 2, .upload_bytes_max = 5 }).init();
+    try std.testing.expectError(error.CommandBoundOverflow, failing_emitter.emitPreparedFresh(&resources, &session, &failing));
+    try std.testing.expectEqual(rollback.count, resources.count);
+    try std.testing.expectEqual(rollback.bytes_count, resources.bytes_count);
+    try std.testing.expectEqual(rollback.value_next, resources.value_next);
+    try std.testing.expectEqual(rollback.atlas_resource, resources.atlas_resource);
+    try std.testing.expectEqual(rollback.atlas_count, resources.atlas_count);
+    try std.testing.expectEqual(rollback.atlas_next_x, resources.atlas_next_x);
+    try std.testing.expectEqual(rollback.atlas_next_y, resources.atlas_next_y);
+    try std.testing.expectEqual(rollback.atlas_row_height, resources.atlas_row_height);
+    try std.testing.expectEqual(rollback.last_resource_entry_index, resources.last_resource_entry_index);
+    try std.testing.expectEqual(rollback.last_atlas_entry_index, resources.last_atlas_entry_index);
+    try std.testing.expectEqual(accepted_entry, resources.entries[0]);
+    try std.testing.expectEqual(accepted_atlas_entry, resources.atlas_entries[0]);
+    try std.testing.expectEqualSlices(u8, &color_bytes, resources.bytes[0..resources.bytes_count]);
+}
+
 test "render surface surface emitter resource id exhaustion preserves accepted state" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);
