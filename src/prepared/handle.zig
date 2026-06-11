@@ -184,7 +184,6 @@ pub const PreparedHandle = struct {
     fn emitRenderSurfacePayload(self: *PreparedHandle) !void {
         std.debug.assert(self.render_surface_payload == null);
         const payload = try self.session_owner.allocator.create(RenderSurfacePayload);
-        payload.* = .{};
         errdefer self.session_owner.allocator.destroy(payload);
         _ = try payload.emitPreparedFresh(
             &self.session_owner.render_surface_sprite_resources,

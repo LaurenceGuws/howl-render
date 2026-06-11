@@ -519,6 +519,56 @@ test "render surface surface emitter realizes prepared fill surface equal to ful
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
 }
 
+test "render surface surface emitter fresh emission initializes undefined storage before publish" {
+    const allocator = std.testing.allocator;
+    var session = text_session.TextSession.init(allocator);
+    defer session.deinit();
+
+    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1 });
+    const oracle = try prepared_buffer.compose(allocator, null, &session, &prepared);
+    defer allocator.free(oracle);
+
+    var emitter: Emitter(.{}) = undefined;
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+    const surface = try emitter.emitPreparedFresh(&resources, &session, &prepared);
+
+    try std.testing.expectEqual(@as(@TypeOf(surface.surface_version), c.HOWL_RENDER_SURFACE_VERSION), surface.surface_version);
+    try std.testing.expectEqual(@as(u64, 1), surface.token.snapshot_seq);
+    try std.testing.expectEqual(@as(u64, 1), surface.token.surface_seq);
+    try std.testing.expectEqual(@as(u64, 1), surface.token.geometry_epoch);
+    try std.testing.expectEqual(@as(u16, 2), surface.render_px.width);
+    try std.testing.expectEqual(@as(u16, 1), surface.render_px.height);
+    try std.testing.expectEqual(@as(u16, 1), surface.cell_px.width);
+    try std.testing.expectEqual(@as(u16, 1), surface.cell_px.height);
+    try std.testing.expectEqual(@as(u16, 2), surface.grid.cols);
+    try std.testing.expectEqual(@as(u16, 1), surface.grid.rows);
+    try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
+    try std.testing.expect(surface.damage.ptr != null);
+    try std.testing.expectEqual(@as(@TypeOf(surface.damage.count_max), c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX), surface.damage.count_max);
+    try std.testing.expectEqual(@as(u32, 0), surface.creates.count);
+    try std.testing.expect(surface.creates.ptr == null);
+    try std.testing.expectEqual(@as(@TypeOf(surface.creates.count_max), c.HOWL_RENDER_SURFACE_CREATES_MAX), surface.creates.count_max);
+    try std.testing.expectEqual(@as(u32, 0), surface.uploads.count);
+    try std.testing.expect(surface.uploads.ptr == null);
+    try std.testing.expectEqual(@as(@TypeOf(surface.uploads.count_max), c.HOWL_RENDER_SURFACE_UPLOADS_MAX), surface.uploads.count_max);
+    try std.testing.expectEqual(@as(u32, 0), surface.uploads.bytes_count_total);
+    try std.testing.expectEqual(@as(@TypeOf(surface.uploads.bytes_count_max), c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX), surface.uploads.bytes_count_max);
+    try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
+    try std.testing.expect(surface.commands.ptr != null);
+    try std.testing.expectEqual(@as(@TypeOf(surface.commands.count_max), c.HOWL_RENDER_SURFACE_COMMANDS_MAX), surface.commands.count_max);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(@as(u32, 0), surface.retires.count);
+    try std.testing.expect(surface.retires.ptr == null);
+    try std.testing.expectEqual(@as(@TypeOf(surface.retires.count_max), c.HOWL_RENDER_SURFACE_RETIRES_MAX), surface.retires.count_max);
+
+    const realized = try allocator.alloc(u8, oracle.len);
+    defer allocator.free(realized);
+    try realize.realize(surface, realized, null);
+    try std.testing.expectEqualSlices(u8, oracle, realized);
+}
+
 test "render surface surface emitter emits full prepared surface clear before fills" {
     const allocator = std.testing.allocator;
     var session = text_session.TextSession.init(allocator);

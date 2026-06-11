@@ -379,6 +379,19 @@ pub fn Emitter(comptime limits: Limits) type {
             self.surface_storage.render_px = pixelSizeOut(prepared.render_px);
             self.surface_storage.cell_px = cellSizeOut(prepared.cell_px);
             self.surface_storage.grid = gridSizeOut(prepared.grid);
+            std.debug.assert(self.damage_count == 0);
+            std.debug.assert(self.create_count == 0);
+            std.debug.assert(self.upload_count == 0);
+            std.debug.assert(self.command_count == 0);
+            std.debug.assert(self.glyph_count == 0);
+            std.debug.assert(self.retire_count == 0);
+            std.debug.assert(self.upload_bytes_count == 0);
+            std.debug.assert(self.surface_storage.surface_version == c.HOWL_RENDER_SURFACE_VERSION);
+            std.debug.assert(self.surface_storage.damage.ptr == null);
+            std.debug.assert(self.surface_storage.creates.ptr == null);
+            std.debug.assert(self.surface_storage.uploads.ptr == null);
+            std.debug.assert(self.surface_storage.commands.ptr == null);
+            std.debug.assert(self.surface_storage.retires.ptr == null);
         }
 
         fn appendFullDamage(self: *Self, render_px: c.HowlRenderPixelSize) Error!void {
@@ -839,6 +852,23 @@ pub fn Emitter(comptime limits: Limits) type {
                 .count = self.retire_count,
                 .count_max = c.HOWL_RENDER_SURFACE_RETIRES_MAX,
             };
+            std.debug.assert(self.surface_storage.surface_version == c.HOWL_RENDER_SURFACE_VERSION);
+            std.debug.assert(self.surface_storage.damage.count_max == c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX);
+            std.debug.assert(self.surface_storage.creates.count_max == c.HOWL_RENDER_SURFACE_CREATES_MAX);
+            std.debug.assert(self.surface_storage.uploads.count_max == c.HOWL_RENDER_SURFACE_UPLOADS_MAX);
+            std.debug.assert(self.surface_storage.uploads.bytes_count_max == c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX);
+            std.debug.assert(self.surface_storage.commands.count_max == c.HOWL_RENDER_SURFACE_COMMANDS_MAX);
+            std.debug.assert(self.surface_storage.retires.count_max == c.HOWL_RENDER_SURFACE_RETIRES_MAX);
+            if (self.surface_storage.damage.count == 0) std.debug.assert(self.surface_storage.damage.ptr == null);
+            if (self.surface_storage.damage.count > 0) std.debug.assert(self.surface_storage.damage.ptr != null);
+            if (self.surface_storage.creates.count == 0) std.debug.assert(self.surface_storage.creates.ptr == null);
+            if (self.surface_storage.creates.count > 0) std.debug.assert(self.surface_storage.creates.ptr != null);
+            if (self.surface_storage.uploads.count == 0) std.debug.assert(self.surface_storage.uploads.ptr == null);
+            if (self.surface_storage.uploads.count > 0) std.debug.assert(self.surface_storage.uploads.ptr != null);
+            if (self.surface_storage.commands.count == 0) std.debug.assert(self.surface_storage.commands.ptr == null);
+            if (self.surface_storage.commands.count > 0) std.debug.assert(self.surface_storage.commands.ptr != null);
+            if (self.surface_storage.retires.count == 0) std.debug.assert(self.surface_storage.retires.ptr == null);
+            if (self.surface_storage.retires.count > 0) std.debug.assert(self.surface_storage.retires.ptr != null);
             totals.surface_spans_ns = monotonicNs() -| publish_step_start_ns;
             return totals;
         }

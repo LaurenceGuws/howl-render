@@ -142,6 +142,8 @@ test "render surface prepared owner surface equals kitty dim rgba oracle" {
     defer allocator.free(oracle);
     const handle = try PreparedHandle.create(session_owner, &prepared);
     const surface = handle.renderSurface().?;
+    const surface_ptr = surface;
+    const commands_ptr = surface.commands.ptr;
     try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
     try std.testing.expect(surface.uploads.ptr[0].bytes_ptr != null);
     const upload_bytes_ptr = surface.uploads.ptr[0].bytes_ptr;
@@ -149,6 +151,8 @@ test "render surface prepared owner surface equals kitty dim rgba oracle" {
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
     try render_surface_realizer.realize(surface, realized, null);
+    try std.testing.expectEqual(surface_ptr, handle.renderSurface().?);
+    try std.testing.expectEqual(commands_ptr, handle.renderSurface().?.commands.ptr);
     try std.testing.expectEqual(upload_bytes_ptr, handle.renderSurface().?.uploads.ptr[0].bytes_ptr);
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
