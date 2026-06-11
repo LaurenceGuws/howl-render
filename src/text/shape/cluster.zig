@@ -2,14 +2,20 @@ const std = @import("std");
 const contract = @import("../contract.zig");
 const scene = @import("../scene.zig");
 const lane = @import("../classify/lane.zig");
+const publication_cell_map = @import("../../source/publication_cell_map.zig");
+const source_vt = @import("../../source/vt.zig");
 
 const VS15: u32 = 0xfe0e;
 const VS16: u32 = 0xfe0f;
 
 pub const CellTextInput = struct {
     codepoints: []const u32,
+    semantic_fg: contract.SemanticColor = .{},
+    semantic_bg: contract.SemanticColor = .{},
     fg: contract.Rgba8,
     bg: contract.Rgba8,
+    underline_color_set: bool = false,
+    semantic_underline_color: contract.SemanticColor = .{},
     underline_color: contract.Rgba8 = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
     style: contract.FontStyle = .regular,
     presentation: contract.TextPresentation = .any,
@@ -92,6 +98,12 @@ pub const SparseCells = struct {
         self.text_cache.deinit();
         self.* = undefined;
     }
+};
+
+pub const RenderableText = struct {
+    renderable: contract.RenderableCell,
+    text: contract.CellText,
+    inline_codepoints: [4]u32 = [_]u32{0} ** 4,
 };
 
 pub const RetainedScratch = struct {
@@ -342,6 +354,22 @@ fn normalizedCodepoints(cps: []const u32) []const u32 {
     return if (cps.len == 0) &.{0} else cps;
 }
 
+fn inputCellText(input: CellTextInput) contract.CellText {
+    const cps = normalizedCodepoints(input.codepoints);
+    return .{ .id = .{ .value = 0 }, .first_cp = cps[0], .codepoints = cps };
+}
+
+fn initRenderableTextFromCellInput(renderable: contract.RenderableCell, cell: contract.CellInput) RenderableText {
+    var item = RenderableText{
+        .renderable = renderable,
+        .text = .{ .id = .{ .value = 0 }, .first_cp = cell.codepoint, .codepoints = &.{} },
+    };
+    const cps = cellCodepoints(cell, &item.inline_codepoints);
+    item.text.first_cp = cps[0];
+    item.text.codepoints = item.inline_codepoints[0..cps.len];
+    return item;
+}
+
 fn cellCodepoints(cell: contract.CellInput, scratch: *[4]u32) []const u32 {
     std.debug.assert(cell.combining_len <= cell.combining.len);
     scratch[0] = cell.codepoint;
@@ -363,7 +391,8 @@ pub fn buildRenderableCellsFromCells(allocator: std.mem.Allocator, cells: []cons
     for (cells, 0..) |cell, idx| {
         const text = cache.texts[idx];
         const first_cell: u32 = @intCast(idx);
-        assembly.append(renderableFromCellInput(text.id, first_cell, inferredCellSpan(cells, first_cell), cell, cell.continuation));
+        const cell_span = inferredCellSpan(cells, first_cell);
+        assembly.append(renderableFromCellInput(text.id, first_cell, cell_span, cell, cell.continuation));
     }
 
     return assembly.toOwnedRenderableCells();
@@ -377,10 +406,11 @@ pub fn buildRenderableCellsFromInputs(allocator: std.mem.Allocator, inputs: []co
         const cps = normalizedCodepoints(input.codepoints);
         const first_cell: u32 = @intCast(idx);
         const text_id = findText(cache.texts, cps) orelse unreachable;
+        const cell_span = @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, first_cell));
         assembly.append(renderableFromInput(
             text_id,
             first_cell,
-            @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, first_cell)),
+            cell_span,
             detectPresentation(cps, input.presentation),
             input,
         ));
@@ -430,7 +460,9 @@ pub fn extractClustersWithDamageScratch(
         if (!damage_filter.includeSpan(cell.first_cell, cell.cell_span)) continue;
         const text = textForCell(cell, cache);
         if (isBlankText(text)) continue;
-        scratch.clusters[@intCast(cluster_count)] = renderableCluster(cell, text, inferredRenderableCellSpan(cells, @intCast(idx)));
+        const inferred_span = inferredRenderableCellSpan(cells, @intCast(idx));
+        std.debug.assert(cell.cell_span == inferred_span);
+        scratch.clusters[@intCast(cluster_count)] = renderableCluster(cell, text, cell.cell_span);
         cluster_count += 1;
     }
 
@@ -449,6 +481,45 @@ pub fn selectComplexWithDamage(
     defer scratch.deinit(allocator);
     try scratch.configure(allocator, count32(cells), 0);
     return selectComplexWithDamageScratch(allocator, &scratch, cells, cache, clusters, grid_metrics, damage);
+}
+
+pub fn sourceRenderableTextFromCells(cells: []const contract.CellInput, idx: u32) ?RenderableText {
+    const cell = cells[idx];
+    if (cell.continuation or cell.empty) return null;
+    const cell_span = inferredCellSpan(cells, idx);
+    return initRenderableTextFromCellInput(renderableFromCellInput(.{ .value = 0 }, idx, cell_span, cell, false), cell);
+}
+
+pub fn sourceRenderableTextFromPublication(cells: []const source_vt.SourceCell, theme: publication_cell_map.FrameTheme, idx: u32) ?RenderableText {
+    const cell = cells[idx];
+    if (cell.flags.continuation != 0) return null;
+    const mapped = publication_cell_map.mapPublicationCellInput(cell, theme);
+    if (mapped.empty) return null;
+    const cell_span = inferredPublicationCellSpan(cells, idx);
+    return initRenderableTextFromCellInput(renderableFromCellInput(.{ .value = 0 }, idx, cell_span, mapped, false), mapped);
+}
+
+pub fn sourceRenderableTextFromInputs(inputs: []const CellTextInput, idx: u32) ?RenderableText {
+    const input = inputs[idx];
+    if (input.continuation) return null;
+    const text = inputCellText(input);
+    const cell_span = @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, idx));
+    return .{
+        .renderable = renderableFromInput(.{ .value = 0 }, idx, cell_span, detectPresentation(text.codepoints, input.presentation), input),
+        .text = text,
+    };
+}
+
+pub fn sourceRenderableTextFromPrepared(cells: []const contract.RenderableCell, cache: contract.LineTextCache, idx: u32) ?RenderableText {
+    const renderable = cells[idx];
+    if (renderable.continuation) return null;
+    const inferred_span = inferredRenderableCellSpan(cells, idx);
+    std.debug.assert(renderable.cell_span == inferred_span);
+    return .{ .renderable = renderable, .text = textForCell(renderable, cache) };
+}
+
+pub fn includeDamage(grid_metrics: contract.GridMetrics, damage: scene.DamageInput, renderable: contract.RenderableCell) bool {
+    return DamageFilter.init(damage, grid_metrics).includeSpan(renderable.first_cell, renderable.cell_span);
 }
 
 pub fn selectComplexWithDamageScratch(
@@ -555,8 +626,12 @@ fn renderableFromCellInput(text_id: contract.CellTextId, first_cell: u32, cell_s
         cell_span,
         cell.style,
         cell.presentation,
+        cell.semantic_fg,
+        cell.semantic_bg,
         cell.fg,
         cell.bg,
+        cell.underline_color_set,
+        cell.semantic_underline_color,
         cell.underline_color,
         switch (cell.underline_style) {
             .straight => .straight,
@@ -578,8 +653,12 @@ fn renderableFromInput(text_id: contract.CellTextId, first_cell: u32, cell_span:
         cell_span,
         input.style,
         presentation,
+        input.semantic_fg,
+        input.semantic_bg,
         input.fg,
         input.bg,
+        input.underline_color_set,
+        input.semantic_underline_color,
         input.underline_color,
         input.underline_style,
         input.underline,
@@ -588,15 +667,19 @@ fn renderableFromInput(text_id: contract.CellTextId, first_cell: u32, cell_span:
     );
 }
 
-fn renderableCell(text_id: contract.CellTextId, first_cell: u32, cell_span: u8, style: contract.FontStyle, presentation: contract.TextPresentation, fg: contract.Rgba8, bg: contract.Rgba8, underline_color: contract.Rgba8, underline_style: contract.UnderlineStyle, underline: bool, strikethrough: bool, continuation: bool) contract.RenderableCell {
+fn renderableCell(text_id: contract.CellTextId, first_cell: u32, cell_span: u8, style: contract.FontStyle, presentation: contract.TextPresentation, semantic_fg: contract.SemanticColor, semantic_bg: contract.SemanticColor, fg: contract.Rgba8, bg: contract.Rgba8, underline_color_set: bool, semantic_underline_color: contract.SemanticColor, underline_color: contract.Rgba8, underline_style: contract.UnderlineStyle, underline: bool, strikethrough: bool, continuation: bool) contract.RenderableCell {
     return .{
         .text_id = text_id,
         .first_cell = first_cell,
         .cell_span = cell_span,
         .style = style,
         .presentation = presentation,
+        .semantic_fg = semantic_fg,
+        .semantic_bg = semantic_bg,
         .fg = fg,
         .bg = bg,
+        .underline_color_set = underline_color_set,
+        .semantic_underline_color = semantic_underline_color,
         .underline_color = underline_color,
         .underline_style = underline_style,
         .underline = underline,
@@ -635,6 +718,13 @@ fn inferredInputCellSpan(inputs: []const CellTextInput, idx: u32) u8 {
     var span: u32 = 1;
     const total = count32(inputs);
     while (idx + span < total and inputs[@intCast(idx + span)].continuation) : (span += 1) {}
+    return @intCast(@min(span, std.math.maxInt(u8)));
+}
+
+fn inferredPublicationCellSpan(cells: []const source_vt.SourceCell, idx: u32) u8 {
+    var span: u32 = 1;
+    const total = count32(cells);
+    while (idx + span < total and cells[@intCast(idx + span)].flags.continuation != 0) : (span += 1) {}
     return @intCast(@min(span, std.math.maxInt(u8)));
 }
 
@@ -774,6 +864,8 @@ test "cell inputs build text cache renderable cells clusters and runs" {
     try std.testing.expectEqual(@as(u32, 2), count32(clusters.clusters));
     try std.testing.expectEqual(@as(u32, 1), count32(runs.runs));
     try std.testing.expectEqual(@as(u32, 2), runs.runs[0].run.cluster_count);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, renderable.cells[0].semantic_fg.kind);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, renderable.cells[0].semantic_bg.kind);
 }
 
 test "cell inputs retain combining sequences in text cache" {

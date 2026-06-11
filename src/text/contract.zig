@@ -7,6 +7,17 @@ pub const Rgba8 = struct {
     a: u8,
 };
 
+pub const SemanticColorKind = enum(u2) {
+    default = 0,
+    indexed = 1,
+    rgb = 2,
+};
+
+pub const SemanticColor = struct {
+    kind: SemanticColorKind = .default,
+    value: u32 = 0,
+};
+
 pub const UnderlineStyle = enum {
     straight,
     double,
@@ -84,8 +95,12 @@ pub const CellInput = struct {
     combining: [3]u32 = [_]u32{0} ** 3,
     style: FontStyle = .regular,
     presentation: TextPresentation = .any,
+    semantic_fg: SemanticColor = .{},
+    semantic_bg: SemanticColor = .{},
     fg: Rgba8,
     bg: Rgba8,
+    underline_color_set: bool = false,
+    semantic_underline_color: SemanticColor = .{},
     underline_color: Rgba8 = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
     underline_style: UnderlineStyle = .straight,
     underline: bool = false,
@@ -122,8 +137,12 @@ pub const RenderableCell = struct {
     cell_span: u8,
     style: FontStyle,
     presentation: TextPresentation,
+    semantic_fg: SemanticColor = .{},
+    semantic_bg: SemanticColor = .{},
     fg: Rgba8,
     bg: Rgba8,
+    underline_color_set: bool = false,
+    semantic_underline_color: SemanticColor = .{},
     underline_color: Rgba8 = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
     underline_style: UnderlineStyle = .straight,
     underline: bool = false,

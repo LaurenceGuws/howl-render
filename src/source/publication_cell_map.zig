@@ -17,6 +17,8 @@ pub const CellSemanticTruth = struct {
     empty: bool,
 };
 
+const publication_color_kind_max: u8 = 2;
+
 pub fn themeFromPublicationColors(colors: source_vt.SourceColors) FrameTheme {
     var palette: [256]contract.Rgba8 = undefined;
     for (colors.palette, 0..) |color, idx| palette[idx] = rgbaFromVtRgb(color);
@@ -32,6 +34,9 @@ pub fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contrac
     std.debug.assert(src.combining_len <= src.combining.len);
     const truth = publicationCellTruth(src);
     assertSemanticEmptyTruth(truth);
+    const semantic_fg = semanticColorFromPublicationColor(src.fg_color);
+    const semantic_bg = semanticColorFromPublicationColor(src.bg_color);
+    const semantic_underline_color = semanticColorFromPublicationColor(src.underline_color);
     const bg = publicationColorToTextSceneRgba8(src.bg_color, false, t);
     var out: contract.CellInput = .{
         .codepoint = @intCast(src.codepoint),
@@ -39,8 +44,12 @@ pub fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contrac
         .combining = src.combining,
         .style = mapFontStyle(src.attrs.bold != 0, src.attrs.italic != 0),
         .presentation = detectCellPresentation(@intCast(src.codepoint), src.combining_len, src.combining),
+        .semantic_fg = semantic_fg,
+        .semantic_bg = semantic_bg,
         .fg = publicationColorToTextSceneRgba8(src.fg_color, true, t),
         .bg = bg,
+        .underline_color_set = src.attrs.underline_color_set != 0,
+        .semantic_underline_color = semantic_underline_color,
         .underline_color = if (src.attrs.underline_color_set != 0) publicationColorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
         .underline_style = publicationUnderlineStyle(src.underline_style),
         .underline = src.attrs.underline != 0,
@@ -137,6 +146,16 @@ fn publicationColorToTextSceneRgba8(color: source_vt.SourceColor, is_fg: bool, t
     return colorToRgba8(color, is_fg, t);
 }
 
+fn semanticColorFromPublicationColor(color: source_vt.SourceColor) contract.SemanticColor {
+    std.debug.assert(color.kind <= publication_color_kind_max);
+    return switch (color.kind) {
+        0 => .{ .kind = .default },
+        1 => .{ .kind = .indexed, .value = color.value & 0xFF },
+        2 => .{ .kind = .rgb, .value = color.value & 0xFFFFFF },
+        else => unreachable,
+    };
+}
+
 fn mapFontStyle(bold: bool, italic: bool) contract.FontStyle {
     if (bold and italic) return .bold_italic;
     if (bold) return .bold;
@@ -216,6 +235,8 @@ test "publication cell map keeps opaque default background for ordinary cell" {
     try std.testing.expectEqual(theme.default_bg.b, mapped.bg.b);
     try std.testing.expectEqual(@as(u8, 255), mapped.bg.a);
     try std.testing.expect(!mapped.empty);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, mapped.semantic_fg.kind);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, mapped.semantic_bg.kind);
 }
 
 test "publication cell map keeps default background truth through inverse and selection" {

@@ -200,6 +200,9 @@ fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
     const truth = publication_cell_map.vtCellTruth(src);
     if (truth.empty) std.debug.assert(truth.default_fg);
     if (truth.empty) std.debug.assert(truth.default_bg);
+    const semantic_fg = semanticColorFromCellColor(src.fg_color);
+    const semantic_bg = semanticColorFromCellColor(src.bg_color);
+    const semantic_underline_color = semanticColorFromCellColor(src.underline_color);
     const bg = colorToTextSceneRgba8(src.bg_color, false, t);
     var out: contract.CellInput = .{
         .codepoint = src.codepoint,
@@ -207,8 +210,12 @@ fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
         .combining = src.combining,
         .style = mapFontStyle(src.attrs.bold, src.attrs.italic),
         .presentation = detectCellPresentation(src.codepoint, src.combining_len, src.combining),
+        .semantic_fg = semantic_fg,
+        .semantic_bg = semantic_bg,
         .fg = colorToTextSceneRgba8(src.fg_color, true, t),
         .bg = bg,
+        .underline_color_set = src.attrs.underline_color_set,
+        .semantic_underline_color = semantic_underline_color,
         .underline_color = if (src.attrs.underline_color_set) colorToTextSceneRgba8(src.underline_color, true, t) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
         .underline_style = mapUnderlineStyle(src.underline_style),
         .underline = src.attrs.underline,
@@ -226,6 +233,14 @@ fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
 
 fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contract.CellInput {
     return publication_cell_map.mapPublicationCellInput(src, t);
+}
+
+fn semanticColorFromCellColor(color: source_cell.Color) contract.SemanticColor {
+    return switch (color.kind) {
+        .default => .{ .kind = .default },
+        .indexed => .{ .kind = .indexed, .value = color.value & 0xFF },
+        .rgb => .{ .kind = .rgb, .value = color.value & 0xFFFFFF },
+    };
 }
 
 fn canMapDirtyOnly(state: anytype) bool {
@@ -462,6 +477,8 @@ test "source text input converts VT source to text scene input" {
     try std.testing.expectEqual(default_theme.default_bg.b, input.cells[0].bg.b);
     try std.testing.expectEqual(@as(u8, 255), input.cells[0].bg.a);
     try std.testing.expect(!input.cells[0].empty);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, input.cells[0].semantic_fg.kind);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, input.cells[0].semantic_bg.kind);
     try std.testing.expect(input.options.scene.cursor != null);
     try std.testing.expect(input.options.scene.cursor.?.blink);
     try std.testing.expect(input.options.scene.damage.full);
@@ -553,6 +570,8 @@ test "source text input keeps opaque default background for blank publication ce
     try std.testing.expectEqual(default_theme.default_bg.b, mapped.cells[0].bg.b);
     try std.testing.expectEqual(@as(u8, 255), mapped.cells[0].bg.a);
     try std.testing.expect(mapped.cells[0].empty);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, mapped.cells[0].semantic_fg.kind);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, mapped.cells[0].semantic_bg.kind);
 }
 
 test "source text input keeps default background truth through inverse VT cell" {

@@ -158,21 +158,8 @@ const actions = [2][6]Decision{
 };
 
 const Candidate = struct {
-    item: Item,
-    text: contract.CellText,
+    item: cluster.RenderableText,
     choice: lane.LaneClass,
-};
-
-const Item = struct {
-    renderable: contract.RenderableCell,
-    first_cp: u32,
-    borrowed_codepoints: []const u32 = &.{},
-    inline_codepoints: [1]u32 = .{0},
-
-    fn text(self: *const Item) contract.CellText {
-        const codepoints = if (self.borrowed_codepoints.len > 0) self.borrowed_codepoints else self.inline_codepoints[0..1];
-        return .{ .id = .{ .value = 0 }, .first_cp = self.first_cp, .codepoints = codepoints };
-    }
 };
 
 fn appendVisible(
@@ -184,11 +171,22 @@ fn appendVisible(
     policy: Policy,
     lane_report: *lane.LaneReport,
 ) !bool {
+    if (policy == .require_all_normal) {
+        var preflight_idx: u32 = 0;
+        while (preflight_idx < sourceLen(source)) : (preflight_idx += 1) {
+            const candidate = sourceCandidate(source, preflight_idx, damage, grid_metrics) orelse continue;
+            if (candidate.choice.renderableClass() != .normal) {
+                assertNoPartialDrawState(driver.scratch);
+                return false;
+            }
+        }
+    }
+
     var idx: u32 = 0;
     while (idx < sourceLen(source)) : (idx += 1) {
         const candidate = sourceCandidate(source, idx, damage, grid_metrics) orelse continue;
         switch (candidateDecision(policy, lane_report, candidate)) {
-            .include => try appendRenderable(driver, candidate.item.renderable, candidate.text, grid_metrics, session, lane_report),
+            .include => try appendRenderable(driver, candidate.item.renderable, candidate.item.text, grid_metrics, session, lane_report),
             .skip => continue,
             .reject => return false,
         }
@@ -199,15 +197,14 @@ fn appendVisible(
 fn candidateDecision(policy: Policy, lane_report: *lane.LaneReport, candidate: Candidate) Decision {
     const class = candidate.choice.renderableClass();
     const action = actions[@intFromEnum(policy)][@intFromEnum(class)];
-    if (action == .include and policy == .require_all_normal) recordLane(lane_report, candidate.text);
+    if (action == .include and policy == .require_all_normal) recordLane(lane_report, candidate.item.text);
     return action;
 }
 
 fn sourceCandidate(source: Source, idx: u32, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics) ?Candidate {
     const item = sourceItem(source, idx) orelse return null;
-    if (!direct_scene.includeSpan(damage, grid_metrics, item.renderable.first_cell, item.renderable.cell_span)) return null;
-    const text = item.text();
-    return .{ .item = item, .text = text, .choice = lane.classifyRenderableCell(item.renderable, text) };
+    if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) return null;
+    return .{ .item = item, .choice = lane.classifyRenderableCell(item.renderable, item.text) };
 }
 
 fn sourceLen(source: Source) u32 {
@@ -219,36 +216,21 @@ fn sourceLen(source: Source) u32 {
     };
 }
 
-fn sourceItem(source: Source, idx: u32) ?Item {
+fn sourceItem(source: Source, idx: u32) ?cluster.RenderableText {
     return switch (source) {
-        .raw_cells => |cells| {
-            const cell = cells[idx];
-            if (cell.continuation or cell.empty) return null;
-            return .{ .renderable = rawRenderableCell(cell, idx, cells), .first_cp = cell.codepoint, .inline_codepoints = .{cell.codepoint} };
-        },
-        .publication => |publication| {
-            const cell = publication.cells[idx];
-            if (cell.flags.continuation != 0) return null;
-            const mapped = publication_cell_map.mapPublicationCellInput(cell, publication.theme);
-            if (mapped.empty) return null;
-            return .{
-                .renderable = publicationRenderableCell(mapped, idx, publication.cells),
-                .first_cp = mapped.codepoint,
-                .inline_codepoints = .{mapped.codepoint},
-            };
-        },
-        .inputs => |inputs| {
-            const input = inputs[idx];
-            if (input.continuation) return null;
-            const text = inputCellText(input);
-            return .{ .renderable = inputRenderableCell(input, idx, inputs), .first_cp = text.first_cp, .borrowed_codepoints = text.codepoints };
-        },
-        .prepared => |prepared| {
-            const renderable = prepared.cells[idx];
-            if (renderable.continuation) return null;
-            const text = textForRenderableCell(prepared.text_cache, renderable);
-            return .{ .renderable = renderable, .first_cp = text.first_cp, .borrowed_codepoints = text.codepoints };
-        },
+        .raw_cells => |cells| cluster.sourceRenderableTextFromCells(cells, idx),
+        .publication => |publication| cluster.sourceRenderableTextFromPublication(publication.cells, publication.theme, idx),
+        .inputs => |inputs| cluster.sourceRenderableTextFromInputs(inputs, idx),
+        .prepared => |prepared| cluster.sourceRenderableTextFromPrepared(prepared.cells, prepared.text_cache, idx),
+    };
+}
+
+fn damageInput(damage: direct_scene.Damage) scene.DamageInput {
+    return .{
+        .full = damage.full,
+        .dirty_rows = damage.dirty_rows,
+        .dirty_cols_start = damage.dirty_cols_start,
+        .dirty_cols_end = damage.dirty_cols_end,
     };
 }
 
@@ -305,6 +287,17 @@ fn appendRenderable(
     lane_report.direct_normal_draws += 1;
 }
 
+fn assertNoPartialDrawState(scratch: *const Scratch) void {
+    std.debug.assert(scratch.renderable.items.len == 0);
+    std.debug.assert(scratch.missing.items.len == 0);
+    std.debug.assert(scratch.sprite_draws.items.len == 0);
+    std.debug.assert(scratch.background_draws.items.len == 0);
+    std.debug.assert(scratch.clear_draws.items.len == 0);
+    std.debug.assert(scratch.decoration_draws.items.len == 0);
+    std.debug.assert(scratch.cursor_draws.items.len == 0);
+    std.debug.assert(scratch.raster_reqs.items.len == 0);
+}
+
 fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.LaneReport, timings: Timings) !Product {
     var outputs: []rasterizer.RasterSpriteOutput = &.{};
     var outputs_owned = false;
@@ -354,83 +347,6 @@ fn isPlainAsciiText(text: contract.CellText) bool {
     return true;
 }
 
-fn rawRenderableCell(cell: contract.CellInput, idx: u32, cells: []const contract.CellInput) contract.RenderableCell {
-    return .{
-        .text_id = .{ .value = 0 },
-        .first_cell = idx,
-        .cell_span = inferredCellSpan(cells, idx),
-        .style = cell.style,
-        .presentation = cell.presentation,
-        .fg = cell.fg,
-        .bg = cell.bg,
-        .underline_color = cell.underline_color,
-        .underline_style = switch (cell.underline_style) {
-            .straight => .straight,
-            .double => .double,
-            .curly => .curly,
-            .dotted => .dotted,
-            .dashed => .dashed,
-        },
-        .underline = cell.underline,
-        .strikethrough = cell.strikethrough,
-    };
-}
-
-fn publicationRenderableCell(cell: contract.CellInput, idx: u32, cells: []const source_vt.SourceCell) contract.RenderableCell {
-    return .{
-        .text_id = .{ .value = 0 },
-        .first_cell = idx,
-        .cell_span = inferredPublicationCellSpan(cells, idx),
-        .style = cell.style,
-        .presentation = cell.presentation,
-        .fg = cell.fg,
-        .bg = cell.bg,
-        .underline_color = cell.underline_color,
-        .underline_style = switch (cell.underline_style) {
-            .straight => .straight,
-            .double => .double,
-            .curly => .curly,
-            .dotted => .dotted,
-            .dashed => .dashed,
-        },
-        .underline = cell.underline,
-        .strikethrough = cell.strikethrough,
-    };
-}
-
-fn inputRenderableCell(input: cluster.CellTextInput, idx: u32, inputs: []const cluster.CellTextInput) contract.RenderableCell {
-    const cps = normalizedInputCodepoints(input.codepoints);
-    return .{
-        .text_id = .{ .value = 0 },
-        .first_cell = idx,
-        .cell_span = @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, idx)),
-        .style = input.style,
-        .presentation = cluster.detectPresentation(cps, input.presentation),
-        .fg = input.fg,
-        .bg = input.bg,
-        .underline_color = input.underline_color,
-        .underline_style = input.underline_style,
-        .underline = input.underline,
-        .strikethrough = input.strikethrough,
-        .continuation = input.continuation,
-    };
-}
-
-fn inputCellText(input: cluster.CellTextInput) contract.CellText {
-    const cps = normalizedInputCodepoints(input.codepoints);
-    return .{ .id = .{ .value = 0 }, .first_cp = cps[0], .codepoints = cps };
-}
-
-fn normalizedInputCodepoints(cps: []const u32) []const u32 {
-    return if (cps.len == 0) &[_]u32{0} else cps;
-}
-
-fn textForRenderableCell(text_cache: contract.LineTextCache, cell: contract.RenderableCell) contract.CellText {
-    const idx = cell.text_id.value;
-    std.debug.assert(idx < count32(text_cache.texts));
-    return text_cache.texts[@intCast(idx)];
-}
-
 fn count32(items: anytype) u32 {
     std.debug.assert(items.len <= std.math.maxInt(u32));
     return @intCast(items.len);
@@ -441,31 +357,4 @@ fn blankText(text: contract.CellText) bool {
         if (cp != 0 and cp != ' ') return false;
     }
     return true;
-}
-
-fn inferredInputCellSpan(inputs: []const cluster.CellTextInput, idx: u32) u8 {
-    var span: u8 = 1;
-    for (inputs[@intCast(idx + 1)..]) |input| {
-        if (!input.continuation or span == std.math.maxInt(u8)) break;
-        span += 1;
-    }
-    return span;
-}
-
-fn inferredPublicationCellSpan(cells: []const source_vt.SourceCell, idx: u32) u8 {
-    var span: u8 = 1;
-    for (cells[@intCast(idx + 1)..]) |cell| {
-        if (cell.flags.continuation == 0 or span == std.math.maxInt(u8)) break;
-        span += 1;
-    }
-    return span;
-}
-
-fn inferredCellSpan(cells: []const contract.CellInput, idx: u32) u8 {
-    var span: u8 = 1;
-    for (cells[@intCast(idx + 1)..]) |cell| {
-        if (!cell.continuation or span == std.math.maxInt(u8)) break;
-        span += 1;
-    }
-    return span;
 }
