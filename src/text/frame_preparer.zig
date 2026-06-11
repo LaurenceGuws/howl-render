@@ -957,13 +957,13 @@ test "text preparation publication clears use empty default background truth" {
     var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.clear_draws));
-    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.background_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.clear_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.background_draws));
     try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
-    try std.testing.expectEqual(colors.background.r, analysis.scene.scene.clear_draws[0].color.r);
-    try std.testing.expectEqual(colors.background.g, analysis.scene.scene.clear_draws[0].color.g);
-    try std.testing.expectEqual(colors.background.b, analysis.scene.scene.clear_draws[0].color.b);
-    try std.testing.expectEqual(@as(u8, 255), analysis.scene.scene.clear_draws[0].color.a);
+    try std.testing.expectEqual(colors.background.r, analysis.scene.scene.background_draws[0].color.r);
+    try std.testing.expectEqual(colors.background.g, analysis.scene.scene.background_draws[0].color.g);
+    try std.testing.expectEqual(colors.background.b, analysis.scene.scene.background_draws[0].color.b);
+    try std.testing.expectEqual(@as(u8, 255), analysis.scene.scene.background_draws[0].color.a);
 }
 
 test "text preparation direct-renders pure normal cell text inputs" {
