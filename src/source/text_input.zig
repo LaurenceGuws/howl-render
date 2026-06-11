@@ -113,15 +113,6 @@ fn mapUnderlineStyle(style: source_cell.UnderlineStyle) contract.UnderlineStyle 
     };
 }
 
-fn isAlacrittyEmptyCell(cell: source_cell.Cell, bg: contract.Rgba8) bool {
-    const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
-    const visible_flags = cell.flags.continuation or
-        cell.attrs.inverse or
-        cell.attrs.underline or
-        cell.attrs.strikethrough;
-    return blank and bg.a == 0 and !visible_flags;
-}
-
 fn publicationColorToRgba8(color: source_vt.SourceColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
     return switch (color.kind) {
         0 => if (is_fg) t.default_fg else t.default_bg,
@@ -149,15 +140,6 @@ fn publicationUnderlineStyle(style: u8) contract.UnderlineStyle {
         4 => .dashed,
         else => unreachable,
     };
-}
-
-fn isAlacrittyEmptyPublicationCell(cell: source_vt.SourceCell, bg: contract.Rgba8) bool {
-    const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
-    const visible_flags = cell.flags.continuation != 0 or
-        cell.attrs.inverse != 0 or
-        cell.attrs.underline != 0 or
-        cell.attrs.strikethrough != 0;
-    return blank and bg.a == 0 and !visible_flags;
 }
 
 fn emptyCellInput() contract.CellInput {
@@ -194,14 +176,6 @@ fn applyDimStyle(cell: *contract.CellInput) void {
     if (cell.underline_color.a != 0) cell.underline_color = dimColor(cell.underline_color);
 }
 
-fn applyInverseStyle(cell: *contract.CellInput, t: FrameTheme) void {
-    const fg = cell.fg;
-    const bg = if (cell.bg.a == 0) t.default_bg else cell.bg;
-    cell.fg = bg;
-    cell.bg = fg;
-    cell.empty = false;
-}
-
 fn applyInvisibleStyle(cell: *contract.CellInput) void {
     cell.codepoint = ' ';
     cell.combining_len = 0;
@@ -222,6 +196,10 @@ fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) 
 }
 
 fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
+    std.debug.assert(src.combining_len <= src.combining.len);
+    const truth = publication_cell_map.vtCellTruth(src);
+    if (truth.empty) std.debug.assert(truth.default_fg);
+    if (truth.empty) std.debug.assert(truth.default_bg);
     const bg = colorToTextSceneRgba8(src.bg_color, false, t);
     var out: contract.CellInput = .{
         .codepoint = src.codepoint,
@@ -236,23 +214,18 @@ fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
         .underline = src.attrs.underline,
         .strikethrough = src.attrs.strikethrough,
         .continuation = src.flags.continuation,
-        .empty = isAlacrittyEmptyCell(src, bg),
+        .empty = truth.empty,
     };
-    if (src.attrs.inverse) applyInverseStyle(&out, t);
+    publication_cell_map.assertSemanticEmptyClassification(truth, t, out.bg, out.empty);
+    if (src.attrs.inverse) publication_cell_map.applyInverseStyle(&out, t, truth);
     if (src.attrs.dim) applyDimStyle(&out);
-    if (src.attrs.selected) applySelectionStyle(&out, t);
+    if (src.attrs.selected) publication_cell_map.applySelectionStyle(&out, t, truth);
     if (src.attrs.invisible) applyInvisibleStyle(&out);
     return out;
 }
 
 fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contract.CellInput {
     return publication_cell_map.mapPublicationCellInput(src, t);
-}
-
-fn applySelectionStyle(cell: *contract.CellInput, t: FrameTheme) void {
-    cell.fg = t.default_bg;
-    cell.bg = t.default_fg;
-    cell.empty = false;
 }
 
 fn canMapDirtyOnly(state: anytype) bool {
@@ -484,7 +457,10 @@ test "source text input converts VT source to text scene input" {
     try std.testing.expectEqual(@as(u21, 'A'), input.cells[0].codepoint);
     try std.testing.expect(input.cells[0].underline);
     try std.testing.expectEqual(@as(u8, 0xCC), input.cells[0].underline_color.r);
-    try std.testing.expectEqual(@as(u8, 0), input.cells[0].bg.a);
+    try std.testing.expectEqual(default_theme.default_bg.r, input.cells[0].bg.r);
+    try std.testing.expectEqual(default_theme.default_bg.g, input.cells[0].bg.g);
+    try std.testing.expectEqual(default_theme.default_bg.b, input.cells[0].bg.b);
+    try std.testing.expectEqual(@as(u8, 255), input.cells[0].bg.a);
     try std.testing.expect(!input.cells[0].empty);
     try std.testing.expect(input.options.scene.cursor != null);
     try std.testing.expect(input.options.scene.cursor.?.blink);
@@ -533,7 +509,7 @@ test "source text input keeps opaque default background for blank VT cell" {
     try std.testing.expectEqual(default_theme.default_bg.g, input.cells[0].bg.g);
     try std.testing.expectEqual(default_theme.default_bg.b, input.cells[0].bg.b);
     try std.testing.expectEqual(@as(u8, 255), input.cells[0].bg.a);
-    try std.testing.expect(!input.cells[0].empty);
+    try std.testing.expect(input.cells[0].empty);
 }
 
 test "source text input keeps opaque default background for blank publication cell" {
@@ -576,7 +552,7 @@ test "source text input keeps opaque default background for blank publication ce
     try std.testing.expectEqual(default_theme.default_bg.g, mapped.cells[0].bg.g);
     try std.testing.expectEqual(default_theme.default_bg.b, mapped.cells[0].bg.b);
     try std.testing.expectEqual(@as(u8, 255), mapped.cells[0].bg.a);
-    try std.testing.expect(!mapped.cells[0].empty);
+    try std.testing.expect(mapped.cells[0].empty);
 }
 
 test "source text input keeps default background truth through inverse VT cell" {
@@ -884,7 +860,7 @@ test "source text input marks Alacritty-empty cells before color mapping" {
     try std.testing.expect(!input.cells[4].empty);
 }
 
-test "source text input keeps fg-colored blanks empty" {
+test "source text input treats foreground-colored blanks as non-empty" {
     const cells = [_]source_cell.Cell{
         .{ .codepoint = ' ', .fg_color = .{ .kind = .indexed, .value = 2 } },
         .{ .codepoint = '\t', .fg_color = .{ .kind = .rgb, .value = 0x33AAFF } },
@@ -898,8 +874,8 @@ test "source text input keeps fg-colored blanks empty" {
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
     defer input.deinit();
 
-    try std.testing.expect(input.cells[0].empty);
-    try std.testing.expect(input.cells[1].empty);
+    try std.testing.expect(!input.cells[0].empty);
+    try std.testing.expect(!input.cells[1].empty);
 }
 
 test "source text input threads partial damage into text scene input" {

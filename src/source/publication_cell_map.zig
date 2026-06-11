@@ -1,4 +1,5 @@
 const std = @import("std");
+const source_cell = @import("cell.zig");
 const source_vt = @import("vt.zig");
 const contract = @import("../text/contract.zig");
 const scene = @import("../text/scene.zig");
@@ -8,6 +9,12 @@ pub const FrameTheme = struct {
     default_bg: contract.Rgba8,
     cursor_color: contract.Rgba8,
     palette: [256]contract.Rgba8,
+};
+
+pub const CellSemanticTruth = struct {
+    default_fg: bool,
+    default_bg: bool,
+    empty: bool,
 };
 
 pub fn themeFromPublicationColors(colors: source_vt.SourceColors) FrameTheme {
@@ -22,6 +29,9 @@ pub fn themeFromPublicationColors(colors: source_vt.SourceColors) FrameTheme {
 }
 
 pub fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contract.CellInput {
+    std.debug.assert(src.combining_len <= src.combining.len);
+    const truth = publicationCellTruth(src);
+    assertSemanticEmptyTruth(truth);
     const bg = publicationColorToTextSceneRgba8(src.bg_color, false, t);
     var out: contract.CellInput = .{
         .codepoint = @intCast(src.codepoint),
@@ -36,13 +46,58 @@ pub fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contrac
         .underline = src.attrs.underline != 0,
         .strikethrough = src.attrs.strikethrough != 0,
         .continuation = src.flags.continuation != 0,
-        .empty = isAlacrittyEmptyPublicationCell(src, bg),
+        .empty = truth.empty,
     };
-    if (src.attrs.inverse != 0) applyInverseStyle(&out, t);
+    assertSemanticEmptyClassification(truth, t, out.bg, out.empty);
+    if (src.attrs.inverse != 0) applyInverseStyle(&out, t, truth);
     if (src.attrs.dim != 0) applyDimStyle(&out);
-    if (src.attrs.selected != 0) applySelectionStyle(&out, t);
+    if (src.attrs.selected != 0) applySelectionStyle(&out, t, truth);
     if (src.attrs.invisible != 0) applyInvisibleStyle(&out);
     return out;
+}
+
+pub fn vtCellTruth(src: source_cell.Cell) CellSemanticTruth {
+    std.debug.assert(src.combining_len <= src.combining.len);
+    const default_fg = src.fg_color.kind == .default;
+    const default_bg = src.bg_color.kind == .default;
+    const blank = src.codepoint == ' ' or src.codepoint == '\t';
+    const visible_flags = src.flags.continuation or src.attrs.inverse or src.attrs.underline or src.attrs.strikethrough;
+    return .{
+        .default_fg = default_fg,
+        .default_bg = default_bg,
+        .empty = blank and src.combining_len == 0 and default_fg and default_bg and !visible_flags,
+    };
+}
+
+pub fn publicationCellTruth(src: source_vt.SourceCell) CellSemanticTruth {
+    std.debug.assert(src.combining_len <= src.combining.len);
+    const default_fg = src.fg_color.kind == 0;
+    const default_bg = src.bg_color.kind == 0;
+    const blank = src.codepoint == ' ' or src.codepoint == '\t';
+    const visible_flags = src.flags.continuation != 0 or src.attrs.inverse != 0 or src.attrs.underline != 0 or src.attrs.strikethrough != 0;
+    return .{
+        .default_fg = default_fg,
+        .default_bg = default_bg,
+        .empty = blank and src.combining_len == 0 and default_fg and default_bg and !visible_flags,
+    };
+}
+
+pub fn applyInverseStyle(cell: *contract.CellInput, t: FrameTheme, truth: CellSemanticTruth) void {
+    const fg = if (truth.default_fg) t.default_fg else cell.fg;
+    const bg = if (truth.default_bg) t.default_bg else cell.bg;
+    cell.fg = bg;
+    cell.bg = fg;
+    cell.empty = false;
+
+    if (truth.default_bg) std.debug.assert(std.meta.eql(cell.fg, t.default_bg));
+}
+
+pub fn applySelectionStyle(cell: *contract.CellInput, t: FrameTheme, truth: CellSemanticTruth) void {
+    cell.fg = t.default_bg;
+    cell.bg = t.default_fg;
+    cell.empty = false;
+
+    if (truth.default_bg) std.debug.assert(std.meta.eql(cell.fg, t.default_bg));
 }
 
 pub fn mapPublicationCursor(source: source_vt.PublicationSource, t: FrameTheme) ?scene.CursorInput {
@@ -105,22 +160,8 @@ fn applyDimStyle(cell: *contract.CellInput) void {
     cell.fg.b = @intCast(@as(u16, cell.fg.b) / 2);
 }
 
-fn applyInverseStyle(cell: *contract.CellInput, t: FrameTheme) void {
-    const fg = if (cell.fg.a == 0) t.default_fg else cell.fg;
-    const bg = if (cell.bg.a == 0) t.default_bg else cell.bg;
-    cell.fg = bg;
-    cell.bg = fg;
-    cell.empty = false;
-}
-
 fn applyInvisibleStyle(cell: *contract.CellInput) void {
     cell.fg = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
-}
-
-fn applySelectionStyle(cell: *contract.CellInput, t: FrameTheme) void {
-    cell.fg = t.default_bg;
-    cell.bg = t.default_fg;
-    cell.empty = false;
 }
 
 fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) contract.TextPresentation {
@@ -133,19 +174,15 @@ fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) 
     return .any;
 }
 
-fn isAlacrittyEmptyPublicationCell(src: source_vt.SourceCell, bg: contract.Rgba8) bool {
-    return src.codepoint == ' ' and
-        src.combining_len == 0 and
-        src.attrs.bold == 0 and
-        src.attrs.dim == 0 and
-        src.attrs.italic == 0 and
-        src.attrs.underline == 0 and
-        src.attrs.strikethrough == 0 and
-        src.attrs.inverse == 0 and
-        src.attrs.selected == 0 and
-        src.attrs.invisible == 0 and
-        src.flags.continuation == 0 and
-        bg.a == 0;
+fn assertSemanticEmptyTruth(truth: CellSemanticTruth) void {
+    if (truth.empty) std.debug.assert(truth.default_fg);
+    if (truth.empty) std.debug.assert(truth.default_bg);
+}
+
+pub fn assertSemanticEmptyClassification(truth: CellSemanticTruth, t: FrameTheme, bg: contract.Rgba8, empty: bool) void {
+    std.debug.assert(empty == truth.empty);
+    if (truth.empty) std.debug.assert(std.meta.eql(bg, t.default_bg));
+    if (truth.empty) std.debug.assert(bg.a == 255);
 }
 
 fn mapTextSceneCursorShape(shape: anytype) scene.CursorShape {
