@@ -249,7 +249,11 @@ fn appendRenderable(
     lane_report: *lane.LaneReport,
 ) !void {
     driver.scratch.renderable.appendAssumeCapacity(renderable);
-    if (text.first_cp == 0 or text.first_cp == '\t') return;
+    const sprite_draw_count = driver.scratch.sprite_draws.items.len;
+    if (text.first_cp == 0 or text.first_cp == '\t') {
+        std.debug.assert(driver.scratch.sprite_draws.items.len == sprite_draw_count);
+        return;
+    }
 
     const face = resolveFace(session, renderable, text) orelse {
         driver.scratch.missing.appendAssumeCapacity(.{ .codepoint = text.first_cp, .style = renderable.style, .presentation = renderable.presentation, .reason = .no_fallback_face });

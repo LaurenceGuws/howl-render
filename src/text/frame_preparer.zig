@@ -897,6 +897,75 @@ test "text preparation options produce scene cursor draws" {
     try std.testing.expectEqual(@as(u16, 8), analysis.scene.scene.cursor_draws[0].width_px);
 }
 
+test "text preparation partial damage clears use empty default background truth" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const transparent_bg = contract.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
+    const cells = [_]contract.CellInput{.{ .codepoint = ' ', .fg = white, .bg = transparent_bg, .empty = true }};
+    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{}, .{
+        .scene = .{ .damage = .{ .full = false, .dirty_rows = &[_]bool{true}, .dirty_cols_start = &[_]u16{0}, .dirty_cols_end = &[_]u16{0} } },
+    });
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.clear_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.background_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(transparent_bg.r, analysis.scene.scene.clear_draws[0].color.r);
+    try std.testing.expectEqual(transparent_bg.g, analysis.scene.scene.clear_draws[0].color.g);
+    try std.testing.expectEqual(transparent_bg.b, analysis.scene.scene.clear_draws[0].color.b);
+    try std.testing.expectEqual(@as(u8, 255), analysis.scene.scene.clear_draws[0].color.a);
+}
+
+test "text preparation publication clears use empty default background truth" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    var colors = std.mem.zeroes(source_vt.SourceColors);
+    colors.background = .{ .r = 0x44, .g = 0x55, .b = 0x66 };
+    var cells = [_]source_vt.SourceCell{.{
+        .codepoint = ' ',
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    }};
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const source = source_vt.PublicationSource{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = colors,
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+        .retained_storage = true,
+    };
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.clear_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.background_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(colors.background.r, analysis.scene.scene.clear_draws[0].color.r);
+    try std.testing.expectEqual(colors.background.g, analysis.scene.scene.clear_draws[0].color.g);
+    try std.testing.expectEqual(colors.background.b, analysis.scene.scene.clear_draws[0].color.b);
+    try std.testing.expectEqual(@as(u8, 255), analysis.scene.scene.clear_draws[0].color.a);
+}
+
 test "text preparation direct-renders pure normal cell text inputs" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();

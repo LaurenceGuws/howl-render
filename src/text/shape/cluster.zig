@@ -7,6 +7,7 @@ const source_vt = @import("../../source/vt.zig");
 
 const VS15: u32 = 0xfe0e;
 const VS16: u32 = 0xfe0f;
+const blank_codepoints = [_]u32{0};
 
 pub const CellTextInput = struct {
     codepoints: []const u32,
@@ -300,12 +301,11 @@ pub fn buildSparseCellsWithDamageScratch(
         cell_idx += 1;
         const cell = cells[@intCast(idx)];
         if (cell.continuation) continue;
-        if (cell.empty) continue;
         const first_cell = idx;
         const span = inferredCellSpan(cells, first_cell);
         if (!damage_filter.includeSpan(first_cell, span)) continue;
         var scratch_codepoints: [4]u32 = undefined;
-        const cps = cellCodepoints(cell, &scratch_codepoints);
+        const cps = cellCodepointsForRenderableOwnership(cell, &scratch_codepoints);
         const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
             const next_id = text_count;
             appendScratchText(scratch, &text_count, &codepoint_count, cps);
@@ -351,12 +351,11 @@ pub fn buildSparsePublicationCellsWithDamageScratch(
         const source_cell_value = cells[@intCast(idx)];
         if (source_cell_value.flags.continuation != 0) continue;
         const mapped = publication_cell_map.mapPublicationCellInput(source_cell_value, theme);
-        if (mapped.empty) continue;
         const first_cell = idx;
         const span = inferredPublicationCellSpan(cells, first_cell);
         if (!damage_filter.includeSpan(first_cell, span)) continue;
         var scratch_codepoints: [4]u32 = undefined;
-        const cps = cellCodepoints(mapped, &scratch_codepoints);
+        const cps = cellCodepointsForRenderableOwnership(mapped, &scratch_codepoints);
         const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
             const next_id = text_count;
             appendScratchText(scratch, &text_count, &codepoint_count, cps);
@@ -415,7 +414,8 @@ fn initRenderableTextFromCellInput(renderable: contract.RenderableCell, cell: co
         .renderable = renderable,
         .text = .{ .id = .{ .value = 0 }, .first_cp = cell.codepoint, .codepoints = &.{} },
     };
-    const cps = cellCodepoints(cell, &item.inline_codepoints);
+    const cps = cellCodepointsForRenderableOwnership(cell, &item.inline_codepoints);
+    std.mem.copyForwards(u32, item.inline_codepoints[0..cps.len], cps);
     item.text.first_cp = cps[0];
     item.text.codepoints = item.inline_codepoints[0..cps.len];
     return item;
@@ -426,6 +426,11 @@ fn cellCodepoints(cell: contract.CellInput, scratch: *[4]u32) []const u32 {
     scratch[0] = cell.codepoint;
     for (cell.combining[0..cell.combining_len], 1..) |cp, idx| scratch[idx] = cp;
     return scratch[0 .. @as(usize, cell.combining_len) + 1];
+}
+
+fn cellCodepointsForRenderableOwnership(cell: contract.CellInput, scratch: *[4]u32) []const u32 {
+    if (cell.empty) return &blank_codepoints;
+    return cellCodepoints(cell, scratch);
 }
 
 fn findText(texts: []const contract.CellText, cps: []const u32) ?contract.CellTextId {
@@ -536,7 +541,7 @@ pub fn selectComplexWithDamage(
 
 pub fn sourceRenderableTextFromCells(cells: []const contract.CellInput, idx: u32) ?RenderableText {
     const cell = cells[idx];
-    if (cell.continuation or cell.empty) return null;
+    if (cell.continuation) return null;
     const cell_span = inferredCellSpan(cells, idx);
     return initRenderableTextFromCellInput(renderableFromCellInput(.{ .value = 0 }, idx, cell_span, cell, false), cell);
 }
@@ -545,7 +550,6 @@ pub fn sourceRenderableTextFromPublication(cells: []const source_vt.SourceCell, 
     const cell = cells[idx];
     if (cell.flags.continuation != 0) return null;
     const mapped = publication_cell_map.mapPublicationCellInput(cell, theme);
-    if (mapped.empty) return null;
     const cell_span = inferredPublicationCellSpan(cells, idx);
     return initRenderableTextFromCellInput(renderableFromCellInput(.{ .value = 0 }, idx, cell_span, mapped, false), mapped);
 }
@@ -1109,22 +1113,31 @@ test "sparse cells intern repeated codepoints" {
     try std.testing.expect(sparse.renderable.cells[2].text_id.value != sparse.renderable.cells[0].text_id.value);
 }
 
-test "sparse cells skip Alacritty-empty cells" {
+test "sparse cells keep empty background witnesses for scene ownership" {
     const allocator = std.testing.allocator;
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const transparent_bg = contract.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
     const cells = [_]contract.CellInput{
-        .{ .codepoint = ' ', .fg = white, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 }, .empty = true },
+        .{ .codepoint = ' ', .fg = white, .bg = transparent_bg, .empty = true },
         .{ .codepoint = 'A', .fg = white, .bg = black },
-        .{ .codepoint = '\t', .fg = white, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 }, .empty = true },
+        .{ .codepoint = '\t', .fg = white, .bg = transparent_bg, .empty = true },
     };
 
     var sparse = try buildSparseCellsWithDamage(allocator, &cells, .{ .cols = 3, .rows = 1 }, .{ .full = true });
     defer sparse.deinit();
 
-    try std.testing.expectEqual(@as(u32, 1), count32(sparse.renderable.cells));
-    try std.testing.expectEqual(@as(u32, 1), sparse.renderable.cells[0].first_cell);
-    try std.testing.expectEqual(@as(u32, 'A'), sparse.text_cache.texts[0].first_cp);
+    try std.testing.expectEqual(@as(u32, 3), count32(sparse.renderable.cells));
+    try std.testing.expectEqual(@as(u32, 2), count32(sparse.text_cache.texts));
+    try std.testing.expectEqual(@as(u32, 0), sparse.renderable.cells[0].first_cell);
+    try std.testing.expectEqual(@as(u32, 1), sparse.renderable.cells[1].first_cell);
+    try std.testing.expectEqual(@as(u32, 2), sparse.renderable.cells[2].first_cell);
+    try std.testing.expectEqual(transparent_bg.r, sparse.renderable.cells[0].bg.r);
+    try std.testing.expectEqual(transparent_bg.g, sparse.renderable.cells[2].bg.g);
+    try std.testing.expectEqual(@as(u32, 0), sparse.text_cache.texts[sparse.renderable.cells[0].text_id.value].first_cp);
+    try std.testing.expectEqual(@as(u32, 0), sparse.text_cache.texts[sparse.renderable.cells[2].text_id.value].first_cp);
+    try std.testing.expectEqual(sparse.renderable.cells[0].text_id.value, sparse.renderable.cells[2].text_id.value);
+    try std.testing.expectEqual(@as(u32, 'A'), sparse.text_cache.texts[sparse.renderable.cells[1].text_id.value].first_cp);
 }
 
 test "rich cell text interning deduplicates codepoint sequences" {

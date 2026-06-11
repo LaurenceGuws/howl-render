@@ -922,7 +922,9 @@ fn clearColorForSpan(cells: []const contract.RenderableCell, grid_metrics: contr
     };
     for (cells) |cell| {
         if (classifyClearColorCell(grid_metrics, dirty_span, cell) != .match) continue;
-        return .{ .r = cell.bg.r, .g = cell.bg.g, .b = cell.bg.b, .a = 255 };
+        const clear = contract.Rgba8{ .r = cell.bg.r, .g = cell.bg.g, .b = cell.bg.b, .a = 255 };
+        std.debug.assert(clear.r == cell.bg.r and clear.g == cell.bg.g and clear.b == cell.bg.b and clear.a == 255);
+        return clear;
     }
     return .{ .r = 0, .g = 0, .b = 0, .a = 255 };
 }
