@@ -8,8 +8,14 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const perf_optimize: std.builtin.OptimizeMode = .ReleaseFast;
-    const test_font_primary_path = b.option([]const u8, "test-font-primary-path", "Explicit render proof primary font path") orelse "src/text/font/ft_hb/testdata/primary.ttf";
-    const test_font_symbol_path = b.option([]const u8, "test-font-symbol-path", "Explicit render proof symbol fallback font path") orelse "src/text/font/ft_hb/testdata/symbols.ttf";
+    const test_font_primary_path = assertTrackedTestFontFixture(b,
+        b.option([]const u8, "test-font-primary-path", "Explicit render proof primary font path") orelse "src/text/font/ft_hb/testdata/primary.ttf",
+        "src/text/font/ft_hb/testdata/primary.ttf",
+    );
+    const test_font_symbol_path = assertTrackedTestFontFixture(b,
+        b.option([]const u8, "test-font-symbol-path", "Explicit render proof symbol fallback font path") orelse "src/text/font/ft_hb/testdata/symbols.ttf",
+        "src/text/font/ft_hb/testdata/symbols.ttf",
+    );
     const freetype_dep = b.dependency("freetype", .{
         .target = target,
         .optimize = optimize,
@@ -148,4 +154,13 @@ fn add_test_run_artifact(b: *std.Build, tests: *std.Build.Step.Compile) *std.Bui
         run_tests.has_side_effects = true;
     }
     return run_tests;
+}
+
+fn assertTrackedTestFontFixture(b: *std.Build, path: []const u8, expected_path: []const u8) []const u8 {
+    const allocator = b.allocator;
+    const actual_realpath = b.build_root.handle.realPathFileAlloc(b.graph.io, path, allocator) catch @panic("render test font path must resolve to a tracked repo fixture");
+    const expected_realpath = b.build_root.handle.realPathFileAlloc(b.graph.io, expected_path, allocator) catch @panic("render test font fixture must exist in repo");
+    defer allocator.free(expected_realpath);
+    if (!std.mem.eql(u8, actual_realpath, expected_realpath)) @panic("render test font path must resolve to the tracked repo fixture");
+    return actual_realpath;
 }

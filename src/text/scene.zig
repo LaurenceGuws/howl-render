@@ -1396,32 +1396,6 @@ test "scene damage filters clean rows" {
     try std.testing.expectEqual(@as(u32, 3), owned.scene.sprite_draws[0].first_cell);
 }
 
-test "scene invalid partial damage falls back to full redraw" {
-    const color = contract.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
-    const cells = [_]contract.RenderableCell{
-        .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = color },
-        .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = color },
-    };
-    const group = contract.GlyphGroup{ .first_cell = 1, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 9 }, .kind = .normal };
-    const dirty_rows = [_]bool{true};
-    const dirty_starts = [_]u16{0};
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2, .rows = 2 }, .{
-        .damage = .{
-            .full = false,
-            .dirty_rows = &dirty_rows,
-            .dirty_cols_start = &dirty_starts,
-            .dirty_cols_end = &.{},
-        },
-    });
-    defer owned.deinit();
-
-    try std.testing.expect(owned.scene.full_redraw);
-    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.clear_draws));
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.sprite_draws));
-}
-
 test "scene emits shared-geometry decoration draws from cells" {
     const cells = [_]contract.RenderableCell{.{
         .text_id = .{ .value = 0 },

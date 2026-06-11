@@ -275,3 +275,19 @@ test "publication cell map keeps default background truth through inverse and se
     try std.testing.expectEqual(@as(u8, 255), selected.bg.a);
     try std.testing.expect(!selected.empty);
 }
+
+test "publication cell map keeps vt semantic empty truth owner-local" {
+    const empty = vtCellTruth(.{ .codepoint = ' ' });
+    try std.testing.expect(empty.default_fg);
+    try std.testing.expect(empty.default_bg);
+    try std.testing.expect(empty.empty);
+
+    const fg_colored = vtCellTruth(.{ .codepoint = ' ', .fg_color = .{ .kind = .indexed, .value = 2 } });
+    try std.testing.expect(!fg_colored.empty);
+
+    const underlined = vtCellTruth(.{ .codepoint = ' ', .attrs = .{ .underline = true } });
+    try std.testing.expect(!underlined.empty);
+
+    const continuation = vtCellTruth(.{ .codepoint = ' ', .flags = .{ .continuation = true } });
+    try std.testing.expect(!continuation.empty);
+}

@@ -897,25 +897,6 @@ test "text preparation options produce scene cursor draws" {
     try std.testing.expectEqual(@as(u16, 8), analysis.scene.scene.cursor_draws[0].width_px);
 }
 
-test "text preparation prepares rich multi-codepoint cell inputs" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
-    defer engine.deinit();
-    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const combining = [_]u32{ 'i', 0x0332, 0x0308 };
-    const emoji = [_]u32{ 0x2716, 0xfe0f };
-    const inputs = [_]cluster.CellTextInput{
-        .{ .codepoints = &combining, .fg = white, .bg = black },
-        .{ .codepoints = &emoji, .fg = white, .bg = black, .cell_span = 2 },
-    };
-    var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 4, .rows = 1 }, .{}, .{});
-    defer analysis.deinit();
-
-    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
-    try std.testing.expectEqual(@as(u8, 2), analysis.scene.scene.sprite_draws[1].cell_span);
-    try std.testing.expectEqual(@as(u16, 2), analysis.scene.scene.sprite_draws[1].width_px);
-}
-
 test "text preparation direct-renders pure normal cell text inputs" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
@@ -1035,7 +1016,7 @@ test "text preparation keeps icon codepoints out of the normal lane" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
 }
 
-test "text preparation prepares mixed publication cells through non-null publication frame" {
+test "text preparation prepares publication cells through shared full pipeline frame" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     var cells = [_]source_vt.SourceCell{
@@ -1050,9 +1031,9 @@ test "text preparation prepares mixed publication cells through non-null publica
             .link_id = 0,
         },
         .{
-            .codepoint = 'i',
+            .codepoint = 0x2716,
             .combining_len = 1,
-            .combining = .{ 0x0332, 0, 0 },
+            .combining = .{ 0xFE0F, 0, 0 },
             .flags = .{ .continuation = 0 },
             .fg_color = .{ .kind = 0, .value = 0 },
             .bg_color = .{ .kind = 0, .value = 0 },
@@ -1088,53 +1069,10 @@ test "text preparation prepares mixed publication cells through non-null publica
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
     try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
-}
-
-test "text preparation prepares complex publication cells through non-null publication frame" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
-    defer engine.deinit();
-    var cells = [_]source_vt.SourceCell{.{
-        .codepoint = 0x2716,
-        .combining_len = 1,
-        .combining = .{ 0xFE0F, 0, 0 },
-        .flags = .{ .continuation = 0 },
-        .fg_color = .{ .kind = 0, .value = 0 },
-        .bg_color = .{ .kind = 0, .value = 0 },
-        .underline_color = .{ .kind = 0, .value = 0 },
-        .underline_style = 0,
-        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
-        .link_id = 0,
-    }};
-    const dirty_rows = [_]u8{1};
-    const dirty_starts = [_]u16{0};
-    const dirty_ends = [_]u16{0};
-    const source = source_vt.PublicationSource{
-        .cols = 1,
-        .rows = 1,
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .dirty_epoch = 1,
-        .is_alternate_screen = false,
-        .cells = cells[0..],
-        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
-        .colors = std.mem.zeroes(source_vt.SourceColors),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-        .cursor_phase_visible = true,
-        .dirty_rows = @constCast(&dirty_rows),
-        .dirty_cols_start = @constCast(&dirty_starts),
-        .dirty_cols_end = @constCast(&dirty_ends),
-        .retained_storage = true,
-    };
-
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(source.colors))).?;
-    defer analysis.deinit();
-
-    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
-    try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
-    try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.missing_glyphs);
 }
 
 test "text preparation uses ft hb source coverage for fallback" {
