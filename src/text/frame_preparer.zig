@@ -691,6 +691,53 @@ pub const PrepareOptions = struct {
     scene: scene.BuildOptions = .{},
 };
 
+fn testPublicationCell(codepoint: u32) source_vt.SourceCell {
+    return .{
+        .codepoint = codepoint,
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    };
+}
+
+fn testOneRowPublicationSource(cells: []source_vt.SourceCell, colors: source_vt.SourceColors) source_vt.PublicationSource {
+    std.debug.assert(cells.len <= std.math.maxInt(u16));
+    return .{
+        .cols = @intCast(cells.len),
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells,
+        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .colors = colors,
+        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_phase_visible = true,
+        .dirty_rows = &.{},
+        .dirty_cols_start = &.{},
+        .dirty_cols_end = &.{},
+        .retained_storage = true,
+    };
+}
+
+fn testPublicationColors() source_vt.SourceColors {
+    var colors = std.mem.zeroes(source_vt.SourceColors);
+    colors.foreground = .{ .r = 0xf0, .g = 0xf1, .b = 0xf2 };
+    colors.background = .{ .r = 0x10, .g = 0x11, .b = 0x12 };
+    colors.cursor = .{ .r = 0xff, .g = 0xff, .b = 0xff };
+    colors.palette[2] = .{ .r = 0x20, .g = 0x21, .b = 0x22 };
+    colors.palette[3] = .{ .r = 0x30, .g = 0x31, .b = 0x32 };
+    colors.palette[4] = .{ .r = 0x40, .g = 0x41, .b = 0x42 };
+    colors.palette[5] = .{ .r = 0x50, .g = 0x51, .b = 0x52 };
+    return colors;
+}
+
 test "text preparation prepares cell inputs into clusters and runs" {
     var engine = TextFramePreparer.init(std.testing.allocator);
     defer engine.deinit();
@@ -1010,6 +1057,128 @@ test "text preparation publication ascii stays on direct normal path" {
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
+}
+
+test "text preparation publication styled indexed ascii stays on direct normal path" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{testPublicationCell('S')};
+    cells[0].fg_color = .{ .kind = 1, .value = 2 };
+    cells[0].bg_color = .{ .kind = 1, .value = 3 };
+    cells[0].attrs = .{ .bold = 1, .dim = 1, .italic = 1, .underline = 1, .underline_color_set = 0, .blink = 1, .inverse = 1, .invisible = 0, .strikethrough = 0, .selected = 0 };
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.background_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.decoration_draws));
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
+    try std.testing.expectEqual(colors.palette[3].r, analysis.scene.scene.sprite_draws[0].color.r);
+    try std.testing.expectEqual(colors.palette[3].g, analysis.scene.scene.sprite_draws[0].color.g);
+    try std.testing.expectEqual(colors.palette[3].b, analysis.scene.scene.sprite_draws[0].color.b);
+    try std.testing.expectEqual(@as(u8, 102), analysis.scene.scene.sprite_draws[0].color.a);
+    try std.testing.expectEqual(colors.palette[2].r, analysis.scene.scene.background_draws[0].color.r);
+    try std.testing.expectEqual(colors.palette[2].g, analysis.scene.scene.background_draws[0].color.g);
+    try std.testing.expectEqual(colors.palette[2].b, analysis.scene.scene.background_draws[0].color.b);
+}
+
+test "text preparation publication non inverse indexed ascii stays on direct normal path" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{testPublicationCell('N')};
+    cells[0].fg_color = .{ .kind = 1, .value = 4 };
+    cells[0].bg_color = .{ .kind = 1, .value = 5 };
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.background_draws));
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
+    try std.testing.expectEqual(colors.palette[4].r, analysis.scene.scene.sprite_draws[0].color.r);
+    try std.testing.expectEqual(colors.palette[4].g, analysis.scene.scene.sprite_draws[0].color.g);
+    try std.testing.expectEqual(colors.palette[4].b, analysis.scene.scene.sprite_draws[0].color.b);
+    try std.testing.expectEqual(colors.palette[5].r, analysis.scene.scene.background_draws[0].color.r);
+    try std.testing.expectEqual(colors.palette[5].g, analysis.scene.scene.background_draws[0].color.g);
+    try std.testing.expectEqual(colors.palette[5].b, analysis.scene.scene.background_draws[0].color.b);
+}
+
+test "text preparation publication unsupported space and rgb keep fallback scratch clean" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{ testPublicationCell(' '), testPublicationCell('R') };
+    cells[1].fg_color = .{ .kind = 2, .value = 0x123456 };
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
+    try std.testing.expectEqual(@as(u8, 0x12), analysis.scene.scene.sprite_draws[0].color.r);
+    try std.testing.expectEqual(@as(u8, 0x34), analysis.scene.scene.sprite_draws[0].color.g);
+    try std.testing.expectEqual(@as(u8, 0x56), analysis.scene.scene.sprite_draws[0].color.b);
+}
+
+test "text preparation publication unsupported curly falls back without partial direct scratch" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('C') };
+    cells[1].attrs.underline = 1;
+    cells[1].underline_style = 2;
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expect(count32(analysis.scene.scene.sprite_draws) >= 2);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
+}
+
+test "text preparation publication unsupported combining falls back without partial direct scratch" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('M') };
+    cells[1].combining_len = 1;
+    cells[1].combining = .{ 0x0332, 0, 0 };
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
+    try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
+}
+
+test "text preparation publication unsupported link reaches generic path without partial scratch" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{testPublicationCell('L')};
+    cells[0].link_id = 9;
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
     try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
 }

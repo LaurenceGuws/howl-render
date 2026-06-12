@@ -173,6 +173,14 @@ const Candidate = struct {
     choice: lane.LaneClass,
 };
 
+const PublicationCandidate = union(enum) {
+    candidate: Candidate,
+    skip,
+    unsupported,
+};
+
+const ascii_codepoints = initAsciiCodepoints();
+
 const ScratchCheckpoint = struct {
     renderable_len: usize,
     missing_len: usize,
@@ -239,9 +247,133 @@ fn candidateDecision(policy: Policy, lane_report: *lane.LaneReport, candidate: C
 }
 
 fn sourceCandidate(source: Source, idx: u32, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics) ?Candidate {
+    if (source == .publication) {
+        const publication = source.publication;
+        switch (publicationCandidate(publication.cells, publication.theme, idx, damage, grid_metrics)) {
+            .candidate => |candidate| return candidate,
+            .skip => return null,
+            .unsupported => {},
+        }
+    }
     const item = sourceItem(source, idx) orelse return null;
     if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) return null;
     return .{ .item = item, .choice = lane.classifyRenderableCell(item.renderable, item.text) };
+}
+
+fn publicationCandidate(cells: []const source_vt.SourceCell, theme: publication_cell_map.FrameTheme, idx: u32, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics) PublicationCandidate {
+    std.debug.assert(idx < count32(cells));
+    const cell = cells[@intCast(idx)];
+    if (!publicationCellSupported(cells, idx, cell)) return .unsupported;
+
+    const item = publicationRenderableText(theme, idx, cell);
+    if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) return .skip;
+    const choice = lane.LaneClass.normal();
+    choice.assertValid();
+    std.debug.assert(lane.classifyRenderableCell(item.renderable, item.text).renderableClass() == .normal);
+    return .{ .candidate = .{ .item = item, .choice = choice } };
+}
+
+fn publicationCellSupported(cells: []const source_vt.SourceCell, idx: u32, cell: source_vt.SourceCell) bool {
+    if (cell.codepoint < 0x21 or cell.codepoint >= 0x7f) return false;
+    if (cell.combining_len != 0) return false;
+    if (cell.flags.continuation != 0) return false;
+    if (publicationCellSpan(cells, idx) != 1) return false;
+    if (cell.link_id != 0) return false;
+    if (!publicationColorSupported(cell.fg_color)) return false;
+    if (!publicationColorSupported(cell.bg_color)) return false;
+    if (cell.attrs.selected != 0) return false;
+    if (cell.attrs.invisible != 0) return false;
+    if (cell.attrs.strikethrough != 0) return false;
+    if (cell.attrs.underline_color_set != 0) return false;
+    if (cell.underline_style != 0) return false;
+    return true;
+}
+
+fn publicationRenderableText(theme: publication_cell_map.FrameTheme, idx: u32, cell: source_vt.SourceCell) cluster.RenderableText {
+    std.debug.assert(cell.codepoint >= 0x21 and cell.codepoint < 0x7f);
+    std.debug.assert(cell.combining_len == 0);
+    std.debug.assert(cell.flags.continuation == 0);
+    std.debug.assert(publicationColorSupported(cell.fg_color));
+    std.debug.assert(publicationColorSupported(cell.bg_color));
+    std.debug.assert(cell.underline_style == 0);
+
+    var fg = publicationColorRgba(cell.fg_color, true, theme);
+    var bg = publicationColorRgba(cell.bg_color, false, theme);
+    if (cell.attrs.inverse != 0) std.mem.swap(contract.Rgba8, &fg, &bg);
+
+    const item = cluster.RenderableText{
+        .renderable = .{
+            .text_id = .{ .value = 0 },
+            .first_cell = idx,
+            .cell_span = 1,
+            .style = publicationFontStyle(cell.attrs.bold != 0, cell.attrs.italic != 0),
+            .presentation = .any,
+            .dim = cell.attrs.dim != 0,
+            .invisible = false,
+            .semantic_fg = publicationSemanticColor(cell.fg_color),
+            .semantic_bg = publicationSemanticColor(cell.bg_color),
+            .fg = fg,
+            .bg = bg,
+            .underline_color_set = false,
+            .semantic_underline_color = .{},
+            .underline_color = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+            .underline_style = .straight,
+            .underline = cell.attrs.underline != 0,
+            .strikethrough = false,
+            .continuation = false,
+        },
+        .text = .{ .id = .{ .value = 0 }, .first_cp = cell.codepoint, .codepoints = ascii_codepoints[@intCast(cell.codepoint)][0..1] },
+    };
+    std.debug.assert(item.text.codepoints.len == 1);
+    std.debug.assert(item.text.codepoints[0] == item.text.first_cp);
+    std.debug.assert(item.renderable.cell_span == 1);
+    return item;
+}
+
+fn publicationColorSupported(color: source_vt.SourceColor) bool {
+    return switch (color.kind) {
+        0 => true,
+        1 => color.value <= std.math.maxInt(u8),
+        else => false,
+    };
+}
+
+fn publicationColorRgba(color: source_vt.SourceColor, foreground: bool, theme: publication_cell_map.FrameTheme) contract.Rgba8 {
+    std.debug.assert(publicationColorSupported(color));
+    return switch (color.kind) {
+        0 => if (foreground) theme.default_fg else theme.default_bg,
+        1 => theme.palette[@intCast(color.value)],
+        else => unreachable,
+    };
+}
+
+fn publicationSemanticColor(color: source_vt.SourceColor) contract.SemanticColor {
+    std.debug.assert(publicationColorSupported(color));
+    return switch (color.kind) {
+        0 => .{ .kind = .default },
+        1 => .{ .kind = .indexed, .value = color.value },
+        else => unreachable,
+    };
+}
+
+fn publicationFontStyle(bold: bool, italic: bool) contract.FontStyle {
+    if (bold and italic) return .bold_italic;
+    if (bold) return .bold;
+    if (italic) return .italic;
+    return .regular;
+}
+
+fn publicationCellSpan(cells: []const source_vt.SourceCell, idx: u32) u8 {
+    var span: u32 = 1;
+    const total = count32(cells);
+    while (idx + span < total and cells[@intCast(idx + span)].flags.continuation != 0) : (span += 1) {}
+    return @intCast(@min(span, std.math.maxInt(u8)));
+}
+
+fn initAsciiCodepoints() [128][1]u32 {
+    var table: [128][1]u32 = undefined;
+    for (&table, 0..) |*entry, idx| entry[0] = @intCast(idx);
+    return table;
 }
 
 fn sourceLen(source: Source) u32 {
