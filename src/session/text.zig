@@ -35,7 +35,7 @@ const ft_hb_glyph_cell_cache_entry_cap: u32 = 4096;
 const ft_hb_shape_run_cache_entry_cap: u32 = 64;
 const ft_hb_shape_input_codepoints_per_cluster_cap: u32 = 16;
 const ft_hb_cached_glyphs_per_run_cap: u32 = 512;
-const PreparedSurfaceHandle = ?*anyopaque;
+const RdrSfcHandle = ?*anyopaque;
 
 fn monotonicNs() u64 {
     var ts: std.posix.timespec = undefined;
@@ -438,8 +438,7 @@ pub const TextSessionOwner = struct {
     source_dirty_epoch: u64 = 0,
     cursor_blink_visible: bool = true,
     config: TextSessionConfig,
-    prepared_publish_handle: PreparedSurfaceHandle = null,
-    prepared_submit_handle: PreparedSurfaceHandle = null,
+    rdr_sfc_handle: RdrSfcHandle = null,
     prepared_handles: std.ArrayList(*prepared_handle.PreparedHandle) = .empty,
     font_paths: text_paths.FontPaths,
     render_surface_sprite_resources: sprite_resource_store.SpriteResourceStore = .init(),
@@ -477,8 +476,7 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn destroy(self: *TextSessionOwner) void {
-        self.prepared_publish_handle = null;
-        self.prepared_submit_handle = null;
+        self.rdr_sfc_handle = null;
         for (self.prepared_handles.items) |prepared| prepared.destroy();
         self.prepared_handles.deinit(self.allocator);
         self.prepared_handles = .empty;
@@ -531,6 +529,7 @@ pub const TextSessionOwner = struct {
         errdefer prepared.deinit();
         const owner_create_start_ns = monotonicNs();
         const owner = prepared_handle.PreparedHandle.create(self, &prepared) catch |err| return err;
+        self.rdr_sfc_handle = @ptrCast(owner);
         debug_prepare_timing.record(prepare_timings, prepare_surface_ns, monotonicNs() -| owner_create_start_ns);
         return owner;
     }
@@ -540,9 +539,8 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn clearCachedPreparedHandle(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle) void {
-        const handle: PreparedSurfaceHandle = @ptrCast(prepared);
-        if (self.prepared_publish_handle == handle) self.prepared_publish_handle = null;
-        if (self.prepared_submit_handle == handle) self.prepared_submit_handle = null;
+        const handle: RdrSfcHandle = @ptrCast(prepared);
+        if (self.rdr_sfc_handle == handle) self.rdr_sfc_handle = null;
     }
 
     pub fn invalidateTextState(self: *TextSessionOwner) void {
@@ -645,61 +643,29 @@ pub const TextSessionOwner = struct {
         return self.prepare_requests.active.?.request;
     }
 
-    pub fn publishPrepared(self: *TextSessionOwner, prepared: tokens.PreparedSurfaceToken) void {
-        self.submitted.publishPrepared(prepared);
-    }
-
-    pub fn publishPreparedHandle(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle) bool {
-        if (!prepared.belongsToSession(self)) return false;
-        if (prepared.state != .prepared) return false;
-        prepared.state = .published;
-        self.prepared_submit_handle = null;
-        self.prepared_publish_handle = @ptrCast(prepared);
-        self.publishPrepared(prepared.preparedSurfaceToken());
-        return true;
-    }
-
-    pub fn submit(self: *TextSessionOwner) session_submitted.SubmitDecision {
-        const decision = self.submitted.takeValidatedSubmitWithLatest(self.prepare_requests.latestToken());
-        switch (decision) {
-            .stale => |token| self.prepare_requests.retireAtOrBefore(token),
-            .needs_full_prepare => _ = self.prepare_requests.requestFullPrepare(
-                session_submitted.Submitted.forceFull,
-            ),
-            else => {},
-        }
-        return decision;
-    }
-
     pub fn takeSubmitHandle(self: *TextSessionOwner) SubmitHandleDecision {
-        return switch (self.submit()) {
-            .idle => .idle,
-            .stale => blk: {
-                self.prepared_publish_handle = null;
-                self.prepared_submit_handle = null;
-                break :blk .stale;
-            },
-            .needs_full_prepare => blk: {
-                self.prepared_publish_handle = null;
-                self.prepared_submit_handle = null;
-                break :blk .needs_full_prepare;
-            },
-            .submit => |prepared_token| blk: {
-                const opaque_handle = self.prepared_publish_handle orelse break :blk .failed;
-                const prepared = prepared_handle.PreparedHandle.fromHandle(opaque_handle) orelse break :blk .failed;
-                if (!prepared.isLive()) {
-                    self.prepared_publish_handle = null;
-                    self.prepared_submit_handle = null;
-                    break :blk .failed;
-                }
-                if (!samePreparedSurfaceToken(prepared.preparedSurfaceToken(), prepared_token)) break :blk .failed;
-                if (prepared.state != .published) break :blk .failed;
-                prepared.state = .submit_ready;
-                self.prepared_publish_handle = null;
-                self.prepared_submit_handle = opaque_handle;
-                break :blk .{ .submit = prepared };
-            },
-        };
+        const opaque_handle = self.rdr_sfc_handle orelse return .idle;
+        const prepared = prepared_handle.PreparedHandle.fromHandle(opaque_handle) orelse return .failed;
+        if (!prepared.belongsToSession(self)) return .failed;
+        if (!prepared.isLive()) {
+            self.rdr_sfc_handle = null;
+            return .failed;
+        }
+        if (prepared.state != .prepared) return .failed;
+        const prepared_token = prepared.preparedSurfaceToken();
+        if (self.submitted.isStalePrepared(self.prepare_requests.latestToken(), prepared_token.token)) {
+            self.rdr_sfc_handle = null;
+            self.prepare_requests.retireAtOrBefore(prepared_token.token);
+            return .stale;
+        }
+        const validation = self.submitted.validatePrepared(prepared_token);
+        if (validation != .valid) {
+            self.rdr_sfc_handle = null;
+            _ = self.prepare_requests.requestFullPrepare(session_submitted.Submitted.forceFull);
+            return .needs_full_prepare;
+        }
+        prepared.state = .submit_ready;
+        return .{ .submit = prepared };
     }
 
     pub fn submitPrepared(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle, prepared_token: tokens.PreparedSurfaceToken, execution: TextSession.SubmitExecution) SubmitPreparedResult {
@@ -710,16 +676,16 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn submitPreparedHandle(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle, execution: TextSession.SubmitExecution) SubmitPreparedResult {
-        if (self.prepared_submit_handle != @as(PreparedSurfaceHandle, @ptrCast(prepared))) return .failed;
+        if (self.rdr_sfc_handle != @as(RdrSfcHandle, @ptrCast(prepared))) return .failed;
         if (!prepared.isLive()) {
-            self.prepared_submit_handle = null;
+            self.rdr_sfc_handle = null;
             return .failed;
         }
         if (prepared.state != .submit_ready) return .failed;
         const submitted = prepared.preparedSurfaceToken().token;
         return switch (self.executePreparedSubmit(prepared, execution)) {
             .rendered => |result| blk: {
-                self.prepared_submit_handle = null;
+                self.rdr_sfc_handle = null;
                 self.acceptSubmitted(.{ .token = submitted });
                 break :blk .{ .rendered = result };
             },
@@ -742,7 +708,7 @@ pub const TextSessionOwner = struct {
         return .{
             .source_pending = self.source_slot.sourcePending() or self.prepare_requests.sourcePending(),
             .prepare_pending = self.prepare_requests.preparePending(),
-            .submit_pending = submitted_work.submit_pending,
+            .submit_pending = submitted_work.submit_pending or self.rdr_sfc_handle != null,
         };
     }
 

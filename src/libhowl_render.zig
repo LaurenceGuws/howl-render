@@ -24,15 +24,12 @@ comptime {
     @export(&vt_surface.cancelVtSurface, .{ .name = "howl_render_text_session_cancel_vt_surface" });
     @export(&prepared_surface.prepareHandle, .{ .name = "howl_render_text_session_prepare_handle" });
     @export(&prepare_request.takePrepareRequest, .{ .name = "howl_render_text_session_take_prepare_request" });
-    @export(&submission.publishPrepared, .{ .name = "howl_render_text_session_publish_prepared" });
-    @export(&submission.publishPreparedHandle, .{ .name = "howl_render_text_session_publish_prepared_handle" });
-    @export(&submission.takeSubmitDecision, .{ .name = "howl_render_text_session_take_submit_decision" });
     @export(&submission.takeSubmitHandle, .{ .name = "howl_render_text_session_take_submit_handle" });
     @export(&submission.acceptSubmitted, .{ .name = "howl_render_text_session_accept_submitted" });
     @export(&submission.submit, .{ .name = "howl_render_text_session_submit" });
     @export(&submission.submitHandle, .{ .name = "howl_render_text_session_submit_handle" });
     @export(&work_state.workState, .{ .name = "howl_render_text_session_work_state" });
-    @export(&prepared_surface.release, .{ .name = "howl_render_prepared_surface_release" });
-    @export(&prepared_surface.describe, .{ .name = "howl_render_prepared_surface_describe" });
-    @export(&prepared_surface.renderSurface, .{ .name = "howl_render_prepared_surface_render_surface" });
+    @export(&prepared_surface.release, .{ .name = "howl_render_rdr_sfc_release" });
+    @export(&prepared_surface.describe, .{ .name = "howl_render_rdr_sfc_describe" });
+    @export(&prepared_surface.renderSurface, .{ .name = "howl_render_rdr_sfc_render_surface" });
 }

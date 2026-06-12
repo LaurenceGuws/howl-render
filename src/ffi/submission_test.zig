@@ -2,14 +2,16 @@ const std = @import("std");
 const support = @import("test_support.zig");
 const c = support.c;
 
-test "render ffi submit seams accept valid tokens and reject invalid prepared tokens" {
+test "deleted publish-prepared ABI symbols are absent" {
+    try std.testing.expect(!@hasDecl(c, "howl_render_text_session_publish_prepared"));
+    try std.testing.expect(!@hasDecl(c, "howl_render_text_session_publish_prepared_handle"));
+    try std.testing.expect(!@hasDecl(c, "howl_render_text_session_take_submit_decision"));
+}
+
+test "render ffi submit seams reject invalid prepared tokens" {
     const handle = support.text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
     defer support.text.deinit(handle);
     try std.testing.expect(handle != null);
-    var prepared = std.mem.zeroes(c.HowlRenderPreparedSurfaceToken);
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_IDLE, support.submit.takeSubmitDecision(handle, &prepared));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, support.submit.publishPrepared(handle, support.validFullPreparedSurfaceToken()));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, support.submit.publishPrepared(handle, support.validPartialPreparedSurfaceToken()));
     const prepared_handle = try support.createPreparedHandle(handle);
     defer support.prepared.release(prepared_handle);
     var zero_snapshot = support.validFullPreparedSurfaceToken();
@@ -29,15 +31,15 @@ test "render ffi prepared handle publish and direct submit lifecycle stays bound
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, support.submit.submit(handle, prepared_handle, token, &execution, null));
 }
 
-test "render ffi published handle submit lifecycle and cross-session rejection stay bounded" {
+test "render ffi rdr_sfc handle submit lifecycle stays bounded without publish prepared" {
     const handle_a = try support.createTestTextSessionHandle();
     defer support.text.deinit(handle_a);
     const handle_b = try support.createTestTextSessionHandle();
     defer support.text.deinit(handle_b);
     const prepared_handle = try support.createPreparedHandle(handle_a);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, support.submit.publishPreparedHandle(handle_b, prepared_handle));
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, support.submit.publishPreparedHandle(handle_a, prepared_handle));
-    var submit_handle: c.HowlRenderPreparedSurfaceHandle = null;
+    var submit_handle_b: c.HowlRenderRdrSfcHandle = null;
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_IDLE, support.submit.takeSubmitHandle(handle_b, &submit_handle_b));
+    var submit_handle: c.HowlRenderRdrSfcHandle = null;
     try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_DECISION_SUBMIT, support.submit.takeSubmitHandle(handle_a, &submit_handle));
     try std.testing.expect(submit_handle == prepared_handle);
     const execution = support.validExecutionInput();

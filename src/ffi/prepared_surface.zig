@@ -8,26 +8,26 @@ const prepare_request_boundary = @import("prepare_request.zig");
 pub fn prepareHandle(
     text_session_handle: c.HowlRenderTextSessionHandle,
     prepare_request: c.HowlRenderPrepareRequest,
-    prepared_handle_out: ?*c.HowlRenderPreparedSurfaceHandle,
+    rdr_sfc_handle_out: ?*c.HowlRenderRdrSfcHandle,
 ) callconv(.c) c_int {
-    const prepared_out = prepared_handle_out;
-    if (prepared_out) |value| value.* = null;
+    const rdr_sfc_out = rdr_sfc_handle_out;
+    if (rdr_sfc_out) |value| value.* = null;
     const owner = handle_owner.textSessionOwner(text_session_handle) orelse return c.HOWL_RENDER_PREPARE_FAILED;
-    const value = prepared_out orelse return c.HOWL_RENDER_PREPARE_FAILED;
+    const value = rdr_sfc_out orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const token = prepare_request_boundary.prepareTokenIn(prepare_request) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const prepared = owner.prepareHandle(token) catch return c.HOWL_RENDER_PREPARE_FAILED;
     value.* = @ptrCast(prepared);
     return c.HOWL_RENDER_PREPARE_READY;
 }
 
-pub fn release(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle) callconv(.c) void {
-    const prepared = prepared_handle.PreparedHandle.fromHandle(prepared_surface_handle) orelse return;
+pub fn release(rdr_sfc_handle: c.HowlRenderRdrSfcHandle) callconv(.c) void {
+    const prepared = prepared_handle.PreparedHandle.fromHandle(rdr_sfc_handle) orelse return;
     prepared.release();
 }
 
-pub fn describe(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, info_out: ?*c.HowlRenderPreparedSurfaceInfo) callconv(.c) c_int {
+pub fn describe(rdr_sfc_handle: c.HowlRenderRdrSfcHandle, info_out: ?*c.HowlRenderPreparedSurfaceInfo) callconv(.c) c_int {
     const out = info_out;
-    const prepared = prepared_handle.PreparedHandle.fromHandle(prepared_surface_handle) orelse {
+    const prepared = prepared_handle.PreparedHandle.fromHandle(rdr_sfc_handle) orelse {
         if (out) |value| value.* = infoFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);
         return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     };
@@ -40,10 +40,10 @@ pub fn describe(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, info
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn renderSurface(prepared_surface_handle: c.HowlRenderPreparedSurfaceHandle, surface_out: ?*?*const c.HowlRenderSurface) callconv(.c) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
+pub fn renderSurface(rdr_sfc_handle: c.HowlRenderRdrSfcHandle, surface_out: ?*?*const c.HowlRenderSurface) callconv(.c) c.HowlRenderPreparedSurfaceRenderSurfaceStatus {
     const out = surface_out;
     if (out) |value| value.* = null;
-    const prepared = prepared_handle.PreparedHandle.fromHandle(prepared_surface_handle) orelse {
+    const prepared = prepared_handle.PreparedHandle.fromHandle(rdr_sfc_handle) orelse {
         return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_HANDLE;
     };
     const value = out orelse return c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT;

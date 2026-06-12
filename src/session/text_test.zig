@@ -2,7 +2,9 @@ const std = @import("std");
 const text_session = @import("text.zig");
 const source_cell = @import("../tv_surface/cell.zig");
 const source_vt = @import("../tv_surface/vt.zig");
+const prepared_handle = @import("../prepared/handle.zig");
 const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
+const support = @import("../ffi/test_support.zig");
 const tokens = @import("../geometry/tokens.zig");
 
 test "ft hb retained capacities separate cache slots from run scratch" {
@@ -97,7 +99,8 @@ test "surface text owner rejects prepared work after resize publication" {
     const old_request = owner.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), old_request.token.snapshot_seq);
     try std.testing.expectEqual(@as(u64, 1), old_request.token.geometry_epoch);
-    owner.publishPrepared(.{ .token = old_request.token });
+    const old_rdr_sfc_handle = try owner.prepareHandle(old_request.token);
+    defer old_rdr_sfc_handle.release();
     try std.testing.expect(owner.workState().submit_pending);
 
     const resized_geometry = try owner.syncGeometry(.{
@@ -130,13 +133,9 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expectEqual(tokens.DamageKind.full, resized_publish.damage_kind);
     try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_publish.geometry_epoch);
 
-    const decision = owner.submit();
+    const decision = owner.takeSubmitHandle();
     switch (decision) {
-        .stale => |token| {
-            try std.testing.expectEqual(old_request.token.snapshot_seq, token.snapshot_seq);
-            try std.testing.expectEqual(old_request.token.dirty_epoch, token.dirty_epoch);
-            try std.testing.expectEqual(old_request.token.geometry_epoch, token.geometry_epoch);
-        },
+        .stale => {},
         else => return error.TestUnexpectedResult,
     }
     try std.testing.expect(!owner.workState().submit_pending);
@@ -147,6 +146,29 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expectEqual(tokens.DamageKind.full, resized_request.token.damage_kind);
     try std.testing.expectEqual(@as(u64, 0), resized_request.token.damage_base_seq);
     try std.testing.expect(!resized_request.allow_retained_reuse);
+}
+
+test "surface text owner rejects partial rdr_sfc handle with wrong submitted base" {
+    const owner = text_session.TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    owner.submitted.acceptSubmitted(.{
+        .token = .{ .snapshot_seq = 9, .dirty_epoch = 9, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+    });
+    var prepared_value = support.preparedSurface(.{ .width_px = 8, .height_px = 16, .full_redraw = false });
+    prepared_value.request.token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial };
+    const rdr_sfc_handle = try prepared_handle.PreparedHandle.create(owner, &prepared_value);
+    defer rdr_sfc_handle.release();
+    owner.rdr_sfc_handle = @ptrCast(rdr_sfc_handle);
+
+    switch (owner.takeSubmitHandle()) {
+        .needs_full_prepare => {},
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expect(owner.rdr_sfc_handle == null);
 }
 
 test "ft hb retained capacities cap shape run cache slots" {

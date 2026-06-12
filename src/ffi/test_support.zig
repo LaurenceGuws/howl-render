@@ -94,16 +94,16 @@ pub fn validVtSurfaceCommit(snapshot_seq: u64) RenderVtSurfaceCommit {
     };
 }
 
-pub fn createPreparedHandle(handle: c.HowlRenderTextSessionHandle) !c.HowlRenderPreparedSurfaceHandle {
+pub fn createPreparedHandle(handle: c.HowlRenderTextSessionHandle) !c.HowlRenderRdrSfcHandle {
     return createPreparedHandleWithSnapshot(handle, 1);
 }
 
-pub fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u64) !c.HowlRenderPreparedSurfaceHandle {
+pub fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u64) !c.HowlRenderRdrSfcHandle {
     const request = try nextPrepareRequest(handle, snapshot_seq);
-    var prepared_handle: c.HowlRenderPreparedSurfaceHandle = null;
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepared_surface.prepareHandle(handle, request, &prepared_handle));
-    try std.testing.expect(prepared_handle != null);
-    return prepared_handle;
+    var rdr_sfc_handle: c.HowlRenderRdrSfcHandle = null;
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepared_surface.prepareHandle(handle, request, &rdr_sfc_handle));
+    try std.testing.expect(rdr_sfc_handle != null);
+    return rdr_sfc_handle;
 }
 
 pub fn createTestTextSessionHandle() !c.HowlRenderTextSessionHandle {
@@ -111,9 +111,9 @@ pub fn createTestTextSessionHandle() !c.HowlRenderTextSessionHandle {
     return @ptrCast(owner);
 }
 
-pub fn preparedSurfaceTokenFromHandle(prepared_handle: c.HowlRenderPreparedSurfaceHandle) !c.HowlRenderPreparedSurfaceToken {
+pub fn preparedSurfaceTokenFromHandle(rdr_sfc_handle: c.HowlRenderRdrSfcHandle) !c.HowlRenderPreparedSurfaceToken {
     var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.describe(prepared_handle, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.describe(rdr_sfc_handle, &info));
     return .{
         .snapshot_seq = info.snapshot_seq,
         .dirty_epoch = info.dirty_epoch,
@@ -170,17 +170,16 @@ pub fn damageFull() u8 {
     return @intCast(c.HOWL_RENDER_DAMAGE_FULL);
 }
 
-pub fn expectInvalidPreparedSurfaceTokenRejected(handle: c.HowlRenderTextSessionHandle, prepared_handle: c.HowlRenderPreparedSurfaceHandle, prepared_token: c.HowlRenderPreparedSurfaceToken) !void {
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.publishPrepared(handle, prepared_token));
+pub fn expectInvalidPreparedSurfaceTokenRejected(handle: c.HowlRenderTextSessionHandle, rdr_sfc_handle: c.HowlRenderRdrSfcHandle, prepared_token: c.HowlRenderPreparedSurfaceToken) !void {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.acceptSubmitted(handle, prepared_token));
     const execution = c.HowlRenderSubmitExecution{ .host_surface = .{ .host_surface_id = 1, .width = 1, .height = 1 } };
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, prepared_handle, prepared_token, &execution, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, rdr_sfc_handle, prepared_token, &execution, null));
 }
 
 pub fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderTextSessionHandle, request: c.HowlRenderPrepareRequest) !void {
-    var prepared_handle: c.HowlRenderPreparedSurfaceHandle = null;
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, prepared_surface.prepareHandle(handle, request, &prepared_handle));
-    try std.testing.expect(prepared_handle == null);
+    var rdr_sfc_handle: c.HowlRenderRdrSfcHandle = null;
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, prepared_surface.prepareHandle(handle, request, &rdr_sfc_handle));
+    try std.testing.expect(rdr_sfc_handle == null);
 }
 
 pub fn expectInvalidPublishedCell(cell: RenderSourceCell) !void {

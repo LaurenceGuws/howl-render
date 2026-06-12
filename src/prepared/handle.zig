@@ -60,7 +60,7 @@ const DebugPreparedHandleCreateTiming = struct {
 var debug_prepared_handle_create_timing: DebugPreparedHandleCreateTiming = .{};
 
 pub const PreparedHandle = struct {
-    pub const State = enum { prepared, published, submit_ready, released, consumed };
+    pub const State = enum { prepared, submit_ready, released, consumed };
     const RenderSurfacePayload = render_surface_emitter.Emitter(.{});
 
     session_owner: *text_session.TextSessionOwner,
@@ -110,7 +110,7 @@ pub const PreparedHandle = struct {
     pub fn release(self: *PreparedHandle) void {
         switch (self.state) {
             .released, .consumed => return,
-            .prepared, .published, .submit_ready => {
+            .prepared, .submit_ready => {
                 self.session_owner.clearCachedPreparedHandle(self);
                 self.deinitPayload();
                 self.state = .released;
@@ -120,7 +120,7 @@ pub const PreparedHandle = struct {
 
     pub fn isLive(self: *const PreparedHandle) bool {
         return switch (self.state) {
-            .prepared, .published, .submit_ready => true,
+            .prepared, .submit_ready => true,
             .released, .consumed => false,
         };
     }
@@ -163,7 +163,7 @@ pub const PreparedHandle = struct {
     fn deinitPayload(self: *PreparedHandle) void {
         switch (self.state) {
             .released, .consumed => return,
-            .prepared, .published, .submit_ready => {},
+            .prepared, .submit_ready => {},
         }
         self.prepared.deinit();
         self.freeRenderSurfacePayload();

@@ -12,7 +12,7 @@ typedef struct HowlRenderTextSession HowlRenderTextSession;
 typedef struct HowlRenderPreparedSurfaceObject HowlRenderPreparedSurfaceObject;
 
 typedef HowlRenderTextSession *HowlRenderTextSessionHandle;
-typedef HowlRenderPreparedSurfaceObject *HowlRenderPreparedSurfaceHandle;
+typedef HowlRenderPreparedSurfaceObject *HowlRenderRdrSfcHandle;
 
 #define HOWL_RENDER_MAX_FALLBACK_FONTS 24
 
@@ -560,27 +560,15 @@ void howl_render_text_session_cancel_vt_surface(HowlRenderTextSessionHandle hand
 HowlRenderPrepareStatus howl_render_text_session_prepare_handle(
     HowlRenderTextSessionHandle text_session_handle,
     HowlRenderPrepareRequest prepare_request,
-    HowlRenderPreparedSurfaceHandle *prepared_handle_out
+    HowlRenderRdrSfcHandle *rdr_sfc_handle_out
 );
 HowlRenderPrepareStatus howl_render_text_session_take_prepare_request(
     HowlRenderTextSessionHandle handle,
     HowlRenderPrepareRequest *prepare_request_out
 );
-int howl_render_text_session_publish_prepared(
-    HowlRenderTextSessionHandle handle,
-    HowlRenderPreparedSurfaceToken prepared_token
-);
-int howl_render_text_session_publish_prepared_handle(
-    HowlRenderTextSessionHandle handle,
-    HowlRenderPreparedSurfaceHandle prepared_surface_handle
-);
-HowlRenderSubmitDecisionStatus howl_render_text_session_take_submit_decision(
-    HowlRenderTextSessionHandle handle,
-    HowlRenderPreparedSurfaceToken *prepared_token_out
-);
 HowlRenderSubmitDecisionStatus howl_render_text_session_take_submit_handle(
     HowlRenderTextSessionHandle handle,
-    HowlRenderPreparedSurfaceHandle *prepared_surface_handle_out
+    HowlRenderRdrSfcHandle *rdr_sfc_handle_out
 );
 int howl_render_text_session_accept_submitted(
     HowlRenderTextSessionHandle handle,
@@ -588,14 +576,14 @@ int howl_render_text_session_accept_submitted(
 );
 HowlRenderSubmitStatus howl_render_text_session_submit(
     HowlRenderTextSessionHandle text_session_handle,
-    HowlRenderPreparedSurfaceHandle prepared_surface_handle,
+    HowlRenderRdrSfcHandle rdr_sfc_handle,
     HowlRenderPreparedSurfaceToken prepared_token,
     const HowlRenderSubmitExecution *execution_in,
     HowlRenderSubmitResult *result_out
 );
 HowlRenderSubmitStatus howl_render_text_session_submit_handle(
     HowlRenderTextSessionHandle text_session_handle,
-    HowlRenderPreparedSurfaceHandle prepared_surface_handle,
+    HowlRenderRdrSfcHandle rdr_sfc_handle,
     const HowlRenderSubmitExecution *execution_in,
     HowlRenderSubmitResult *result_out
 );
@@ -604,15 +592,15 @@ int howl_render_text_session_work_state(
     HowlRenderSessionWorkState *work_state_out
 );
 
-void howl_render_prepared_surface_release(
-    HowlRenderPreparedSurfaceHandle prepared_surface_handle
+void howl_render_rdr_sfc_release(
+    HowlRenderRdrSfcHandle rdr_sfc_handle
 );
-int howl_render_prepared_surface_describe(
-    HowlRenderPreparedSurfaceHandle prepared_surface_handle,
+int howl_render_rdr_sfc_describe(
+    HowlRenderRdrSfcHandle rdr_sfc_handle,
     HowlRenderPreparedSurfaceInfo *info_out
 );
-HowlRenderPreparedSurfaceRenderSurfaceStatus howl_render_prepared_surface_render_surface(
-    HowlRenderPreparedSurfaceHandle prepared_surface_handle,
+HowlRenderPreparedSurfaceRenderSurfaceStatus howl_render_rdr_sfc_render_surface(
+    HowlRenderRdrSfcHandle rdr_sfc_handle,
     const HowlRenderSurface **surface_out
 );
 #ifdef __cplusplus
