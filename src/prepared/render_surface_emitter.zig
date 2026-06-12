@@ -277,6 +277,13 @@ pub fn Emitter(comptime limits: Limits) type {
 
         const Self = @This();
 
+        const EmitPreparedPassTotals = struct {
+            fill_totals: DebugEmitPreparedTiming.FillTotals,
+            sprite_totals: DebugEmitPreparedTiming.SpriteTotals,
+            fills_ns: u64,
+            sprites_ns: u64,
+        };
+
         pub fn init() Self {
             return .{};
         }
@@ -290,38 +297,18 @@ pub fn Emitter(comptime limits: Limits) type {
             var next = self.*;
             var next_resources = resources.*;
             const copy_in_ns = monotonicNs() -| copy_in_start_ns;
-            next.resetPrepared(prepared);
-            var fill_totals: DebugEmitPreparedTiming.FillTotals = .{};
-            var fill_step_start_ns = monotonicNs();
-            try next.appendFullDamage(pixelSizeOut(prepared.render_px));
-            fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
-            fill_step_start_ns = monotonicNs();
-            try next.appendPreparedFullRedrawClear(prepared);
-            fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
-            fill_step_start_ns = monotonicNs();
-            try next.appendPreparedClears(prepared.text_surface.scene.scene.clear_draws);
-            fill_totals.clear_pass_ns = monotonicNs() -| fill_step_start_ns;
-            fill_step_start_ns = monotonicNs();
-            try next.appendPreparedBackgrounds(prepared.text_surface.scene.scene.background_draws);
-            fill_totals.background_pass_ns = monotonicNs() -| fill_step_start_ns;
-            fill_step_start_ns = monotonicNs();
-            try next.appendPreparedDecorations(prepared.text_surface.scene.scene.decoration_draws);
-            fill_totals.decoration_pass_ns = monotonicNs() -| fill_step_start_ns;
-            var sprite_totals: DebugEmitPreparedTiming.SpriteTotals = .{};
-            const sprites_start_ns = monotonicNs();
-            try next.appendPreparedSprites(&next_resources, session, prepared, &sprite_totals);
-            const sprites_ns = monotonicNs() -| sprites_start_ns;
-            fill_step_start_ns = monotonicNs();
-            try next.appendPreparedCursors(prepared.text_surface.scene.scene.cursor_draws);
-            fill_totals.cursor_pass_ns = monotonicNs() -| fill_step_start_ns;
-            const fills_ns = fill_totals.full_redraw_clear_ns + fill_totals.clear_pass_ns + fill_totals.background_pass_ns + fill_totals.decoration_pass_ns + fill_totals.cursor_pass_ns;
+            const pass_totals = try next.appendPreparedPass(&next_resources, session, prepared);
+            next.assertReadyToPublish();
             const copy_out_start_ns = monotonicNs();
             self.* = next;
             resources.* = next_resources;
             const copy_out_ns = monotonicNs() -| copy_out_start_ns;
+            self.assertReadyToPublish();
             const publish_start_ns = monotonicNs();
             const publish_totals = self.publishSurface();
-            debug_emit_prepared_timing.record(copy_in_ns, fills_ns, sprites_ns, monotonicNs() -| publish_start_ns, copy_out_ns, fill_totals, sprite_totals, publish_totals);
+            self.assertPublishedSurface();
+            const publish_ns = monotonicNs() -| publish_start_ns;
+            debug_emit_prepared_timing.record(copy_in_ns, pass_totals.fills_ns, pass_totals.sprites_ns, publish_ns, copy_out_ns, pass_totals.fill_totals, pass_totals.sprite_totals, publish_totals);
             return &self.surface_storage;
         }
 
@@ -329,6 +316,18 @@ pub fn Emitter(comptime limits: Limits) type {
             const resource_rollback = resources.admissionRollback();
             errdefer resources.restoreAdmission(resource_rollback);
             const copy_in_ns: u64 = 0;
+            const pass_totals = try self.appendPreparedPass(resources, session, prepared);
+            self.assertReadyToPublish();
+            const copy_out_ns: u64 = 0;
+            const publish_start_ns = monotonicNs();
+            const publish_totals = self.publishSurface();
+            self.assertPublishedSurface();
+            const publish_ns = monotonicNs() -| publish_start_ns;
+            debug_emit_prepared_timing.record(copy_in_ns, pass_totals.fills_ns, pass_totals.sprites_ns, publish_ns, copy_out_ns, pass_totals.fill_totals, pass_totals.sprite_totals, publish_totals);
+            return &self.surface_storage;
+        }
+
+        fn appendPreparedPass(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!EmitPreparedPassTotals {
             self.resetPrepared(prepared);
             var fill_totals: DebugEmitPreparedTiming.FillTotals = .{};
             var fill_step_start_ns = monotonicNs();
@@ -353,12 +352,37 @@ pub fn Emitter(comptime limits: Limits) type {
             fill_step_start_ns = monotonicNs();
             try self.appendPreparedCursors(prepared.text_surface.scene.scene.cursor_draws);
             fill_totals.cursor_pass_ns = monotonicNs() -| fill_step_start_ns;
-            const fills_ns = fill_totals.full_redraw_clear_ns + fill_totals.clear_pass_ns + fill_totals.background_pass_ns + fill_totals.decoration_pass_ns + fill_totals.cursor_pass_ns;
-            const copy_out_ns: u64 = 0;
-            const publish_start_ns = monotonicNs();
-            const publish_totals = self.publishSurface();
-            debug_emit_prepared_timing.record(copy_in_ns, fills_ns, sprites_ns, monotonicNs() -| publish_start_ns, copy_out_ns, fill_totals, sprite_totals, publish_totals);
-            return &self.surface_storage;
+            return .{
+                .fill_totals = fill_totals,
+                .sprite_totals = sprite_totals,
+                .fills_ns = fill_totals.full_redraw_clear_ns + fill_totals.clear_pass_ns + fill_totals.background_pass_ns +
+                    fill_totals.decoration_pass_ns + fill_totals.cursor_pass_ns,
+                .sprites_ns = sprites_ns,
+            };
+        }
+
+        fn assertReadyToPublish(self: *const Self) void {
+            std.debug.assert(self.damage_count <= limits.damage_max);
+            std.debug.assert(self.create_count <= limits.creates_max);
+            std.debug.assert(self.upload_count <= limits.uploads_max);
+            std.debug.assert(self.command_count <= limits.commands_max);
+            std.debug.assert(self.glyph_count <= limits.glyph_refs_max);
+            std.debug.assert(self.retire_count <= limits.retires_max);
+            std.debug.assert(self.upload_bytes_count <= limits.upload_bytes_max);
+            std.debug.assert(self.surface_storage.damage.ptr == null);
+            std.debug.assert(self.surface_storage.creates.ptr == null);
+            std.debug.assert(self.surface_storage.uploads.ptr == null);
+            std.debug.assert(self.surface_storage.commands.ptr == null);
+            std.debug.assert(self.surface_storage.retires.ptr == null);
+        }
+
+        fn assertPublishedSurface(self: *const Self) void {
+            std.debug.assert(self.surface_storage.damage.count == self.damage_count);
+            std.debug.assert(self.surface_storage.creates.count == self.create_count);
+            std.debug.assert(self.surface_storage.uploads.count == self.upload_count);
+            std.debug.assert(self.surface_storage.commands.count == self.command_count);
+            std.debug.assert(self.surface_storage.retires.count == self.retire_count);
+            std.debug.assert(self.surface_storage.uploads.bytes_count_total == self.upload_bytes_count);
         }
 
         fn resetPrepared(self: *Self, prepared: *const prepared_surface.PreparedSurface) void {
