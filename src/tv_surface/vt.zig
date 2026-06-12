@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../abi.zig").c;
+const c = @import("howl_render_c");
 const tokens = @import("../geometry/tokens.zig");
 const source_cell = @import("cell.zig");
 const source_damage = @import("damage.zig");

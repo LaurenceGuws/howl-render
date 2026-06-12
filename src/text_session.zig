@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("abi.zig").c;
+const c = @import("howl_render_c");
 const handle_owner = @import("handle.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const text_session = @import("session/text.zig");

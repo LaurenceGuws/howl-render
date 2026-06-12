@@ -4,7 +4,6 @@ const input = @import("../tv_surface/text_input.zig");
 const publication_cell_map = @import("../tv_surface/publication_cell_map.zig");
 const tokens = @import("../geometry/tokens.zig");
 const prepared_handle = @import("../prepared/handle.zig");
-const prepared_submit = @import("../prepared/submit.zig");
 const render_geometry = @import("../geometry/geometry.zig");
 const geometry_contract = @import("../geometry/geometry_contract.zig");
 const source_cell = @import("../tv_surface/cell.zig");
@@ -12,7 +11,6 @@ const source_vt = @import("../tv_surface/vt.zig");
 const source_slot = @import("../tv_surface/slot.zig");
 const source_prepare = @import("../tv_surface/prepare_request.zig");
 const prepared_surface = @import("../prepared/surface.zig");
-const prepared_submit_result = @import("../prepared/submit_result.zig");
 const session_submitted = @import("submitted.zig");
 const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
 const contract = @import("../text/contract.zig");
@@ -146,6 +144,17 @@ pub const TextSessionConfig = struct {
     font_path: ?[:0]const u8 = null,
 };
 
+pub const HostSurface = struct {
+    host_surface_id: u64,
+    width: u16,
+    height: u16,
+};
+
+pub const SubmitResult = struct {
+    damage_kind: tokens.DamageKind,
+    host_surface: HostSurface,
+};
+
 pub const TextSession = struct {
     allocator: std.mem.Allocator,
     text_state: text_support.FtHbSupport,
@@ -161,7 +170,7 @@ pub const TextSession = struct {
     pub const SurfaceLayout = geometry_contract.SurfaceLayout;
     pub const DamageKind = enum { partial, scroll, full };
     pub const SubmitExecution = struct {
-        host_surface: prepared_submit_result.HostSurface,
+        host_surface: HostSurface,
     };
     pub const PrepareInput = struct {
         config: TextSessionConfig,
@@ -270,16 +279,25 @@ pub const TextSession = struct {
         return owned;
     }
 
-    pub fn submitSurface(self: *TextSession, prepared: *prepared_surface.PreparedSurface, execution: SubmitExecution) !prepared_submit_result.SubmitResult {
+    pub fn submitSurface(self: *TextSession, prepared: *prepared_surface.PreparedSurface, execution: SubmitExecution) !SubmitResult {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
-        prepared_submit.markRendered(&self.text_preparer.?.atlas, prepared.text_surface.raster_plan.outputs);
-        const submitted = prepared_submit_result.SubmitResult{
-            .damage_kind = prepared_submit.damageKind(prepared),
+        markRendered(&self.text_preparer.?.atlas, prepared.text_surface.raster_plan.outputs);
+        const submitted = SubmitResult{
+            .damage_kind = prepared.damageKind(),
             .host_surface = execution.host_surface,
         };
         self.mutex.unlock();
         return submitted;
+    }
+
+    fn markRendered(atlas: *atlas_cache.OwnedAtlasCache, outputs: []const rasterizer.RasterSpriteOutput) void {
+        for (outputs) |output| {
+            _ = atlas.storeRendered(output) catch {
+                _ = atlas.markRendered(output.key);
+                continue;
+            };
+        }
     }
 
     pub fn atlasRaster(self: *TextSession, key: contract.SpriteKey) ?atlas_cache.StoredRaster {
@@ -444,7 +462,7 @@ pub const TextSessionOwner = struct {
     render_surface_sprite_resources: sprite_resource_store.SpriteResourceStore = .init(),
 
     pub const SubmitPreparedResult = union(enum) {
-        rendered: prepared_submit_result.SubmitResult,
+        rendered: SubmitResult,
         needs_prepare,
         failed,
     };

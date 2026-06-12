@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const c = @import("../abi.zig").c;
+const c = @import("howl_render_c");
 const render_surface_realizer = @import("render_surface_realizer.zig");
 
 const DamageItem = c.HowlRenderSurfaceDamageItem;

@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../abi.zig").c;
+const c = @import("howl_render_c");
 const contract = @import("../text/contract.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 

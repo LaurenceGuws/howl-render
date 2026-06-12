@@ -1,4 +1,4 @@
-const c = @import("abi.zig").c;
+const c = @import("howl_render_c");
 const handle_owner = @import("handle.zig");
 const geometry_contract = @import("geometry/geometry_contract.zig");
 

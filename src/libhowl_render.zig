@@ -4,10 +4,8 @@ const prepared_surface = @import("prepared_surface.zig");
 const prepare_request = @import("prepare_request.zig");
 const submission = @import("submission.zig");
 const work_state = @import("work_state.zig");
-const render_surface = @import("render_surface.zig");
 
 comptime {
-    _ = render_surface;
     @export(&text_session.init, .{ .name = "howl_render_text_session_init" });
     @export(&text_session.deinit, .{ .name = "howl_render_text_session_deinit" });
     @export(&text_session.setFontSize, .{ .name = "howl_render_text_session_set_font_size_px" });

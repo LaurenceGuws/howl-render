@@ -1,4 +1,4 @@
-const c = @import("abi.zig").c;
+const c = @import("howl_render_c");
 const prepared_handle = @import("prepared/handle.zig");
 const text_session = @import("session/text.zig");
 

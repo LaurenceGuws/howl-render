@@ -1,4 +1,4 @@
-const c = @import("abi.zig").c;
+const c = @import("howl_render_c");
 const handle_owner = @import("handle.zig");
 const prepared_handle = @import("prepared/handle.zig");
 const prepared_surface = @import("prepared/surface.zig");

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const c = @import("../abi.zig").c;
+const c = @import("howl_render_c");
 const contract = @import("../text/contract.zig");
 const prepared_buffer = @import("buffer.zig");
 const prepared_surface = @import("surface.zig");
