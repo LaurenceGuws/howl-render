@@ -11,40 +11,18 @@ pub const PrepareConsume = struct {
     state: source_vt.PublicationSource,
 };
 
-pub const Publication = struct {
-    source: source_vt.PublicationSource,
-    geometry_epoch: u64,
-    damage_kind: tokens.DamageKind = .none,
-    allow_retained_reuse: bool = true,
-
-    fn deinit(self: *Publication, allocator: std.mem.Allocator) void {
-        self.source.deinit(allocator);
-        self.* = undefined;
-    }
-};
-
-pub const QueueResult = struct {
-    queued: bool,
+pub const AdmissionResult = struct {
+    admitted: bool,
     damage_kind: tokens.DamageKind,
     snapshot_seq: u64,
     geometry_epoch: u64,
 };
 
-pub const ActivePrepare = struct {
-    publication: Publication,
-    request: tokens.RenderRequest,
-    taken: bool = false,
-
-    fn deinit(self: *ActivePrepare, allocator: std.mem.Allocator) void {
-        self.publication.deinit(allocator);
-        self.* = undefined;
-    }
-};
-
 pub const PrepareRequests = struct {
     allocator: std.mem.Allocator,
-    pending: ?Publication = null,
-    active: ?ActivePrepare = null,
+    active_source: ?source_vt.PublicationSource = null,
+    active_request: tokens.RenderRequest = undefined,
+    active_taken: bool = false,
     blink_refresh_pending: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) PrepareRequests {
@@ -52,14 +30,11 @@ pub const PrepareRequests = struct {
     }
 
     pub fn deinit(self: *PrepareRequests) void {
-        if (self.pending) |*publication| publication.deinit(self.allocator);
-        self.pending = null;
-        if (self.active) |*active| active.deinit(self.allocator);
-        self.active = null;
+        self.dropActive();
         self.blink_refresh_pending = false;
     }
 
-    pub fn acceptSource(self: *PrepareRequests, source: source_vt.PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) QueueResult {
+    pub fn admitSource(self: *PrepareRequests, source: source_vt.PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) AdmissionResult {
         var owned = source;
         source_damage.canonicalizeDirtyMetadata(
             owned.rows,
@@ -69,48 +44,53 @@ pub const PrepareRequests = struct {
         );
         const snapshot = owned.snapshot();
         const damage_kind = self.classify(owned, submitted_token, geometry_epoch);
-        const published = damage_kind != .none;
-        if (!published) {
+        const admitted = damage_kind != .none;
+        if (!admitted) {
             owned.deinit(self.allocator);
         } else {
-            var queued_source = owned;
+            const allow_retained_reuse = !self.geometryChanged(geometry_epoch);
+            var active_source = owned;
             if (owned.retained_storage) {
-                queued_source = owned.clone(self.allocator) catch {
+                active_source = owned.clone(self.allocator) catch {
                     owned.deinit(self.allocator);
                     return .{
-                        .queued = false,
+                        .admitted = false,
                         .damage_kind = .none,
                         .snapshot_seq = snapshot.snapshot_seq,
                         .geometry_epoch = geometry_epoch,
                     };
                 };
             }
-            self.replacePending(.{
-                .source = queued_source,
+            const token = tokens.SnapshotToken{
+                .snapshot_seq = active_source.snapshot_seq,
+                .dirty_epoch = active_source.dirty_epoch,
                 .geometry_epoch = geometry_epoch,
+                .damage_base_seq = if (damage_kind == .partial)
+                    if (submitted_token) |token_value| token_value.snapshot_seq else 0
+                else
+                    0,
                 .damage_kind = damage_kind,
-                .allow_retained_reuse = !self.geometryChanged(geometry_epoch),
-            });
+            };
+            self.dropActive();
+            self.active_source = active_source;
+            self.active_request = .{ .token = token, .allow_retained_reuse = allow_retained_reuse };
+            self.active_taken = false;
         }
         return .{
-            .queued = published,
+            .admitted = admitted,
             .damage_kind = damage_kind,
             .snapshot_seq = snapshot.snapshot_seq,
             .geometry_epoch = geometry_epoch,
         };
     }
 
-    pub fn takePrepareRequest(self: *PrepareRequests, geometry_epoch: u64, submitted_token: ?tokens.SnapshotToken) ?tokens.RenderRequest {
-        if (self.active == null or (self.active.?.taken and self.pending != null)) {
-            self.blink_refresh_pending = false;
-            self.activatePending(geometry_epoch, submitted_token);
-        }
-        const active = self.active orelse return null;
-        if (active.taken) {
+    pub fn takePrepareRequest(self: *PrepareRequests, geometry_epoch: u64) ?tokens.RenderRequest {
+        _ = self.active_source orelse return null;
+        if (self.active_taken) {
             if (!self.blink_refresh_pending) return null;
             self.blink_refresh_pending = false;
-            const prior_token = self.active.?.request.token;
-            self.active.?.request = .{
+            const prior_token = self.active_request.token;
+            self.active_request = .{
                 .token = .{
                     .snapshot_seq = prior_token.snapshot_seq,
                     .dirty_epoch = prior_token.dirty_epoch,
@@ -121,155 +101,76 @@ pub const PrepareRequests = struct {
                 .allow_retained_reuse = false,
             };
         }
-        self.active.?.taken = true;
-        return self.active.?.request;
+        self.active_taken = true;
+        return self.active_request;
     }
 
     pub fn consumePrepare(self: *PrepareRequests, layout: geometry_contract.PrepareLayout, token: tokens.SnapshotToken) !PrepareConsume {
-        const active = self.active orelse return error.MissingPublishedSource;
-        if (!source_damage.sameSnapshotToken(active.request.token, token)) return error.MismatchedPublishedSource;
-        return .{ .request = active.request, .layout = layout, .state = active.publication.source };
+        const source = self.active_source orelse return error.MissingPrepareSource;
+        if (!source_damage.sameSnapshotToken(self.active_request.token, token)) return error.MismatchedPrepareSource;
+        return .{ .request = self.active_request, .layout = layout, .state = source };
     }
 
     pub fn latestToken(self: *const PrepareRequests) ?tokens.SnapshotToken {
-        if (self.pending) |publication| {
-            return .{
-                .snapshot_seq = publication.source.snapshot_seq,
-                .dirty_epoch = publication.source.dirty_epoch,
-                .geometry_epoch = publication.geometry_epoch,
-                .damage_base_seq = 0,
-                .damage_kind = publication.damage_kind,
-            };
-        }
-        if (self.active) |active| return active.request.token;
+        if (self.active_source != null) return self.active_request.token;
         return null;
     }
 
     pub fn requestFullPrepare(self: *PrepareRequests, force: *const fn (tokens.SnapshotToken) tokens.SnapshotToken) bool {
-        if (self.pending != null) {
-            self.dropActive();
-            return false;
-        }
-        if (self.active == null) return false;
-        self.active.?.request = .{
-            .token = force(self.active.?.request.token),
+        if (self.active_source == null) return false;
+        self.active_request = .{
+            .token = force(self.active_request.token),
             .allow_retained_reuse = false,
         };
-        self.active.?.taken = false;
+        self.active_taken = false;
         return true;
     }
 
     pub fn retryTakenPrepare(self: *PrepareRequests, token: tokens.SnapshotToken) bool {
-        if (self.pending != null) return false;
-        const active = if (self.active) |*active| active else return false;
-        if (!active.taken) return false;
-        if (!source_damage.sameSnapshotToken(active.request.token, token)) return false;
-        active.taken = false;
+        if (self.active_source == null) return false;
+        if (!self.active_taken) return false;
+        if (!source_damage.sameSnapshotToken(self.active_request.token, token)) return false;
+        self.active_taken = false;
         return true;
     }
 
     pub fn setCursorBlinkVisible(self: *PrepareRequests, visible: bool) bool {
         var changed = false;
-        if (self.pending) |*publication| {
-            changed = source_damage.setSourceCursorBlinkVisible(&publication.source, visible) or changed;
-        }
-        if (self.active) |*active| {
-            changed = source_damage.setSourceCursorBlinkVisible(&active.publication.source, visible) or changed;
+        if (self.active_source) |*source| {
+            changed = source_damage.setSourceCursorBlinkVisible(source, visible) or changed;
         }
         return changed;
     }
 
     pub fn requestBlinkRefresh(self: *PrepareRequests) void {
-        if (self.pending != null) return;
-        const active = self.active orelse return;
-        if (!active.taken) return;
+        if (self.active_source == null) return;
+        if (!self.active_taken) return;
         self.blink_refresh_pending = true;
     }
 
     pub fn retireAtOrBefore(self: *PrepareRequests, token: tokens.SnapshotToken) void {
-        if (self.pending) |*publication| {
-            if (publication.source.snapshot_seq <= token.snapshot_seq) {
-                publication.deinit(self.allocator);
-                self.pending = null;
-            }
-        }
-        if (self.active) |*active| {
-            if (!active.request.token.isNewerThan(token)) {
-                active.deinit(self.allocator);
-                self.active = null;
-            }
-        }
-    }
-
-    pub fn retirePendingAtOrBefore(self: *PrepareRequests, token: tokens.SnapshotToken) void {
-        if (self.pending) |*publication| {
-            if (publication.source.snapshot_seq <= token.snapshot_seq) {
-                publication.deinit(self.allocator);
-                self.pending = null;
-            }
-        }
-    }
-
-    pub fn sourcePending(self: *const PrepareRequests) bool {
-        return self.pending != null;
-    }
-
-    pub fn retainedSlotInUse(self: *const PrepareRequests) bool {
-        if (self.pending) |publication| if (publication.source.retained_storage) return true;
-        if (self.active) |active| if (active.publication.source.retained_storage) return true;
-        return false;
+        if (self.active_source == null) return;
+        if (!self.active_request.token.isNewerThan(token)) self.dropActive();
     }
 
     pub fn refreshRetainedSlotViews(self: *PrepareRequests, slot_owner: *source_slot.SourceSlot) void {
-        if (self.pending) |*publication| {
-            if (publication.source.retained_storage) {
-                slot_owner.refreshRetainedSource(&publication.source);
-            }
-        }
-        if (self.active) |*active| {
-            if (active.publication.source.retained_storage) {
-                slot_owner.refreshRetainedSource(&active.publication.source);
-            }
+        if (self.active_source) |*source| {
+            if (source.retained_storage) slot_owner.refreshRetainedSource(source);
         }
     }
 
     pub fn preparePending(self: *const PrepareRequests) bool {
         if (self.blink_refresh_pending) return true;
-        if (self.active) |active| return !active.taken;
+        if (self.active_source != null) return !self.active_taken;
         return false;
     }
 
-    fn replacePending(self: *PrepareRequests, publication: Publication) void {
-        if (self.pending) |*prior| prior.deinit(self.allocator);
-        self.pending = publication;
-        self.blink_refresh_pending = false;
-    }
-
     fn dropActive(self: *PrepareRequests) void {
-        if (self.active) |*active| active.deinit(self.allocator);
-        self.active = null;
+        if (self.active_source) |*source| source.deinit(self.allocator);
+        self.active_source = null;
+        self.active_request = undefined;
+        self.active_taken = false;
         self.blink_refresh_pending = false;
-    }
-
-    fn activatePending(self: *PrepareRequests, geometry_epoch: u64, submitted_token: ?tokens.SnapshotToken) void {
-        const publication = self.pending orelse return;
-        std.debug.assert(publication.geometry_epoch == geometry_epoch);
-        self.pending = null;
-        const token = tokens.SnapshotToken{
-            .snapshot_seq = publication.source.snapshot_seq,
-            .dirty_epoch = publication.source.dirty_epoch,
-            .geometry_epoch = geometry_epoch,
-            .damage_base_seq = if (publication.damage_kind == .partial)
-                if (submitted_token) |token_value| token_value.snapshot_seq else 0
-            else
-                0,
-            .damage_kind = publication.damage_kind,
-        };
-        self.dropActive();
-        self.active = .{
-            .publication = publication,
-            .request = .{ .token = token, .allow_retained_reuse = publication.allow_retained_reuse },
-        };
     }
 
     fn classify(self: *const PrepareRequests, source: source_vt.PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) tokens.DamageKind {
@@ -299,58 +200,56 @@ pub const PrepareRequests = struct {
     }
 
     fn geometryChanged(self: *const PrepareRequests, geometry_epoch: u64) bool {
-        if (self.pending) |publication| return publication.geometry_epoch != geometry_epoch;
-        if (self.active) |active| return active.request.token.geometry_epoch != geometry_epoch;
+        if (self.active_source != null) return self.active_request.token.geometry_epoch != geometry_epoch;
         return false;
     }
 
     fn priorSource(self: *const PrepareRequests) ?source_vt.PublicationSource {
-        if (self.pending) |publication| return publication.source;
-        if (self.active) |active| return active.publication.source;
+        if (self.active_source) |source| return source;
         return null;
     }
 };
 
-test "prepare requests do not own submitted mailbox" {
+test "prepare requests keep no staged source" {
     var requests = PrepareRequests.init(std.testing.allocator);
     defer requests.deinit();
-    try std.testing.expect(!requests.sourcePending());
+    try std.testing.expect(requests.active_source == null);
     try std.testing.expect(!requests.preparePending());
 }
 
-test "prepare requests queue full retained-safe source when geometry changes" {
+test "prepare requests admit full retained-safe source when geometry changes" {
     var requests = PrepareRequests.init(std.testing.allocator);
     defer requests.deinit();
 
-    const first_queue = requests.acceptSource(
+    const first_admission = requests.admitSource(
         try source_vt.ownedTestSource(std.testing.allocator, 1, 'A'),
         null,
         1,
     );
-    try std.testing.expect(first_queue.queued);
+    try std.testing.expect(first_admission.admitted);
 
-    const submitted_request = requests.takePrepareRequest(1, null) orelse return error.TestUnexpectedResult;
+    const submitted_request = requests.takePrepareRequest(1) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), submitted_request.token.geometry_epoch);
 
-    const resize_queue = requests.acceptSource(
+    const resize_admission = requests.admitSource(
         try source_vt.ownedTestSource(std.testing.allocator, 1, 'A'),
         submitted_request.token,
         2,
     );
-    try std.testing.expect(resize_queue.queued);
-    try std.testing.expectEqual(tokens.DamageKind.full, resize_queue.damage_kind);
+    try std.testing.expect(resize_admission.admitted);
+    try std.testing.expectEqual(tokens.DamageKind.full, resize_admission.damage_kind);
 
-    const resize_request = requests.takePrepareRequest(2, submitted_request.token) orelse return error.TestUnexpectedResult;
+    const resize_request = requests.takePrepareRequest(2) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), resize_request.token.geometry_epoch);
     try std.testing.expectEqual(tokens.DamageKind.full, resize_request.token.damage_kind);
     try std.testing.expectEqual(@as(u64, 0), resize_request.token.damage_base_seq);
     try std.testing.expect(!resize_request.allow_retained_reuse);
 
-    const same_geometry_queue = requests.acceptSource(
+    const same_geometry_admission = requests.admitSource(
         try source_vt.ownedTestSource(std.testing.allocator, 1, 'A'),
         submitted_request.token,
         2,
     );
-    try std.testing.expect(!same_geometry_queue.queued);
-    try std.testing.expectEqual(tokens.DamageKind.none, same_geometry_queue.damage_kind);
+    try std.testing.expect(!same_geometry_admission.admitted);
+    try std.testing.expectEqual(tokens.DamageKind.none, same_geometry_admission.damage_kind);
 }

@@ -599,21 +599,18 @@ pub const TextSessionOwner = struct {
 
     pub fn prepare(self: *TextSessionOwner) ?tokens.RenderRequest {
         const submitted_token = self.submittedToken();
-        const request = self.prepare_requests.takePrepareRequest(
-            self.geometry.geometry_epoch,
-            submitted_token,
-        ) orelse return null;
+        const request = self.prepare_requests.takePrepareRequest(self.geometry.geometry_epoch) orelse return null;
         const effective_token = session_submitted.Submitted.prepareTokenForRetainedState(
             request.token,
             submitted_token,
         );
         if (!@import("../tv_surface/damage.zig").sameSnapshotToken(effective_token, request.token)) {
-            self.prepare_requests.active.?.request = .{
+            self.prepare_requests.active_request = .{
                 .token = effective_token,
                 .allow_retained_reuse = request.allow_retained_reuse,
             };
         }
-        return self.prepare_requests.active.?.request;
+        return self.prepare_requests.active_request;
     }
 
     pub fn takeSubmitHandle(self: *TextSessionOwner) SubmitHandleDecision {
@@ -672,14 +669,13 @@ pub const TextSessionOwner = struct {
             _ = self.prepare_requests.requestFullPrepare(session_submitted.Submitted.forceFull);
             return;
         }
-        self.prepare_requests.retirePendingAtOrBefore(submitted.token);
         self.submitted.acceptSubmitted(submitted);
     }
 
     pub fn workState(self: *const TextSessionOwner) SessionWorkState {
         const submitted_work = self.submitted.workState();
         return .{
-            .source_pending = self.source_slot.sourcePending() or self.prepare_requests.sourcePending(),
+            .source_pending = self.source_slot.sourcePending(),
             .prepare_pending = self.prepare_requests.preparePending(),
             .submit_pending = submitted_work.submit_pending or self.rdr_sfc_handle != null,
         };

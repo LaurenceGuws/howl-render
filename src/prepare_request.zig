@@ -10,7 +10,7 @@ pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, vt_surface: ?*co
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const visible = vt_surface orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const source = source_vt.ownedSourceFromSurfaceResult(owner.allocator, visible.*, owner.cursor_blink_visible) catch return c.HOWL_RENDER_PREPARE_FAILED;
-    _ = owner.prepare_requests.acceptSource(source, owner.submittedToken(), owner.geometry.geometry_epoch);
+    _ = owner.prepare_requests.admitSource(source, owner.submittedToken(), owner.geometry.geometry_epoch);
     const request = owner.prepare() orelse return c.HOWL_RENDER_PREPARE_IDLE;
     prepare_out.* = prepareRequestOut(request);
     return c.HOWL_RENDER_PREPARE_READY;

@@ -29,7 +29,7 @@ test "surface text owner keeps source and submitted owners separate" {
     defer owner.destroy();
 
     try std.testing.expect(owner.source_slot.reserved == null);
-    try std.testing.expect(owner.prepare_requests.pending == null);
+    try std.testing.expect(owner.prepare_requests.active_source == null);
     try std.testing.expect(owner.submitted.submitted_token == null);
 }
 
@@ -75,9 +75,9 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expectEqual(@as(u64, 1), initial_geometry.geometry_epoch);
 
     const first_source = try testSource(std.testing.allocator, 1, 'A');
-    const first_queue = owner.prepare_requests.acceptSource(first_source, owner.submittedToken(), owner.geometry.geometry_epoch);
-    try std.testing.expect(first_queue.queued);
-    try std.testing.expectEqual(@as(u64, 1), first_queue.geometry_epoch);
+    const first_admission = owner.prepare_requests.admitSource(first_source, owner.submittedToken(), owner.geometry.geometry_epoch);
+    try std.testing.expect(first_admission.admitted);
+    try std.testing.expectEqual(@as(u64, 1), first_admission.geometry_epoch);
 
     const old_request = owner.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), old_request.token.snapshot_seq);
@@ -95,10 +95,10 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expect(resized_geometry.geometry_epoch > old_request.token.geometry_epoch);
 
     const resized_source = try testSource(std.testing.allocator, 2, 'A');
-    const resized_queue = owner.prepare_requests.acceptSource(resized_source, owner.submittedToken(), resized_geometry.geometry_epoch);
-    try std.testing.expect(resized_queue.queued);
-    try std.testing.expectEqual(tokens.DamageKind.full, resized_queue.damage_kind);
-    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_queue.geometry_epoch);
+    const resized_admission = owner.prepare_requests.admitSource(resized_source, owner.submittedToken(), resized_geometry.geometry_epoch);
+    try std.testing.expect(resized_admission.admitted);
+    try std.testing.expectEqual(tokens.DamageKind.full, resized_admission.damage_kind);
+    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_admission.geometry_epoch);
 
     const decision = owner.takeSubmitHandle();
     switch (decision) {
