@@ -116,12 +116,12 @@ pub const LaneReport = struct {
         return report;
     }
 
-    pub fn frameFullyNormalInput(self: LaneReport) bool {
+    pub fn surfaceFullyNormalInput(self: LaneReport) bool {
         return self.complex_cells == 0;
     }
 
-    pub fn frameStayedOutOfLegacyPath(self: LaneReport) bool {
-        return self.frameFullyNormalInput() and
+    pub fn surfaceStayedOutOfLegacyPath(self: LaneReport) bool {
+        return self.surfaceFullyNormalInput() and
             self.legacy.resolved_clusters.normal == 0 and
             self.legacy.shaped_clusters.normal == 0 and
             self.legacy.grouped_groups.normal == 0 and
@@ -548,12 +548,12 @@ test "lane report flags legacy leakage for normal runs" {
         &.{cell},
         .{ .sprite = .{ .slot = 0, .key = .{ .value = 1 } }, .x_px = 0, .y_px = 0, .width_px = 8, .height_px = 16, .color = cell.fg, .first_cell = 0, .cell_span = 1 },
     );
-    try std.testing.expect(report.frameFullyNormalInput());
+    try std.testing.expect(report.surfaceFullyNormalInput());
     try std.testing.expectEqual(@as(u64, 1), report.legacy.resolved_clusters.normal);
     try std.testing.expectEqual(@as(u64, 1), report.legacy.shaped_clusters.normal);
     try std.testing.expectEqual(@as(u64, 1), report.legacy.grouped_groups.normal);
     try std.testing.expectEqual(@as(u64, 1), report.legacy.scene_sprite_draws.normal);
-    try std.testing.expect(!report.frameStayedOutOfLegacyPath());
+    try std.testing.expect(!report.surfaceStayedOutOfLegacyPath());
 }
 
 test "lane legacy run accounting accepts exact end-bound run" {

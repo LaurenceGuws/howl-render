@@ -1,8 +1,8 @@
 const std = @import("std");
-const contract = @import("../contract.zig");
+const contract = @import("contract.zig");
 const font_resolve = @import("resolve.zig");
 const font_session = @import("session.zig");
-const symbol_map = @import("../classify/symbol_map.zig");
+const symbol_map = @import("classify/symbol_map.zig");
 
 pub const ResolveCellRequest = struct {
     text: contract.CellText,

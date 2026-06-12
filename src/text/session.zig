@@ -1,5 +1,5 @@
 const std = @import("std");
-const contract = @import("../contract.zig");
+const contract = @import("contract.zig");
 
 pub const FontFaceId = contract.FontFaceId;
 

@@ -1,6 +1,6 @@
 const std = @import("std");
-const contract = @import("../../contract.zig");
-const shape_run = @import("../../shape/run.zig");
+const contract = @import("../contract.zig");
+const shape_run = @import("../shape/run.zig");
 
 pub const FaceTextKey = struct {
     face_id: u32,

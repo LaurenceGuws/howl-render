@@ -84,7 +84,7 @@ pub const CursorInfo = struct {
     blink: bool = false,
 };
 
-pub const FrameData = struct {
+pub const SurfaceData = struct {
     viewport: ViewportInfo,
     grid: GridModel,
     cursor: CursorInfo,

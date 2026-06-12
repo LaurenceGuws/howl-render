@@ -1,32 +1,32 @@
 const std = @import("std");
-const geometry_mod = @import("../render/grid_geometry.zig");
-const input = @import("../source/text_input.zig");
-const publication_cell_map = @import("../source/publication_cell_map.zig");
-const tokens = @import("../render/tokens.zig");
+const geometry_mod = @import("../geometry/grid_geometry.zig");
+const input = @import("../tv_surface/text_input.zig");
+const publication_cell_map = @import("../tv_surface/publication_cell_map.zig");
+const tokens = @import("../geometry/tokens.zig");
 const prepared_handle = @import("../prepared/handle.zig");
 const prepared_submit = @import("../prepared/submit.zig");
-const render_geometry = @import("../render/geometry.zig");
-const geometry_contract = @import("../render/geometry_contract.zig");
-const source_cell = @import("../source/cell.zig");
-const source_vt = @import("../source/vt.zig");
-const source_slot = @import("../source/slot.zig");
-const source_prepare = @import("../source/prepare_request.zig");
+const render_geometry = @import("../geometry/geometry.zig");
+const geometry_contract = @import("../geometry/geometry_contract.zig");
+const source_cell = @import("../tv_surface/cell.zig");
+const source_vt = @import("../tv_surface/vt.zig");
+const source_slot = @import("../tv_surface/slot.zig");
+const source_prepare = @import("../tv_surface/prepare_request.zig");
 const prepared_surface = @import("../prepared/surface.zig");
 const prepared_submit_result = @import("../prepared/submit_result.zig");
 const session_submitted = @import("submitted.zig");
 const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
 const contract = @import("../text/contract.zig");
-const font_resolve = @import("../text/font/resolve.zig");
-const text_paths = @import("../text/font/paths.zig");
-const frame_preparer = @import("../text/frame_preparer.zig");
-const font_session = @import("../text/font/session.zig");
-const ft_hb_provider = @import("../text/font/ft_hb/provider.zig");
-const provider = @import("../text/font/provider.zig");
+const font_resolve = @import("../text/resolve.zig");
+const text_paths = @import("../text/paths.zig");
+const surface_preparer = @import("../text/surface_preparer.zig");
+const font_session = @import("../text/session.zig");
+const ft_hb_provider = @import("../text/ft_hb/provider.zig");
+const provider = @import("../text/provider.zig");
 const atlas_cache = @import("../text/raster/cache.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const shape_run = @import("../text/shape/run.zig");
-const text_support = @import("../text/font/ft_hb/support.zig");
-const text_glyph_raster = @import("../text/font/ft_hb/glyph_raster.zig");
+const text_support = @import("../text/ft_hb/support.zig");
+const text_glyph_raster = @import("../text/ft_hb/glyph_raster.zig");
 const text_raster_operation = @import("../text/raster/operation.zig");
 
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
@@ -70,7 +70,7 @@ const DebugPrepareTiming = struct {
         return self.enabled;
     }
 
-    fn record(self: *DebugPrepareTiming, timings: frame_preparer.PrepareTimings, prepare_surface_ns: u64, owner_create_ns: u64) void {
+    fn record(self: *DebugPrepareTiming, timings: surface_preparer.PrepareTimings, prepare_surface_ns: u64, owner_create_ns: u64) void {
         if (!self.active()) return;
         self.count += 1;
         self.prepare_surface_ns_total += prepare_surface_ns;
@@ -150,7 +150,7 @@ pub const TextSession = struct {
     allocator: std.mem.Allocator,
     text_state: text_support.FtHbSupport,
     mutex: ThreadMutex = .{},
-    text_preparer: ?frame_preparer.TextFramePreparer = null,
+    text_preparer: ?surface_preparer.TextSurfacePreparer = null,
     cell_input_scratch: []contract.CellInput = &.{},
 
     const TextContext = struct {
@@ -194,7 +194,7 @@ pub const TextSession = struct {
         config: TextSessionConfig,
         render_px: geometry_contract.PixelSize,
         grid_px: geometry_contract.PixelSize,
-    ) geometry_mod.FrameGeometryError!SurfaceLayout {
+    ) geometry_mod.SurfaceGeometryError!SurfaceLayout {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         if (render_px.width == 0 or render_px.height == 0) return error.InvalidSurfaceSize;
@@ -225,7 +225,7 @@ pub const TextSession = struct {
         var resolve: font_resolve.ResolveObservability = .{};
         const theme = publication_cell_map.themeFromPublicationColors(prepare.state.colors);
         const dirty_rows: []const bool = @ptrCast(prepare.state.dirty_rows);
-        const options: frame_preparer.PrepareOptions = .{ .scene = .{
+        const options: surface_preparer.PrepareOptions = .{ .scene = .{
             .cursor = publication_cell_map.mapPublicationCursor(prepare.state, theme),
             .damage = .{
                 .full = prepare.request.token.damage_kind == .full,
@@ -273,7 +273,7 @@ pub const TextSession = struct {
     pub fn submitSurface(self: *TextSession, prepared: *prepared_surface.PreparedSurface, execution: SubmitExecution) !prepared_submit_result.SubmitResult {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
-        prepared_submit.markRendered(&self.text_preparer.?.atlas, prepared.text_frame.raster_plan.outputs);
+        prepared_submit.markRendered(&self.text_preparer.?.atlas, prepared.text_surface.raster_plan.outputs);
         const submitted = prepared_submit_result.SubmitResult{
             .damage_kind = prepared_submit.damageKind(prepared),
             .host_surface = execution.host_surface,
@@ -293,7 +293,7 @@ pub const TextSession = struct {
         allocator: std.mem.Allocator,
         prepare: PrepareInput,
         grid: contract.GridMetrics,
-        prepared: frame_preparer.OwnedPreparedTextFrame,
+        prepared: surface_preparer.OwnedPreparedTextSurface,
         resolve: font_resolve.ResolveObservability,
     ) prepared_surface.PreparedSurface {
         return .{
@@ -303,17 +303,17 @@ pub const TextSession = struct {
             .render_px = prepare.layout.render_px,
             .cell_px = prepare.layout.cell_px,
             .grid = .{ .cols = grid.cols, .rows = grid.rows },
-            .text_frame = prepared,
+            .text_surface = prepared,
             .resolve = resolve,
             .render_surface_emission_failure = .none,
         };
     }
 
-    fn ensureTextPreparer(self: *TextSession, context: *TextContext) !*frame_preparer.TextFramePreparer {
+    fn ensureTextPreparer(self: *TextSession, context: *TextContext) !*surface_preparer.TextSurfacePreparer {
         const capacity = ftHbCapacity(context);
         if (self.text_preparer == null) {
             var ft_hb = ftHbSource(context);
-            self.text_preparer = try frame_preparer.TextFramePreparer.initWithProvider(self.allocator, 2048, ft_hb.textProvider());
+            self.text_preparer = try surface_preparer.TextSurfacePreparer.initWithProvider(self.allocator, 2048, ft_hb.textProvider());
         }
         try self.text_state.configureFtHbCapacity(capacity);
         try self.text_preparer.?.ensureClusterScratchCapacity(maxResolveClusters(context), capacity.max_shape_input_codepoints);
@@ -527,7 +527,7 @@ pub const TextSessionOwner = struct {
             return err;
         };
         const prepare_surface_ns = monotonicNs() -| prepare_surface_start_ns;
-        const prepare_timings = prepared.text_frame.timings;
+        const prepare_timings = prepared.text_surface.timings;
         errdefer prepared.deinit();
         const owner_create_start_ns = monotonicNs();
         const owner = prepared_handle.PreparedHandle.create(self, &prepared) catch |err| return err;
@@ -592,7 +592,7 @@ pub const TextSessionOwner = struct {
         self.cursor_blink_visible = visible;
         var changed = false;
         if (self.source_slot.reservedSource()) |source| {
-            changed = @import("../source/damage.zig").setSourceCursorBlinkVisible(source, visible) or changed;
+            changed = @import("../tv_surface/damage.zig").setSourceCursorBlinkVisible(source, visible) or changed;
         }
         changed = self.prepare_requests.setCursorBlinkVisible(visible) or changed;
         if (changed) self.prepare_requests.requestBlinkRefresh();
@@ -636,7 +636,7 @@ pub const TextSessionOwner = struct {
             request.token,
             submitted_token,
         );
-        if (!@import("../source/damage.zig").sameSnapshotToken(effective_token, request.token)) {
+        if (!@import("../tv_surface/damage.zig").sameSnapshotToken(effective_token, request.token)) {
             self.prepare_requests.active.?.request = .{
                 .token = effective_token,
                 .allow_retained_reuse = request.allow_retained_reuse,

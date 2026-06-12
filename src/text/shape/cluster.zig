@@ -2,8 +2,8 @@ const std = @import("std");
 const contract = @import("../contract.zig");
 const scene = @import("../scene.zig");
 const lane = @import("../classify/lane.zig");
-const publication_cell_map = @import("../../source/publication_cell_map.zig");
-const source_vt = @import("../../source/vt.zig");
+const publication_cell_map = @import("../../tv_surface/publication_cell_map.zig");
+const source_vt = @import("../../tv_surface/vt.zig");
 
 const VS15: u32 = 0xfe0e;
 const VS16: u32 = 0xfe0f;
@@ -329,7 +329,7 @@ pub fn buildSparsePublicationCellsWithDamageScratch(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
     cells: []const source_vt.SourceCell,
-    theme: publication_cell_map.FrameTheme,
+    theme: publication_cell_map.SurfaceTheme,
     grid_metrics: contract.GridMetrics,
     damage: scene.DamageInput,
 ) !SparseCells {
@@ -546,7 +546,7 @@ pub fn sourceRenderableTextFromCells(cells: []const contract.CellInput, idx: u32
     return initRenderableTextFromCellInput(renderableFromCellInput(.{ .value = 0 }, idx, cell_span, cell, false), cell);
 }
 
-pub fn sourceRenderableTextFromPublication(cells: []const source_vt.SourceCell, theme: publication_cell_map.FrameTheme, idx: u32) ?RenderableText {
+pub fn sourceRenderableTextFromPublication(cells: []const source_vt.SourceCell, theme: publication_cell_map.SurfaceTheme, idx: u32) ?RenderableText {
     const cell = cells[idx];
     if (cell.flags.continuation != 0) return null;
     const mapped = publication_cell_map.mapPublicationCellInput(cell, theme);

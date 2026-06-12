@@ -4,7 +4,7 @@ const c = @import("../ffi.zig").c;
 const contract = @import("../text/contract.zig");
 const prepared_buffer = @import("buffer.zig");
 const prepared_surface = @import("surface.zig");
-const realize = @import("../render/render_surface_realizer.zig");
+const realize = @import("../geometry/render_surface_realizer.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
 const sprite_resource_store = @import("sprite_resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
@@ -1327,7 +1327,7 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
         .render_px = .{ .width = options.width_px, .height = options.height_px },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = options.width_px, .rows = options.height_px },
-        .text_frame = .{
+        .text_surface = .{
             .scene = .{
                 .allocator = std.testing.allocator,
                 .owned = false,

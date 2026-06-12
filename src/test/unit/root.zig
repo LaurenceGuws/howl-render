@@ -1,9 +1,9 @@
 test {
-    _ = @import("../../render/render_surface_realizer_test.zig");
+    _ = @import("../../geometry/render_surface_realizer_test.zig");
     _ = @import("../../prepared/render_surface_emitter_test.zig");
     _ = @import("../../prepared/owner_test.zig");
-    _ = @import("../../render/geometry_test.zig");
+    _ = @import("../../geometry/geometry_test.zig");
     _ = @import("../../session/text_test.zig");
-    _ = @import("../../text/font/ft_hb/support_test.zig");
+    _ = @import("../../text/ft_hb/support_test.zig");
     _ = @import("../../text/raster/special_test.zig");
 }

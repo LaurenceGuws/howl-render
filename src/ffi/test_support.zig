@@ -12,7 +12,7 @@ const prepared_buffer_model = @import("../prepared/buffer.zig");
 const prepared_handle_model = @import("../prepared/handle.zig");
 const prepared_surface_model = @import("../prepared/surface.zig");
 const render_surface_emitter_model = @import("../prepared/render_surface_emitter.zig");
-const render_surface_realizer = @import("../render/render_surface_realizer.zig");
+const render_surface_realizer = @import("../geometry/render_surface_realizer.zig");
 const text_contract = @import("../text/contract.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const text_session_model = @import("../session/text.zig");
@@ -72,7 +72,7 @@ pub fn preparedHandleWithFailure(failure: render_surface_emitter_model.RenderSur
             .render_px = .{ .width = 1, .height = 1 },
             .cell_px = .{ .width = 1, .height = 1 },
             .grid = .{ .cols = 1, .rows = 1 },
-            .text_frame = .{
+            .text_surface = .{
                 .scene = .{ .allocator = std.testing.allocator, .owned = false, .scene = .{ .clear_draws = &.{}, .background_draws = &.{}, .sprite_draws = &.{}, .decoration_draws = &.{}, .cursor_draws = &.{}, .raster_requests = &.{}, .missing = &.{}, .full_redraw = true } },
                 .raster_plan = .{ .allocator = std.testing.allocator, .outputs = &.{}, .owned = false },
             },
@@ -220,7 +220,7 @@ pub fn preparedSurface(options: PreparedOptions) prepared_surface_model.Prepared
         .render_px = .{ .width = options.width_px, .height = options.height_px },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = options.width_px, .rows = options.height_px },
-        .text_frame = .{
+        .text_surface = .{
             .scene = .{ .allocator = std.testing.allocator, .owned = false, .scene = .{ .clear_draws = options.clear_draws, .background_draws = options.background_draws, .sprite_draws = options.sprite_draws, .decoration_draws = options.decoration_draws, .cursor_draws = options.cursor_draws, .raster_requests = &.{}, .missing = &.{}, .full_redraw = options.full_redraw } },
             .raster_plan = .{ .allocator = std.testing.allocator, .outputs = options.raster_outputs, .owned = false },
         },

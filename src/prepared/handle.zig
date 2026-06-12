@@ -1,6 +1,6 @@
 const std = @import("std");
-const tokens = @import("../render/tokens.zig");
-const geometry_contract = @import("../render/geometry_contract.zig");
+const tokens = @import("../geometry/tokens.zig");
+const geometry_contract = @import("../geometry/geometry_contract.zig");
 const prepared_surface = @import("surface.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
 const text_session = @import("../session/text.zig");
@@ -216,7 +216,7 @@ fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedS
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
-        .text_frame = .{
+        .text_surface = .{
             .scene = .{
                 .allocator = allocator,
                 .owned = false,

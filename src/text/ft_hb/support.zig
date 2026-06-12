@@ -1,12 +1,12 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const contract = @import("../../contract.zig");
-const text_session = @import("../../../session/text.zig");
+const contract = @import("../contract.zig");
+const text_session = @import("../../session/text.zig");
 const provider = @import("../provider.zig");
-const shape_run = @import("../../shape/run.zig");
+const shape_run = @import("../shape/run.zig");
 const font_resolve = @import("../resolve.zig");
 const text_paths = @import("../paths.zig");
-const geometry_contract = @import("../../../render/geometry_contract.zig");
+const geometry_contract = @import("../../geometry/geometry_contract.zig");
 const text_cache = @import("cache.zig");
 const c_api = @import("c_api.zig");
 

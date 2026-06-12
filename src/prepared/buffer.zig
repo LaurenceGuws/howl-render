@@ -41,15 +41,15 @@ const Composer = struct {
     prepared: *const prepared_surface.PreparedSurface,
 
     fn clear(self: *Composer) !void {
-        drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_frame.scene.scene.clear_draws);
+        drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_surface.scene.scene.clear_draws);
     }
 
     fn background(self: *Composer) !void {
-        drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_frame.scene.scene.background_draws);
+        drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_surface.scene.scene.background_draws);
     }
 
     fn decoration(self: *Composer) !void {
-        drawDecorationSpan(self.pixels, self.width, self.height, self.prepared.text_frame.scene.scene.decoration_draws);
+        drawDecorationSpan(self.pixels, self.width, self.height, self.prepared.text_surface.scene.scene.decoration_draws);
     }
 
     fn sprites(self: *Composer) !void {
@@ -57,7 +57,7 @@ const Composer = struct {
     }
 
     fn cursor(self: *Composer) !void {
-        drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_frame.scene.scene.cursor_draws);
+        drawColorSpan(self.pixels, self.width, self.height, self.prepared.text_surface.scene.scene.cursor_draws);
     }
 };
 
@@ -130,14 +130,14 @@ fn drawDecorationSpan(pixels: []u8, width: u16, height: u16, span: []const contr
 }
 
 fn drawSprites(pixels: []u8, width: u16, height: u16, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) !void {
-    for (prepared.text_frame.scene.scene.sprite_draws) |draw| {
+    for (prepared.text_surface.scene.scene.sprite_draws) |draw| {
         const sprite = try lookupSprite(session, prepared, draw.sprite.key);
         drawSpriteInstance(pixels, width, height, draw, sprite);
     }
 }
 
 fn lookupSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: contract.SpriteKey) !SpriteRaster {
-    for (prepared.text_frame.raster_plan.outputs) |output| {
+    for (prepared.text_surface.raster_plan.outputs) |output| {
         if (output.key.value != sprite_key.value) continue;
         const bounds = output.visualBounds();
         std.debug.assert(output.pixels.len >= packedStrideForOutput(output) * output.height_px);
@@ -316,7 +316,7 @@ test "compose preserves retained content outside partial updates" {
         .render_px = .{ .width = 4, .height = 4 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 4, .rows = 4 },
-        .text_frame = .{
+        .text_surface = .{
             .scene = .{
                 .allocator = allocator,
                 .owned = false,
@@ -386,7 +386,7 @@ fn testPreparedSurface(
         .render_px = .{ .width = 4, .height = 4 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 4, .rows = 4 },
-        .text_frame = .{
+        .text_surface = .{
             .scene = .{
                 .allocator = allocator,
                 .owned = false,

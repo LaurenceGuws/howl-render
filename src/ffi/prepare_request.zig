@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @import("../ffi.zig").c;
 const handle_owner = @import("handle.zig");
-const tokens = @import("../render/tokens.zig");
+const tokens = @import("../geometry/tokens.zig");
 
 pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderPrepareRequest) callconv(.c) c_int {
     const prepare_out = out orelse return c.HOWL_RENDER_PREPARE_FAILED;

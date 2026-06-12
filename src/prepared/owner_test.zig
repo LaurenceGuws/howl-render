@@ -1,10 +1,10 @@
 const std = @import("std");
-const geometry_contract = @import("../render/geometry_contract.zig");
+const geometry_contract = @import("../geometry/geometry_contract.zig");
 const prepared_buffer = @import("buffer.zig");
 const prepared_handle = @import("handle.zig");
 const prepared_surface = @import("surface.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
-const render_surface_realizer = @import("../render/render_surface_realizer.zig");
+const render_surface_realizer = @import("../geometry/render_surface_realizer.zig");
 const text_session = @import("../session/text.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const contract = @import("../text/contract.zig");
@@ -34,7 +34,7 @@ test "create reports missing-sprite diagnostic without double free" {
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
-        .text_frame = .{
+        .text_surface = .{
             .scene = .{
                 .allocator = std.testing.allocator,
                 .scene = .{
@@ -68,7 +68,7 @@ test "prepared surface exports info and required upload count truth" {
         .render_px = .{ .width = 11, .height = 12 },
         .cell_px = .{ .width = 2, .height = 3 },
         .grid = .{ .cols = 4, .rows = 5 },
-        .text_frame = .{
+        .text_surface = .{
             .scene = .{
                 .allocator = std.testing.allocator,
                 .scene = .{
@@ -310,7 +310,7 @@ fn ownedCommandOverflowPreparedSurface(allocator: std.mem.Allocator) !prepared_s
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
-        .text_frame = .{
+        .text_surface = .{
             .scene = .{
                 .allocator = allocator,
                 .owned = true,
@@ -351,7 +351,7 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
         .render_px = .{ .width = options.width_px, .height = options.height_px },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = options.width_px, .rows = options.height_px },
-        .text_frame = .{
+        .text_surface = .{
             .scene = .{
                 .allocator = std.testing.allocator,
                 .owned = false,

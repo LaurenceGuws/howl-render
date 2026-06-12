@@ -4,7 +4,7 @@ const source_vt = @import("vt.zig");
 const contract = @import("../text/contract.zig");
 const scene = @import("../text/scene.zig");
 
-pub const FrameTheme = struct {
+pub const SurfaceTheme = struct {
     default_fg: contract.Rgba8,
     default_bg: contract.Rgba8,
     cursor_color: contract.Rgba8,
@@ -19,7 +19,7 @@ pub const CellSemanticTruth = struct {
 
 const publication_color_kind_max: u8 = 2;
 
-pub fn themeFromPublicationColors(colors: source_vt.SourceColors) FrameTheme {
+pub fn themeFromPublicationColors(colors: source_vt.SourceColors) SurfaceTheme {
     var palette: [256]contract.Rgba8 = undefined;
     for (colors.palette, 0..) |color, idx| palette[idx] = rgbaFromVtRgb(color);
     return .{
@@ -30,7 +30,7 @@ pub fn themeFromPublicationColors(colors: source_vt.SourceColors) FrameTheme {
     };
 }
 
-pub fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contract.CellInput {
+pub fn mapPublicationCellInput(src: source_vt.SourceCell, t: SurfaceTheme) contract.CellInput {
     std.debug.assert(src.combining_len <= src.combining.len);
     const truth = publicationCellTruth(src);
     assertSemanticEmptyTruth(truth);
@@ -91,7 +91,7 @@ pub fn publicationCellTruth(src: source_vt.SourceCell) CellSemanticTruth {
     };
 }
 
-pub fn applyInverseStyle(cell: *contract.CellInput, t: FrameTheme, truth: CellSemanticTruth) void {
+pub fn applyInverseStyle(cell: *contract.CellInput, t: SurfaceTheme, truth: CellSemanticTruth) void {
     const fg = if (truth.default_fg) t.default_fg else cell.fg;
     const bg = if (truth.default_bg) t.default_bg else cell.bg;
     cell.fg = bg;
@@ -101,7 +101,7 @@ pub fn applyInverseStyle(cell: *contract.CellInput, t: FrameTheme, truth: CellSe
     if (truth.default_bg) std.debug.assert(std.meta.eql(cell.fg, t.default_bg));
 }
 
-pub fn applySelectionStyle(cell: *contract.CellInput, t: FrameTheme, truth: CellSemanticTruth) void {
+pub fn applySelectionStyle(cell: *contract.CellInput, t: SurfaceTheme, truth: CellSemanticTruth) void {
     cell.fg = t.default_bg;
     cell.bg = t.default_fg;
     cell.empty = false;
@@ -109,7 +109,7 @@ pub fn applySelectionStyle(cell: *contract.CellInput, t: FrameTheme, truth: Cell
     if (truth.default_bg) std.debug.assert(std.meta.eql(cell.fg, t.default_bg));
 }
 
-pub fn mapPublicationCursor(source: source_vt.PublicationSource, t: FrameTheme) ?scene.CursorInput {
+pub fn mapPublicationCursor(source: source_vt.PublicationSource, t: SurfaceTheme) ?scene.CursorInput {
     const cursor_visible = source.cursor.visible and (!source.cursor.blink or source.cursor_phase_visible);
     return if (cursor_visible) .{
         .cell_col = source.cursor.col,
@@ -124,11 +124,11 @@ fn rgbaFromVtRgb(color: source_vt.SourceRgb) contract.Rgba8 {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = 255 };
 }
 
-fn indexed256(idx: u8, t: FrameTheme) contract.Rgba8 {
+fn indexed256(idx: u8, t: SurfaceTheme) contract.Rgba8 {
     return t.palette[idx];
 }
 
-fn colorToRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+fn colorToRgba8(color: anytype, is_fg: bool, t: SurfaceTheme) contract.Rgba8 {
     return switch (color.kind) {
         0 => if (is_fg) t.default_fg else t.default_bg,
         1 => indexed256(@intCast(color.value & 0xFF), t),
@@ -142,7 +142,7 @@ fn colorToRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
     };
 }
 
-fn publicationColorToTextSceneRgba8(color: source_vt.SourceColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+fn publicationColorToTextSceneRgba8(color: source_vt.SourceColor, is_fg: bool, t: SurfaceTheme) contract.Rgba8 {
     return colorToRgba8(color, is_fg, t);
 }
 
@@ -188,7 +188,7 @@ fn assertSemanticEmptyTruth(truth: CellSemanticTruth) void {
     if (truth.empty) std.debug.assert(truth.default_bg);
 }
 
-pub fn assertSemanticEmptyClassification(truth: CellSemanticTruth, t: FrameTheme, bg: contract.Rgba8, empty: bool) void {
+pub fn assertSemanticEmptyClassification(truth: CellSemanticTruth, t: SurfaceTheme, bg: contract.Rgba8, empty: bool) void {
     std.debug.assert(empty == truth.empty);
     if (truth.empty) std.debug.assert(std.meta.eql(bg, t.default_bg));
     if (truth.empty) std.debug.assert(bg.a == 255);
@@ -203,7 +203,7 @@ fn mapTextSceneCursorShape(shape: anytype) scene.CursorShape {
 }
 
 test "publication cell map keeps opaque default background for ordinary cell" {
-    const theme = FrameTheme{
+    const theme = SurfaceTheme{
         .default_fg = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC, .a = 255 },
         .default_bg = .{ .r = 0x11, .g = 0x22, .b = 0x33, .a = 255 },
         .cursor_color = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
@@ -230,7 +230,7 @@ test "publication cell map keeps opaque default background for ordinary cell" {
 }
 
 test "publication cell map keeps default background truth through inverse and selection" {
-    const theme = FrameTheme{
+    const theme = SurfaceTheme{
         .default_fg = .{ .r = 0xA1, .g = 0xB2, .b = 0xC3, .a = 255 },
         .default_bg = .{ .r = 0x11, .g = 0x22, .b = 0x33, .a = 255 },
         .cursor_color = .{ .r = 0, .g = 0, .b = 0, .a = 255 },

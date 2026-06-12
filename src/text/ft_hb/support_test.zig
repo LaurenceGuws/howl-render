@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const test_font_options = @import("test_font_options");
-const contract = @import("../../contract.zig");
-const text_session = @import("../../../session/text.zig");
+const contract = @import("../contract.zig");
+const text_session = @import("../../session/text.zig");
 const support = @import("support.zig");
 
 const InjectedTestFontPaths = struct {

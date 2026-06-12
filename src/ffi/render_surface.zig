@@ -347,5 +347,5 @@ fn assertOffset(comptime Mirror: type, comptime Abi: type, comptime field: []con
 }
 
 test {
-    _ = @import("../render/render_surface_realizer.zig");
+    _ = @import("../geometry/render_surface_realizer.zig");
 }

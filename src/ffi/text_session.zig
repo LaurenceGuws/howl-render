@@ -3,7 +3,7 @@ const c = @import("../ffi.zig").c;
 const handle_owner = @import("handle.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const text_session = @import("../session/text.zig");
-const text_support = @import("../text/font/ft_hb/support.zig");
+const text_support = @import("../text/ft_hb/support.zig");
 
 pub fn init(config: c.HowlRenderTextConfig) callconv(.c) c.HowlRenderTextSessionHandle {
     if (config.surface_px.width == 0 or config.surface_px.height == 0) return null;

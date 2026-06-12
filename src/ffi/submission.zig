@@ -3,7 +3,7 @@ const c = @import("../ffi.zig").c;
 const handle_owner = @import("handle.zig");
 const prepared_handle = @import("../prepared/handle.zig");
 const submit_result = @import("submit_result.zig");
-const tokens = @import("../render/tokens.zig");
+const tokens = @import("../geometry/tokens.zig");
 
 pub fn publishPrepared(value: c.HowlRenderTextSessionHandle, prepared_in: c.HowlRenderPreparedSurfaceToken) callconv(.c) c_int {
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;

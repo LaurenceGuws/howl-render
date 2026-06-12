@@ -6,18 +6,18 @@ const direct_scene = @import("direct_scene.zig");
 const prepare_counters = @import("prepare_counters.zig");
 const atlas_cache = @import("raster/cache.zig");
 const cluster = @import("shape/cluster.zig");
-const font_resolver = @import("font/resolver.zig");
-const font_session = @import("font/session.zig");
-const ft_hb_provider = @import("font/ft_hb/provider.zig");
+const font_resolver = @import("resolver.zig");
+const font_session = @import("session.zig");
+const ft_hb_provider = @import("ft_hb/provider.zig");
 const grouping = @import("shape/grouping.zig");
-const provider = @import("font/provider.zig");
+const provider = @import("provider.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
 const shape_run = @import("shape/run.zig");
 const lane = @import("classify/lane.zig");
-const source_vt = @import("../source/vt.zig");
-const publication_cell_map = @import("../source/publication_cell_map.zig");
+const source_vt = @import("../tv_surface/vt.zig");
+const publication_cell_map = @import("../tv_surface/publication_cell_map.zig");
 
 pub const PrepareTimings = struct {
     direct_normal_us: u64 = 0,
@@ -50,7 +50,7 @@ fn elapsedUs(start_ns: u64) u64 {
     return @divTrunc(monotonicNs() -| start_ns, std.time.ns_per_us);
 }
 
-pub const TextFramePreparer = struct {
+pub const TextSurfacePreparer = struct {
     allocator: std.mem.Allocator,
     counters: prepare_counters.TextPrepareCounters = .{},
     atlas: atlas_cache.OwnedAtlasCache,
@@ -63,19 +63,19 @@ pub const TextFramePreparer = struct {
     resolver_scratch: font_resolver.RetainedScratch = .{},
     scene_scratch: scene.RetainedScratch = .{},
 
-    pub fn init(allocator: std.mem.Allocator) TextFramePreparer {
+    pub fn init(allocator: std.mem.Allocator) TextSurfacePreparer {
         return initCapacity(allocator, 4096) catch unreachable;
     }
 
-    pub fn initCapacity(allocator: std.mem.Allocator, atlas_capacity: atlas_cache.AtlasCapacity) !TextFramePreparer {
+    pub fn initCapacity(allocator: std.mem.Allocator, atlas_capacity: atlas_cache.AtlasCapacity) !TextSurfacePreparer {
         return initWithProvider(allocator, atlas_capacity, provider.defaultProvider());
     }
 
-    pub fn initWithShaper(allocator: std.mem.Allocator, atlas_capacity: atlas_cache.AtlasCapacity, shaper: shape_run.Shaper) !TextFramePreparer {
+    pub fn initWithShaper(allocator: std.mem.Allocator, atlas_capacity: atlas_cache.AtlasCapacity, shaper: shape_run.Shaper) !TextSurfacePreparer {
         return initWithProvider(allocator, atlas_capacity, .{ .shaper = shaper });
     }
 
-    pub fn initWithProvider(allocator: std.mem.Allocator, atlas_capacity: atlas_cache.AtlasCapacity, text_provider: provider.TextProvider) !TextFramePreparer {
+    pub fn initWithProvider(allocator: std.mem.Allocator, atlas_capacity: atlas_cache.AtlasCapacity, text_provider: provider.TextProvider) !TextSurfacePreparer {
         return .{
             .allocator = allocator,
             .atlas = try atlas_cache.OwnedAtlasCache.init(allocator, atlas_capacity),
@@ -86,7 +86,7 @@ pub const TextFramePreparer = struct {
         };
     }
 
-    pub fn deinit(self: *TextFramePreparer) void {
+    pub fn deinit(self: *TextSurfacePreparer) void {
         self.scene_scratch.deinit(self.allocator);
         self.resolver_scratch.deinit(self.allocator);
         self.cluster_scratch.deinit(self.allocator);
@@ -95,30 +95,30 @@ pub const TextFramePreparer = struct {
         self.* = undefined;
     }
 
-    pub fn ensureClusterScratchCapacity(self: *TextFramePreparer, max_items: u32, max_codepoints: u32) !void {
+    pub fn ensureClusterScratchCapacity(self: *TextSurfacePreparer, max_items: u32, max_codepoints: u32) !void {
         try self.cluster_scratch.configure(self.allocator, max_items, max_codepoints);
     }
 
-    pub fn ensureResolverScratchCapacity(self: *TextFramePreparer, max_clusters: u32) !void {
+    pub fn ensureResolverScratchCapacity(self: *TextSurfacePreparer, max_clusters: u32) !void {
         try self.resolver_scratch.configure(self.allocator, max_clusters);
     }
 
-    pub fn clearAtlas(self: *TextFramePreparer) void {
+    pub fn clearAtlas(self: *TextSurfacePreparer) void {
         self.atlas.len = 0;
         self.atlas.next_slot = 0;
     }
 
     pub fn prepareCellsWithSessionOptions(
-        self: *TextFramePreparer,
+        self: *TextSurfacePreparer,
         cells: []const contract.CellInput,
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
-    ) !OwnedPreparedTextFrame {
+    ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
         var timings = PrepareTimings{};
         if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings, null)) |direct| {
-            return self.finishNormalOnlyFrame(direct, lane_report, timings);
+            return self.finishNormalOnlySurface(direct, lane_report, timings);
         }
         const sparse_start_ns = monotonicNs();
         const cell_count = count32(cells);
@@ -126,20 +126,20 @@ pub const TextFramePreparer = struct {
         var sparse = try cluster.buildSparseCellsWithDamageScratch(self.allocator, &self.cluster_scratch, cells, grid_metrics, options.scene.damage);
         timings.sparse_us = elapsedUs(sparse_start_ns);
         errdefer sparse.deinit();
-        return self.preparePreparedTextFrame(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings);
+        return self.preparePreparedTextSurface(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings);
     }
 
     pub fn prepareCellTextInputsWithSessionOptions(
-        self: *TextFramePreparer,
+        self: *TextSurfacePreparer,
         inputs: []const cluster.CellTextInput,
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
-    ) !OwnedPreparedTextFrame {
+    ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
         var timings = PrepareTimings{};
         if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings, null)) |direct| {
-            return self.finishNormalOnlyFrame(direct, lane_report, timings);
+            return self.finishNormalOnlySurface(direct, lane_report, timings);
         }
         const input_count = count32(inputs);
         var input_codepoints: u32 = 0;
@@ -149,22 +149,22 @@ pub const TextFramePreparer = struct {
         errdefer text_cache.deinit();
         var renderable = try cluster.buildRenderableCellsFromInputs(self.allocator, inputs, text_cache.view());
         errdefer renderable.deinit();
-        return self.preparePreparedTextFrame(text_cache, renderable, grid_metrics, session, options, .{});
+        return self.preparePreparedTextSurface(text_cache, renderable, grid_metrics, session, options, .{});
     }
 
     pub fn preparePublicationWithSessionOptions(
-        self: *TextFramePreparer,
+        self: *TextSurfacePreparer,
         source: source_vt.PublicationSource,
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
-        theme: publication_cell_map.FrameTheme,
-    ) !?OwnedPreparedTextFrame {
+        theme: publication_cell_map.SurfaceTheme,
+    ) !?OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
         var timings = PrepareTimings{};
         var publication_complex_cells: u64 = 0;
         if (try self.prepareDirectNormal(.{ .publication = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings, &publication_complex_cells)) |direct| {
-            return self.finishNormalOnlyFrame(direct, lane_report, timings);
+            return self.finishNormalOnlySurface(direct, lane_report, timings);
         }
         const cell_count = count32(source.cells);
         try self.ensureClusterScratchCapacity(cell_count, countPublicationCodepoints(source.cells));
@@ -174,23 +174,23 @@ pub const TextFramePreparer = struct {
         var sparse = try cluster.buildSparsePublicationCellsWithDamageScratch(self.allocator, &self.cluster_scratch, source.cells, theme, grid_metrics, options.scene.damage);
         timings.sparse_us = elapsedUs(sparse_start_ns);
         errdefer sparse.deinit();
-        return try self.preparePreparedTextFrameWithExpectedComplexCells(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings, publication_complex_cells);
+        return try self.preparePreparedTextSurfaceWithExpectedComplexCells(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings, publication_complex_cells);
     }
 
-    fn preparePreparedTextFrame(
-        self: *TextFramePreparer,
+    fn preparePreparedTextSurface(
+        self: *TextSurfacePreparer,
         text_cache: cluster.OwnedLineTextCache,
         renderable: cluster.OwnedRenderableCells,
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
         initial_timings: PrepareTimings,
-    ) !OwnedPreparedTextFrame {
-        return self.preparePreparedTextFrameWithExpectedComplexCells(text_cache, renderable, grid_metrics, session, options, initial_timings, null);
+    ) !OwnedPreparedTextSurface {
+        return self.preparePreparedTextSurfaceWithExpectedComplexCells(text_cache, renderable, grid_metrics, session, options, initial_timings, null);
     }
 
-    fn preparePreparedTextFrameWithExpectedComplexCells(
-        self: *TextFramePreparer,
+    fn preparePreparedTextSurfaceWithExpectedComplexCells(
+        self: *TextSurfacePreparer,
         text_cache: cluster.OwnedLineTextCache,
         renderable: cluster.OwnedRenderableCells,
         grid_metrics: contract.GridMetrics,
@@ -198,7 +198,7 @@ pub const TextFramePreparer = struct {
         options: PrepareOptions,
         initial_timings: PrepareTimings,
         expected_complex_cells: ?u64,
-    ) !OwnedPreparedTextFrame {
+    ) !OwnedPreparedTextSurface {
         var timings = initial_timings;
         var owned_text_cache = text_cache;
         errdefer owned_text_cache.deinit();
@@ -237,12 +237,12 @@ pub const TextFramePreparer = struct {
             owned_text_cache.deinit();
             clusters.deinit();
             owned_renderable.deinit();
-            return self.finishNormalOnlyFrame(direct, final_lane_report, timings);
+            return self.finishNormalOnlySurface(direct, final_lane_report, timings);
         }
 
         if (expected_complex_cells != null) std.debug.assert(final_lane_report.complex_cells != 0);
 
-        return self.prepareComplexFrame(
+        return self.prepareComplexSurface(
             .{
                 .text_cache = owned_text_cache,
                 .renderable = owned_renderable,
@@ -257,14 +257,14 @@ pub const TextFramePreparer = struct {
         );
     }
 
-    fn prepareComplexFrame(
-        self: *TextFramePreparer,
-        prepared: PreparedComplexFrame,
+    fn prepareComplexSurface(
+        self: *TextSurfacePreparer,
+        prepared: PreparedComplexSurface,
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
         timings: *PrepareTimings,
-    ) !OwnedPreparedTextFrame {
+    ) !OwnedPreparedTextSurface {
         var final_prepared = prepared;
         errdefer final_prepared.deinit(self.allocator);
         var complex = try cluster.selectComplexWithDamageScratch(
@@ -352,7 +352,7 @@ pub const TextFramePreparer = struct {
     }
 
     fn mergePreparedScene(
-        self: *TextFramePreparer,
+        self: *TextSurfacePreparer,
         direct: direct_normal.Product,
         cells: []const contract.RenderableCell,
         grid_metrics: contract.GridMetrics,
@@ -400,7 +400,7 @@ pub const TextFramePreparer = struct {
         return .{ .scene = merged_scene, .raster_plan = merged_raster_plan };
     }
 
-    fn finishNormalOnlyFrame(self: *TextFramePreparer, direct: direct_normal.Product, lane_report: lane.LaneReport, timings: PrepareTimings) OwnedPreparedTextFrame {
+    fn finishNormalOnlySurface(self: *TextSurfacePreparer, direct: direct_normal.Product, lane_report: lane.LaneReport, timings: PrepareTimings) OwnedPreparedTextSurface {
         var final_lane_report = lane_report;
         final_lane_report.assertValid();
         const counters = direct_normal.counters(&self.direct_normal, final_lane_report, direct);
@@ -413,7 +413,7 @@ pub const TextFramePreparer = struct {
     }
 
     fn prepareDirectNormal(
-        self: *TextFramePreparer,
+        self: *TextSurfacePreparer,
         source: direct_normal.Source,
         policy: direct_normal.Policy,
         grid_metrics: contract.GridMetrics,
@@ -471,7 +471,7 @@ const PreparedSceneMerge = struct {
     raster_plan: rasterizer.OwnedRasterPlan,
 };
 
-const PreparedComplexFrame = struct {
+const PreparedComplexSurface = struct {
     text_cache: cluster.OwnedLineTextCache,
     renderable: cluster.OwnedRenderableCells,
     clusters: cluster.OwnedClusters,
@@ -481,7 +481,7 @@ const PreparedComplexFrame = struct {
     shaped_runs: ?shape_run.OwnedShapedRuns = null,
     grouped: ?PreparedGroups = null,
 
-    fn deinit(self: *PreparedComplexFrame, allocator: std.mem.Allocator) void {
+    fn deinit(self: *PreparedComplexSurface, allocator: std.mem.Allocator) void {
         if (self.grouped) |*grouped| grouped.deinit();
         if (self.shaped_runs) |*shaped_runs| shaped_runs.deinit();
         if (self.runs) |*runs| runs.deinit();
@@ -507,7 +507,7 @@ const PreparedGroups = struct {
 };
 
 fn resolveComplexRuns(
-    self: *TextFramePreparer,
+    self: *TextSurfacePreparer,
     text_cache: contract.LineTextCache,
     clusters: []const contract.CellCluster,
     grid_metrics: contract.GridMetrics,
@@ -524,7 +524,7 @@ fn resolveComplexRuns(
 }
 
 fn shapeComplexRuns(
-    self: *TextFramePreparer,
+    self: *TextSurfacePreparer,
     runs: []const contract.ResolvedRun,
     text_cache: contract.LineTextCache,
     clusters: []const contract.CellCluster,
@@ -541,7 +541,7 @@ fn shapeComplexRuns(
 }
 
 fn groupComplexRuns(
-    self: *TextFramePreparer,
+    self: *TextSurfacePreparer,
     shaped_runs: []const shape_run.OwnedShapedRun,
     sprite_routes: []const font_resolver.SpriteRouteHit,
     clusters: []const contract.CellCluster,
@@ -562,12 +562,12 @@ fn groupComplexRuns(
     return .{ .font_groups = font_groups, .sprite_groups = sprite_groups, .groups = groups };
 }
 
-pub const OwnedPreparedTextFrame = struct {
+pub const OwnedPreparedTextSurface = struct {
     scene: scene.OwnedTextScene,
     raster_plan: rasterizer.OwnedRasterPlan,
     timings: PrepareTimings = .{},
 
-    pub fn deinit(self: *OwnedPreparedTextFrame) void {
+    pub fn deinit(self: *OwnedPreparedTextSurface) void {
         self.raster_plan.deinit();
         self.scene.deinit();
         self.* = undefined;
@@ -739,7 +739,7 @@ fn testPublicationColors() source_vt.SourceColors {
 }
 
 test "text preparation prepares cell inputs into clusters and runs" {
-    var engine = TextFramePreparer.init(std.testing.allocator);
+    var engine = TextSurfacePreparer.init(std.testing.allocator);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -758,7 +758,7 @@ test "text preparation prepares cell inputs into clusters and runs" {
 }
 
 test "text preparation records sprite routes through resolver" {
-    var engine = TextFramePreparer.init(std.testing.allocator);
+    var engine = TextSurfacePreparer.init(std.testing.allocator);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -779,7 +779,7 @@ test "text preparation records sprite routes through resolver" {
 }
 
 test "text preparation scene is grid positioned" {
-    var engine = TextFramePreparer.init(std.testing.allocator);
+    var engine = TextSurfacePreparer.init(std.testing.allocator);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -798,7 +798,7 @@ test "text preparation scene is grid positioned" {
 }
 
 test "text preparation rerasterizes pending atlas entries across prepares" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 8);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 8);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -816,7 +816,7 @@ test "text preparation rerasterizes pending atlas entries across prepares" {
 }
 
 test "text preparation rerasterizes sprites after cell metrics change" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 8);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 8);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -843,7 +843,7 @@ test "text preparation rerasterizes sprites after cell metrics change" {
 }
 
 test "text preparation rerasterizes sprites after box thickness change" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 8);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 8);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -886,7 +886,7 @@ test "text preparation accepts configurable shaper" {
     };
 
     var stub = Stub{};
-    var engine = try TextFramePreparer.initWithShaper(std.testing.allocator, 8, .{ .ctx = &stub, .shape_run = Stub.shape });
+    var engine = try TextSurfacePreparer.initWithShaper(std.testing.allocator, 8, .{ .ctx = &stub, .shape_run = Stub.shape });
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -909,7 +909,7 @@ test "text preparation accepts unified provider rasterizer" {
         }
     };
     var stub = Stub{};
-    var engine = try TextFramePreparer.initWithProvider(std.testing.allocator, 8, .{ .rasterizer = .{ .ctx = &stub, .rasterize_sprite = Stub.raster } });
+    var engine = try TextSurfacePreparer.initWithProvider(std.testing.allocator, 8, .{ .rasterizer = .{ .ctx = &stub, .rasterize_sprite = Stub.raster } });
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -920,7 +920,7 @@ test "text preparation accepts unified provider rasterizer" {
 }
 
 test "text preparation options produce scene cursor draws" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -937,7 +937,7 @@ test "text preparation options produce scene cursor draws" {
 }
 
 test "text preparation partial damage clears use empty default background truth" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const transparent_bg = contract.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
@@ -957,7 +957,7 @@ test "text preparation partial damage clears use empty default background truth"
 }
 
 test "text preparation publication clears use empty default background truth" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     var colors = std.mem.zeroes(source_vt.SourceColors);
     colors.background = .{ .r = 0x44, .g = 0x55, .b = 0x66 };
@@ -1006,7 +1006,7 @@ test "text preparation publication clears use empty default background truth" {
 }
 
 test "text preparation publication ascii stays on direct normal path" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     var cells = [_]source_vt.SourceCell{
         .{
@@ -1062,7 +1062,7 @@ test "text preparation publication ascii stays on direct normal path" {
 }
 
 test "text preparation publication styled indexed ascii stays on direct normal path" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{testPublicationCell('S')};
@@ -1089,7 +1089,7 @@ test "text preparation publication styled indexed ascii stays on direct normal p
 }
 
 test "text preparation publication non inverse indexed ascii stays on direct normal path" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{testPublicationCell('N')};
@@ -1113,7 +1113,7 @@ test "text preparation publication non inverse indexed ascii stays on direct nor
 }
 
 test "text preparation publication zero codepoint stays on direct normal path without sprite draw" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{testPublicationCell(0)};
@@ -1133,7 +1133,7 @@ test "text preparation publication zero codepoint stays on direct normal path wi
 }
 
 test "text preparation publication styled indexed zero codepoint stays on direct normal path" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{testPublicationCell(0)};
@@ -1159,7 +1159,7 @@ test "text preparation publication styled indexed zero codepoint stays on direct
 }
 
 test "text preparation publication unsupported space and rgb keep fallback scratch clean" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{ testPublicationCell(' '), testPublicationCell('R') };
@@ -1178,7 +1178,7 @@ test "text preparation publication unsupported space and rgb keep fallback scrat
 }
 
 test "text preparation publication tab stays on generic fallback without partial direct scratch" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('\t') };
@@ -1194,7 +1194,7 @@ test "text preparation publication tab stays on generic fallback without partial
 }
 
 test "text preparation publication other control stays on generic fallback without partial direct scratch" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell(0x1f) };
@@ -1213,7 +1213,7 @@ test "text preparation publication other control stays on generic fallback witho
 }
 
 test "text preparation publication unsupported curly falls back without partial direct scratch" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('C') };
@@ -1231,7 +1231,7 @@ test "text preparation publication unsupported curly falls back without partial 
 }
 
 test "text preparation publication unsupported combining falls back without partial direct scratch" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('M') };
@@ -1249,7 +1249,7 @@ test "text preparation publication unsupported combining falls back without part
 }
 
 test "text preparation publication unsupported link reaches generic path without partial scratch" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const colors = testPublicationColors();
     var cells = [_]source_vt.SourceCell{testPublicationCell('L')};
@@ -1265,7 +1265,7 @@ test "text preparation publication unsupported link reaches generic path without
 }
 
 test "text preparation direct-renders pure normal cell text inputs" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -1285,7 +1285,7 @@ test "text preparation direct-renders pure normal cell text inputs" {
 }
 
 test "text preparation keeps mixed cell text normals out of legacy path" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -1304,7 +1304,7 @@ test "text preparation keeps mixed cell text normals out of legacy path" {
 }
 
 test "text preparation marks curly underline cells complex before shaping" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -1323,7 +1323,7 @@ test "text preparation marks curly underline cells complex before shaping" {
 }
 
 test "text preparation sizes cluster scratch for multi codepoint cell inputs" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -1361,7 +1361,7 @@ test "text preparation keeps icon codepoints out of the normal lane" {
         }
     };
 
-    var engine = try TextFramePreparer.initWithShaper(std.testing.allocator, 16, .{ .ctx = undefined, .shape_run = Stub.shape });
+    var engine = try TextSurfacePreparer.initWithShaper(std.testing.allocator, 16, .{ .ctx = undefined, .shape_run = Stub.shape });
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -1383,8 +1383,8 @@ test "text preparation keeps icon codepoints out of the normal lane" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
 }
 
-test "text preparation prepares publication cells through shared full pipeline frame" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+test "text preparation prepares publication cells through shared full pipeline surface" {
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     var cells = [_]source_vt.SourceCell{
         .{
@@ -1443,7 +1443,7 @@ test "text preparation prepares publication cells through shared full pipeline f
 }
 
 test "text preparation publication complex rejection falls back once" {
-    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     var cells = [_]source_vt.SourceCell{
         .{
@@ -1532,7 +1532,7 @@ test "text preparation uses ft hb source coverage for fallback" {
     var text_provider = ft_hb.textProvider();
     var shaper = FallbackShaper{ .inner = text_provider.shaper };
     text_provider.shaper = .{ .ctx = &shaper, .shape_run = FallbackShaper.shape };
-    var engine = try TextFramePreparer.initWithProvider(std.testing.allocator, 16, text_provider);
+    var engine = try TextSurfacePreparer.initWithProvider(std.testing.allocator, 16, text_provider);
     defer engine.deinit();
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };

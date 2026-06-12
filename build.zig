@@ -9,12 +9,12 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const perf_optimize: std.builtin.OptimizeMode = .ReleaseFast;
     const test_font_primary_path = assertTrackedTestFontFixture(b,
-        b.option([]const u8, "test-font-primary-path", "Explicit render proof primary font path") orelse "src/text/font/ft_hb/testdata/primary.ttf",
-        "src/text/font/ft_hb/testdata/primary.ttf",
+        b.option([]const u8, "test-font-primary-path", "Explicit render proof primary font path") orelse "src/text/ft_hb/testdata/primary.ttf",
+        "src/text/ft_hb/testdata/primary.ttf",
     );
     const test_font_symbol_path = assertTrackedTestFontFixture(b,
-        b.option([]const u8, "test-font-symbol-path", "Explicit render proof symbol fallback font path") orelse "src/text/font/ft_hb/testdata/symbols.ttf",
-        "src/text/font/ft_hb/testdata/symbols.ttf",
+        b.option([]const u8, "test-font-symbol-path", "Explicit render proof symbol fallback font path") orelse "src/text/ft_hb/testdata/symbols.ttf",
+        "src/text/ft_hb/testdata/symbols.ttf",
     );
     const freetype_dep = b.dependency("freetype", .{
         .target = target,

@@ -1,6 +1,6 @@
-const geometry_contract = @import("../render/geometry_contract.zig");
+const geometry_contract = @import("geometry_contract.zig");
 
-pub const FrameGeometryError = error{
+pub const SurfaceGeometryError = error{
     InvalidSurfaceSize,
     InvalidGridSize,
 };
@@ -14,7 +14,7 @@ pub fn deriveGridSize(grid_px: geometry_contract.PixelSize, cell_px: geometry_co
     };
 }
 
-pub fn deriveGridForFrame(render_px: geometry_contract.PixelSize, grid_px: geometry_contract.PixelSize, cell_px: geometry_contract.CellSize) FrameGeometryError!geometry_contract.GridSize {
+pub fn deriveGridForSurface(render_px: geometry_contract.PixelSize, grid_px: geometry_contract.PixelSize, cell_px: geometry_contract.CellSize) SurfaceGeometryError!geometry_contract.GridSize {
     if (render_px.width == 0 or render_px.height == 0) return error.InvalidSurfaceSize;
     if (grid_px.width == 0 or grid_px.height == 0) return error.InvalidGridSize;
     return deriveGridSize(grid_px, cell_px);

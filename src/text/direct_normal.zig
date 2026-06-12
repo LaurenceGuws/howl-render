@@ -3,16 +3,16 @@ const atlas_cache = @import("raster/cache.zig");
 const cluster = @import("shape/cluster.zig");
 const contract = @import("contract.zig");
 const direct_scene = @import("direct_scene.zig");
-const font_session = @import("font/session.zig");
+const font_session = @import("session.zig");
 const lane = @import("classify/lane.zig");
 const prepare_counters = @import("prepare_counters.zig");
-const provider = @import("font/provider.zig");
+const provider = @import("provider.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
 const sprite_key = @import("raster/key.zig");
-const source_vt = @import("../source/vt.zig");
-const publication_cell_map = @import("../source/publication_cell_map.zig");
+const source_vt = @import("../tv_surface/vt.zig");
+const publication_cell_map = @import("../tv_surface/publication_cell_map.zig");
 
 pub const Product = struct {
     damage: direct_scene.Damage,
@@ -47,7 +47,7 @@ pub const Source = union(enum) {
     raw_cells: []const contract.CellInput,
     publication: struct {
         cells: []const source_vt.SourceCell,
-        theme: publication_cell_map.FrameTheme,
+        theme: publication_cell_map.SurfaceTheme,
     },
     inputs: []const cluster.CellTextInput,
     prepared: struct {
@@ -260,7 +260,7 @@ fn sourceCandidate(source: Source, idx: u32, damage: direct_scene.Damage, grid_m
     return .{ .item = item, .choice = lane.classifyRenderableCell(item.renderable, item.text) };
 }
 
-fn publicationCandidate(cells: []const source_vt.SourceCell, theme: publication_cell_map.FrameTheme, idx: u32, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics) PublicationCandidate {
+fn publicationCandidate(cells: []const source_vt.SourceCell, theme: publication_cell_map.SurfaceTheme, idx: u32, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics) PublicationCandidate {
     std.debug.assert(idx < count32(cells));
     const cell = cells[@intCast(idx)];
     if (!publicationCellSupported(cells, idx, cell)) return .unsupported;
@@ -289,7 +289,7 @@ fn publicationCellSupported(cells: []const source_vt.SourceCell, idx: u32, cell:
     return true;
 }
 
-fn publicationRenderableText(theme: publication_cell_map.FrameTheme, idx: u32, cell: source_vt.SourceCell) cluster.RenderableText {
+fn publicationRenderableText(theme: publication_cell_map.SurfaceTheme, idx: u32, cell: source_vt.SourceCell) cluster.RenderableText {
     std.debug.assert(publicationCodepointSupported(cell.codepoint));
     std.debug.assert(cell.combining_len == 0);
     std.debug.assert(cell.flags.continuation == 0);
@@ -348,7 +348,7 @@ fn publicationColorSupported(color: source_vt.SourceColor) bool {
     };
 }
 
-fn publicationColorRgba(color: source_vt.SourceColor, foreground: bool, theme: publication_cell_map.FrameTheme) contract.Rgba8 {
+fn publicationColorRgba(color: source_vt.SourceColor, foreground: bool, theme: publication_cell_map.SurfaceTheme) contract.Rgba8 {
     std.debug.assert(publicationColorSupported(color));
     return switch (color.kind) {
         0 => if (foreground) theme.default_fg else theme.default_bg,
@@ -584,7 +584,7 @@ fn testPublicationCell(codepoint: u32) source_vt.SourceCell {
     };
 }
 
-fn testPublicationTheme() publication_cell_map.FrameTheme {
+fn testPublicationTheme() publication_cell_map.SurfaceTheme {
     return publication_cell_map.themeFromPublicationColors(std.mem.zeroes(source_vt.SourceColors));
 }
 

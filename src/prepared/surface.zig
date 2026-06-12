@@ -1,8 +1,8 @@
 const std = @import("std");
-const geometry_contract = @import("../render/geometry_contract.zig");
-const tokens = @import("../render/tokens.zig");
-const font_resolve = @import("../text/font/resolve.zig");
-const frame_preparer = @import("../text/frame_preparer.zig");
+const geometry_contract = @import("../geometry/geometry_contract.zig");
+const tokens = @import("../geometry/tokens.zig");
+const font_resolve = @import("../text/resolve.zig");
+const surface_preparer = @import("../text/surface_preparer.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
 
 pub const PreparedInfo = struct {
@@ -27,17 +27,17 @@ pub const PreparedSurface = struct {
     render_px: geometry_contract.PixelSize,
     cell_px: geometry_contract.CellSize,
     grid: geometry_contract.GridSize,
-    text_frame: frame_preparer.OwnedPreparedTextFrame,
+    text_surface: surface_preparer.OwnedPreparedTextSurface,
     resolve: font_resolve.ResolveObservability = .{},
     render_surface_emission_failure: render_surface_emitter.RenderSurfaceEmissionFailure = .none,
 
     pub fn deinit(self: *PreparedSurface) void {
-        self.text_frame.deinit();
+        self.text_surface.deinit();
         self.* = undefined;
     }
 
     pub fn damageKind(self: *const PreparedSurface) tokens.DamageKind {
-        if (self.text_frame.scene.scene.full_redraw) return .full;
+        if (self.text_surface.scene.scene.full_redraw) return .full;
         return .partial;
     }
 
@@ -74,18 +74,18 @@ pub const PreparedSurface = struct {
 
     pub fn buffer(self: *const PreparedSurface) PreparedBuffer {
         return .{
-            .uploads_required = self.text_frame.raster_plan.outputs.len,
+            .uploads_required = self.text_surface.raster_plan.outputs.len,
         };
     }
 };
 
 test "prepared surface owner stays separate from geometry contracts" {
-    const pixels = geometry_contract.FramePixels{
+    const pixels = geometry_contract.SurfacePixels{
         .render_width = 0,
         .render_height = -2,
         .grid_width = 80,
         .grid_height = 24,
     };
     try std.testing.expectEqual(@as(u16, 1), pixels.renderWidth());
-    try std.testing.expect(@This().PreparedSurface != geometry_contract.FramePixels);
+    try std.testing.expect(@This().PreparedSurface != geometry_contract.SurfacePixels);
 }

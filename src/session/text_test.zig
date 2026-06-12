@@ -1,9 +1,9 @@
 const std = @import("std");
 const text_session = @import("text.zig");
-const source_cell = @import("../source/cell.zig");
-const source_vt = @import("../source/vt.zig");
+const source_cell = @import("../tv_surface/cell.zig");
+const source_vt = @import("../tv_surface/vt.zig");
 const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
-const tokens = @import("../render/tokens.zig");
+const tokens = @import("../geometry/tokens.zig");
 
 test "ft hb retained capacities separate cache slots from run scratch" {
     var session = text_session.TextSession.init(std.testing.allocator);

@@ -1,11 +1,11 @@
 const std = @import("std");
-const geometry_contract = @import("render/geometry_contract.zig");
-const source_cell = @import("source/cell.zig");
-const source_text_input = @import("source/text_input.zig");
-const source_vt = @import("source/vt.zig");
+const geometry_contract = @import("geometry/geometry_contract.zig");
+const source_cell = @import("tv_surface/cell.zig");
+const source_text_input = @import("tv_surface/text_input.zig");
+const source_vt = @import("tv_surface/vt.zig");
 const contract = @import("text/contract.zig");
-const frame_preparer = @import("text/frame_preparer.zig");
-const font_session = @import("text/font/session.zig");
+const surface_preparer = @import("text/surface_preparer.zig");
+const font_session = @import("text/session.zig");
 const cluster = @import("text/shape/cluster.zig");
 
 const RunCount = u32;
@@ -108,7 +108,7 @@ const Workload = struct {
 
 const WorkloadPrepareContext = struct {
     session: font_session.FontSession,
-    options: frame_preparer.PrepareOptions,
+    options: surface_preparer.PrepareOptions,
     borrowed_cells: []contract.CellInput = &.{},
 };
 
@@ -859,7 +859,7 @@ fn initPrepareContext(workload: Workload) WorkloadPrepareContext {
     };
 }
 
-fn prepareWorkloadFrame(preparer: *frame_preparer.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !frame_preparer.OwnedPreparedTextFrame {
+fn prepareWorkloadSurface(preparer: *surface_preparer.TextSurfacePreparer, workload: Workload, context: WorkloadPrepareContext) !surface_preparer.OwnedPreparedTextSurface {
     return switch (workload.input) {
         .cells => |cells| preparer.prepareCellsWithSessionOptions(
             cells,
@@ -888,7 +888,7 @@ fn prepareWorkloadFrame(preparer: *frame_preparer.TextFramePreparer, workload: W
     };
 }
 
-fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: frame_preparer.OwnedPreparedTextFrame) RunObservation {
+fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: surface_preparer.OwnedPreparedTextSurface) RunObservation {
     return .{
         .ns = duration_ns,
         .alloc_count = counting.window_alloc_count,
@@ -908,22 +908,22 @@ fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: f
     };
 }
 
-fn countSceneFills(analysis: frame_preparer.OwnedPreparedTextFrame) u64 {
+fn countSceneFills(analysis: surface_preparer.OwnedPreparedTextSurface) u64 {
     return count64(analysis.scene.scene.background_draws) +
         count64(analysis.scene.scene.decoration_draws) +
         count64(analysis.scene.scene.cursor_draws);
 }
 
-fn markAtlasOutputs(preparer: *frame_preparer.TextFramePreparer, analysis: frame_preparer.OwnedPreparedTextFrame) void {
+fn markAtlasOutputs(preparer: *surface_preparer.TextSurfacePreparer, analysis: surface_preparer.OwnedPreparedTextSurface) void {
     for (analysis.raster_plan.outputs) |output| {
         _ = preparer.atlas.markRendered(output.key);
     }
 }
 
-fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *frame_preparer.TextFramePreparer, workload: Workload, context: WorkloadPrepareContext) !ColdRun {
+fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *surface_preparer.TextSurfacePreparer, workload: Workload, context: WorkloadPrepareContext) !ColdRun {
     counting.resetWindow();
     const start_ns = nowNs(io);
-    var analysis = try prepareWorkloadFrame(preparer, workload, context);
+    var analysis = try prepareWorkloadSurface(preparer, workload, context);
     defer analysis.deinit();
     const duration_ns = nowNs(io) - start_ns;
     const uploads = count64(analysis.raster_plan.outputs);
@@ -940,7 +940,7 @@ fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *frame_pr
 fn runWorkloadWarm(
     io: std.Io,
     counting: *CountingAllocator,
-    preparer: *frame_preparer.TextFramePreparer,
+    preparer: *surface_preparer.TextSurfacePreparer,
     workload: Workload,
     context: WorkloadPrepareContext,
     observations: []RunObservation,
@@ -951,7 +951,7 @@ fn runWorkloadWarm(
     for (observations, 0..) |*observation, idx| {
         counting.resetWindow();
         const start_ns = nowNs(io);
-        var analysis = try prepareWorkloadFrame(preparer, workload, context);
+        var analysis = try prepareWorkloadSurface(preparer, workload, context);
         defer analysis.deinit();
         const duration_ns = nowNs(io) - start_ns;
         observation.* = extractObservation(duration_ns, counting.*, analysis);
@@ -1035,14 +1035,14 @@ fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObse
     };
 }
 
-fn runWorkloadInitState(allocator: std.mem.Allocator, workload: Workload, counting: *CountingAllocator, preparer: *frame_preparer.TextFramePreparer, context: *WorkloadPrepareContext) void {
+fn runWorkloadInitState(allocator: std.mem.Allocator, workload: Workload, counting: *CountingAllocator, preparer: *surface_preparer.TextSurfacePreparer, context: *WorkloadPrepareContext) void {
     context.* = initPrepareContext(workload);
     switch (workload.input) {
         .publication => |source| context.borrowed_cells = allocator.alloc(contract.CellInput, source.cells.len) catch unreachable,
         else => {},
     }
     counting.* = CountingAllocator.init(allocator);
-    preparer.* = frame_preparer.TextFramePreparer.init(counting.allocator());
+    preparer.* = surface_preparer.TextSurfacePreparer.init(counting.allocator());
 }
 
 fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: WarmSummary) WorkloadResult {
@@ -1104,7 +1104,7 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
 
     var context: WorkloadPrepareContext = undefined;
     var counting: CountingAllocator = undefined;
-    var preparer: frame_preparer.TextFramePreparer = undefined;
+    var preparer: surface_preparer.TextSurfacePreparer = undefined;
     runWorkloadInitState(allocator, workload, &counting, &preparer, &context);
     defer preparer.deinit();
 

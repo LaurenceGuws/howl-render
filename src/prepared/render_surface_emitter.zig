@@ -2,10 +2,10 @@ const std = @import("std");
 
 const c = @import("../ffi.zig").c;
 const contract = @import("../text/contract.zig");
-const geometry_contract = @import("../render/geometry_contract.zig");
+const geometry_contract = @import("../geometry/geometry_contract.zig");
 const prepared_buffer = @import("buffer.zig");
 const prepared_surface = @import("surface.zig");
-const realize = @import("../render/render_surface_realizer.zig");
+const realize = @import("../geometry/render_surface_realizer.zig");
 const sprite_resource_store = @import("sprite_resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const text_session = @import("../session/text.zig");
@@ -299,20 +299,20 @@ pub fn Emitter(comptime limits: Limits) type {
             try next.appendPreparedFullRedrawClear(prepared);
             fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
             fill_step_start_ns = monotonicNs();
-            try next.appendPreparedClears(prepared.text_frame.scene.scene.clear_draws);
+            try next.appendPreparedClears(prepared.text_surface.scene.scene.clear_draws);
             fill_totals.clear_pass_ns = monotonicNs() -| fill_step_start_ns;
             fill_step_start_ns = monotonicNs();
-            try next.appendPreparedBackgrounds(prepared.text_frame.scene.scene.background_draws);
+            try next.appendPreparedBackgrounds(prepared.text_surface.scene.scene.background_draws);
             fill_totals.background_pass_ns = monotonicNs() -| fill_step_start_ns;
             fill_step_start_ns = monotonicNs();
-            try next.appendPreparedDecorations(prepared.text_frame.scene.scene.decoration_draws);
+            try next.appendPreparedDecorations(prepared.text_surface.scene.scene.decoration_draws);
             fill_totals.decoration_pass_ns = monotonicNs() -| fill_step_start_ns;
             var sprite_totals: DebugEmitPreparedTiming.SpriteTotals = .{};
             const sprites_start_ns = monotonicNs();
             try next.appendPreparedSprites(&next_resources, session, prepared, &sprite_totals);
             const sprites_ns = monotonicNs() -| sprites_start_ns;
             fill_step_start_ns = monotonicNs();
-            try next.appendPreparedCursors(prepared.text_frame.scene.scene.cursor_draws);
+            try next.appendPreparedCursors(prepared.text_surface.scene.scene.cursor_draws);
             fill_totals.cursor_pass_ns = monotonicNs() -| fill_step_start_ns;
             const fills_ns = fill_totals.full_redraw_clear_ns + fill_totals.clear_pass_ns + fill_totals.background_pass_ns + fill_totals.decoration_pass_ns + fill_totals.cursor_pass_ns;
             const copy_out_start_ns = monotonicNs();
@@ -338,20 +338,20 @@ pub fn Emitter(comptime limits: Limits) type {
             try self.appendPreparedFullRedrawClear(prepared);
             fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
             fill_step_start_ns = monotonicNs();
-            try self.appendPreparedClears(prepared.text_frame.scene.scene.clear_draws);
+            try self.appendPreparedClears(prepared.text_surface.scene.scene.clear_draws);
             fill_totals.clear_pass_ns = monotonicNs() -| fill_step_start_ns;
             fill_step_start_ns = monotonicNs();
-            try self.appendPreparedBackgrounds(prepared.text_frame.scene.scene.background_draws);
+            try self.appendPreparedBackgrounds(prepared.text_surface.scene.scene.background_draws);
             fill_totals.background_pass_ns = monotonicNs() -| fill_step_start_ns;
             fill_step_start_ns = monotonicNs();
-            try self.appendPreparedDecorations(prepared.text_frame.scene.scene.decoration_draws);
+            try self.appendPreparedDecorations(prepared.text_surface.scene.scene.decoration_draws);
             fill_totals.decoration_pass_ns = monotonicNs() -| fill_step_start_ns;
             var sprite_totals: DebugEmitPreparedTiming.SpriteTotals = .{};
             const sprites_start_ns = monotonicNs();
             try self.appendPreparedSprites(resources, session, prepared, &sprite_totals);
             const sprites_ns = monotonicNs() -| sprites_start_ns;
             fill_step_start_ns = monotonicNs();
-            try self.appendPreparedCursors(prepared.text_frame.scene.scene.cursor_draws);
+            try self.appendPreparedCursors(prepared.text_surface.scene.scene.cursor_draws);
             fill_totals.cursor_pass_ns = monotonicNs() -| fill_step_start_ns;
             const fills_ns = fill_totals.full_redraw_clear_ns + fill_totals.clear_pass_ns + fill_totals.background_pass_ns + fill_totals.decoration_pass_ns + fill_totals.cursor_pass_ns;
             const copy_out_ns: u64 = 0;
@@ -519,7 +519,7 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_totals: *DebugEmitPreparedTiming.SpriteTotals) Error!void {
-            for (prepared.text_frame.scene.scene.sprite_draws) |draw| {
+            for (prepared.text_surface.scene.scene.sprite_draws) |draw| {
                 sprite_totals.sprite_count += 1;
                 const lookup_start_ns = monotonicNs();
                 const sprite = lookupPreparedSprite(
@@ -930,7 +930,7 @@ fn gridSizeOut(size: geometry_contract.GridSize) c.HowlRenderGridSize {
 }
 
 fn lookupPreparedSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: contract.SpriteKey) error{MissingSprite}!PreparedSprite {
-    for (prepared.text_frame.raster_plan.outputs) |output| {
+    for (prepared.text_surface.raster_plan.outputs) |output| {
         if (output.key.value != sprite_key.value) continue;
         return .{
             .key = output.key,

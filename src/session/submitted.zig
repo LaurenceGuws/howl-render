@@ -1,5 +1,5 @@
 const std = @import("std");
-const tokens = @import("../render/tokens.zig");
+const tokens = @import("../geometry/tokens.zig");
 
 pub const ThreadMutex = struct {
     state: std.Io.Mutex = .init,

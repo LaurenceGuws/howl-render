@@ -3,17 +3,17 @@ const source_vt = @import("vt.zig");
 const source_cell = @import("cell.zig");
 const publication_cell_map = @import("publication_cell_map.zig");
 const contract = @import("../text/contract.zig");
-const frame_preparer = @import("../text/frame_preparer.zig");
+const surface_preparer = @import("../text/surface_preparer.zig");
 const scene = @import("../text/scene.zig");
 
-pub const FrameTheme = publication_cell_map.FrameTheme;
+pub const SurfaceTheme = publication_cell_map.SurfaceTheme;
 pub const default_theme = defaultTheme();
 
-fn indexed256(idx: u8, t: FrameTheme) contract.Rgba8 {
+fn indexed256(idx: u8, t: SurfaceTheme) contract.Rgba8 {
     return t.palette[idx];
 }
 
-fn defaultTheme() FrameTheme {
+fn defaultTheme() SurfaceTheme {
     const palette = defaultPalette();
     return .{
         .default_fg = .{ .r = 204, .g = 204, .b = 204, .a = 255 },
@@ -65,11 +65,11 @@ fn rgbaFromVtRgb(color: source_vt.SourceRgb) contract.Rgba8 {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = 255 };
 }
 
-fn themeFromPublicationColors(colors: source_vt.SourceColors) FrameTheme {
+fn themeFromPublicationColors(colors: source_vt.SourceColors) SurfaceTheme {
     return publication_cell_map.themeFromPublicationColors(colors);
 }
 
-fn colorToRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+fn colorToRgba8(color: anytype, is_fg: bool, t: SurfaceTheme) contract.Rgba8 {
     return switch (color.kind) {
         .default => if (is_fg) t.default_fg else t.default_bg,
         .indexed => indexed256(@intCast(color.value & 0xFF), t),
@@ -82,7 +82,7 @@ fn colorToRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
     };
 }
 
-fn colorToTextSceneRgba8(color: anytype, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+fn colorToTextSceneRgba8(color: anytype, is_fg: bool, t: SurfaceTheme) contract.Rgba8 {
     return colorToRgba8(color, is_fg, t);
 }
 
@@ -113,7 +113,7 @@ fn mapUnderlineStyle(style: source_cell.UnderlineStyle) contract.UnderlineStyle 
     };
 }
 
-fn publicationColorToRgba8(color: source_vt.SourceColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+fn publicationColorToRgba8(color: source_vt.SourceColor, is_fg: bool, t: SurfaceTheme) contract.Rgba8 {
     return switch (color.kind) {
         0 => if (is_fg) t.default_fg else t.default_bg,
         1 => indexed256(@intCast(color.value & 0xFF), t),
@@ -127,7 +127,7 @@ fn publicationColorToRgba8(color: source_vt.SourceColor, is_fg: bool, t: FrameTh
     };
 }
 
-fn publicationColorToTextSceneRgba8(color: source_vt.SourceColor, is_fg: bool, t: FrameTheme) contract.Rgba8 {
+fn publicationColorToTextSceneRgba8(color: source_vt.SourceColor, is_fg: bool, t: SurfaceTheme) contract.Rgba8 {
     return publicationColorToRgba8(color, is_fg, t);
 }
 
@@ -172,7 +172,7 @@ fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) 
     return .any;
 }
 
-fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
+fn mapCellInput(src: source_cell.Cell, t: SurfaceTheme) contract.CellInput {
     std.debug.assert(src.combining_len <= src.combining.len);
     const truth = publication_cell_map.vtCellTruth(src);
     if (truth.empty) std.debug.assert(truth.default_fg);
@@ -208,7 +208,7 @@ fn mapCellInput(src: source_cell.Cell, t: FrameTheme) contract.CellInput {
     return out;
 }
 
-fn mapPublicationCellInput(src: source_vt.SourceCell, t: FrameTheme) contract.CellInput {
+fn mapPublicationCellInput(src: source_vt.SourceCell, t: SurfaceTheme) contract.CellInput {
     return publication_cell_map.mapPublicationCellInput(src, t);
 }
 
@@ -236,7 +236,7 @@ fn mapDirtyCellsOnly(
     dirty_rows: []const bool,
     dirty_cols_start: []const u16,
     dirty_cols_end: []const u16,
-    t: FrameTheme,
+    t: SurfaceTheme,
 ) void {
     const cols: u16 = @max(grid_cols, 1);
     const rows = grid_rows;
@@ -273,27 +273,27 @@ fn assertDirtyRowsBoolBytes(dirty_rows: []const u8) void {
     }
 }
 
-pub const OwnedFrameTextInput = struct {
+pub const OwnedSurfaceTextInput = struct {
     allocator: std.mem.Allocator,
     cells: []contract.CellInput,
     grid: contract.GridMetrics,
-    options: frame_preparer.PrepareOptions,
+    options: surface_preparer.PrepareOptions,
 
-    pub fn deinit(self: *OwnedFrameTextInput) void {
+    pub fn deinit(self: *OwnedSurfaceTextInput) void {
         self.allocator.free(self.cells);
         self.* = undefined;
     }
 };
 
-pub const OwnedTextSceneInput = OwnedFrameTextInput;
+pub const OwnedTextSceneInput = OwnedSurfaceTextInput;
 
-pub const BorrowedFrameTextInput = struct {
+pub const BorrowedSurfaceTextInput = struct {
     cells: []const contract.CellInput,
     grid: contract.GridMetrics,
-    options: frame_preparer.PrepareOptions,
+    options: surface_preparer.PrepareOptions,
 };
 
-pub const BorrowedTextSceneInput = BorrowedFrameTextInput;
+pub const BorrowedTextSceneInput = BorrowedSurfaceTextInput;
 
 pub fn vtStateToTextSceneInput(allocator: std.mem.Allocator, state: anytype) !OwnedTextSceneInput {
     return vtStateToTextSceneInputWithTheme(allocator, state, default_theme);
@@ -303,11 +303,11 @@ pub fn publicationSourceToTextSceneInput(allocator: std.mem.Allocator, source: s
     return publicationSourceToTextSceneInputWithTheme(allocator, source, full_damage, themeFromPublicationColors(source.colors));
 }
 
-pub fn vtStateToFrameTextInput(allocator: std.mem.Allocator, state: anytype) !OwnedFrameTextInput {
-    return vtStateToFrameTextInputWithTheme(allocator, state, default_theme);
+pub fn vtStateToSurfaceTextInput(allocator: std.mem.Allocator, state: anytype) !OwnedSurfaceTextInput {
+    return vtStateToSurfaceTextInputWithTheme(allocator, state, default_theme);
 }
 
-pub fn publicationSourceToTextSceneInputWithTheme(allocator: std.mem.Allocator, source: source_vt.PublicationSource, full_damage: bool, t: FrameTheme) !OwnedTextSceneInput {
+pub fn publicationSourceToTextSceneInputWithTheme(allocator: std.mem.Allocator, source: source_vt.PublicationSource, full_damage: bool, t: SurfaceTheme) !OwnedTextSceneInput {
     const cell_inputs = try allocator.alloc(contract.CellInput, source.cells.len);
     errdefer allocator.free(cell_inputs);
 
@@ -324,7 +324,7 @@ pub fn publicationSourceToTextSceneInputBorrowed(cell_inputs: []contract.CellInp
     return publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, themeFromPublicationColors(source.colors));
 }
 
-pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contract.CellInput, source: source_vt.PublicationSource, full_damage: bool, t: FrameTheme) BorrowedTextSceneInput {
+pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contract.CellInput, source: source_vt.PublicationSource, full_damage: bool, t: SurfaceTheme) BorrowedTextSceneInput {
     std.debug.assert(cell_inputs.len >= source.cells.len);
     const mapped_cells = cell_inputs[0..source.cells.len];
 
@@ -382,11 +382,11 @@ pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contrac
     };
 }
 
-pub fn vtStateToTextSceneInputWithTheme(allocator: std.mem.Allocator, state: anytype, t: FrameTheme) !OwnedTextSceneInput {
-    return vtStateToFrameTextInputWithTheme(allocator, state, t);
+pub fn vtStateToTextSceneInputWithTheme(allocator: std.mem.Allocator, state: anytype, t: SurfaceTheme) !OwnedTextSceneInput {
+    return vtStateToSurfaceTextInputWithTheme(allocator, state, t);
 }
 
-pub fn vtStateToFrameTextInputWithTheme(allocator: std.mem.Allocator, state: anytype, t: FrameTheme) !OwnedFrameTextInput {
+pub fn vtStateToSurfaceTextInputWithTheme(allocator: std.mem.Allocator, state: anytype, t: SurfaceTheme) !OwnedSurfaceTextInput {
     const cell_inputs = try allocator.alloc(contract.CellInput, state.grid.cells.len);
     errdefer allocator.free(cell_inputs);
 
