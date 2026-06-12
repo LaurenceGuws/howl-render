@@ -3,7 +3,7 @@ const text_session = @import("text.zig");
 const source_vt = @import("../tv_surface/vt.zig");
 const prepared_handle = @import("../prepared/handle.zig");
 const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
-const support = @import("../ffi/test_support.zig");
+const support = @import("../test_support.zig");
 const tokens = @import("../geometry/tokens.zig");
 
 test "ft hb retained capacities separate cache slots from run scratch" {
@@ -74,14 +74,10 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expect(initial_geometry.changed);
     try std.testing.expectEqual(@as(u64, 1), initial_geometry.geometry_epoch);
 
-    var first_cells = [_]source_vt.SourceCell{testCell('A')};
-    var first_dirty_rows = [_]u8{1};
-    var first_dirty_cols_start = [_]u16{0};
-    var first_dirty_cols_end = [_]u16{0};
-    const first_publish = try owner.publishVtSurface(support.validVtSurfaceResult(1, 1, 1, &first_cells, &first_dirty_rows, &first_dirty_cols_start, &first_dirty_cols_end));
-    try std.testing.expect(first_publish.published);
-    try std.testing.expect(first_publish.queued);
-    try std.testing.expectEqual(@as(u64, 1), first_publish.geometry_epoch);
+    const first_source = try testSource(std.testing.allocator, 1, 'A');
+    const first_queue = owner.prepare_requests.acceptSource(first_source, owner.submittedToken(), owner.geometry.geometry_epoch);
+    try std.testing.expect(first_queue.queued);
+    try std.testing.expectEqual(@as(u64, 1), first_queue.geometry_epoch);
 
     const old_request = owner.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), old_request.token.snapshot_seq);
@@ -98,15 +94,11 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expect(resized_geometry.changed);
     try std.testing.expect(resized_geometry.geometry_epoch > old_request.token.geometry_epoch);
 
-    var resized_cells = [_]source_vt.SourceCell{testCell('A')};
-    var resized_dirty_rows = [_]u8{1};
-    var resized_dirty_cols_start = [_]u16{0};
-    var resized_dirty_cols_end = [_]u16{0};
-    const resized_publish = try owner.publishVtSurface(support.validVtSurfaceResult(2, 1, 1, &resized_cells, &resized_dirty_rows, &resized_dirty_cols_start, &resized_dirty_cols_end));
-    try std.testing.expect(resized_publish.published);
-    try std.testing.expect(resized_publish.queued);
-    try std.testing.expectEqual(tokens.DamageKind.full, resized_publish.damage_kind);
-    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_publish.geometry_epoch);
+    const resized_source = try testSource(std.testing.allocator, 2, 'A');
+    const resized_queue = owner.prepare_requests.acceptSource(resized_source, owner.submittedToken(), resized_geometry.geometry_epoch);
+    try std.testing.expect(resized_queue.queued);
+    try std.testing.expectEqual(tokens.DamageKind.full, resized_queue.damage_kind);
+    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_queue.geometry_epoch);
 
     const decision = owner.takeSubmitHandle();
     switch (decision) {
@@ -127,6 +119,10 @@ fn testCell(codepoint: u21) source_vt.SourceCell {
     var cell = std.mem.zeroes(source_vt.SourceCell);
     cell.codepoint = codepoint;
     return cell;
+}
+
+fn testSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !source_vt.PublicationSource {
+    return source_vt.ownedTestSource(allocator, snapshot_seq, codepoint);
 }
 
 test "surface text owner rejects partial rdr_sfc handle with wrong submitted base" {

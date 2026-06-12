@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const c = @import("../ffi.zig").c;
+const c = @import("../abi.zig").c;
 const contract = @import("../text/contract.zig");
 const geometry_contract = @import("../geometry/geometry_contract.zig");
 const prepared_buffer = @import("buffer.zig");

@@ -1,8 +1,8 @@
-const c = @import("../ffi.zig").c;
+const c = @import("abi.zig").c;
 const handle_owner = @import("handle.zig");
-const prepared_handle = @import("../prepared/handle.zig");
+const prepared_handle = @import("prepared/handle.zig");
 const submit_result = @import("submit_result.zig");
-const tokens = @import("../geometry/tokens.zig");
+const tokens = @import("geometry/tokens.zig");
 
 pub fn takeSubmitHandle(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderRdrSfcHandle) callconv(.c) c_int {
     const rdr_sfc_out = out orelse return c.HOWL_RENDER_SUBMIT_DECISION_FAILED;

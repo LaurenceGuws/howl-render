@@ -1,6 +1,6 @@
-const c = @import("../ffi.zig").c;
+const c = @import("abi.zig").c;
 const handle_owner = @import("handle.zig");
-const geometry_contract = @import("../geometry/geometry_contract.zig");
+const geometry_contract = @import("geometry/geometry_contract.zig");
 
 pub fn deriveLayout(value: c.HowlRenderTextSessionHandle, render_px: c.HowlRenderPixelSize, grid_px: c.HowlRenderPixelSize) callconv(.c) c.HowlRenderLayoutResult {
     const owner = handle_owner.textSessionOwner(value) orelse return layoutFailure(c.HOWL_RENDER_CALL_MISSING_HANDLE);

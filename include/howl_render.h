@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <howl_vt.h>
+#include "howl_vt.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -359,16 +359,6 @@ typedef struct {
 } HowlRenderPreparedSurfaceToken;
 
 typedef struct {
-    int32_t status;
-    uint8_t published;
-    uint8_t queued;
-    uint8_t damage_kind;
-    uint8_t reserved0;
-    uint64_t snapshot_seq;
-    uint64_t geometry_epoch;
-} HowlRenderVtSurfacePublishResult;
-
-typedef struct {
     uint64_t host_surface_id;
     uint16_t width;
     uint16_t height;
@@ -436,10 +426,6 @@ HowlRenderGeometryResponse howl_render_text_session_sync_geometry(
     HowlRenderTextSessionHandle handle,
     HowlRenderGeometry geometry
 );
-HowlRenderVtSurfacePublishResult howl_render_text_session_publish_vt_surface(
-    HowlRenderTextSessionHandle handle,
-    const HowlVtSurfaceResult *vt_surface
-);
 HowlRenderPrepareStatus howl_render_text_session_prepare_handle(
     HowlRenderTextSessionHandle text_session_handle,
     HowlRenderPrepareRequest prepare_request,
@@ -447,6 +433,7 @@ HowlRenderPrepareStatus howl_render_text_session_prepare_handle(
 );
 HowlRenderPrepareStatus howl_render_text_session_take_prepare_request(
     HowlRenderTextSessionHandle handle,
+    const HowlVtSurfaceResult *vt_surface,
     HowlRenderPrepareRequest *prepare_request_out
 );
 HowlRenderSubmitDecisionStatus howl_render_text_session_take_submit_handle(

@@ -1,12 +1,16 @@
 const std = @import("std");
-const c = @import("../ffi.zig").c;
+const c = @import("abi.zig").c;
 const handle_owner = @import("handle.zig");
-const tokens = @import("../geometry/tokens.zig");
+const tokens = @import("geometry/tokens.zig");
+const source_vt = @import("tv_surface/vt.zig");
 
-pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderPrepareRequest) callconv(.c) c_int {
+pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, vt_surface: ?*const c.HowlVtSurfaceResult, out: ?*c.HowlRenderPrepareRequest) callconv(.c) c_int {
     const prepare_out = out orelse return c.HOWL_RENDER_PREPARE_FAILED;
     prepare_out.* = std.mem.zeroes(c.HowlRenderPrepareRequest);
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_PREPARE_FAILED;
+    const visible = vt_surface orelse return c.HOWL_RENDER_PREPARE_FAILED;
+    const source = source_vt.ownedSourceFromSurfaceResult(owner.allocator, visible.*, owner.cursor_blink_visible) catch return c.HOWL_RENDER_PREPARE_FAILED;
+    _ = owner.prepare_requests.acceptSource(source, owner.submittedToken(), owner.geometry.geometry_epoch);
     const request = owner.prepare() orelse return c.HOWL_RENDER_PREPARE_IDLE;
     prepare_out.* = prepareRequestOut(request);
     return c.HOWL_RENDER_PREPARE_READY;

@@ -27,6 +27,14 @@ pub fn build(b: *std.Build) void {
     });
     const harfbuzz_lib = harfbuzz_dep.artifact("harfbuzz");
 
+    const render_c_translate = b.addTranslateC(.{
+        .root_source_file = b.path("include/howl_render.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    render_c_translate.addIncludePath(b.path("../howl-vt/include"));
+    const render_c_mod = render_c_translate.createModule();
+
     const test_font_options = b.addOptions();
     test_font_options.addOption([]const u8, "primary_path", test_font_primary_path);
     test_font_options.addOption([]const u8, "symbol_path", test_font_symbol_path);
@@ -48,6 +56,7 @@ pub fn build(b: *std.Build) void {
     });
     unit_test_mod.addIncludePath(b.path("include"));
     unit_test_mod.addIncludePath(b.path("../howl-vt/include"));
+    unit_test_mod.addImport("howl_render_c", render_c_mod);
     unit_test_mod.addImport("test_font_options", test_font_options.createModule());
     unit_test_mod.linkLibrary(freetype_lib);
     unit_test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
@@ -64,6 +73,7 @@ pub fn build(b: *std.Build) void {
     });
     abi_test_mod.addIncludePath(b.path("include"));
     abi_test_mod.addIncludePath(b.path("../howl-vt/include"));
+    abi_test_mod.addImport("howl_render_c", render_c_mod);
     abi_test_mod.addImport("test_font_options", test_font_options.createModule());
     abi_test_mod.linkLibrary(freetype_lib);
     abi_test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
@@ -96,6 +106,7 @@ pub fn build(b: *std.Build) void {
     });
     ffi_mod.addIncludePath(b.path("include"));
     ffi_mod.addIncludePath(b.path("../howl-vt/include"));
+    ffi_mod.addImport("howl_render_c", render_c_mod);
     ffi_mod.linkLibrary(freetype_lib);
     ffi_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     ffi_mod.linkLibrary(harfbuzz_lib);
@@ -118,6 +129,7 @@ pub fn build(b: *std.Build) void {
     });
     benchmark_mod.addIncludePath(b.path("include"));
     benchmark_mod.addIncludePath(b.path("../howl-vt/include"));
+    benchmark_mod.addImport("howl_render_c", render_c_mod);
     benchmark_mod.addImport("test_font_options", test_font_options.createModule());
     benchmark_mod.linkLibrary(perf_freetype_lib);
     benchmark_mod.addIncludePath(perf_freetype_lib.getEmittedIncludeTree());

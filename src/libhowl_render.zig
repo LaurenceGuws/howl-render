@@ -1,11 +1,10 @@
-const text_session = @import("ffi/text_session.zig");
-const surface_geometry = @import("ffi/surface_geometry.zig");
-const vt_surface = @import("ffi/vt_surface.zig");
-const prepared_surface = @import("ffi/prepared_surface.zig");
-const prepare_request = @import("ffi/prepare_request.zig");
-const submission = @import("ffi/submission.zig");
-const work_state = @import("ffi/work_state.zig");
-const render_surface = @import("ffi/render_surface.zig");
+const text_session = @import("text_session.zig");
+const surface_geometry = @import("surface_geometry.zig");
+const prepared_surface = @import("prepared_surface.zig");
+const prepare_request = @import("prepare_request.zig");
+const submission = @import("submission.zig");
+const work_state = @import("work_state.zig");
+const render_surface = @import("render_surface.zig");
 
 comptime {
     _ = render_surface;
@@ -18,7 +17,6 @@ comptime {
     @export(&text_session.isValidFont, .{ .name = "howl_render_text_session_is_valid_font" });
     @export(&surface_geometry.deriveLayout, .{ .name = "howl_render_text_session_derive_layout" });
     @export(&surface_geometry.syncGeometry, .{ .name = "howl_render_text_session_sync_geometry" });
-    @export(&vt_surface.publishVtSurface, .{ .name = "howl_render_text_session_publish_vt_surface" });
     @export(&prepared_surface.prepareHandle, .{ .name = "howl_render_text_session_prepare_handle" });
     @export(&prepare_request.takePrepareRequest, .{ .name = "howl_render_text_session_take_prepare_request" });
     @export(&submission.takeSubmitHandle, .{ .name = "howl_render_text_session_take_submit_handle" });

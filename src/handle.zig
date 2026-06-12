@@ -1,6 +1,6 @@
-const c = @import("../ffi.zig").c;
-const prepared_handle = @import("../prepared/handle.zig");
-const text_session = @import("../session/text.zig");
+const c = @import("abi.zig").c;
+const prepared_handle = @import("prepared/handle.zig");
+const text_session = @import("session/text.zig");
 
 pub fn textSessionOwner(handle: c.HowlRenderTextSessionHandle) ?*text_session.TextSessionOwner {
     const owned = handle orelse return null;

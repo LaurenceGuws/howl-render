@@ -1,6 +1,6 @@
-const c = @import("../ffi.zig").c;
-const prepared_submit_result = @import("../prepared/submit_result.zig");
-const text_session = @import("../session/text.zig");
+const c = @import("abi.zig").c;
+const prepared_submit_result = @import("prepared/submit_result.zig");
+const text_session = @import("session/text.zig");
 
 pub fn submitResultOut(value: prepared_submit_result.SubmitResult) c.HowlRenderSubmitResult {
     return .{

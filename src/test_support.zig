@@ -1,29 +1,26 @@
 const std = @import("std");
 
-const ffi_root = @import("../ffi.zig");
+pub const c = @import("abi.zig").c;
 const prepare_request = @import("prepare_request.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const submission = @import("submission.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const text_session = @import("text_session.zig");
-const vt_surface = @import("vt_surface.zig");
 const work_state = @import("work_state.zig");
-const prepared_buffer_model = @import("../prepared/buffer.zig");
-const prepared_handle_model = @import("../prepared/handle.zig");
-const prepared_surface_model = @import("../prepared/surface.zig");
-const render_surface_emitter_model = @import("../prepared/render_surface_emitter.zig");
-const render_surface_realizer = @import("../geometry/render_surface_realizer.zig");
-const text_contract = @import("../text/contract.zig");
-const rasterizer = @import("../text/raster/rasterizer.zig");
-const text_session_model = @import("../session/text.zig");
+const prepared_buffer_model = @import("prepared/buffer.zig");
+const prepared_handle_model = @import("prepared/handle.zig");
+const prepared_surface_model = @import("prepared/surface.zig");
+const render_surface_emitter_model = @import("prepared/render_surface_emitter.zig");
+const render_surface_realizer = @import("geometry/render_surface_realizer.zig");
+const text_contract = @import("text/contract.zig");
+const rasterizer = @import("text/raster/rasterizer.zig");
+const text_session_model = @import("session/text.zig");
 
-pub const c = ffi_root.c;
 pub const prepare = prepare_request;
 pub const prepared = prepared_surface;
 pub const submit = submission;
 pub const geometry = surface_geometry;
 pub const text = text_session;
-pub const vt = vt_surface;
 pub const work = work_state;
 pub const prepared_buffer = prepared_buffer_model;
 pub const prepared_handle_model_ns = prepared_handle_model;
@@ -86,15 +83,33 @@ pub fn createPreparedHandle(handle: c.HowlRenderTextSessionHandle) !c.HowlRender
 }
 
 pub fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u64) !c.HowlRenderRdrSfcHandle {
-    const request = try nextPrepareRequest(handle, snapshot_seq);
+    const geometry_response = surface_geometry.syncGeometry(handle, .{ .render_px = .{ .width = 16, .height = 16 }, .grid_px = .{ .width = 16, .height = 16 } });
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, geometry_response.status);
+    const cols = @divTrunc(geometry_response.grid_px.width, geometry_response.cell_px.width);
+    const rows = @divTrunc(geometry_response.grid_px.height, geometry_response.cell_px.height);
+    const cell_count = @as(usize, cols) * @as(usize, rows);
+    const cells = try std.testing.allocator.alloc(VtSurfaceCell, cell_count);
+    defer std.testing.allocator.free(cells);
+    @memset(cells, testCell());
+    const dirty_rows = try std.testing.allocator.alloc(u8, rows);
+    defer std.testing.allocator.free(dirty_rows);
+    @memset(dirty_rows, 1);
+    const dirty_cols_start = try std.testing.allocator.alloc(u16, rows);
+    defer std.testing.allocator.free(dirty_cols_start);
+    @memset(dirty_cols_start, 0);
+    const dirty_cols_end = try std.testing.allocator.alloc(u16, rows);
+    defer std.testing.allocator.free(dirty_cols_end);
+    @memset(dirty_cols_end, cols - 1);
+    const vt_surface = validVtSurfaceResult(snapshot_seq, cols, rows, cells, dirty_rows, dirty_cols_start, dirty_cols_end);
+    var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepare_request.takePrepareRequest(handle, &vt_surface, &request));
     var rdr_sfc_handle: c.HowlRenderRdrSfcHandle = null;
     try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepared_surface.prepareHandle(handle, request, &rdr_sfc_handle));
-    try std.testing.expect(rdr_sfc_handle != null);
     return rdr_sfc_handle;
 }
 
 pub fn createTestTextSessionHandle() !c.HowlRenderTextSessionHandle {
-    const owner = @import("../session/text.zig").TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
+    const owner = @import("session/text.zig").TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
     return @ptrCast(owner);
 }
 
@@ -116,22 +131,8 @@ pub fn validExecutionInput() c.HowlRenderSubmitExecution {
 }
 
 pub fn nextPrepareRequest(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u64) !c.HowlRenderPrepareRequest {
-    const render_px = c.HowlRenderPixelSize{ .width = 16, .height = 16 };
-    const grid_px = c.HowlRenderPixelSize{ .width = 16, .height = 16 };
-    const layout = surface_geometry.deriveLayout(handle, render_px, grid_px);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, layout.status);
-    const sync = surface_geometry.syncGeometry(handle, .{ .render_px = render_px, .grid_px = grid_px });
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, sync.status);
-    var cells = [_]VtSurfaceCell{testCell()};
-    var dirty_rows = [_]u8{1};
-    var dirty_cols_start = [_]u16{0};
-    var dirty_cols_end = [_]u16{0};
-    var surface = validVtSurfaceResult(snapshot_seq, 1, 1, &cells, &dirty_rows, &dirty_cols_start, &dirty_cols_end);
-    const publish = vt_surface.publishVtSurface(handle, &surface);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
-    var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepare_request.takePrepareRequest(handle, &request));
-    return request;
+    _ = handle;
+    return .{ .snapshot_seq = snapshot_seq, .dirty_epoch = snapshot_seq, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = damageFull() };
 }
 
 pub fn validVtSurfaceResult(snapshot_seq: u64, cols: u16, rows: u16, cells: []const VtSurfaceCell, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) VtSurfaceResult {
@@ -183,20 +184,6 @@ pub fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderTextSessionHa
     var rdr_sfc_handle: c.HowlRenderRdrSfcHandle = null;
     try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, prepared_surface.prepareHandle(handle, request, &rdr_sfc_handle));
     try std.testing.expect(rdr_sfc_handle == null);
-}
-
-pub fn expectInvalidPublishedCell(cell: VtSurfaceCell) !void {
-    const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
-    defer text_session.deinit(handle);
-    try std.testing.expect(handle != null);
-    _ = surface_geometry.syncGeometry(handle, .{ .render_px = .{ .width = 16, .height = 16 }, .grid_px = .{ .width = 16, .height = 16 } });
-    var cells = [_]VtSurfaceCell{cell};
-    var dirty_rows = [_]u8{1};
-    var dirty_cols_start = [_]u16{0};
-    var dirty_cols_end = [_]u16{0};
-    var surface = validVtSurfaceResult(7, 1, 1, &cells, &dirty_rows, &dirty_cols_start, &dirty_cols_end);
-    const publish = vt_surface.publishVtSurface(handle, &surface);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, publish.status);
 }
 
 pub const PreparedOptions = struct {

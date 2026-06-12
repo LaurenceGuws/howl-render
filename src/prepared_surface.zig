@@ -1,8 +1,8 @@
-const c = @import("../ffi.zig").c;
+const c = @import("abi.zig").c;
 const handle_owner = @import("handle.zig");
-const prepared_handle = @import("../prepared/handle.zig");
-const prepared_surface = @import("../prepared/surface.zig");
-const render_surface_emitter = @import("../prepared/render_surface_emitter.zig");
+const prepared_handle = @import("prepared/handle.zig");
+const prepared_surface = @import("prepared/surface.zig");
+const render_surface_emitter = @import("prepared/render_surface_emitter.zig");
 const prepare_request_boundary = @import("prepare_request.zig");
 
 pub fn prepareHandle(

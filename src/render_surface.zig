@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../ffi.zig").c;
+const c = @import("abi.zig").c;
 
 comptime {
     assertConstants();
@@ -347,5 +347,5 @@ fn assertOffset(comptime Mirror: type, comptime Abi: type, comptime field: []con
 }
 
 test {
-    _ = @import("../geometry/render_surface_realizer.zig");
+    _ = @import("geometry/render_surface_realizer.zig");
 }

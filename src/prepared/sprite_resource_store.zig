@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../ffi.zig").c;
+const c = @import("../abi.zig").c;
 const contract = @import("../text/contract.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 

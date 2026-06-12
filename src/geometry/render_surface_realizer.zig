@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const c = @import("../ffi.zig").c;
+const c = @import("../abi.zig").c;
 
 const DamageItem = c.HowlRenderSurfaceDamageItem;
 const ResourceId = c.HowlRenderResourceId;

@@ -1,6 +1,6 @@
-const c = @import("../ffi.zig").c;
+const c = @import("abi.zig").c;
 const handle_owner = @import("handle.zig");
-const session_text = @import("../session/text.zig");
+const session_text = @import("session/text.zig");
 
 pub fn workState(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderSessionWorkState) callconv(.c) c_int {
     const session_work_state_out = out;

@@ -597,12 +597,6 @@ pub const TextSessionOwner = struct {
         return true;
     }
 
-    pub fn publishVtSurface(self: *TextSessionOwner, vt_surface: anytype) !source_vt.VtSurfacePublishResult {
-        if (self.prepare_requests.retainedSlotInUse()) return error.VtSurfaceSlotBusy;
-        const source = try self.source_slot.copyPublishedSource(vt_surface, self.nextSourceDirtyEpoch(), self.cursor_blink_visible);
-        return self.prepare_requests.acceptSource(source, self.submittedToken(), self.geometry.geometry_epoch);
-    }
-
     pub fn prepare(self: *TextSessionOwner) ?tokens.RenderRequest {
         const submitted_token = self.submittedToken();
         const request = self.prepare_requests.takePrepareRequest(

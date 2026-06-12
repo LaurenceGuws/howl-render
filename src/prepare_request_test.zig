@@ -2,12 +2,12 @@ const std = @import("std");
 const support = @import("test_support.zig");
 const c = support.c;
 
-test "render ffi prepare seam reports initial idle contract" {
+test "render abi prepare request requires vt source" {
     const handle = support.text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
     defer support.text.deinit(handle);
     try std.testing.expect(handle != null);
     var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_IDLE, support.prepare.takePrepareRequest(handle, &request));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, support.prepare.takePrepareRequest(handle, null, &request));
 }
 
 test "render ffi invalid prepare requests fail and leave output handle null" {

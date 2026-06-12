@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../ffi.zig").c;
+const c = @import("../abi.zig").c;
 const tokens = @import("../geometry/tokens.zig");
 const source_cell = @import("cell.zig");
 const source_damage = @import("damage.zig");
@@ -101,15 +101,19 @@ pub const PublicationSource = struct {
     }
 };
 
-pub const VtSurfacePublishResult = struct {
-    published: bool,
-    queued: bool,
-    damage_kind: tokens.DamageKind,
-    snapshot_seq: u64,
-    geometry_epoch: u64,
-};
-
 pub fn validateSourceCell(cell: SourceCell) !void {
+    if (cell.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
+    if (cell.combining_len > cell.combining.len) return error.InvalidSurfaceSource;
+    for (cell.combining[0..cell.combining_len]) |codepoint| {
+        if (codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
+    }
+    if (!sourceColorValid(cell.fg_color)) return error.InvalidSurfaceSource;
+    if (!sourceColorValid(cell.bg_color)) return error.InvalidSurfaceSource;
+    if (!sourceColorValid(cell.underline_color)) return error.InvalidSurfaceSource;
+    if (!underlineStyleValid(cell.underline_style)) return error.InvalidSurfaceSource;
+}
+
+fn validateSourceCellAny(cell: anytype) !void {
     if (cell.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
     if (cell.combining_len > cell.combining.len) return error.InvalidSurfaceSource;
     for (cell.combining[0..cell.combining_len]) |codepoint| {
@@ -125,7 +129,7 @@ pub fn validateSourceCells(cells: []const SourceCell) !void {
     for (cells) |cell| try validateSourceCell(cell);
 }
 
-pub fn sourceColorValid(color: SourceColor) bool {
+pub fn sourceColorValid(color: anytype) bool {
     return switch (color.kind) {
         0 => true,
         1 => color.value <= std.math.maxInt(u8),
@@ -152,7 +156,7 @@ pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
     );
 }
 
-pub fn validatePublicationSurfaceResult(result: c.HowlVtSurfaceResult) !void {
+pub fn validatePublicationSurfaceResult(result: anytype) !void {
     if (result.status != c.HOWL_VT_CALL_OK) return error.InvalidSurfaceSource;
     if (result.snapshot_seq == 0) return error.InvalidSurfaceSource;
     if (result.dirty_generation == 0) return error.InvalidSurfaceSource;
@@ -170,7 +174,80 @@ pub fn validatePublicationSurfaceResult(result: c.HowlVtSurfaceResult) !void {
         surface.dirty_cols_start.ptr[0..surface.dirty_cols_start.len],
         surface.dirty_cols_end.ptr[0..surface.dirty_cols_end.len],
     );
-    try validateSourceCells(surface.surface_cells.ptr[0..surface.surface_cells.len]);
+    for (surface.surface_cells.ptr[0..surface.surface_cells.len]) |cell| try validateSourceCellAny(cell);
+}
+
+pub fn ownedSourceFromSurfaceResult(allocator: std.mem.Allocator, result: anytype, cursor_phase_visible: bool) !PublicationSource {
+    try validatePublicationSurfaceResult(result);
+    const surface = result.source;
+    const cells = try allocator.alloc(SourceCell, surface.surface_cells.len);
+    errdefer allocator.free(cells);
+    for (surface.surface_cells.ptr[0..surface.surface_cells.len], cells) |src, *dst| dst.* = .{
+        .codepoint = src.codepoint,
+        .combining = src.combining,
+        .combining_len = src.combining_len,
+        .flags = .{ .continuation = src.flags.continuation },
+        .fg_color = sourceColorFrom(src.fg_color),
+        .bg_color = sourceColorFrom(src.bg_color),
+        .underline_color = sourceColorFrom(src.underline_color),
+        .underline_style = src.underline_style,
+        .attrs = sourceAttrsFrom(src.attrs),
+        .link_id = src.link_id,
+    };
+    const dirty_rows = try allocator.dupe(u8, surface.dirty_rows.ptr[0..surface.dirty_rows.len]);
+    errdefer allocator.free(dirty_rows);
+    const dirty_cols_start = try allocator.dupe(u16, surface.dirty_cols_start.ptr[0..surface.dirty_cols_start.len]);
+    errdefer allocator.free(dirty_cols_start);
+    const dirty_cols_end = try allocator.dupe(u16, surface.dirty_cols_end.ptr[0..surface.dirty_cols_end.len]);
+    errdefer allocator.free(dirty_cols_end);
+    return .{
+        .cols = surface.cols,
+        .rows = surface.rows,
+        .history_count = result.history_count,
+        .scroll_row = surface.scroll_row,
+        .snapshot_seq = result.snapshot_seq,
+        .dirty_epoch = result.dirty_generation,
+        .is_alternate_screen = surface.is_alternate_screen != 0,
+        .cells = cells,
+        .cursor = .{ .row = surface.cursor.row, .col = surface.cursor.col, .visible = surface.cursor.visible != 0, .shape = @enumFromInt(surface.cursor.shape), .blink = surface.cursor.blink != 0 },
+        .colors = sourceColorsFrom(surface.colors),
+        .selection = sourceSelectionFrom(surface.selection),
+        .cursor_phase_visible = cursor_phase_visible,
+        .dirty_rows = dirty_rows,
+        .dirty_cols_start = dirty_cols_start,
+        .dirty_cols_end = dirty_cols_end,
+    };
+}
+
+fn sourceColorFrom(value: anytype) SourceColor {
+    return .{ .kind = value.kind, .value = value.value };
+}
+
+fn sourceRgbFrom(value: anytype) SourceRgb {
+    return .{ .r = value.r, .g = value.g, .b = value.b };
+}
+
+fn sourceAttrsFrom(value: anytype) SourceCellAttrs {
+    return .{ .bold = value.bold, .dim = value.dim, .italic = value.italic, .underline = value.underline, .underline_color_set = value.underline_color_set, .blink = value.blink, .inverse = value.inverse, .invisible = value.invisible, .strikethrough = value.strikethrough, .selected = value.selected };
+}
+
+fn sourceColorsFrom(value: anytype) SourceColors {
+    var colors = SourceColors{
+        .foreground = sourceRgbFrom(value.foreground),
+        .background = sourceRgbFrom(value.background),
+        .cursor = sourceRgbFrom(value.cursor),
+        .palette = undefined,
+    };
+    for (&colors.palette, value.palette) |*dst, src| dst.* = sourceRgbFrom(src);
+    return colors;
+}
+
+fn sourceSelectionPointFrom(value: anytype) SourceSelectionPoint {
+    return .{ .row = value.row, .col = value.col, .reserved0 = value.reserved0 };
+}
+
+fn sourceSelectionFrom(value: anytype) SourceSelection {
+    return .{ .active = value.active, .selecting = value.selecting, .reserved0 = value.reserved0, .start = sourceSelectionPointFrom(value.start), .end = sourceSelectionPointFrom(value.end) };
 }
 
 pub fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !PublicationSource {

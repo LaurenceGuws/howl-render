@@ -23,6 +23,13 @@ pub const Publication = struct {
     }
 };
 
+pub const QueueResult = struct {
+    queued: bool,
+    damage_kind: tokens.DamageKind,
+    snapshot_seq: u64,
+    geometry_epoch: u64,
+};
+
 pub const ActivePrepare = struct {
     publication: Publication,
     request: tokens.RenderRequest,
@@ -52,7 +59,7 @@ pub const PrepareRequests = struct {
         self.blink_refresh_pending = false;
     }
 
-    pub fn acceptSource(self: *PrepareRequests, source: source_vt.PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) source_vt.VtSurfacePublishResult {
+    pub fn acceptSource(self: *PrepareRequests, source: source_vt.PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) QueueResult {
         var owned = source;
         source_damage.canonicalizeDirtyMetadata(
             owned.rows,
@@ -71,7 +78,6 @@ pub const PrepareRequests = struct {
                 queued_source = owned.clone(self.allocator) catch {
                     owned.deinit(self.allocator);
                     return .{
-                        .published = false,
                         .queued = false,
                         .damage_kind = .none,
                         .snapshot_seq = snapshot.snapshot_seq,
@@ -87,7 +93,6 @@ pub const PrepareRequests = struct {
             });
         }
         return .{
-            .published = published,
             .queued = published,
             .damage_kind = damage_kind,
             .snapshot_seq = snapshot.snapshot_seq,
@@ -313,29 +318,27 @@ test "prepare requests do not own submitted mailbox" {
     try std.testing.expect(!requests.preparePending());
 }
 
-test "prepare requests publish full retained-safe source when geometry changes" {
+test "prepare requests queue full retained-safe source when geometry changes" {
     var requests = PrepareRequests.init(std.testing.allocator);
     defer requests.deinit();
 
-    const first_publish = requests.acceptSource(
+    const first_queue = requests.acceptSource(
         try source_vt.ownedTestSource(std.testing.allocator, 1, 'A'),
         null,
         1,
     );
-    try std.testing.expect(first_publish.published);
-    try std.testing.expect(first_publish.queued);
+    try std.testing.expect(first_queue.queued);
 
     const submitted_request = requests.takePrepareRequest(1, null) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), submitted_request.token.geometry_epoch);
 
-    const resize_publish = requests.acceptSource(
+    const resize_queue = requests.acceptSource(
         try source_vt.ownedTestSource(std.testing.allocator, 1, 'A'),
         submitted_request.token,
         2,
     );
-    try std.testing.expect(resize_publish.published);
-    try std.testing.expect(resize_publish.queued);
-    try std.testing.expectEqual(tokens.DamageKind.full, resize_publish.damage_kind);
+    try std.testing.expect(resize_queue.queued);
+    try std.testing.expectEqual(tokens.DamageKind.full, resize_queue.damage_kind);
 
     const resize_request = requests.takePrepareRequest(2, submitted_request.token) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), resize_request.token.geometry_epoch);
@@ -343,12 +346,11 @@ test "prepare requests publish full retained-safe source when geometry changes" 
     try std.testing.expectEqual(@as(u64, 0), resize_request.token.damage_base_seq);
     try std.testing.expect(!resize_request.allow_retained_reuse);
 
-    const same_geometry_publish = requests.acceptSource(
+    const same_geometry_queue = requests.acceptSource(
         try source_vt.ownedTestSource(std.testing.allocator, 1, 'A'),
         submitted_request.token,
         2,
     );
-    try std.testing.expect(!same_geometry_publish.published);
-    try std.testing.expect(!same_geometry_publish.queued);
-    try std.testing.expectEqual(tokens.DamageKind.none, same_geometry_publish.damage_kind);
+    try std.testing.expect(!same_geometry_queue.queued);
+    try std.testing.expectEqual(tokens.DamageKind.none, same_geometry_queue.damage_kind);
 }
