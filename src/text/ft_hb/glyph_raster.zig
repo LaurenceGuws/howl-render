@@ -5,7 +5,6 @@ const text_session = @import("../../session/text.zig");
 const rasterizer = @import("../raster/rasterizer.zig");
 const fallback = @import("../raster/fallback.zig");
 const provider_mod = @import("support.zig");
-const special_sprite = @import("special_sprite.zig");
 const c_api = @import("c_api.zig");
 const c = c_api.c;
 
@@ -155,9 +154,7 @@ fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, h
         return true;
     }
     if (req.group.kind == .box_fallback) {
-        if (!rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing)) {
-            special_sprite.rasterizeSpecialSpriteAlpha(pixels, width, height, req.group.first_cp);
-        }
+        _ = rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing);
         return true;
     }
     if (!useDeterministicTestTextFallback(context)) return false;
@@ -239,23 +236,7 @@ test "provider decodes packed monochrome bitmap alpha" {
     try std.testing.expectEqual(@as(u8, 0), bitmapAlpha(&row, @as(u8, 1), 1, false, 4, 1, 3, 0));
 }
 
-test "special sprite covers kitty shade families" {
-    var pixels: [256]u8 = .{0} ** 256;
-    for ([_]u32{ 0x25cb, 0x25cf, 0x25d6, 0x25e2, 0xe0d6, 0xe0d7, 0x1fb3c, 0x1fb67, 0x1fb68, 0x1fb6f, 0x1fb7c, 0x1fb8b, 0x1fba0, 0x1fbae, 0x1fb8c, 0x1fb98, 0x1fb9a, 0x1fb9c, 0x1fb9f, 0xf5d0, 0xf60d }) |cp| {
-        @memset(&pixels, 0);
-        special_sprite.rasterizeSpecialSpriteAlpha(&pixels, 16, 16, cp);
-        var any = false;
-        for (pixels) |px| {
-            if (px != 0) {
-                any = true;
-                break;
-            }
-        }
-        try std.testing.expect(any);
-    }
-}
-
-test "provider box fallback draws shared and fallback special families" {
+test "provider box fallback draws routed generated special families" {
     for ([_]u32{ 0x2500, 0x257f, 0x2580, 0x259f, 0x2801, 0x28ff, 0xe0b0, 0xe0bf, 0xe0d6, 0xe0d7, 0x1fb00, 0x1fb3b, 0x1fb3c, 0x1fb67, 0x1fb68, 0x1fb6f, 0x1fb70, 0x1fb7b, 0x1fb7c, 0x1fb8b, 0x1fb8c, 0x1fb93, 0x1fb9f, 0x1fba0, 0x1fbae, 0x1cd00, 0x1cde5, 0x1fbe6, 0x1fbe7, 0xf5d0, 0xf60d }) |cp| {
         var context = DeterministicFallbackContext.init(std.testing.allocator);
         defer context.deinit();

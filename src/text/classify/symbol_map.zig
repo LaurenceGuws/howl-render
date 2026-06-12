@@ -7,22 +7,8 @@ pub fn builtinRoute(cp: u32) ?contract.SpecialSpriteRoute {
     if (cp >= 0x2580 and cp <= 0x259f) return .block;
     if (cp >= 0x2800 and cp <= 0x28ff) return .braille;
     if (special_glyphs.isPowerlineCodepoint(@intCast(cp))) return .powerline;
-    if (special_glyphs.isGeneratedSpecialSupported(cp) and (cp >= 0x1fb00 or cp >= 0x1cd00)) return .legacy_computing;
-    if (isFallbackSpecialSprite(cp)) return .legacy_computing;
+    if (special_glyphs.isGeneratedSpecialSupported(cp) and (cp >= 0x1fb00 or cp >= 0x1cd00 or (cp >= 0xf5d0 and cp <= 0xf60d))) return .legacy_computing;
     return null;
-}
-
-fn isFallbackSpecialSprite(cp: u32) bool {
-    return switch (cp) {
-        0x1fb3c...0x1fb67,
-        0x1fb68...0x1fb6f,
-        0x1fb7c...0x1fb8b,
-        0x1fb8c...0x1fb9f,
-        0x1fba0...0x1fbae,
-        0xf5d0...0xf60d,
-        => true,
-        else => false,
-    };
 }
 
 pub fn isIconCodepoint(cp: u32) bool {
@@ -55,7 +41,7 @@ test "builtin route classifies kitty legacy computing tail" {
     try @import("std").testing.expectEqual(contract.SpecialSpriteRoute.legacy_computing, builtinRoute(0x1fbae).?);
 }
 
-test "builtin route classifies shared and fallback special sprite families" {
+test "builtin route classifies generated special sprite families" {
     const testing = @import("std").testing;
     for ([_]u32{ 0x1fb00, 0x1fb3b, 0x1fb3c, 0x1fb67, 0x1fb68, 0x1fb6f, 0x1fb70, 0x1fb7b, 0x1fb7c, 0x1fb8b, 0x1fb93, 0x1fba0, 0x1fbae, 0x1cd00, 0x1cde5, 0x1fbe6, 0xf5d0, 0xf60d }) |cp| {
         try testing.expectEqual(contract.SpecialSpriteRoute.legacy_computing, builtinRoute(cp).?);
