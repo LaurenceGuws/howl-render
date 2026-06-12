@@ -2,6 +2,7 @@ const std = @import("std");
 
 const contract = @import("../contract.zig");
 const special_glyphs = @import("../classify/special_glyphs.zig");
+const special_sprite = @import("../ft_hb/special_sprite.zig");
 const special = @import("special.zig");
 
 const Range = struct { start: u16, end: u16 };
@@ -25,11 +26,11 @@ test "generated special support table matches rasterizer dispatch" {
         .{ .start = 0x2580, .end = 0x259f },
         .{ .start = 0x2800, .end = 0x28ff },
         .{ .start = 0xe0b0, .end = 0xe0bf },
-        .{ .start = 0x1fb70, .end = 0x1fb75 },
-        .{ .start = 0x1fb76, .end = 0x1fb7b },
         .{ .start = 0x1fb00, .end = 0x1fb13 },
         .{ .start = 0x1fb14, .end = 0x1fb27 },
         .{ .start = 0x1fb28, .end = 0x1fb3b },
+        .{ .start = 0x1fb70, .end = 0x1fb75 },
+        .{ .start = 0x1fb76, .end = 0x1fb7b },
         .{ .start = 0x1cd00, .end = 0x1cde5 },
         .{ .start = 0x1fbe6, .end = 0x1fbe7 },
     };
@@ -43,10 +44,71 @@ test "generated special support table matches rasterizer dispatch" {
         }
     }
 
-    try std.testing.expect(special_glyphs.isGeneratedSpecialSupported(0x1fb93));
+    try std.testing.expect(!special_glyphs.isGeneratedSpecialSupported(0x1fb93));
     var pixels = [_]u8{0} ** (12 * 18);
     try std.testing.expect(!special.rasterizeGeneratedSpecialAlpha(&pixels, 12, 18, 0x1fb93));
+    try std.testing.expect(!special_glyphs.isGeneratedSpecialSupported(0x1fbae));
     try std.testing.expect(!special.rasterizeGeneratedSpecialAlpha(&pixels, 12, 18, 0x1fbae));
+}
+
+test "generated special current family table proves shared or fallback owner" {
+    const Owner = enum { shared_raster, ft_hb_fallback };
+    const Family = struct {
+        name: []const u8,
+        range: []const u8,
+        probes: []const u32,
+        owner: Owner,
+        support_owner: []const u8,
+        route_owner: []const u8,
+        raster_owner: []const u8,
+        fallback_owner: []const u8,
+        test_anchors: []const u8,
+    };
+    const families = [_]Family{
+        .{ .name = "box", .range = "0x2500...0x257f", .probes = &.{ 0x2500, 0x257f }, .owner = .shared_raster, .support_owner = "special_glyphs shared", .route_owner = "symbol_map .box", .raster_owner = "raster/special.zig", .fallback_owner = "none", .test_anchors = "special_test support table + current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "block", .range = "0x2580...0x259f", .probes = &.{ 0x2580, 0x259f }, .owner = .shared_raster, .support_owner = "special_glyphs shared", .route_owner = "symbol_map .block", .raster_owner = "raster/special.zig", .fallback_owner = "none", .test_anchors = "special_test support table + current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "braille", .range = "0x2800...0x28ff", .probes = &.{ 0x2801, 0x28ff }, .owner = .shared_raster, .support_owner = "special_glyphs shared", .route_owner = "symbol_map .braille", .raster_owner = "raster/special.zig", .fallback_owner = "none", .test_anchors = "special_test support table + current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "powerline", .range = "0xe0b0...0xe0bf", .probes = &.{ 0xe0b0, 0xe0bf }, .owner = .shared_raster, .support_owner = "special_glyphs shared", .route_owner = "symbol_map .powerline", .raster_owner = "raster/special.zig", .fallback_owner = "none", .test_anchors = "special_test support table + current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "powerline triangle fallback", .range = "0xe0d6...0xe0d7", .probes = &.{ 0xe0d6, 0xe0d7 }, .owner = .ft_hb_fallback, .support_owner = "special_glyphs shared false", .route_owner = "symbol_map .powerline", .raster_owner = "none", .fallback_owner = "ft_hb/special_sprite.zig", .test_anchors = "special_test current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "sextant", .range = "0x1fb00...0x1fb3b", .probes = &.{ 0x1fb00, 0x1fb3b }, .owner = .shared_raster, .support_owner = "special_glyphs shared", .route_owner = "symbol_map .legacy_computing", .raster_owner = "raster/special.zig", .fallback_owner = "none", .test_anchors = "special_test support table + current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "smooth mosaic", .range = "0x1fb3c...0x1fb67", .probes = &.{ 0x1fb3c, 0x1fb67 }, .owner = .ft_hb_fallback, .support_owner = "special_glyphs shared false", .route_owner = "symbol_map .legacy_computing", .raster_owner = "none", .fallback_owner = "ft_hb/special_sprite.zig", .test_anchors = "special_test current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "half-triangle", .range = "0x1fb68...0x1fb6f", .probes = &.{ 0x1fb68, 0x1fb6f }, .owner = .ft_hb_fallback, .support_owner = "special_glyphs shared false", .route_owner = "symbol_map .legacy_computing", .raster_owner = "none", .fallback_owner = "ft_hb/special_sprite.zig", .test_anchors = "special_test current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "eight-bar shared", .range = "0x1fb70...0x1fb7b", .probes = &.{ 0x1fb70, 0x1fb7b }, .owner = .shared_raster, .support_owner = "special_glyphs shared", .route_owner = "symbol_map .legacy_computing", .raster_owner = "raster/special.zig", .fallback_owner = "none", .test_anchors = "special_test support table + current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "eight-bar fallback", .range = "0x1fb7c...0x1fb8b", .probes = &.{ 0x1fb7c, 0x1fb8b }, .owner = .ft_hb_fallback, .support_owner = "special_glyphs shared false", .route_owner = "symbol_map .legacy_computing", .raster_owner = "none", .fallback_owner = "ft_hb/special_sprite.zig", .test_anchors = "special_test current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "shade/corner/cross", .range = "0x1fb8c...0x1fb9f", .probes = &.{ 0x1fb8c, 0x1fb93, 0x1fb9f }, .owner = .ft_hb_fallback, .support_owner = "special_glyphs shared false", .route_owner = "symbol_map .legacy_computing", .raster_owner = "none", .fallback_owner = "ft_hb/special_sprite.zig", .test_anchors = "special_test current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "mid-line", .range = "0x1fba0...0x1fbae", .probes = &.{ 0x1fba0, 0x1fbae }, .owner = .ft_hb_fallback, .support_owner = "special_glyphs shared false", .route_owner = "symbol_map .legacy_computing", .raster_owner = "none", .fallback_owner = "ft_hb/special_sprite.zig", .test_anchors = "special_test current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "octant", .range = "0x1cd00...0x1cde5 plus 0x1fbe6...0x1fbe7", .probes = &.{ 0x1cd00, 0x1cde5, 0x1fbe6, 0x1fbe7 }, .owner = .shared_raster, .support_owner = "special_glyphs shared", .route_owner = "symbol_map .legacy_computing", .raster_owner = "raster/special.zig", .fallback_owner = "none", .test_anchors = "special_test support table + current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+        .{ .name = "branch/private-use", .range = "0xf5d0...0xf60d", .probes = &.{ 0xf5d0, 0xf60d }, .owner = .ft_hb_fallback, .support_owner = "special_glyphs shared false", .route_owner = "symbol_map .legacy_computing", .raster_owner = "none", .fallback_owner = "ft_hb/special_sprite.zig", .test_anchors = "special_test current family table; symbol_map/lane/resolver/glyph_raster parity tests" },
+    };
+
+    for (families) |family| {
+        try std.testing.expect(family.name.len > 0);
+        try std.testing.expect(family.range.len > 0);
+        try std.testing.expect(family.support_owner.len > 0);
+        try std.testing.expect(family.route_owner.len > 0);
+        try std.testing.expect(family.raster_owner.len > 0);
+        try std.testing.expect(family.fallback_owner.len > 0);
+        try std.testing.expect(family.test_anchors.len > 0);
+
+        for (family.probes) |codepoint| {
+            var shared = [_]u8{0} ** (16 * 16);
+            const shared_drawn = special.rasterizeGeneratedSpecialAlpha(&shared, 16, 16, codepoint);
+            switch (family.owner) {
+                .shared_raster => {
+                    try std.testing.expect(special_glyphs.isGeneratedSpecialSupported(codepoint));
+                    try std.testing.expect(shared_drawn);
+                    try std.testing.expect(countLit(&shared) > 0);
+                },
+                .ft_hb_fallback => {
+                    try std.testing.expect(!special_glyphs.isGeneratedSpecialSupported(codepoint));
+                    try std.testing.expect(!shared_drawn);
+                    var fallback_pixels = [_]u8{0} ** (16 * 16);
+                    special_sprite.rasterizeSpecialSpriteAlpha(&fallback_pixels, 16, 16, codepoint);
+                    try std.testing.expect(countLit(&fallback_pixels) > 0);
+                },
+            }
+        }
+    }
 }
 
 test "generated special raster draws braille dots" {

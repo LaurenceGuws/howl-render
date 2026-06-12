@@ -15,7 +15,8 @@ pub fn isGeneratedSpecialSupported(codepoint: u32) bool {
         0x2800...0x28ff,
         0xe0b0...0xe0b7,
         0xe0b8...0xe0bf,
-        0x1fb00...0x1fbae,
+        0x1fb00...0x1fb3b,
+        0x1fb70...0x1fb7b,
         0x1cd00...0x1cde5,
         0x1fbe6,
         0x1fbe7,
@@ -30,9 +31,12 @@ test "powerline codepoints match kitty box-font cases" {
     try @import("std").testing.expect(!isPowerlineCodepoint(0xe0a0));
 }
 
-test "generated special support matches kitty eight bars" {
-    try @import("std").testing.expect(isGeneratedSpecialSupported(0x1fb70));
-    try @import("std").testing.expect(isGeneratedSpecialSupported(0x1fb76));
-    try @import("std").testing.expect(isGeneratedSpecialSupported(0x1fb93));
-    try @import("std").testing.expect(isGeneratedSpecialSupported(0x1fbae));
+test "generated special support names only shared raster families" {
+    const testing = @import("std").testing;
+    for ([_]u32{ 0x2500, 0x2580, 0x2801, 0xe0b0, 0xe0bf, 0x1fb00, 0x1fb3b, 0x1fb70, 0x1fb7b, 0x1cd00, 0x1cde5, 0x1fbe6, 0x1fbe7 }) |cp| {
+        try testing.expect(isGeneratedSpecialSupported(cp));
+    }
+    for ([_]u32{ 0xe0d6, 0xe0d7, 0x1fb3c, 0x1fb67, 0x1fb68, 0x1fb6f, 0x1fb7c, 0x1fb8b, 0x1fb93, 0x1fba0, 0x1fbae, 0xf5d0, 0xf60d }) |cp| {
+        try testing.expect(!isGeneratedSpecialSupported(cp));
+    }
 }

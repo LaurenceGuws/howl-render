@@ -291,6 +291,56 @@ test "resolver groups adjacent primary clusters and separates sprite routes" {
     try std.testing.expectEqual(contract.SpecialSpriteRoute.box, resolved.sprite_routes[0].route);
 }
 
+test "resolver separates shared and fallback special sprite routes before font resolution" {
+    const Case = struct { cp: u32, route: contract.SpecialSpriteRoute };
+    const cases = [_]Case{
+        .{ .cp = 0x2500, .route = .box },
+        .{ .cp = 0x257f, .route = .box },
+        .{ .cp = 0x2580, .route = .block },
+        .{ .cp = 0x259f, .route = .block },
+        .{ .cp = 0x2801, .route = .braille },
+        .{ .cp = 0x28ff, .route = .braille },
+        .{ .cp = 0xe0b0, .route = .powerline },
+        .{ .cp = 0xe0bf, .route = .powerline },
+        .{ .cp = 0xe0d6, .route = .powerline },
+        .{ .cp = 0xe0d7, .route = .powerline },
+        .{ .cp = 0x1fb00, .route = .legacy_computing },
+        .{ .cp = 0x1fb3b, .route = .legacy_computing },
+        .{ .cp = 0x1fb3c, .route = .legacy_computing },
+        .{ .cp = 0x1fb67, .route = .legacy_computing },
+        .{ .cp = 0x1fb68, .route = .legacy_computing },
+        .{ .cp = 0x1fb6f, .route = .legacy_computing },
+        .{ .cp = 0x1fb70, .route = .legacy_computing },
+        .{ .cp = 0x1fb7b, .route = .legacy_computing },
+        .{ .cp = 0x1fb7c, .route = .legacy_computing },
+        .{ .cp = 0x1fb8b, .route = .legacy_computing },
+        .{ .cp = 0x1fb8c, .route = .legacy_computing },
+        .{ .cp = 0x1fb93, .route = .legacy_computing },
+        .{ .cp = 0x1fb9f, .route = .legacy_computing },
+        .{ .cp = 0x1fba0, .route = .legacy_computing },
+        .{ .cp = 0x1fbae, .route = .legacy_computing },
+        .{ .cp = 0x1cd00, .route = .legacy_computing },
+        .{ .cp = 0x1cde5, .route = .legacy_computing },
+        .{ .cp = 0x1fbe6, .route = .legacy_computing },
+        .{ .cp = 0x1fbe7, .route = .legacy_computing },
+        .{ .cp = 0xf5d0, .route = .legacy_computing },
+        .{ .cp = 0xf60d, .route = .legacy_computing },
+    };
+
+    for (cases) |case| {
+        const clusters = [_]contract.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = case.cp, .style = .regular, .presentation = .any }};
+        const texts = [_]contract.CellText{.{ .id = .{ .value = 0 }, .first_cp = case.cp, .codepoints = &.{case.cp} }};
+        var scratch = RetainedScratch{};
+        defer scratch.deinit(std.testing.allocator);
+        try scratch.configure(std.testing.allocator, count32(clusters));
+        var resolved = try resolveClusters(std.testing.allocator, &scratch, .{}, &clusters, .{ .texts = &texts }, .{ .cols = 1, .rows = 1 });
+        defer resolved.deinit();
+        try std.testing.expectEqual(@as(u32, 0), count32(resolved.runs));
+        try std.testing.expectEqual(@as(u32, 1), count32(resolved.sprite_routes));
+        try std.testing.expectEqual(case.route, resolved.sprite_routes[0].route);
+    }
+}
+
 test "resolver falls back when primary cannot cover whole cell text" {
     const faces = [_]font_session.FontFaceRecord{
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },

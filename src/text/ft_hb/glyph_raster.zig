@@ -241,7 +241,7 @@ test "provider decodes packed monochrome bitmap alpha" {
 
 test "special sprite covers kitty shade families" {
     var pixels: [256]u8 = .{0} ** 256;
-    for ([_]u32{ 0x25cb, 0x25cf, 0x25d6, 0x25e2, 0x1fb3c, 0x1fb7c, 0x1fba0, 0x1fb8c, 0x1fb98, 0x1fb9a, 0x1fb9c }) |cp| {
+    for ([_]u32{ 0x25cb, 0x25cf, 0x25d6, 0x25e2, 0xe0d6, 0xe0d7, 0x1fb3c, 0x1fb67, 0x1fb68, 0x1fb6f, 0x1fb7c, 0x1fb8b, 0x1fba0, 0x1fbae, 0x1fb8c, 0x1fb98, 0x1fb9a, 0x1fb9c, 0x1fb9f, 0xf5d0, 0xf60d }) |cp| {
         @memset(&pixels, 0);
         special_sprite.rasterizeSpecialSpriteAlpha(&pixels, 16, 16, cp);
         var any = false;
@@ -254,6 +254,39 @@ test "special sprite covers kitty shade families" {
         try std.testing.expect(any);
     }
 }
+
+test "provider box fallback draws shared and fallback special families" {
+    for ([_]u32{ 0x2500, 0x257f, 0x2580, 0x259f, 0x2801, 0x28ff, 0xe0b0, 0xe0bf, 0xe0d6, 0xe0d7, 0x1fb00, 0x1fb3b, 0x1fb3c, 0x1fb67, 0x1fb68, 0x1fb6f, 0x1fb70, 0x1fb7b, 0x1fb7c, 0x1fb8b, 0x1fb8c, 0x1fb93, 0x1fb9f, 0x1fba0, 0x1fbae, 0x1cd00, 0x1cde5, 0x1fbe6, 0x1fbe7, 0xf5d0, 0xf60d }) |cp| {
+        var context = DeterministicFallbackContext.init(std.testing.allocator);
+        defer context.deinit();
+        var pixels: [16 * 16]u8 = .{0} ** (16 * 16);
+        const req = contract.SpriteRasterRequest{
+            .key = .{ .value = 1 },
+            .group = .{
+                .first_cell = 0,
+                .first_cp = cp,
+                .cell_span = 1,
+                .glyphs = &.{},
+                .sprite_key = .{ .value = 2 },
+                .kind = .box_fallback,
+            },
+            .width_px = 16,
+            .height_px = 16,
+            .box_drawing = .{ .light_stroke_px = 2, .heavy_stroke_px = 4 },
+        };
+        try std.testing.expect(tryRasterizeProviderSpecialCase(&context, &pixels, 16, 16, req));
+        try std.testing.expect(countLit(&pixels) > 0);
+    }
+}
+
+fn countLit(pixels: []const u8) u32 {
+    var lit: u32 = 0;
+    for (pixels) |alpha| {
+        if (alpha != 0) lit += 1;
+    }
+    return lit;
+}
+
 fn cellBitmapOrigin(cell_width: u16, baseline: i32, bitmap_left: i32, bitmap_top: i32, bitmap_width: u16, x_offset: i32, y_offset: i32, glyph_index: u32) struct { x_px: i32, y_px: i32 } {
     var x_px = x_offset + bitmap_left;
     if (glyph_index < 4 and x_px > 0 and x_px + @as(i32, @intCast(bitmap_width)) > @as(i32, @intCast(cell_width))) {

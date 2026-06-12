@@ -446,6 +446,24 @@ test "lane marks generated sprite routes as complex" {
     try std.testing.expectEqual(ComplexLaneReason.special_sprite, choice.complex_reason.?);
 }
 
+test "lane marks shared and fallback special sprite routes as complex" {
+    for ([_]u32{ 0x2500, 0x257f, 0x2580, 0x259f, 0x2801, 0x28ff, 0xe0b0, 0xe0bf, 0xe0d6, 0xe0d7, 0x1fb00, 0x1fb3b, 0x1fb3c, 0x1fb67, 0x1fb68, 0x1fb6f, 0x1fb70, 0x1fb7b, 0x1fb7c, 0x1fb8b, 0x1fb8c, 0x1fb93, 0x1fb9f, 0x1fba0, 0x1fbae, 0x1cd00, 0x1cde5, 0x1fbe6, 0x1fbe7, 0xf5d0, 0xf60d }) |cp| {
+        const text = contract.CellText{ .id = .{ .value = 10 }, .first_cp = cp, .codepoints = &.{cp} };
+        const cell = contract.RenderableCell{
+            .text_id = text.id,
+            .first_cell = 0,
+            .cell_span = 1,
+            .style = .regular,
+            .presentation = .any,
+            .fg = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
+            .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+        };
+        const choice = classifyRenderableCell(cell, text);
+        try std.testing.expectEqual(TextLane.complex, choice.lane);
+        try std.testing.expectEqual(ComplexLaneReason.special_sprite, choice.complex_reason.?);
+    }
+}
+
 test "lane marks icon codepoints as complex" {
     const text = contract.CellText{ .id = .{ .value = 9 }, .first_cp = 0xf101, .codepoints = &.{0xf101} };
     const cell = contract.RenderableCell{
