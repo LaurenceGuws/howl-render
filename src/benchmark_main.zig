@@ -181,11 +181,7 @@ const CountingAllocator = struct {
         }
     }
 
-    // std.mem.Allocator owns architecture-sized lengths and return addresses at this callback seam.
-    // We translate those edge values into fixed-width benchmark counters immediately below.
-    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
-        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
-        const ptr = self.child.rawAlloc(len, alignment, ret_addr) orelse return null;
+    fn accountAlloc(self: *CountingAllocator, len: usize) void {
         self.alloc_count += 1;
         self.alloc_bytes += len;
         self.live_bytes += len;
@@ -193,38 +189,40 @@ const CountingAllocator = struct {
         self.window_alloc_count += 1;
         self.window_alloc_bytes += len;
         self.updateWindowPeak();
+    }
+
+    fn accountResize(self: *CountingAllocator, old_len: usize, new_len: usize) void {
+        if (new_len > old_len) {
+            const delta = new_len - old_len;
+            self.alloc_bytes += delta;
+            self.window_alloc_bytes += delta;
+            self.live_bytes += delta;
+        } else {
+            self.live_bytes -|= old_len - new_len;
+        }
+        self.updateWindowPeak();
+    }
+
+    // std.mem.Allocator owns architecture-sized lengths and return addresses at this callback seam.
+    // We translate those edge values into fixed-width benchmark counters immediately below.
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        const ptr = self.child.rawAlloc(len, alignment, ret_addr) orelse return null;
+        self.accountAlloc(len);
         return ptr;
     }
 
     fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         if (!self.child.rawResize(memory, alignment, new_len, ret_addr)) return false;
-        if (new_len > memory.len) {
-            const delta = new_len - memory.len;
-            self.alloc_bytes += delta;
-            self.window_alloc_bytes += delta;
-            self.live_bytes += delta;
-        } else {
-            const delta = memory.len - new_len;
-            self.live_bytes -|= delta;
-        }
-        self.updateWindowPeak();
+        self.accountResize(memory.len, new_len);
         return true;
     }
 
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
         const ptr = self.child.rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
-        if (new_len > memory.len) {
-            const delta = new_len - memory.len;
-            self.alloc_bytes += delta;
-            self.window_alloc_bytes += delta;
-            self.live_bytes += delta;
-        } else {
-            const delta = memory.len - new_len;
-            self.live_bytes -|= delta;
-        }
-        self.updateWindowPeak();
+        self.accountResize(memory.len, new_len);
         return ptr;
     }
 
