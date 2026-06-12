@@ -1,91 +1,19 @@
 const std = @import("std");
+const c = @import("../ffi.zig").c;
 const tokens = @import("../geometry/tokens.zig");
 const source_cell = @import("cell.zig");
 const source_damage = @import("damage.zig");
 const source_slot = @import("slot.zig");
 
-pub const SourceRgb = extern struct {
-    r: u8,
-    g: u8,
-    b: u8,
-};
-
-pub const SourceColor = extern struct {
-    kind: u8,
-    reserved0: u8 = 0,
-    reserved1: u8 = 0,
-    reserved2: u8 = 0,
-    value: u32,
-};
-
-pub const SourceColors = extern struct {
-    foreground: SourceRgb,
-    background: SourceRgb,
-    cursor: SourceRgb,
-    palette: [256]SourceRgb,
-};
-
-pub const SourceCellFlags = extern struct {
-    continuation: u8,
-    reserved0: u8 = 0,
-    reserved1: u8 = 0,
-    reserved2: u8 = 0,
-};
-
-pub const SourceCellAttrs = extern struct {
-    bold: u8,
-    dim: u8,
-    italic: u8,
-    underline: u8,
-    underline_color_set: u8,
-    blink: u8,
-    inverse: u8,
-    invisible: u8,
-    strikethrough: u8,
-    selected: u8,
-};
-
-pub const SourceCell = extern struct {
-    codepoint: u32,
-    combining_len: u8 = 0,
-    reserved0: u8 = 0,
-    reserved1: u8 = 0,
-    reserved2: u8 = 0,
-    combining: [3]u32 = [_]u32{0} ** 3,
-    flags: SourceCellFlags,
-    fg_color: SourceColor,
-    bg_color: SourceColor,
-    underline_color: SourceColor,
-    underline_style: u8,
-    reserved3: u8 = 0,
-    reserved4: u8 = 0,
-    reserved5: u8 = 0,
-    attrs: SourceCellAttrs,
-    link_id: u32,
-};
-
-pub const SourceSelectionPoint = extern struct {
-    row: i32,
-    col: u16,
-    reserved0: u16 = 0,
-};
-
-pub const SourceSelection = extern struct {
-    active: u8,
-    selecting: u8,
-    reserved0: u16 = 0,
-    start: SourceSelectionPoint,
-    end: SourceSelectionPoint,
-};
-
-pub const SourceCursor = extern struct {
-    row: u16,
-    col: u16,
-    visible: u8,
-    shape: u8,
-    blink: u8,
-    reserved0: u8 = 0,
-};
+pub const SourceRgb = c.HowlVtRgb8;
+pub const SourceColor = c.HowlVtColor;
+pub const SourceColors = c.HowlVtRenderColorState;
+pub const SourceCellFlags = c.HowlVtSurfaceCellFlags;
+pub const SourceCellAttrs = c.HowlVtSurfaceCellAttrs;
+pub const SourceCell = c.HowlVtSurfaceCell;
+pub const SourceSelectionPoint = c.HowlVtSelectionPos;
+pub const SourceSelection = c.HowlVtSelection;
+pub const SourceCursor = source_cell.CursorInfo;
 
 pub const VtSnapshot = struct {
     cols: u16,
@@ -109,7 +37,7 @@ pub const PublicationSource = struct {
     dirty_epoch: u64,
     is_alternate_screen: bool,
     cells: []SourceCell,
-    cursor: source_cell.CursorInfo,
+    cursor: SourceCursor,
     colors: SourceColors,
     selection: SourceSelection,
     cursor_phase_visible: bool,
@@ -173,16 +101,6 @@ pub const PublicationSource = struct {
     }
 };
 
-pub const ReservedSourceMeta = struct {
-    history_count: u64,
-    scroll_row: u64,
-    snapshot_seq: u64,
-    is_alternate_screen: bool,
-    cursor: source_cell.CursorInfo,
-    colors: SourceColors,
-    selection: SourceSelection,
-};
-
 pub const VtSurfacePublishResult = struct {
     published: bool,
     queued: bool,
@@ -205,10 +123,6 @@ pub fn validateSourceCell(cell: SourceCell) !void {
 
 pub fn validateSourceCells(cells: []const SourceCell) !void {
     for (cells) |cell| try validateSourceCell(cell);
-}
-
-pub fn validateReservedSourceMeta(meta: ReservedSourceMeta) !void {
-    if (meta.snapshot_seq == 0) return error.InvalidSurfaceSource;
 }
 
 pub fn sourceColorValid(color: SourceColor) bool {
@@ -236,6 +150,27 @@ pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
         source.dirty_cols_start,
         source.dirty_cols_end,
     );
+}
+
+pub fn validatePublicationSurfaceResult(result: c.HowlVtSurfaceResult) !void {
+    if (result.status != c.HOWL_VT_CALL_OK) return error.InvalidSurfaceSource;
+    if (result.snapshot_seq == 0) return error.InvalidSurfaceSource;
+    if (result.dirty_generation == 0) return error.InvalidSurfaceSource;
+    if (result.scrollback_offset > result.history_count) return error.InvalidSurfaceSource;
+    const surface = result.source;
+    if (surface.cols == 0 or surface.rows == 0) return error.InvalidSurfaceSource;
+    const cell_count = source_slot.slotCellCountChecked(surface.cols, surface.rows) catch return error.InvalidSurfaceSource;
+    if (surface.surface_cells.ptr == null or surface.surface_cells.len != cell_count) return error.InvalidSurfaceSource;
+    if (surface.dirty_rows.ptr == null or surface.dirty_cols_start.ptr == null or surface.dirty_cols_end.ptr == null) return error.InvalidSurfaceSource;
+    if (surface.cursor.shape > 3) return error.InvalidSurfaceSource;
+    try source_damage.validateDirtySource(
+        surface.rows,
+        surface.cols,
+        surface.dirty_rows.ptr[0..surface.dirty_rows.len],
+        surface.dirty_cols_start.ptr[0..surface.dirty_cols_start.len],
+        surface.dirty_cols_end.ptr[0..surface.dirty_cols_end.len],
+    );
+    try validateSourceCells(surface.surface_cells.ptr[0..surface.surface_cells.len]);
 }
 
 pub fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !PublicationSource {
@@ -272,7 +207,7 @@ pub fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot
         .dirty_epoch = snapshot.dirty_epoch,
         .is_alternate_screen = snapshot.is_alternate_screen,
         .cells = cells,
-        .cursor = std.mem.zeroes(source_cell.CursorInfo),
+        .cursor = std.mem.zeroes(SourceCursor),
         .colors = std.mem.zeroes(SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
@@ -301,7 +236,7 @@ pub fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoin
         .dirty_epoch = snapshot_seq,
         .is_alternate_screen = false,
         .cells = cells,
-        .cursor = std.mem.zeroes(source_cell.CursorInfo),
+        .cursor = std.mem.zeroes(SourceCursor),
         .colors = std.mem.zeroes(SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
@@ -358,16 +293,4 @@ test "source vt rejects underline style above shipped range" {
     var cell = validTestCell();
     cell.underline_style = 5;
     try std.testing.expectError(error.InvalidSurfaceSource, validateSourceCell(cell));
-}
-
-test "source vt rejects reserved source meta without snapshot" {
-    try std.testing.expectError(error.InvalidSurfaceSource, validateReservedSourceMeta(.{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 0,
-        .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(source_cell.CursorInfo),
-        .colors = std.mem.zeroes(SourceColors),
-        .selection = std.mem.zeroes(SourceSelection),
-    }));
 }

@@ -87,6 +87,39 @@ pub const SourceSlot = struct {
         self.refreshRetainedSlotViews();
     }
 
+    pub fn copyPublishedSource(self: *SourceSlot, source_result: anytype, dirty_epoch: u64, cursor_phase_visible: bool) !source_vt.PublicationSource {
+        const surface = source_result.source;
+        try source_vt.validatePublicationSurfaceResult(source_result);
+        try self.retained_slot.ensureCapacity(self.allocator, surface.cols, surface.rows);
+        const slot = self.retained_slot.vtSurfaceSlot(surface.cols, surface.rows);
+        @memcpy(slot.cells, surface.surface_cells.ptr[0..surface.surface_cells.len]);
+        @memcpy(slot.dirty_rows, surface.dirty_rows.ptr[0..surface.dirty_rows.len]);
+        @memcpy(slot.dirty_cols_start, surface.dirty_cols_start.ptr[0..surface.dirty_cols_start.len]);
+        @memcpy(slot.dirty_cols_end, surface.dirty_cols_end.ptr[0..surface.dirty_cols_end.len]);
+        const retained = source_vt.PublicationSource{
+            .cols = surface.cols,
+            .rows = surface.rows,
+            .history_count = source_result.history_count,
+            .scroll_row = surface.scroll_row,
+            .snapshot_seq = source_result.snapshot_seq,
+            .dirty_epoch = dirty_epoch,
+            .is_alternate_screen = surface.is_alternate_screen != 0,
+            .cells = slot.cells,
+            .cursor = vtCursorIn(surface.cursor),
+            .colors = surface.colors,
+            .selection = surface.selection,
+            .cursor_phase_visible = cursor_phase_visible,
+            .dirty_rows = slot.dirty_rows,
+            .dirty_cols_start = slot.dirty_cols_start,
+            .dirty_cols_end = slot.dirty_cols_end,
+            .retained_storage = true,
+        };
+        try source_vt.validateSourceCells(retained.cells);
+        try source_damage.validateDirtySource(retained.rows, retained.cols, retained.dirty_rows, retained.dirty_cols_start, retained.dirty_cols_end);
+        source_damage.canonicalizeDirtyMetadata(retained.rows, retained.dirty_rows, retained.dirty_cols_start, retained.dirty_cols_end);
+        return retained;
+    }
+
     pub fn reserveSourceSlot(self: *SourceSlot, cols: u16, rows: u16) !VtSurfaceSlot {
         std.debug.assert(cols > 0);
         std.debug.assert(rows > 0);
@@ -101,8 +134,8 @@ pub const SourceSlot = struct {
         self.reserved = null;
     }
 
-    pub fn commitReservedSource(self: *SourceSlot, meta: source_vt.ReservedSourceMeta, dirty_epoch: u64) !source_vt.PublicationSource {
-        try source_vt.validateReservedSourceMeta(meta);
+    pub fn commitReservedSource(self: *SourceSlot, meta: anytype, dirty_epoch: u64) !source_vt.PublicationSource {
+        if (meta.snapshot_seq == 0) return error.InvalidSurfaceSource;
         const source = if (self.reserved) |*value| value else return error.MissingVtSurfaceSlot;
         source.scroll_row = meta.scroll_row;
         source.history_count = meta.history_count;
@@ -191,6 +224,22 @@ pub const SourceSlot = struct {
     }
 };
 
+fn vtCursorIn(value: anytype) source_cell.CursorInfo {
+    const shape = switch (value.shape) {
+        1 => source_cell.CursorShape.underline,
+        2 => .beam,
+        3 => .hollow_block,
+        else => .block,
+    };
+    return .{
+        .row = value.row,
+        .col = value.col,
+        .visible = value.visible != 0,
+        .shape = shape,
+        .blink = value.blink != 0,
+    };
+}
+
 pub fn slotCellCount(cols: u16, rows: u16) usize {
     return @as(usize, cols) * @as(usize, rows);
 }
@@ -274,7 +323,7 @@ test "source slot commit returns source without prepare or submit state" {
         .is_alternate_screen = false,
         .cursor = std.mem.zeroes(source_cell.CursorInfo),
         .colors = std.mem.zeroes(source_vt.SourceColors),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .selection = std.mem.zeroes(source_vt.SourceSelection),
     }, 7);
 
     try std.testing.expectEqual(@as(u64, 7), source.dirty_epoch);

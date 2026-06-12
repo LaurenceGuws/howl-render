@@ -34,10 +34,9 @@ pub const text_contract_ns = text_contract;
 pub const text_rasterizer = rasterizer;
 pub const text_session_model_ns = text_session_model;
 
-pub const RenderVtSurfaceSlot = @field(c, "Howl" ++ "RenderVtSurfaceSlot");
-pub const RenderVtSurfaceCommit = @field(c, "Howl" ++ "RenderVtSurfaceCommit");
-pub const RenderSourceCell = @field(c, "Howl" ++ "RenderSourceCell");
-pub const RenderSourceCellAttrs = @field(c, "Howl" ++ "RenderSourceCellAttrs");
+pub const VtSurfaceResult = c.HowlVtSurfaceResult;
+pub const VtSurfaceCell = c.HowlVtSurfaceCell;
+pub const VtSurfaceCellAttrs = c.HowlVtSurfaceCellAttrs;
 
 comptime {
     std.debug.assert(c.HOWL_RENDER_CALL_OK == 0);
@@ -82,18 +81,6 @@ pub fn preparedHandleWithFailure(failure: render_surface_emitter_model.RenderSur
     };
 }
 
-pub fn validVtSurfaceCommit(snapshot_seq: u64) RenderVtSurfaceCommit {
-    return .{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = snapshot_seq,
-        .is_alternate_screen = 0,
-        .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
-        .colors = std.mem.zeroes(c.HowlRenderSourceColors),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-    };
-}
-
 pub fn createPreparedHandle(handle: c.HowlRenderTextSessionHandle) !c.HowlRenderRdrSfcHandle {
     return createPreparedHandleWithSnapshot(handle, 1);
 }
@@ -135,29 +122,45 @@ pub fn nextPrepareRequest(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, layout.status);
     const sync = surface_geometry.syncGeometry(handle, .{ .render_px = render_px, .grid_px = grid_px });
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, sync.status);
-    var slot = std.mem.zeroes(RenderVtSurfaceSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, vt_surface.reserveVtSurfaceSlot(handle, 1, 1, &slot));
-    slot.cells.ptr[0] = testCell();
-    slot.dirty_rows.ptr[0] = 1;
-    slot.dirty_cols_start.ptr[0] = 0;
-    slot.dirty_cols_end.ptr[0] = 0;
-    const publish = vt_surface.commitVtSurface(handle, .{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = snapshot_seq,
-        .is_alternate_screen = 0,
-        .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
-        .colors = std.mem.zeroes(c.HowlRenderSourceColors),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
-    });
+    var cells = [_]VtSurfaceCell{testCell()};
+    var dirty_rows = [_]u8{1};
+    var dirty_cols_start = [_]u16{0};
+    var dirty_cols_end = [_]u16{0};
+    var surface = validVtSurfaceResult(snapshot_seq, 1, 1, &cells, &dirty_rows, &dirty_cols_start, &dirty_cols_end);
+    const publish = vt_surface.publishVtSurface(handle, &surface);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, publish.status);
     var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
     try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepare_request.takePrepareRequest(handle, &request));
     return request;
 }
 
-pub fn testCell() RenderSourceCell {
-    return .{ .codepoint = 'a', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = std.mem.zeroes(RenderSourceCellAttrs), .link_id = 0 };
+pub fn validVtSurfaceResult(snapshot_seq: u64, cols: u16, rows: u16, cells: []const VtSurfaceCell, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) VtSurfaceResult {
+    return .{
+        .status = c.HOWL_VT_CALL_OK,
+        .history_count = 0,
+        .scrollback_offset = 0,
+        .snapshot_seq = snapshot_seq,
+        .dirty_generation = snapshot_seq,
+        .source = .{
+            .surface_cells = .{ .ptr = cells.ptr, .len = cells.len },
+            .cols = cols,
+            .rows = rows,
+            .scroll_row = 0,
+            .is_alternate_screen = 0,
+            .reserved0 = 0,
+            .reserved1 = 0,
+            .dirty_rows = .{ .ptr = dirty_rows.ptr, .len = dirty_rows.len },
+            .dirty_cols_start = .{ .ptr = dirty_cols_start.ptr, .len = dirty_cols_start.len },
+            .dirty_cols_end = .{ .ptr = dirty_cols_end.ptr, .len = dirty_cols_end.len },
+            .cursor = .{ .row = 0, .col = 0, .visible = 1, .shape = 0, .blink = 0 },
+            .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+            .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        },
+    };
+}
+
+pub fn testCell() VtSurfaceCell {
+    return .{ .codepoint = 'a', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = std.mem.zeroes(VtSurfaceCellAttrs), .link_id = 0 };
 }
 
 pub fn damageNone() u8 {
@@ -182,21 +185,18 @@ pub fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderTextSessionHa
     try std.testing.expect(rdr_sfc_handle == null);
 }
 
-pub fn expectInvalidPublishedCell(cell: RenderSourceCell) !void {
+pub fn expectInvalidPublishedCell(cell: VtSurfaceCell) !void {
     const handle = text_session.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
     defer text_session.deinit(handle);
     try std.testing.expect(handle != null);
     _ = surface_geometry.syncGeometry(handle, .{ .render_px = .{ .width = 16, .height = 16 }, .grid_px = .{ .width = 16, .height = 16 } });
-    var slot = std.mem.zeroes(RenderVtSurfaceSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, vt_surface.reserveVtSurfaceSlot(handle, 1, 1, &slot));
-    slot.cells.ptr[0] = cell;
-    slot.dirty_rows.ptr[0] = 1;
-    slot.dirty_cols_start.ptr[0] = 0;
-    slot.dirty_cols_end.ptr[0] = 0;
-    const publish = vt_surface.commitVtSurface(handle, validVtSurfaceCommit(7));
+    var cells = [_]VtSurfaceCell{cell};
+    var dirty_rows = [_]u8{1};
+    var dirty_cols_start = [_]u16{0};
+    var dirty_cols_end = [_]u16{0};
+    var surface = validVtSurfaceResult(7, 1, 1, &cells, &dirty_rows, &dirty_cols_start, &dirty_cols_end);
+    const publish = vt_surface.publishVtSurface(handle, &surface);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, publish.status);
-    var next_slot = std.mem.zeroes(RenderVtSurfaceSlot);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, vt_surface.reserveVtSurfaceSlot(handle, 1, 1, &next_slot));
 }
 
 pub const PreparedOptions = struct {

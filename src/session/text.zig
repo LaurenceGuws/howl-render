@@ -597,31 +597,10 @@ pub const TextSessionOwner = struct {
         return true;
     }
 
-    pub fn reserveVtSurfaceSlot(self: *TextSessionOwner, cols: u16, rows: u16) !source_slot.VtSurfaceSlot {
+    pub fn publishVtSurface(self: *TextSessionOwner, vt_surface: anytype) !source_vt.VtSurfacePublishResult {
         if (self.prepare_requests.retainedSlotInUse()) return error.VtSurfaceSlotBusy;
-        return try self.source_slot.reserveSourceSlot(cols, rows);
-    }
-
-    pub fn commitVtSurface(self: *TextSessionOwner, meta: source_vt.ReservedSourceMeta) !source_vt.VtSurfacePublishResult {
-        var source = try self.source_slot.commitReservedSource(meta, self.nextSourceDirtyEpoch());
-        source.cursor_phase_visible = self.cursor_blink_visible;
+        const source = try self.source_slot.copyPublishedSource(vt_surface, self.nextSourceDirtyEpoch(), self.cursor_blink_visible);
         return self.prepare_requests.acceptSource(source, self.submittedToken(), self.geometry.geometry_epoch);
-    }
-
-    pub fn cancelVtSurface(self: *TextSessionOwner) void {
-        self.source_slot.cancelReservedSource();
-    }
-
-    pub fn rejectVtSurface(self: *TextSessionOwner, snapshot_seq: u64) source_vt.VtSurfacePublishResult {
-        std.debug.assert(snapshot_seq != 0);
-        self.source_slot.cancelReservedSource();
-        return .{
-            .published = false,
-            .queued = false,
-            .damage_kind = .none,
-            .snapshot_seq = snapshot_seq,
-            .geometry_epoch = self.geometry.geometry_epoch,
-        };
     }
 
     pub fn prepare(self: *TextSessionOwner) ?tokens.RenderRequest {

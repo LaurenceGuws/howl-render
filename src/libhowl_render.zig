@@ -18,10 +18,7 @@ comptime {
     @export(&text_session.isValidFont, .{ .name = "howl_render_text_session_is_valid_font" });
     @export(&surface_geometry.deriveLayout, .{ .name = "howl_render_text_session_derive_layout" });
     @export(&surface_geometry.syncGeometry, .{ .name = "howl_render_text_session_sync_geometry" });
-    @export(&vt_surface.reserveVtSurfaceSlot, .{ .name = "howl_render_text_session_reserve_vt_surface_slot" });
-    @export(&vt_surface.commitVtSurface, .{ .name = "howl_render_text_session_commit_vt_surface" });
-    @export(&vt_surface.rejectVtSurface, .{ .name = "howl_render_text_session_reject_vt_surface" });
-    @export(&vt_surface.cancelVtSurface, .{ .name = "howl_render_text_session_cancel_vt_surface" });
+    @export(&vt_surface.publishVtSurface, .{ .name = "howl_render_text_session_publish_vt_surface" });
     @export(&prepared_surface.prepareHandle, .{ .name = "howl_render_text_session_prepare_handle" });
     @export(&prepare_request.takePrepareRequest, .{ .name = "howl_render_text_session_take_prepare_request" });
     @export(&submission.takeSubmitHandle, .{ .name = "howl_render_text_session_take_submit_handle" });

@@ -1,6 +1,5 @@
 const std = @import("std");
 const text_session = @import("text.zig");
-const source_cell = @import("../tv_surface/cell.zig");
 const source_vt = @import("../tv_surface/vt.zig");
 const prepared_handle = @import("../prepared/handle.zig");
 const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
@@ -75,23 +74,11 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expect(initial_geometry.changed);
     try std.testing.expectEqual(@as(u64, 1), initial_geometry.geometry_epoch);
 
-    {
-        const slot = try owner.reserveVtSurfaceSlot(1, 1);
-        slot.cells[0] = std.mem.zeroes(source_vt.SourceCell);
-        slot.cells[0].codepoint = 'A';
-        slot.dirty_rows[0] = 1;
-        slot.dirty_cols_start[0] = 0;
-        slot.dirty_cols_end[0] = 0;
-    }
-    const first_publish = try owner.commitVtSurface(.{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(source_cell.CursorInfo),
-        .colors = std.mem.zeroes(source_vt.SourceColors),
-        .selection = std.mem.zeroes(source_vt.SourceSelection),
-    });
+    var first_cells = [_]source_vt.SourceCell{testCell('A')};
+    var first_dirty_rows = [_]u8{1};
+    var first_dirty_cols_start = [_]u16{0};
+    var first_dirty_cols_end = [_]u16{0};
+    const first_publish = try owner.publishVtSurface(support.validVtSurfaceResult(1, 1, 1, &first_cells, &first_dirty_rows, &first_dirty_cols_start, &first_dirty_cols_end));
     try std.testing.expect(first_publish.published);
     try std.testing.expect(first_publish.queued);
     try std.testing.expectEqual(@as(u64, 1), first_publish.geometry_epoch);
@@ -111,23 +98,11 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expect(resized_geometry.changed);
     try std.testing.expect(resized_geometry.geometry_epoch > old_request.token.geometry_epoch);
 
-    {
-        const slot = try owner.reserveVtSurfaceSlot(1, 1);
-        slot.cells[0] = std.mem.zeroes(source_vt.SourceCell);
-        slot.cells[0].codepoint = 'A';
-        slot.dirty_rows[0] = 1;
-        slot.dirty_cols_start[0] = 0;
-        slot.dirty_cols_end[0] = 0;
-    }
-    const resized_publish = try owner.commitVtSurface(.{
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 2,
-        .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(source_cell.CursorInfo),
-        .colors = std.mem.zeroes(source_vt.SourceColors),
-        .selection = std.mem.zeroes(source_vt.SourceSelection),
-    });
+    var resized_cells = [_]source_vt.SourceCell{testCell('A')};
+    var resized_dirty_rows = [_]u8{1};
+    var resized_dirty_cols_start = [_]u16{0};
+    var resized_dirty_cols_end = [_]u16{0};
+    const resized_publish = try owner.publishVtSurface(support.validVtSurfaceResult(2, 1, 1, &resized_cells, &resized_dirty_rows, &resized_dirty_cols_start, &resized_dirty_cols_end));
     try std.testing.expect(resized_publish.published);
     try std.testing.expect(resized_publish.queued);
     try std.testing.expectEqual(tokens.DamageKind.full, resized_publish.damage_kind);
@@ -146,6 +121,12 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expectEqual(tokens.DamageKind.full, resized_request.token.damage_kind);
     try std.testing.expectEqual(@as(u64, 0), resized_request.token.damage_base_seq);
     try std.testing.expect(!resized_request.allow_retained_reuse);
+}
+
+fn testCell(codepoint: u21) source_vt.SourceCell {
+    var cell = std.mem.zeroes(source_vt.SourceCell);
+    cell.codepoint = codepoint;
+    return cell;
 }
 
 test "surface text owner rejects partial rdr_sfc handle with wrong submitted base" {
