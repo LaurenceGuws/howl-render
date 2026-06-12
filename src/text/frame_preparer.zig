@@ -1112,6 +1112,52 @@ test "text preparation publication non inverse indexed ascii stays on direct nor
     try std.testing.expectEqual(colors.palette[5].b, analysis.scene.scene.background_draws[0].color.b);
 }
 
+test "text preparation publication zero codepoint stays on direct normal path without sprite draw" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{testPublicationCell(0)};
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.raster_plan.outputs));
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.background_draws));
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
+    try std.testing.expectEqual(colors.background.r, analysis.scene.scene.background_draws[0].color.r);
+    try std.testing.expectEqual(colors.background.g, analysis.scene.scene.background_draws[0].color.g);
+    try std.testing.expectEqual(colors.background.b, analysis.scene.scene.background_draws[0].color.b);
+}
+
+test "text preparation publication styled indexed zero codepoint stays on direct normal path" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{testPublicationCell(0)};
+    cells[0].fg_color = .{ .kind = 1, .value = 2 };
+    cells[0].bg_color = .{ .kind = 1, .value = 3 };
+    cells[0].attrs = .{ .bold = 1, .dim = 1, .italic = 1, .underline = 1, .underline_color_set = 0, .blink = 1, .inverse = 1, .invisible = 0, .strikethrough = 0, .selected = 0 };
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.background_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.decoration_draws));
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
+    try std.testing.expectEqual(colors.palette[2].r, analysis.scene.scene.background_draws[0].color.r);
+    try std.testing.expectEqual(colors.palette[2].g, analysis.scene.scene.background_draws[0].color.g);
+    try std.testing.expectEqual(colors.palette[2].b, analysis.scene.scene.background_draws[0].color.b);
+    try std.testing.expectEqual(colors.palette[3].r, analysis.scene.scene.decoration_draws[0].color.r);
+    try std.testing.expectEqual(colors.palette[3].g, analysis.scene.scene.decoration_draws[0].color.g);
+    try std.testing.expectEqual(colors.palette[3].b, analysis.scene.scene.decoration_draws[0].color.b);
+}
+
 test "text preparation publication unsupported space and rgb keep fallback scratch clean" {
     var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
@@ -1129,6 +1175,41 @@ test "text preparation publication unsupported space and rgb keep fallback scrat
     try std.testing.expectEqual(@as(u8, 0x12), analysis.scene.scene.sprite_draws[0].color.r);
     try std.testing.expectEqual(@as(u8, 0x34), analysis.scene.scene.sprite_draws[0].color.g);
     try std.testing.expectEqual(@as(u8, 0x56), analysis.scene.scene.sprite_draws[0].color.b);
+}
+
+test "text preparation publication tab stays on generic fallback without partial direct scratch" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('\t') };
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.raster_plan.outputs));
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
+}
+
+test "text preparation publication other control stays on generic fallback without partial direct scratch" {
+    var engine = try TextFramePreparer.initCapacity(std.testing.allocator, 16);
+    defer engine.deinit();
+    const colors = testPublicationColors();
+    var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell(0x1f) };
+    const source = testOneRowPublicationSource(cells[0..], colors);
+
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, publication_cell_map.themeFromPublicationColors(colors))).?;
+    defer analysis.deinit();
+
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.missing));
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
+    try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
+    try std.testing.expectEqual(@as(u32, 0), analysis.scene.scene.sprite_draws[0].first_cell);
+    try std.testing.expectEqual(@as(u32, 1), analysis.scene.scene.sprite_draws[1].first_cell);
 }
 
 test "text preparation publication unsupported curly falls back without partial direct scratch" {

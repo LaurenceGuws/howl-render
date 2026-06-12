@@ -274,7 +274,7 @@ fn publicationCandidate(cells: []const source_vt.SourceCell, theme: publication_
 }
 
 fn publicationCellSupported(cells: []const source_vt.SourceCell, idx: u32, cell: source_vt.SourceCell) bool {
-    if (cell.codepoint < 0x21 or cell.codepoint >= 0x7f) return false;
+    if (!publicationCodepointSupported(cell.codepoint)) return false;
     if (cell.combining_len != 0) return false;
     if (cell.flags.continuation != 0) return false;
     if (publicationCellSpan(cells, idx) != 1) return false;
@@ -290,7 +290,7 @@ fn publicationCellSupported(cells: []const source_vt.SourceCell, idx: u32, cell:
 }
 
 fn publicationRenderableText(theme: publication_cell_map.FrameTheme, idx: u32, cell: source_vt.SourceCell) cluster.RenderableText {
-    std.debug.assert(cell.codepoint >= 0x21 and cell.codepoint < 0x7f);
+    std.debug.assert(publicationCodepointSupported(cell.codepoint));
     std.debug.assert(cell.combining_len == 0);
     std.debug.assert(cell.flags.continuation == 0);
     std.debug.assert(publicationColorSupported(cell.fg_color));
@@ -326,8 +326,18 @@ fn publicationRenderableText(theme: publication_cell_map.FrameTheme, idx: u32, c
     };
     std.debug.assert(item.text.codepoints.len == 1);
     std.debug.assert(item.text.codepoints[0] == item.text.first_cp);
+    if (cell.codepoint == 0) {
+        std.debug.assert(item.text.first_cp == 0);
+    } else {
+        std.debug.assert(cell.codepoint >= 0x21 and cell.codepoint < 0x7f);
+    }
     std.debug.assert(item.renderable.cell_span == 1);
     return item;
+}
+
+fn publicationCodepointSupported(codepoint: u32) bool {
+    if (codepoint == 0) return true;
+    return codepoint >= 0x21 and codepoint < 0x7f;
 }
 
 fn publicationColorSupported(color: source_vt.SourceColor) bool {
@@ -559,4 +569,45 @@ fn blankText(text: contract.CellText) bool {
         if (cp != 0 and cp != ' ') return false;
     }
     return true;
+}
+
+fn testPublicationCell(codepoint: u32) source_vt.SourceCell {
+    return .{
+        .codepoint = codepoint,
+        .flags = .{ .continuation = 0 },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .underline_color = .{ .kind = 0, .value = 0 },
+        .underline_style = 0,
+        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
+        .link_id = 0,
+    };
+}
+
+fn testPublicationTheme() publication_cell_map.FrameTheme {
+    return publication_cell_map.themeFromPublicationColors(std.mem.zeroes(source_vt.SourceColors));
+}
+
+test "direct normal publication zero codepoint is a fast candidate" {
+    const cells = [_]source_vt.SourceCell{testPublicationCell(0)};
+    const decision = publicationCandidate(cells[0..], testPublicationTheme(), 0, direct_scene.Damage.init(.{}, 1), .{ .cols = 1, .rows = 1 });
+
+    switch (decision) {
+        .candidate => |candidate| {
+            try std.testing.expectEqual(@as(u32, 0), candidate.item.text.first_cp);
+            try std.testing.expectEqual(@as(usize, 1), candidate.item.text.codepoints.len);
+            try std.testing.expectEqual(@as(u32, 0), candidate.item.text.codepoints[0]);
+            try std.testing.expectEqual(lane.RenderableClass.normal, candidate.choice.renderableClass());
+        },
+        else => return error.TestUnexpectedResult,
+    }
+}
+
+test "direct normal publication keeps unsupported non-printables on generic fallback" {
+    const cases = [_]u32{ '\t', 0x1f };
+    for (cases) |codepoint| {
+        const cells = [_]source_vt.SourceCell{testPublicationCell(codepoint)};
+        const decision = publicationCandidate(cells[0..], testPublicationTheme(), 0, direct_scene.Damage.init(.{}, 1), .{ .cols = 1, .rows = 1 });
+        try std.testing.expectEqual(PublicationCandidate.unsupported, decision);
+    }
 }
