@@ -728,7 +728,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 return error.UploadBytesOverflow;
             };
             if (next_bytes_count > limits.upload_bytes_max) return error.UploadBytesOverflow;
-            try copyPreparedSpriteBytes(
+            try sprite_resource_store.copyPreparedSpriteBytes(
                 self.upload_bytes[self.upload_bytes_count..next_bytes_count],
                 upload_stride,
                 sprite,
@@ -966,50 +966,6 @@ fn visualBoundsForDraw(bounds: rasterizer.SpriteBounds, draw: contract.TextSprit
         if (bounds.height_px != 0) return bounds;
     }
     return .{ .x_px = 0, .y_px = 0, .width_px = draw.width_px, .height_px = draw.height_px };
-}
-
-fn copyPreparedSpriteBytes(target: []u8, target_stride: u32, sprite: PreparedSprite, bounds: rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!void {
-    const bytes_per_pixel = sprite_resource_store.bytesPerPixelForPrepared(sprite.color_mode);
-    const source_right = std.math.add(u32, bounds.x_px, width_px) catch {
-        return error.InvalidPreparedSprite;
-    };
-    const source_bottom = std.math.add(u32, bounds.y_px, height_px) catch {
-        return error.InvalidPreparedSprite;
-    };
-    if (source_right > sprite.width_px) return error.InvalidPreparedSprite;
-    if (source_bottom > sprite.height_px) return error.InvalidPreparedSprite;
-    const row_bytes = std.math.mul(u32, width_px, bytes_per_pixel) catch {
-        return error.UploadBytesOverflow;
-    };
-    std.debug.assert(row_bytes <= target_stride);
-    var yy: u16 = 0;
-    while (yy < height_px) : (yy += 1) {
-        const source_y = std.math.add(u32, bounds.y_px, yy) catch {
-            return error.InvalidPreparedSprite;
-        };
-        if (source_y >= sprite.height_px) return error.InvalidPreparedSprite;
-        const source_x_bytes = std.math.mul(u32, bounds.x_px, bytes_per_pixel) catch {
-            return error.InvalidPreparedSprite;
-        };
-        const source_row = std.math.mul(u32, source_y, sprite.stride_bytes) catch {
-            return error.InvalidPreparedSprite;
-        };
-        const source_start = std.math.add(u32, source_row, source_x_bytes) catch {
-            return error.InvalidPreparedSprite;
-        };
-        const source_end = std.math.add(u32, source_start, row_bytes) catch {
-            return error.InvalidPreparedSprite;
-        };
-        if (source_end > sprite.pixels.len) return error.InvalidPreparedSprite;
-        const target_start = std.math.mul(u32, yy, target_stride) catch {
-            return error.UploadBytesOverflow;
-        };
-        const target_end = std.math.add(u32, target_start, row_bytes) catch {
-            return error.UploadBytesOverflow;
-        };
-        if (target_end > target.len) return error.UploadBytesOverflow;
-        @memcpy(target[target_start..target_end], sprite.pixels[source_start..source_end]);
-    }
 }
 
 pub const testing = struct {

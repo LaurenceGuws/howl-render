@@ -520,7 +520,7 @@ fn preparedSpriteBytesEqualStored(stored: []const u8, sprite: PreparedSprite, bo
     return true;
 }
 
-fn copyPreparedSpriteBytes(target: []u8, target_stride: u32, sprite: PreparedSprite, bounds: rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!void {
+pub fn copyPreparedSpriteBytes(target: []u8, target_stride: u32, sprite: PreparedSprite, bounds: rasterizer.SpriteBounds, width_px: u16, height_px: u16) Error!void {
     const source = try preparedSpriteSource(sprite, bounds, width_px, height_px);
     const target_count: u32 = std.math.cast(u32, target.len) orelse return error.InvalidPreparedSprite;
     const required_bytes = std.math.mul(u32, target_stride, height_px) catch {

@@ -164,6 +164,10 @@ pub fn testCell() VtSurfaceCell {
     return .{ .codepoint = 'a', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = std.mem.zeroes(VtSurfaceCellAttrs), .link_id = 0 };
 }
 
+pub fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: text_contract.SpriteColorMode, pixels: []u8, visual_bounds: rasterizer.SpriteBounds) rasterizer.RasterSpriteOutput {
+    return .{ .allocator = allocator, .key = .{ .value = key }, .width_px = width_px, .height_px = height_px, .color_mode = color_mode, .visual_bounds = visual_bounds, .pixels = pixels };
+}
+
 pub fn damageNone() u8 {
     return @intCast(c.HOWL_RENDER_DAMAGE_NONE);
 }

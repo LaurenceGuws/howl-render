@@ -8,6 +8,7 @@ const render_surface_realizer = @import("../geometry/render_surface_realizer.zig
 const text_session = @import("../session/text.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const contract = @import("../text/contract.zig");
+const test_support = @import("../test_support.zig");
 
 const PreparedHandle = prepared_handle.PreparedHandle;
 const RenderSurfaceEmissionFailure = render_surface_emitter.RenderSurfaceEmissionFailure;
@@ -130,7 +131,7 @@ test "render surface prepared owner surface equals kitty dim rgba oracle" {
 
     var sprite_bytes = [_]u8{ 255, 255 };
     var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(21, 0, 0, 2, 1, rgba(255, 0, 0, 102))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 21, 2, 1, .alpha, &sprite_bytes, .{})};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 21, 2, 1, .alpha, &sprite_bytes, .{})};
     var prepared = preparedSurface(.{
         .sprite_draws = &sprite_draws,
         .raster_outputs = &raster_outputs,
@@ -164,7 +165,7 @@ test "prepared handle fresh alpha atlas sprite emits zero uploads on second crea
 
     var sprite_bytes = [_]u8{ 255, 128 };
     var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(22, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 22, 2, 1, .alpha, &sprite_bytes, .{})};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 22, 2, 1, .alpha, &sprite_bytes, .{})};
     var first_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
     var second_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
 
@@ -186,7 +187,7 @@ test "prepared handle fresh persistent color sprite emits zero uploads on second
 
     var sprite_bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(23, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 23, 2, 1, .color, &sprite_bytes, .{})};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 23, 2, 1, .color, &sprite_bytes, .{})};
     var first_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
     var second_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
 
@@ -370,10 +371,6 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
         },
         .render_surface_emission_failure = .none,
     };
-}
-
-fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: contract.SpriteColorMode, pixels: []u8, visual_bounds: rasterizer.SpriteBounds) rasterizer.RasterSpriteOutput {
-    return .{ .allocator = allocator, .key = .{ .value = key }, .width_px = width_px, .height_px = height_px, .color_mode = color_mode, .visual_bounds = visual_bounds, .pixels = pixels };
 }
 
 fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextBackgroundDraw {
