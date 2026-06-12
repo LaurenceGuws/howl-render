@@ -267,60 +267,13 @@ pub const TextSurfacePreparer = struct {
     ) !OwnedPreparedTextSurface {
         var final_prepared = prepared;
         errdefer final_prepared.deinit(self.allocator);
-        var complex = try cluster.selectComplexWithDamageScratch(
-            self.allocator,
-            &self.cluster_scratch,
-            final_prepared.renderable.cells,
-            final_prepared.text_cache.view(),
-            final_prepared.clusters.clusters,
-            grid_metrics,
-            options.scene.damage,
-        );
+        var complex = try self.selectComplexCells(&final_prepared, grid_metrics, options.scene.damage);
         defer complex.deinit();
-        std.debug.assert(@as(u64, @intCast(complex.cells.len)) == final_prepared.lane_report.complex_cells);
-        std.debug.assert(@as(u64, @intCast(complex.clusters.len)) == final_prepared.lane_report.complex_clusters);
 
-        final_prepared.runs = try resolveComplexRuns(self, final_prepared.text_cache.view(), complex.clusters, grid_metrics, session, timings, &final_prepared.lane_report, complex.cells);
-        final_prepared.shaped_runs = try shapeComplexRuns(
-            self,
-            final_prepared.runs.?.runs,
-            final_prepared.text_cache.view(),
-            complex.clusters,
-            session.metrics,
-            timings,
-            &final_prepared.lane_report,
-            complex.cells,
-        );
-        final_prepared.grouped = try groupComplexRuns(
-            self,
-            final_prepared.shaped_runs.?.runs,
-            final_prepared.runs.?.sprite_routes,
-            complex.clusters,
-            session.metrics,
-            timings,
-            &final_prepared.lane_report,
-            final_prepared.text_cache.view(),
-            complex.cells,
-        );
-        const scene_start_ns = monotonicNs();
-        var text_scene = try scene.buildBorrowedSceneWithAtlasCacheOptions(
-            self.allocator,
-            &self.scene_scratch,
-            complex.cells,
-            final_prepared.grouped.?.groups.groups,
-            final_prepared.runs.?.missing,
-            session.metrics,
-            grid_metrics,
-            &self.atlas,
-            options.scene,
-        );
-        timings.scene_us = elapsedUs(scene_start_ns);
+        try self.resolveShapeAndGroupComplex(&final_prepared, complex, grid_metrics, session, timings);
+        var text_scene = try self.buildComplexScene(&final_prepared, complex.cells, grid_metrics, session.metrics, options.scene, timings);
         errdefer text_scene.deinit();
-        for (text_scene.scene.sprite_draws) |draw| final_prepared.lane_report.recordLegacySceneSpriteDraw(final_prepared.text_cache.view(), complex.cells, draw);
-
-        const raster_start_ns = monotonicNs();
-        var raster_plan = try rasterizer.rasterizeRequestsWithRasterizer(self.allocator, self.sprite_rasterizer, text_scene.scene.raster_requests);
-        timings.raster_us = elapsedUs(raster_start_ns);
+        var raster_plan = try self.rasterizeComplexScene(&text_scene, timings);
         errdefer raster_plan.deinit();
         const complex_sprite_cache_hits = text_scene.scene.sprite_draws.len - text_scene.scene.raster_requests.len;
 
@@ -328,20 +281,7 @@ pub const TextSurfacePreparer = struct {
         final_prepared.direct.outputs = &.{};
         final_prepared.direct.outputs_owned = false;
 
-        final_prepared.lane_report.assertValid();
-        var counters = prepare_counters.TextPrepareCounters{
-            .cell_texts = final_prepared.lane_report.visible_cells,
-            .clusters = final_prepared.lane_report.normal_clusters + final_prepared.lane_report.complex_clusters,
-            .resolved_runs = @intCast(final_prepared.runs.?.runs.len),
-            .shaped_runs = @intCast(final_prepared.shaped_runs.?.runs.len),
-            .glyph_groups = @intCast(final_prepared.grouped.?.groups.groups.len),
-            .sprite_cache_hits = @intCast((self.direct_normal.sprite_draws.items.len - self.direct_normal.raster_reqs.items.len) + complex_sprite_cache_hits),
-            .sprite_cache_misses = @intCast(self.direct_normal.raster_reqs.items.len + text_scene.scene.raster_requests.len),
-            .rasterized_sprites = @intCast(merged.raster_plan.outputs.len),
-            .missing_glyphs = @intCast(merged.scene.scene.missing.len),
-        };
-        for (final_prepared.shaped_runs.?.runs) |run| counters.shaped_glyphs += @intCast(run.glyphs.len);
-        applyCounters(&self.counters, counters);
+        self.applyComplexCounters(&final_prepared, &text_scene, &merged, complex_sprite_cache_hits);
         final_prepared.deinit(self.allocator);
 
         return .{
@@ -349,6 +289,89 @@ pub const TextSurfacePreparer = struct {
             .raster_plan = merged.raster_plan,
             .timings = timings.*,
         };
+    }
+
+    fn selectComplexCells(self: *TextSurfacePreparer, prepared: *const PreparedComplexSurface, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) !cluster.ComplexSelection {
+        var complex = try cluster.selectComplexWithDamageScratch(
+            self.allocator,
+            &self.cluster_scratch,
+            prepared.renderable.cells,
+            prepared.text_cache.view(),
+            prepared.clusters.clusters,
+            grid_metrics,
+            damage,
+        );
+        errdefer complex.deinit();
+        std.debug.assert(@as(u64, @intCast(complex.cells.len)) == prepared.lane_report.complex_cells);
+        std.debug.assert(@as(u64, @intCast(complex.clusters.len)) == prepared.lane_report.complex_clusters);
+        return complex;
+    }
+
+    fn resolveShapeAndGroupComplex(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, complex: cluster.ComplexSelection, grid_metrics: contract.GridMetrics, session: font_session.FontSession, timings: *PrepareTimings) !void {
+        prepared.runs = try resolveComplexRuns(self, prepared.text_cache.view(), complex.clusters, grid_metrics, session, timings, &prepared.lane_report, complex.cells);
+        prepared.shaped_runs = try shapeComplexRuns(
+            self,
+            prepared.runs.?.runs,
+            prepared.text_cache.view(),
+            complex.clusters,
+            session.metrics,
+            timings,
+            &prepared.lane_report,
+            complex.cells,
+        );
+        prepared.grouped = try groupComplexRuns(
+            self,
+            prepared.shaped_runs.?.runs,
+            prepared.runs.?.sprite_routes,
+            complex.clusters,
+            session.metrics,
+            timings,
+            &prepared.lane_report,
+            prepared.text_cache.view(),
+            complex.cells,
+        );
+    }
+
+    fn buildComplexScene(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, cell_metrics: contract.CellMetrics, options: scene.BuildOptions, timings: *PrepareTimings) !scene.BorrowedTextScene {
+        const scene_start_ns = monotonicNs();
+        const text_scene = try scene.buildBorrowedSceneWithAtlasCacheOptions(
+            self.allocator,
+            &self.scene_scratch,
+            cells,
+            prepared.grouped.?.groups.groups,
+            prepared.runs.?.missing,
+            cell_metrics,
+            grid_metrics,
+            &self.atlas,
+            options,
+        );
+        timings.scene_us = elapsedUs(scene_start_ns);
+        for (text_scene.scene.sprite_draws) |draw| prepared.lane_report.recordLegacySceneSpriteDraw(prepared.text_cache.view(), cells, draw);
+        return text_scene;
+    }
+
+    fn rasterizeComplexScene(self: *TextSurfacePreparer, text_scene: *const scene.BorrowedTextScene, timings: *PrepareTimings) !rasterizer.OwnedRasterPlan {
+        const raster_start_ns = monotonicNs();
+        const raster_plan = try rasterizer.rasterizeRequestsWithRasterizer(self.allocator, self.sprite_rasterizer, text_scene.scene.raster_requests);
+        timings.raster_us = elapsedUs(raster_start_ns);
+        return raster_plan;
+    }
+
+    fn applyComplexCounters(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, text_scene: *const scene.BorrowedTextScene, merged: *const PreparedSceneMerge, complex_sprite_cache_hits: usize) void {
+        prepared.lane_report.assertValid();
+        var counters = prepare_counters.TextPrepareCounters{
+            .cell_texts = prepared.lane_report.visible_cells,
+            .clusters = prepared.lane_report.normal_clusters + prepared.lane_report.complex_clusters,
+            .resolved_runs = @intCast(prepared.runs.?.runs.len),
+            .shaped_runs = @intCast(prepared.shaped_runs.?.runs.len),
+            .glyph_groups = @intCast(prepared.grouped.?.groups.groups.len),
+            .sprite_cache_hits = @intCast((self.direct_normal.sprite_draws.items.len - self.direct_normal.raster_reqs.items.len) + complex_sprite_cache_hits),
+            .sprite_cache_misses = @intCast(self.direct_normal.raster_reqs.items.len + text_scene.scene.raster_requests.len),
+            .rasterized_sprites = @intCast(merged.raster_plan.outputs.len),
+            .missing_glyphs = @intCast(merged.scene.scene.missing.len),
+        };
+        for (prepared.shaped_runs.?.runs) |run| counters.shaped_glyphs += @intCast(run.glyphs.len);
+        applyCounters(&self.counters, counters);
     }
 
     fn mergePreparedScene(
