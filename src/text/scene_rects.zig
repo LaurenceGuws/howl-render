@@ -60,12 +60,15 @@ pub fn countClearDraws(grid_metrics: contract.GridMetrics, damage: scene_damage.
 pub fn countCursorDraws(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
     const cursor_value = cursor orelse return 0;
     if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
-    return @intCast(cursorDrawCount(cursor_value.shape));
+    return cursorDrawCount(cursor_value.shape);
+}
+
+pub fn cursorDrawCount(shape: anytype) usize {
+    return @intCast(cursorDrawCountExact(shape));
 }
 
 pub fn countRectDecorationDraws(cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
-    const font_metrics = defaultFontMetrics(cell_metrics);
-    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const deco = decorationGeometryForCellMetrics(cell_metrics);
     var count: usize = 0;
     for (cells) |cell| {
         if (classifyDecorationLead(damage, grid_metrics, cell) != .draw) continue;
@@ -219,16 +222,19 @@ pub fn appendCursorDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.TextCurs
 }
 
 pub fn cursorDraws(allocator: std.mem.Allocator, cursor: anytype, cell_metrics: contract.CellMetrics) ![]contract.TextCursorDraw {
-    const count = cursorDrawCount(cursor.shape);
+    const count = cursorDrawCountExact(cursor.shape);
     const draws = try allocator.alloc(contract.TextCursorDraw, @intCast(count));
     errdefer allocator.free(draws);
     _ = cursorDrawRects(draws, cursor, cell_metrics);
     return draws;
 }
 
+pub fn decorationGeometryForCellMetrics(cell_metrics: contract.CellMetrics) contract.DecorationGeometry {
+    return decorationGeometry(cell_metrics, defaultFontMetrics(cell_metrics));
+}
+
 pub fn appendRectDecorationDraws(comptime underline_color_fn: fn (contract.RenderableCell) contract.Rgba8, comptime text_color_fn: fn (contract.RenderableCell) contract.Rgba8, allocator: std.mem.Allocator, out: *std.ArrayList(contract.TextDecorationDraw), cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) !void {
-    const font_metrics = defaultFontMetrics(cell_metrics);
-    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const deco = decorationGeometryForCellMetrics(cell_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     for (cells) |cell| {
         if (classifyDecorationLead(damage, grid_metrics, cell) != .draw) continue;
@@ -243,8 +249,7 @@ pub fn appendRectDecorationDraws(comptime underline_color_fn: fn (contract.Rende
 }
 
 pub fn appendRectDecorationDrawsUnmanaged(comptime underline_color_fn: fn (contract.RenderableCell) contract.Rgba8, comptime text_color_fn: fn (contract.RenderableCell) contract.Rgba8, out: *std.ArrayListUnmanaged(contract.TextDecorationDraw), cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) void {
-    const font_metrics = defaultFontMetrics(cell_metrics);
-    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const deco = decorationGeometryForCellMetrics(cell_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     for (cells) |cell| {
         if (classifyDecorationLead(damage, grid_metrics, cell) != .draw) continue;
@@ -411,7 +416,7 @@ fn underlineSteppedCadence(width_px: u16, height_px: u16, style: contract.Underl
 }
 
 fn cursorDrawRects(out: []contract.TextCursorDraw, cursor: anytype, cell_metrics: contract.CellMetrics) []const contract.TextCursorDraw {
-    const count = cursorDrawCount(cursor.shape);
+    const count = cursorDrawCountExact(cursor.shape);
     std.debug.assert(out.len >= count);
 
     const base_x: i32 = @as(i32, @intCast(cursor.cell_col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
@@ -434,12 +439,12 @@ fn cursorDrawRects(out: []contract.TextCursorDraw, cursor: anytype, cell_metrics
     return out[0..count];
 }
 
-fn cursorDrawCount(shape: anytype) CursorDrawCount {
+fn cursorDrawCountExact(shape: anytype) CursorDrawCount {
     return if (shape == .hollow_block) 4 else 1;
 }
 
 fn assertCursorDrawCount(draw_count: usize, shape: anytype) void {
-    std.debug.assert(draw_count == cursorDrawCount(shape));
+    std.debug.assert(draw_count == cursorDrawCountExact(shape));
 }
 
 fn defaultFontMetrics(cell_metrics: contract.CellMetrics) contract.FontMetrics {

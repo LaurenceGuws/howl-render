@@ -23,8 +23,6 @@ pub const CursorShape = enum {
 const kitty_dim_opacity_numerator: u16 = 2;
 const kitty_dim_opacity_denominator: u16 = 5;
 
-const CursorDrawCount = u3;
-
 pub const CursorInput = struct {
     cell_col: u16,
     cell_row: u16,
@@ -352,10 +350,6 @@ fn countCurlyUnderlineSprites(cells: []const contract.RenderableCell, grid_metri
     return count;
 }
 
-fn countUnderlineDecorationDraws(width_px: u16, height_px: u16, style: contract.UnderlineStyle) usize {
-    return scene_rects.countUnderlineDecorationDraws(width_px, height_px, style);
-}
-
 fn classifyIconSpan(group: contract.GlyphGroup, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, next_group_cell: ?u32) IconSpan {
     if (group.kind != .icon) return .keep_kind;
     if (cell_metrics.cell_w_px == 0) return .keep_zero_width;
@@ -433,52 +427,8 @@ fn appendGroupSpriteDraws(
     }
 }
 
-pub fn cursorDraws(allocator: std.mem.Allocator, cursor: CursorInput, cell_metrics: contract.CellMetrics) ![]contract.TextCursorDraw {
-    return scene_rects.cursorDraws(allocator, cursor, cell_metrics);
-}
-
-pub fn appendBackgroundDrawsUnmanaged(
-    out: *std.ArrayListUnmanaged(contract.TextBackgroundDraw),
-    cells: []const contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: scene_damage.NormalizedDamage,
-) void {
-    scene_rects.appendBackgroundDrawsUnmanaged(out, cells, cell_metrics, grid_metrics, damage);
-}
-
-pub fn appendClearDrawsUnmanaged(
-    out: *std.ArrayListUnmanaged(contract.TextClearDraw),
-    cells: []const contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: scene_damage.NormalizedDamage,
-) void {
-    scene_rects.appendClearDrawsUnmanaged(out, cells, cell_metrics, grid_metrics, damage);
-}
-
-pub fn appendCursorDrawsUnmanaged(
-    out: *std.ArrayListUnmanaged(contract.TextCursorDraw),
-    cursor: ?CursorInput,
-    damage: scene_damage.NormalizedDamage,
-    cell_metrics: contract.CellMetrics,
-) void {
-    scene_rects.appendCursorDrawsUnmanaged(out, cursor, damage, cell_metrics);
-}
-
-pub fn appendDecorationDrawsUnmanaged(
-    out: *std.ArrayListUnmanaged(contract.TextDecorationDraw),
-    cells: []const contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
-    damage: scene_damage.NormalizedDamage,
-) void {
-    scene_rects.appendRectDecorationDrawsUnmanaged(underlineDrawColor, spriteDrawColor, out, cells, cell_metrics, grid_metrics, damage);
-}
-
 fn appendCurlyUnderlineSprites(assembly: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) !void {
-    const font_metrics = defaultFontMetrics(cell_metrics);
-    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     for (cells) |cell| {
         if (cell.continuation) continue;
@@ -564,14 +514,6 @@ fn desiredIconCells(group: contract.GlyphGroup, cell_w: u16) u8 {
     const advance = @max(group.placement.advance_px, @as(f32, @floatFromInt(cell_w)));
     const raw = @as(u32, @intFromFloat(std.math.ceil(advance / @as(f32, @floatFromInt(cell_w)))));
     return @intCast(std.math.clamp(raw, @as(u32, @max(group.cell_span, 1)), @as(u32, max_cells)));
-}
-
-fn cursorDrawCount(shape: CursorShape) CursorDrawCount {
-    return if (shape == .hollow_block) 4 else 1;
-}
-
-fn assertCursorDrawCount(draw_count: usize, shape: CursorShape) void {
-    std.debug.assert(draw_count == cursorDrawCount(shape));
 }
 
 fn count32(items: anytype) u32 {
@@ -699,16 +641,18 @@ test "scene emits explicit clears for transparent default backgrounds on partial
 test "scene cursor draws emit shared cursor geometry" {
     const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cell_metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
-    const underline = try cursorDraws(std.testing.allocator, .{ .cell_col = 2, .cell_row = 1, .shape = .underline, .color = color }, cell_metrics);
+    const underline_cursor: CursorInput = .{ .cell_col = 2, .cell_row = 1, .shape = .underline, .color = color };
+    const underline = try scene_rects.cursorDraws(std.testing.allocator, underline_cursor, cell_metrics);
     defer std.testing.allocator.free(underline);
-    try std.testing.expectEqual(@as(u32, cursorDrawCount(.underline)), count32(underline));
+    try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.underline))), count32(underline));
     try std.testing.expectEqual(@as(i32, 16), underline[0].x_px);
     try std.testing.expectEqual(@as(u16, 8), underline[0].width_px);
     try std.testing.expectEqual(color.r, underline[0].color.r);
 
-    const hollow = try cursorDraws(std.testing.allocator, .{ .cell_col = 0, .cell_row = 0, .shape = .hollow_block, .color = color }, cell_metrics);
+    const hollow_cursor: CursorInput = .{ .cell_col = 0, .cell_row = 0, .shape = .hollow_block, .color = color };
+    const hollow = try scene_rects.cursorDraws(std.testing.allocator, hollow_cursor, cell_metrics);
     defer std.testing.allocator.free(hollow);
-    try std.testing.expectEqual(@as(u32, cursorDrawCount(.hollow_block)), count32(hollow));
+    try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.hollow_block))), count32(hollow));
 }
 
 test "scene build options include cursor draws" {
@@ -717,7 +661,7 @@ test "scene build options include cursor draws" {
         .cursor = .{ .cell_col = 3, .cell_row = 2, .shape = .beam, .color = color },
     });
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, cursorDrawCount(.beam)), count32(owned.scene.cursor_draws));
+    try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.beam))), count32(owned.scene.cursor_draws));
     try std.testing.expectEqual(@as(i32, 24), owned.scene.cursor_draws[0].x_px);
     try std.testing.expectEqual(@as(i32, 32), owned.scene.cursor_draws[0].y_px);
     try std.testing.expectEqual(color.g, owned.scene.cursor_draws[0].color.g);
@@ -796,8 +740,7 @@ test "scene merges contiguous straight underline spans" {
 test "scene double underline count and geometry stay aligned" {
     const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cell_metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 };
-    const font_metrics = defaultFontMetrics(cell_metrics);
-    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
     const cells = [_]contract.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
@@ -812,7 +755,7 @@ test "scene double underline count and geometry stay aligned" {
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 2, .rows = 1 }, .{});
     defer owned.deinit();
 
-    try std.testing.expectEqual(@as(usize, 2), countUnderlineDecorationDraws(cell_metrics.cell_w_px * 2, deco.underline_h_px, .double));
+    try std.testing.expectEqual(@as(usize, 2), scene_rects.countUnderlineDecorationDraws(cell_metrics.cell_w_px * 2, deco.underline_h_px, .double));
     try std.testing.expectEqual(@as(u32, 2), count32(owned.scene.decoration_draws));
     try std.testing.expectEqual(contract.DecorationKind.underline, owned.scene.decoration_draws[0].kind);
     try std.testing.expectEqual(contract.DecorationKind.underline, owned.scene.decoration_draws[1].kind);
@@ -849,8 +792,7 @@ test "scene emits undercurl sprite for curly underline" {
 test "scene dotted underline geometry stays aligned with counted capacity" {
     const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cell_metrics = contract.CellMetrics{ .cell_w_px = 9, .cell_h_px = 16, .baseline_px = 13 };
-    const font_metrics = defaultFontMetrics(cell_metrics);
-    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
     const cells = [_]contract.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
@@ -866,7 +808,7 @@ test "scene dotted underline geometry stays aligned with counted capacity" {
     defer owned.deinit();
 
     const width_px: u16 = cell_metrics.cell_w_px * 2;
-    try std.testing.expectEqual(countUnderlineDecorationDraws(width_px, deco.underline_h_px, .dotted), owned.scene.decoration_draws.len);
+    try std.testing.expectEqual(scene_rects.countUnderlineDecorationDraws(width_px, deco.underline_h_px, .dotted), owned.scene.decoration_draws.len);
     try std.testing.expectEqual(@as(u32, 9), count32(owned.scene.decoration_draws));
     for (owned.scene.decoration_draws, 0..) |draw, index| {
         try std.testing.expectEqual(contract.DecorationKind.underline_dotted, draw.kind);
@@ -880,8 +822,7 @@ test "scene dotted underline geometry stays aligned with counted capacity" {
 test "scene dashed underline geometry stays aligned with counted capacity" {
     const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cell_metrics = contract.CellMetrics{ .cell_w_px = 17, .cell_h_px = 16, .baseline_px = 13 };
-    const font_metrics = defaultFontMetrics(cell_metrics);
-    const deco = decorationGeometry(cell_metrics, font_metrics);
+    const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
     const cells = [_]contract.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
@@ -896,7 +837,7 @@ test "scene dashed underline geometry stays aligned with counted capacity" {
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 1, .rows = 1 }, .{});
     defer owned.deinit();
 
-    try std.testing.expectEqual(countUnderlineDecorationDraws(cell_metrics.cell_w_px, deco.underline_h_px, .dashed), owned.scene.decoration_draws.len);
+    try std.testing.expectEqual(scene_rects.countUnderlineDecorationDraws(cell_metrics.cell_w_px, deco.underline_h_px, .dashed), owned.scene.decoration_draws.len);
     try std.testing.expectEqual(@as(u32, 3), count32(owned.scene.decoration_draws));
     try std.testing.expectEqual(contract.DecorationKind.underline_dashed, owned.scene.decoration_draws[0].kind);
     try std.testing.expectEqual(@as(i32, 0), owned.scene.decoration_draws[0].x_px);
@@ -1104,39 +1045,4 @@ test "text scene applies kitty dim opacity at render-time for sprite draws" {
     try std.testing.expectEqual(transparent_bg.g, owned.scene.clear_draws[0].color.g);
     try std.testing.expectEqual(transparent_bg.b, owned.scene.clear_draws[0].color.b);
     try std.testing.expectEqual(@as(u8, 255), owned.scene.clear_draws[0].color.a);
-}
-
-fn defaultFontMetrics(cell_metrics: contract.CellMetrics) contract.FontMetrics {
-    const thickness: f32 = @floatFromInt(scaledDecorationThickness(cell_metrics.cell_h_px));
-    const baseline: f32 = @floatFromInt(cell_metrics.baseline_px);
-    return .{
-        .ascent_px = baseline,
-        .descent_px = @floatFromInt(@as(i32, cell_metrics.cell_h_px) - @as(i32, cell_metrics.baseline_px)),
-        .line_gap_px = 0,
-        .underline_pos_px = baseline + thickness,
-        .underline_thickness_px = thickness,
-        .strikethrough_pos_px = baseline / 2.0,
-        .strikethrough_thickness_px = thickness,
-    };
-}
-
-fn decorationGeometry(cell_metrics: contract.CellMetrics, font_metrics: contract.FontMetrics) contract.DecorationGeometry {
-    return .{
-        .underline_y_px = std.math.clamp(@as(i32, @intFromFloat(@round(font_metrics.underline_pos_px))), 0, @as(i32, @intCast(cell_metrics.cell_h_px - 1))),
-        .underline_h_px = @max(@as(u16, @intFromFloat(@round(font_metrics.underline_thickness_px))), 1),
-        .strikethrough_y_px = std.math.clamp(@as(i32, @intFromFloat(@round(font_metrics.strikethrough_pos_px))), 0, @as(i32, @intCast(cell_metrics.cell_h_px - 1))),
-        .strikethrough_h_px = @max(@as(u16, @intFromFloat(@round(font_metrics.strikethrough_thickness_px))), 1),
-    };
-}
-
-fn cursorGeometry(cell_metrics: contract.CellMetrics) contract.CursorGeometry {
-    return .{
-        .beam_w_px = @max(cell_metrics.cell_w_px / 8, 1),
-        .underline_h_px = scaledDecorationThickness(cell_metrics.cell_h_px),
-        .hollow_stroke_px = 2,
-    };
-}
-
-fn scaledDecorationThickness(cell_h_px: u16) u16 {
-    return @intCast(@max(@divTrunc(@as(u32, @max(cell_h_px, 1)) + 15, 16), 1));
 }
