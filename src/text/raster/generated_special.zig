@@ -2,6 +2,7 @@ const std = @import("std");
 const contract = @import("../contract.zig");
 const special_glyphs = @import("../special_glyphs.zig");
 const special_box = @import("special_box.zig");
+const special_powerline = @import("special_powerline.zig");
 
 pub fn rasterizeGeneratedSpecialAlpha(pixels: []u8, width_px: u16, height_px: u16, codepoint: u32) bool {
     return rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width_px, height_px, codepoint, generatedSpecialMetrics(width_px, height_px));
@@ -34,8 +35,8 @@ fn boxDrawingRasterMetrics(cell_metrics: contract.CellMetrics) contract.BoxDrawi
 fn rasterizeSupportedGeneratedSpecialAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: contract.BoxDrawingRasterMetrics, family: GeneratedSpecialFamily) void {
     switch (family) {
         .box => special_box.rasterizeGeneratedBoxAlpha(pixels, width, height, codepoint, box_drawing),
-        .powerline => rasterizeGeneratedPowerlineAlpha(pixels, width, height, codepoint, box_drawing),
-        .powerline_triangle => rasterizeGeneratedPowerlineTriangleAlpha(pixels, width, height, codepoint),
+        .powerline => special_powerline.rasterizeGeneratedPowerlineAlpha(pixels, width, height, codepoint, box_drawing),
+        .powerline_triangle => special_powerline.rasterizeGeneratedPowerlineTriangleAlpha(pixels, width, height, codepoint),
         .block => rasterizeGeneratedBlockAlpha(pixels, width, height, codepoint),
         .eight_bar => rasterizeGeneratedEightBarAlpha(pixels, width, height, codepoint),
         .smooth_mosaic => rasterizeGeneratedSmoothMosaicAlpha(pixels, width, height, codepoint),
@@ -84,26 +85,6 @@ fn generatedSpecialFamily(codepoint: u32) ?GeneratedSpecialFamily {
     };
 }
 
-fn rasterizeGeneratedPowerlineAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: contract.BoxDrawingRasterMetrics) void {
-    switch (codepoint) {
-        0xe0b0 => rasterizePowerlineTriangle(pixels, width, height, true, false),
-        0xe0b2 => rasterizePowerlineTriangle(pixels, width, height, false, false),
-        0xe0b1 => rasterizePowerlineHalfDiagonal(pixels, width, height, true, box_drawing),
-        0xe0b3 => rasterizePowerlineHalfDiagonal(pixels, width, height, false, box_drawing),
-        0xe0b4 => rasterizePowerlineD(pixels, width, height, true, true, box_drawing),
-        0xe0b6 => rasterizePowerlineD(pixels, width, height, false, true, box_drawing),
-        0xe0b5 => rasterizePowerlineD(pixels, width, height, true, false, box_drawing),
-        0xe0b7 => rasterizePowerlineD(pixels, width, height, false, false, box_drawing),
-        0xe0b8 => rasterizePowerlineCornerTriangle(pixels, width, height, .bottom_left),
-        0xe0b9, 0xe0bf => special_box.rasterizeCrossLine(pixels, width, height, true, box_drawing),
-        0xe0ba => rasterizePowerlineCornerTriangle(pixels, width, height, .bottom_right),
-        0xe0bb, 0xe0bd => special_box.rasterizeCrossLine(pixels, width, height, false, box_drawing),
-        0xe0bc => rasterizePowerlineCornerTriangle(pixels, width, height, .top_left),
-        0xe0be => rasterizePowerlineCornerTriangle(pixels, width, height, .top_right),
-        else => unreachable,
-    }
-}
-
 fn rasterizeGeneratedBlockAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32) void {
     switch (codepoint) {
         0x2580...0x259f => rasterizeBlockElementAlpha(pixels, width, height, codepoint),
@@ -133,9 +114,9 @@ fn rasterizeEightBarAlpha(pixels: []u8, width: u16, height: u16, which: u8, hori
     }
 }
 
-const Range = struct { start: u16, end: u16 };
+pub const Range = struct { start: u16, end: u16 };
 
-fn eighthPartitionRange(size: u16, which: u16) Range {
+pub fn eighthPartitionRange(size: u16, which: u16) Range {
     const thickness = @max(@as(u16, 1), size / 8);
     const block = thickness * 8;
     if (block == size) return .{ .start = thickness * which, .end = thickness * (@as(u16, which) + 1) };
@@ -179,14 +160,6 @@ fn generatedOctantPattern(codepoint: u32) ?u8 {
         0x1fbe7 => 0xe7,
         else => null,
     };
-}
-
-fn rasterizeGeneratedPowerlineTriangleAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32) void {
-    switch (codepoint) {
-        0xe0d6 => rasterizePowerlineTriangle(pixels, width, height, false, false),
-        0xe0d7 => rasterizePowerlineTriangle(pixels, width, height, true, false),
-        else => unreachable,
-    }
 }
 
 fn rasterizeGeneratedSmoothMosaicAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32) void {
@@ -987,97 +960,11 @@ fn fillShade(pixels: []u8, width: u16, height: u16, density: ShadeDensity) void 
     fillRectAlpha(pixels, width, 0, 0, width, height, alpha);
 }
 
-fn rasterizePowerlineTriangle(pixels: []u8, width: u16, height: u16, left: bool, inverted: bool) void {
-    const x1: f64 = if (left) 0 else @floatFromInt(width - 1);
-    const x2: f64 = if (left) @floatFromInt(width - 1) else 0;
-    const y_mid = @as(f64, @floatFromInt(height - 1)) / 2.0;
-    var y: u16 = 0;
-    while (y < height) : (y += 1) {
-        var x: u16 = 0;
-        while (x < width) : (x += 1) {
-            const coverage = supersampledTriangleCoverage(x, y, .{ .x1 = x1, .x2 = x2, .y_mid = y_mid, .height = height, .inverted = inverted });
-            if (coverage != 0) pixels[pixelOffset(width, x, y)] = coverage;
-        }
-    }
-}
-
-fn rasterizePowerlineHalfDiagonal(pixels: []u8, width: u16, height: u16, left: bool, box_drawing: contract.BoxDrawingRasterMetrics) void {
-    const mid = @as(f64, @floatFromInt(height - 1)) / 2.0;
-    const line_w = @as(f64, @floatFromInt(@max(box_drawing.light_stroke_px, 1)));
-    if (left) {
-        drawLineAlpha(pixels, width, height, 0, 0, @floatFromInt(width - 1), mid, line_w);
-        drawLineAlpha(pixels, width, height, @floatFromInt(width - 1), mid, 0, @floatFromInt(height - 1), line_w);
-    } else {
-        drawLineAlpha(pixels, width, height, @floatFromInt(width - 1), 0, 0, mid, line_w);
-        drawLineAlpha(pixels, width, height, 0, mid, @floatFromInt(width - 1), @floatFromInt(height - 1), line_w);
-    }
-}
-
-fn rasterizePowerlineD(pixels: []u8, width: u16, height: u16, left: bool, filled: bool, box_drawing: contract.BoxDrawingRasterMetrics) void {
-    if (filled) {
-        rasterizePowerlineFilledD(pixels, width, height, left);
-    } else {
-        rasterizePowerlineRoundedD(pixels, width, height, left, box_drawing);
-    }
-}
-
-const PointF = struct { x: f64, y: f64 };
-const CubicBezier = struct {
-    start: PointF,
-    c1: PointF,
-    c2: PointF,
-    end: PointF,
-};
-
-fn rasterizePowerlineFilledD(pixels: []u8, width: u16, height: u16, left: bool) void {
-    const max_x = findBezierControlX(width, height);
-    const bottom: f64 = @floatFromInt(height);
-    const cb = CubicBezier{
-        .start = .{ .x = 0, .y = 0 },
-        .c1 = .{ .x = @floatFromInt(max_x), .y = 0 },
-        .c2 = .{ .x = @floatFromInt(max_x), .y = bottom },
-        .end = .{ .x = 0, .y = bottom },
-    };
-
-    var y: u16 = 0;
-    while (y < height) : (y += 1) {
-        var x: u16 = 0;
-        while (x < width) : (x += 1) {
-            const coverage = supersampledFilledDCoverage(x, y, .{ .cb = cb, .width = width, .left = left });
-            if (coverage != 0) pixels[pixelOffset(width, x, y)] = coverage;
-        }
-    }
-}
-
-const TriangleCoverageCtx = struct { x1: f64, x2: f64, y_mid: f64, height: u16, inverted: bool };
-const FilledDCoverageCtx = struct { cb: CubicBezier, width: u16, left: bool };
+pub const PointF = struct { x: f64, y: f64 };
 const BrailleDotCoverageCtx = struct { cx: f64, cy: f64, rx: f64, ry: f64 };
-
-fn supersampledTriangleCoverage(x: u16, y: u16, ctx: TriangleCoverageCtx) u8 {
-    return supersampledCoverage(x, y, triangleContains, ctx);
-}
-
-fn supersampledFilledDCoverage(x: u16, y: u16, ctx: FilledDCoverageCtx) u8 {
-    return supersampledCoverage(x, y, filledDContains, ctx);
-}
 
 fn supersampledBrailleDotCoverage(x: u16, y: u16, ctx: BrailleDotCoverageCtx) u8 {
     return supersampledCoverage(x, y, brailleDotContains, ctx);
-}
-
-fn triangleContains(px: f64, py: f64, ctx: TriangleCoverageCtx) bool {
-    const upper = lineY(ctx.x1, 0, ctx.x2, ctx.y_mid, px);
-    const lower = lineY(ctx.x1, @floatFromInt(ctx.height - 1), ctx.x2, ctx.y_mid, px);
-    return (py >= upper and py <= lower) != ctx.inverted;
-}
-
-fn filledDContains(px_raw: f64, py: f64, ctx: FilledDCoverageCtx) bool {
-    const px = if (ctx.left) px_raw else @as(f64, @floatFromInt(ctx.width - 1)) - px_raw;
-    const t = findBezierTForX(ctx.cb, px);
-    if (bezierX(ctx.cb, t) > @as(f64, @floatFromInt(ctx.width - 1)) + 0.5) return false;
-    const upper = bezierY(ctx.cb, t);
-    const lower = bezierY(ctx.cb, 1.0 - t);
-    return py >= upper and py <= lower;
 }
 
 fn brailleDotContains(px: f64, py: f64, ctx: BrailleDotCoverageCtx) bool {
@@ -1086,7 +973,7 @@ fn brailleDotContains(px: f64, py: f64, ctx: BrailleDotCoverageCtx) bool {
     return nx * nx + ny * ny <= 1.0;
 }
 
-fn supersampledCoverage(x: u16, y: u16, comptime inside: anytype, ctx: anytype) u8 {
+pub fn supersampledCoverage(x: u16, y: u16, comptime inside: anytype, ctx: anytype) u8 {
     const factor = 4;
     var hits: u16 = 0;
     var sy: u8 = 0;
@@ -1101,110 +988,7 @@ fn supersampledCoverage(x: u16, y: u16, comptime inside: anytype, ctx: anytype) 
     return @intCast((hits * 255 + (factor * factor / 2)) / (factor * factor));
 }
 
-fn rasterizePowerlineRoundedD(pixels: []u8, width: u16, height: u16, left: bool, box_drawing: contract.BoxDrawingRasterMetrics) void {
-    const gap = @max(box_drawing.light_stroke_px, 1);
-    const half_gap = @as(f64, @floatFromInt(gap)) / 2.0;
-    const curve_w = if (width > gap) width - gap else width;
-    const curve_h = if (height > gap) height - gap else height;
-    const max_x = findBezierControlX(curve_w, curve_h);
-    const cb = CubicBezier{
-        .start = .{ .x = 0, .y = 0 },
-        .c1 = .{ .x = @floatFromInt(max_x), .y = 0 },
-        .c2 = .{ .x = @floatFromInt(max_x), .y = @floatFromInt(curve_h - 1) },
-        .end = .{ .x = 0, .y = @floatFromInt(curve_h - 1) },
-    };
-    drawCubicStrokeAlpha(pixels, width, height, cb, @floatFromInt(@max(gap, 1)), half_gap, left);
-}
-
-fn findBezierControlX(width: u16, height: u16) u16 {
-    var cx: u16 = width - 1;
-    var last = cx;
-    while (cx < width * 4) : (cx += 1) {
-        const cb = CubicBezier{
-            .start = .{ .x = 0, .y = 0 },
-            .c1 = .{ .x = @floatFromInt(cx), .y = 0 },
-            .c2 = .{ .x = @floatFromInt(cx), .y = @floatFromInt(height - 1) },
-            .end = .{ .x = 0, .y = @floatFromInt(height - 1) },
-        };
-        if (bezierX(cb, 0.5) > @as(f64, @floatFromInt(width - 1))) return last;
-        last = cx;
-    }
-    return last;
-}
-
-fn findBezierTForX(cb: CubicBezier, x: f64) f64 {
-    var lo: f64 = 0;
-    var hi: f64 = 0.5;
-    var i: u8 = 0;
-    while (i < 24) : (i += 1) {
-        const mid = (lo + hi) / 2.0;
-        if (bezierX(cb, mid) < x) lo = mid else hi = mid;
-    }
-    return (lo + hi) / 2.0;
-}
-
-fn drawCubicStrokeAlpha(pixels: []u8, width: u16, height: u16, cb: CubicBezier, line_width: f64, y_offset: f64, left: bool) void {
-    const samples = 96;
-    const half = @max(line_width, 1.0) / 2.0;
-    var y: u16 = 0;
-    while (y < height) : (y += 1) {
-        var x: u16 = 0;
-        while (x < width) : (x += 1) {
-            const px = @as(f64, @floatFromInt(if (left) x else width - 1 - x)) + 0.5;
-            const py = @as(f64, @floatFromInt(y)) + 0.5 - y_offset;
-            var min_d2 = std.math.floatMax(f64);
-            var i: u16 = 0;
-            while (i <= samples) : (i += 1) {
-                const t = @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(samples));
-                const sx = bezierX(cb, t);
-                const sy = bezierY(cb, t);
-                const dx = px - sx;
-                const dy = py - sy;
-                min_d2 = @min(min_d2, dx * dx + dy * dy);
-            }
-            const coverage = std.math.clamp(half - @sqrt(min_d2) + 0.5, 0.0, 1.0);
-            if (coverage <= 0) continue;
-            pixels[pixelOffset(width, x, y)] = @intFromFloat(@round(coverage * 255.0));
-        }
-    }
-}
-
-fn bezierX(cb: CubicBezier, t: f64) f64 {
-    return bezierValue(cb.start.x, cb.c1.x, cb.c2.x, cb.end.x, t);
-}
-
-fn bezierY(cb: CubicBezier, t: f64) f64 {
-    return bezierValue(cb.start.y, cb.c1.y, cb.c2.y, cb.end.y, t);
-}
-
-fn bezierValue(start: f64, c1: f64, c2: f64, end: f64, t: f64) f64 {
-    const u = 1.0 - t;
-    return u * u * u * start + 3.0 * t * u * (u * c1 + t * c2) + t * t * t * end;
-}
-
-const PowerlineCorner = enum { top_left, top_right, bottom_left, bottom_right };
-
-fn rasterizePowerlineCornerTriangle(pixels: []u8, width: u16, height: u16, corner: PowerlineCorner) void {
-    var y: u16 = 0;
-    while (y < height) : (y += 1) {
-        var x: u16 = 0;
-        while (x < width) : (x += 1) {
-            const xf = @as(f64, @floatFromInt(x)) + 0.5;
-            const yf = @as(f64, @floatFromInt(y)) + 0.5;
-            const diag_down = lineY(0, 0, @floatFromInt(width - 1), @floatFromInt(height - 1), xf);
-            const diag_up = lineY(@floatFromInt(width - 1), 0, 0, @floatFromInt(height - 1), xf);
-            const inside = switch (corner) {
-                .top_left => yf <= diag_up,
-                .top_right => yf <= diag_down,
-                .bottom_left => yf >= diag_down,
-                .bottom_right => yf >= diag_up,
-            };
-            if (inside) pixels[pixelOffset(width, x, y)] = 255;
-        }
-    }
-}
-
-fn drawLineAlpha(pixels: []u8, width: u16, height: u16, x1: f64, y1: f64, x2: f64, y2: f64, line_width: f64) void {
+pub fn drawLineAlpha(pixels: []u8, width: u16, height: u16, x1: f64, y1: f64, x2: f64, y2: f64, line_width: f64) void {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const len2 = @max(dx * dx + dy * dy, 1.0);
@@ -1227,7 +1011,7 @@ fn drawLineAlpha(pixels: []u8, width: u16, height: u16, x1: f64, y1: f64, x2: f6
     }
 }
 
-fn lineY(x1: f64, y1: f64, x2: f64, y2: f64, x: f64) f64 {
+pub fn lineY(x1: f64, y1: f64, x2: f64, y2: f64, x: f64) f64 {
     if (x1 == x2) return y1;
     const m = (y2 - y1) / (x2 - x1);
     return m * x + y1 - m * x1;
@@ -1342,7 +1126,7 @@ fn brailleLayout(width: u16, height: u16) BrailleLayout {
     };
 }
 
-fn fillRectAlpha(pixels: []u8, stride: u16, x: u16, y: u16, width: u16, height: u16, alpha: u8) void {
+pub fn fillRectAlpha(pixels: []u8, stride: u16, x: u16, y: u16, width: u16, height: u16, alpha: u8) void {
     var yy = y;
     while (yy < y + height) : (yy += 1) {
         var xx = x;
@@ -1352,14 +1136,23 @@ fn fillRectAlpha(pixels: []u8, stride: u16, x: u16, y: u16, width: u16, height: 
     }
 }
 
-fn saturatingSubU16(a: u16, b: u16) u16 {
+pub fn saturatingSubU16(a: u16, b: u16) u16 {
     return if (a > b) a - b else 0;
 }
 
-fn pixelRowOffset(width: u16, y: u16) u32 {
+pub fn pixelRowOffset(width: u16, y: u16) u32 {
     return @as(u32, width) * @as(u32, y);
 }
 
-fn pixelOffset(width: u16, x: u16, y: u16) u32 {
+pub fn pixelOffset(width: u16, x: u16, y: u16) u32 {
     return pixelRowOffset(width, y) + x;
+}
+
+pub fn pixelCount(width: u16, height: u16) u32 {
+    return @as(u32, width) * @as(u32, height);
+}
+
+pub fn count32(items: anytype) u32 {
+    std.debug.assert(items.len <= std.math.maxInt(u32));
+    return @intCast(items.len);
 }
