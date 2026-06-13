@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const c = @import("howl_render_c");
-const render_surface_realizer = @import("render_surface_realizer.zig");
+const render_surface_realizer = @import("realizer.zig");
 
 const DamageItem = c.HowlRenderSurfaceDamageItem;
 const ResourceId = c.HowlRenderResourceId;

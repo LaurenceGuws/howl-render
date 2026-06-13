@@ -73,7 +73,7 @@ test "render surface prepared ffi borrowed surface realizes explicit rgba oracle
     const allocator = std.testing.allocator;
     const session_owner = support.text_session_model_ns.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
-    const background = [_]support.text_contract_ns.TextBackgroundDraw{ support.backgroundDraw(0, 0, 2, 1, support.rgba(1, 2, 3, 255)) };
+    const background = [_]support.text_contract_ns.TextBackgroundDraw{support.backgroundDraw(0, 0, 2, 1, support.rgba(1, 2, 3, 255))};
     var prepared_surface_value = support.preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1 });
     const oracle = try support.prepared_buffer.compose(allocator, null, &session_owner.session, &prepared_surface_value);
     defer allocator.free(oracle);

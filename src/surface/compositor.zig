@@ -1,5 +1,5 @@
 const std = @import("std");
-const prepared_surface = @import("surface.zig");
+const prepared_surface = @import("prepared_surface.zig");
 const text_session = @import("../render_session.zig");
 const contract = @import("../text/contract.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
@@ -9,8 +9,9 @@ pub fn compose(allocator: std.mem.Allocator, base_pixels: ?[]const u8, session: 
     const height = prepared.render_px.height;
     std.debug.assert(width > 0);
     std.debug.assert(height > 0);
-    const pixels_len: u32 = @as(u32, width) * @as(u32, height) * 4;
-    const pixels = try allocator.alloc(u8, @intCast(pixels_len));
+    const pixel_count = try std.math.mul(usize, width, height);
+    const pixels_len = try std.math.mul(usize, pixel_count, 4);
+    const pixels = try allocator.alloc(u8, pixels_len);
     errdefer allocator.free(pixels);
     std.debug.assert(pixels.len == pixels_len);
     seedSurfacePixels(pixels, base_pixels);
@@ -77,8 +78,12 @@ fn seedSurfacePixels(pixels: []u8, base_pixels: ?[]const u8) void {
     };
     // Partial prepared surfaces are realized here against the render-owned
     // retained base. Hosts only ever consume one complete prepared surface.
-    std.debug.assert(base.len == pixels.len);
+    std.debug.assert(basePixelsLenMatches(pixels.len, base.len));
     @memcpy(pixels, base);
+}
+
+fn basePixelsLenMatches(output_len: usize, base_len: usize) bool {
+    return output_len == base_len;
 }
 
 const SpriteRaster = struct {
@@ -274,6 +279,12 @@ fn blendPixel(pixels: []u8, dst_index: u32, r: u8, g: u8, b: u8, a: u8) void {
     ));
 }
 
+pub const testing = struct {
+    pub fn basePixelsLenMatches(output_len: usize, base_len: usize) bool {
+        return output_len == base_len;
+    }
+};
+
 test "compose preserves retained content outside partial updates" {
     var session = text_session.TextSession.init(std.heap.c_allocator);
     defer session.deinit();
@@ -344,6 +355,11 @@ test "compose preserves retained content outside partial updates" {
     try std.testing.expectEqual(@as(u8, 7), pixels[8]);
     try std.testing.expectEqual(@as(u8, 7), pixels[9]);
     try std.testing.expectEqual(@as(u8, 7), pixels[10]);
+}
+
+test "compositor testing exposes retained-base length rule" {
+    try std.testing.expect(testing.basePixelsLenMatches(16, 16));
+    try std.testing.expect(!testing.basePixelsLenMatches(16, 15));
 }
 
 const ComposeTrace = struct {

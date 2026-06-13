@@ -3,7 +3,7 @@ const geometry_contract = @import("../geometry/geometry_contract.zig");
 const tokens = @import("../geometry/tokens.zig");
 const font_resolve = @import("../text/resolve.zig");
 const surface_preparer = @import("../text/surface_preparer.zig");
-const render_surface_emitter = @import("render_surface_emitter.zig");
+const render_surface_emitter = @import("emitter.zig");
 
 pub const PreparedInfo = struct {
     snapshot_seq: u64,
@@ -37,16 +37,23 @@ pub const PreparedSurface = struct {
     }
 
     pub fn damageKind(self: *const PreparedSurface) tokens.DamageKind {
+        self.assertValid();
         if (self.text_surface.scene.scene.full_redraw) return .full;
         return .partial;
     }
 
     pub fn preparedSurfaceToken(self: *const PreparedSurface) tokens.PreparedSurfaceToken {
+        self.assertValid();
         const damage_kind = self.damageKind();
         const damage_base_seq = if (damage_kind == .partial)
             self.request.token.damage_base_seq
         else
             0;
+        if (damage_kind == .partial) {
+            std.debug.assert(damage_base_seq != 0);
+        } else {
+            std.debug.assert(self.request.token.damage_base_seq == 0);
+        }
         return .{
             .token = .{
                 .snapshot_seq = self.request.token.snapshot_seq,
@@ -60,6 +67,7 @@ pub const PreparedSurface = struct {
     }
 
     pub fn info(self: *const PreparedSurface) PreparedInfo {
+        self.assertValid();
         return .{
             .snapshot_seq = self.request.token.snapshot_seq,
             .dirty_epoch = self.request.token.dirty_epoch,
@@ -73,9 +81,19 @@ pub const PreparedSurface = struct {
     }
 
     pub fn buffer(self: *const PreparedSurface) PreparedBuffer {
+        self.assertValid();
         return .{
             .uploads_required = self.text_surface.raster_plan.outputs.len,
         };
+    }
+
+    fn assertValid(self: *const PreparedSurface) void {
+        std.debug.assert(self.render_px.width > 0);
+        std.debug.assert(self.render_px.height > 0);
+        std.debug.assert(self.cell_px.width > 0);
+        std.debug.assert(self.cell_px.height > 0);
+        std.debug.assert(self.grid.cols > 0);
+        std.debug.assert(self.grid.rows > 0);
     }
 };
 

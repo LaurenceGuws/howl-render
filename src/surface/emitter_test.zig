@@ -2,11 +2,11 @@ const std = @import("std");
 
 const c = @import("howl_render_c");
 const contract = @import("../text/contract.zig");
-const prepared_buffer = @import("buffer.zig");
-const prepared_surface = @import("surface.zig");
-const realize = @import("../geometry/render_surface_realizer.zig");
-const render_surface_emitter = @import("render_surface_emitter.zig");
-const sprite_resource_store = @import("sprite_resource_store.zig");
+const prepared_buffer = @import("compositor.zig");
+const prepared_surface = @import("prepared_surface.zig");
+const realize = @import("realizer.zig");
+const render_surface_emitter = @import("emitter.zig");
+const sprite_resource_store = @import("resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const text_session = @import("../render_session.zig");
 const test_support = @import("../test_support.zig");

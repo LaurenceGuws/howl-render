@@ -1,8 +1,8 @@
 const std = @import("std");
 const tokens = @import("../geometry/tokens.zig");
 const geometry_contract = @import("../geometry/geometry_contract.zig");
-const prepared_surface = @import("surface.zig");
-const render_surface_emitter = @import("render_surface_emitter.zig");
+const prepared_surface = @import("prepared_surface.zig");
+const render_surface_emitter = @import("emitter.zig");
 const render_session = @import("../render_session.zig");
 
 pub const PreparedSurfaceHandle = ?*anyopaque;
@@ -104,6 +104,7 @@ pub const PreparedHandle = struct {
         if (self == &destroyed_prepared_handle_sentinel) return;
         self.detachFromSessionTracking();
         self.deinitPayload();
+        std.debug.assert(self.render_surface_payload == null);
         self.session_owner.allocator.destroy(self);
     }
 
@@ -111,6 +112,7 @@ pub const PreparedHandle = struct {
         switch (self.state) {
             .released, .consumed => return,
             .prepared, .submit_ready => {
+                std.debug.assert(self.render_surface_payload == null or self.state == .prepared or self.state == .submit_ready);
                 self.session_owner.clearCachedPreparedHandle(self);
                 self.deinitPayload();
                 self.state = .released;
@@ -197,6 +199,7 @@ pub const PreparedHandle = struct {
         const payload = self.render_surface_payload orelse return;
         self.render_surface_payload = null;
         self.session_owner.allocator.destroy(payload);
+        std.debug.assert(self.render_surface_payload == null);
     }
 };
 

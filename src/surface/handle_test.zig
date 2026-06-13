@@ -1,10 +1,10 @@
 const std = @import("std");
 const geometry_contract = @import("../geometry/geometry_contract.zig");
-const prepared_buffer = @import("buffer.zig");
+const prepared_buffer = @import("compositor.zig");
 const prepared_handle = @import("handle.zig");
-const prepared_surface = @import("surface.zig");
-const render_surface_emitter = @import("render_surface_emitter.zig");
-const render_surface_realizer = @import("../geometry/render_surface_realizer.zig");
+const prepared_surface = @import("prepared_surface.zig");
+const render_surface_emitter = @import("emitter.zig");
+const render_surface_realizer = @import("realizer.zig");
 const render_session = @import("../render_session.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const contract = @import("../text/contract.zig");
@@ -240,6 +240,38 @@ test "prepared handle releases render_surface payload with handle" {
     handle.release();
 
     try std.testing.expect(handle.render_surface_payload == null);
+}
+
+test "prepared handle release is idempotent and stays not live" {
+    const allocator = std.testing.allocator;
+    const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    defer session_owner.destroy();
+
+    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
+    var prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
+    const handle = try PreparedHandle.create(session_owner, &prepared);
+
+    handle.release();
+    handle.release();
+
+    try std.testing.expectEqual(prepared_handle.PreparedHandle.State.released, handle.state);
+    try std.testing.expect(!handle.isLive());
+    try std.testing.expect(handle.render_surface_payload == null);
+}
+
+test "prepared handle belongs to owning session only" {
+    const allocator = std.testing.allocator;
+    const owner_a = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    defer owner_a.destroy();
+    const owner_b = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    defer owner_b.destroy();
+
+    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
+    var prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
+    const handle = try PreparedHandle.create(owner_a, &prepared);
+
+    try std.testing.expect(handle.belongsToSession(owner_a));
+    try std.testing.expect(!handle.belongsToSession(owner_b));
 }
 
 test "prepared handle reports missing surface when render_surface emission overflows" {

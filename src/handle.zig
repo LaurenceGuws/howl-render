@@ -1,5 +1,5 @@
 const c = @import("howl_render_c");
-const prepared_handle = @import("prepared/handle.zig");
+const prepared_handle = @import("surface/handle.zig");
 const render_session = @import("render_session.zig");
 
 pub fn textSessionOwner(handle: c.HowlRenderTextSessionHandle) ?*render_session.TextSessionOwner {
