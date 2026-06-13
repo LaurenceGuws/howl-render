@@ -18,172 +18,6 @@ const SpriteResourceStore = sprite_resource_store.SpriteResourceStore;
 const glyph_refs_max: u32 = 32 * 1024;
 const PreparedSprite = sprite_resource_store.PreparedSprite;
 
-fn monotonicNs() u64 {
-    var ts: std.posix.timespec = undefined;
-    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
-    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
-}
-
-const DebugEmitPreparedTiming = struct {
-    enabled_known: bool = false,
-    enabled: bool = false,
-    count: u64 = 0,
-    copy_in_ns_total: u64 = 0,
-    fills_ns_total: u64 = 0,
-    full_redraw_clear_ns_total: u64 = 0,
-    clear_pass_ns_total: u64 = 0,
-    background_pass_ns_total: u64 = 0,
-    decoration_pass_ns_total: u64 = 0,
-    cursor_pass_ns_total: u64 = 0,
-    sprites_ns_total: u64 = 0,
-    publish_ns_total: u64 = 0,
-    publish_glyph_fixup_ns_total: u64 = 0,
-    publish_upload_fixup_ns_total: u64 = 0,
-    publish_surface_spans_ns_total: u64 = 0,
-    copy_out_ns_total: u64 = 0,
-    stage_upload_ns_total: u64 = 0,
-    atlas_resource_ns_total: u64 = 0,
-    direct_resource_ns_total: u64 = 0,
-    sprite_lookup_ns_total: u64 = 0,
-    alpha_glyph_append_ns_total: u64 = 0,
-    direct_command_append_ns_total: u64 = 0,
-    transient_retire_ns_total: u64 = 0,
-    sprite_count_total: u64 = 0,
-    alpha_sprite_count_total: u64 = 0,
-    copy_in_ns_max: u64 = 0,
-    fills_ns_max: u64 = 0,
-    full_redraw_clear_ns_max: u64 = 0,
-    clear_pass_ns_max: u64 = 0,
-    background_pass_ns_max: u64 = 0,
-    decoration_pass_ns_max: u64 = 0,
-    cursor_pass_ns_max: u64 = 0,
-    sprites_ns_max: u64 = 0,
-    publish_ns_max: u64 = 0,
-    publish_glyph_fixup_ns_max: u64 = 0,
-    publish_upload_fixup_ns_max: u64 = 0,
-    publish_surface_spans_ns_max: u64 = 0,
-    copy_out_ns_max: u64 = 0,
-    stage_upload_ns_max: u64 = 0,
-    atlas_resource_ns_max: u64 = 0,
-    direct_resource_ns_max: u64 = 0,
-    sprite_lookup_ns_max: u64 = 0,
-    alpha_glyph_append_ns_max: u64 = 0,
-    direct_command_append_ns_max: u64 = 0,
-    transient_retire_ns_max: u64 = 0,
-
-    const SpriteTotals = struct {
-        stage_upload_ns: u64 = 0,
-        atlas_resource_ns: u64 = 0,
-        direct_resource_ns: u64 = 0,
-        lookup_ns: u64 = 0,
-        alpha_glyph_append_ns: u64 = 0,
-        direct_command_append_ns: u64 = 0,
-        transient_retire_ns: u64 = 0,
-        sprite_count: u32 = 0,
-        alpha_sprite_count: u32 = 0,
-    };
-
-    const FillTotals = struct {
-        full_redraw_clear_ns: u64 = 0,
-        clear_pass_ns: u64 = 0,
-        background_pass_ns: u64 = 0,
-        decoration_pass_ns: u64 = 0,
-        cursor_pass_ns: u64 = 0,
-    };
-
-    const PublishTotals = struct {
-        glyph_fixup_ns: u64 = 0,
-        upload_fixup_ns: u64 = 0,
-        surface_spans_ns: u64 = 0,
-    };
-
-    fn active(self: *DebugEmitPreparedTiming) bool {
-        if (!self.enabled_known) {
-            self.enabled = std.c.getenv("HOWL_RENDER_DEBUG_TIMING") != null;
-            self.enabled_known = true;
-        }
-        return self.enabled;
-    }
-
-    fn record(self: *DebugEmitPreparedTiming, copy_in_ns: u64, fills_ns: u64, sprites_ns: u64, publish_ns: u64, copy_out_ns: u64, fill_totals: FillTotals, sprite_totals: SpriteTotals, publish_totals: PublishTotals) void {
-        if (!self.active()) return;
-        self.count += 1;
-        self.copy_in_ns_total += copy_in_ns;
-        self.fills_ns_total += fills_ns;
-        self.full_redraw_clear_ns_total += fill_totals.full_redraw_clear_ns;
-        self.clear_pass_ns_total += fill_totals.clear_pass_ns;
-        self.background_pass_ns_total += fill_totals.background_pass_ns;
-        self.decoration_pass_ns_total += fill_totals.decoration_pass_ns;
-        self.cursor_pass_ns_total += fill_totals.cursor_pass_ns;
-        self.sprites_ns_total += sprites_ns;
-        self.publish_ns_total += publish_ns;
-        self.publish_glyph_fixup_ns_total += publish_totals.glyph_fixup_ns;
-        self.publish_upload_fixup_ns_total += publish_totals.upload_fixup_ns;
-        self.publish_surface_spans_ns_total += publish_totals.surface_spans_ns;
-        self.copy_out_ns_total += copy_out_ns;
-        self.stage_upload_ns_total += sprite_totals.stage_upload_ns;
-        self.atlas_resource_ns_total += sprite_totals.atlas_resource_ns;
-        self.direct_resource_ns_total += sprite_totals.direct_resource_ns;
-        self.sprite_lookup_ns_total += sprite_totals.lookup_ns;
-        self.alpha_glyph_append_ns_total += sprite_totals.alpha_glyph_append_ns;
-        self.direct_command_append_ns_total += sprite_totals.direct_command_append_ns;
-        self.transient_retire_ns_total += sprite_totals.transient_retire_ns;
-        self.sprite_count_total += sprite_totals.sprite_count;
-        self.alpha_sprite_count_total += sprite_totals.alpha_sprite_count;
-        self.copy_in_ns_max = @max(self.copy_in_ns_max, copy_in_ns);
-        self.fills_ns_max = @max(self.fills_ns_max, fills_ns);
-        self.full_redraw_clear_ns_max = @max(self.full_redraw_clear_ns_max, fill_totals.full_redraw_clear_ns);
-        self.clear_pass_ns_max = @max(self.clear_pass_ns_max, fill_totals.clear_pass_ns);
-        self.background_pass_ns_max = @max(self.background_pass_ns_max, fill_totals.background_pass_ns);
-        self.decoration_pass_ns_max = @max(self.decoration_pass_ns_max, fill_totals.decoration_pass_ns);
-        self.cursor_pass_ns_max = @max(self.cursor_pass_ns_max, fill_totals.cursor_pass_ns);
-        self.sprites_ns_max = @max(self.sprites_ns_max, sprites_ns);
-        self.publish_ns_max = @max(self.publish_ns_max, publish_ns);
-        self.publish_glyph_fixup_ns_max = @max(self.publish_glyph_fixup_ns_max, publish_totals.glyph_fixup_ns);
-        self.publish_upload_fixup_ns_max = @max(self.publish_upload_fixup_ns_max, publish_totals.upload_fixup_ns);
-        self.publish_surface_spans_ns_max = @max(self.publish_surface_spans_ns_max, publish_totals.surface_spans_ns);
-        self.copy_out_ns_max = @max(self.copy_out_ns_max, copy_out_ns);
-        self.stage_upload_ns_max = @max(self.stage_upload_ns_max, sprite_totals.stage_upload_ns);
-        self.atlas_resource_ns_max = @max(self.atlas_resource_ns_max, sprite_totals.atlas_resource_ns);
-        self.direct_resource_ns_max = @max(self.direct_resource_ns_max, sprite_totals.direct_resource_ns);
-        self.sprite_lookup_ns_max = @max(self.sprite_lookup_ns_max, sprite_totals.lookup_ns);
-        self.alpha_glyph_append_ns_max = @max(self.alpha_glyph_append_ns_max, sprite_totals.alpha_glyph_append_ns);
-        self.direct_command_append_ns_max = @max(self.direct_command_append_ns_max, sprite_totals.direct_command_append_ns);
-        self.transient_retire_ns_max = @max(self.transient_retire_ns_max, sprite_totals.transient_retire_ns);
-        if (self.count % 128 != 0) return;
-        std.debug.print(
-            "howl-render-debug emit_prepared count={} copy_in_avg_us={} fills_avg_us={} full_redraw_clear_avg_us={} clear_pass_avg_us={} background_pass_avg_us={} decoration_pass_avg_us={} cursor_pass_avg_us={} sprites_avg_us={} sprite_lookup_avg_us={} stage_upload_avg_us={} atlas_resource_avg_us={} direct_resource_avg_us={} alpha_glyph_append_avg_us={} direct_command_append_avg_us={} transient_retire_avg_us={} publish_avg_us={} publish_glyph_fixup_avg_us={} publish_upload_fixup_avg_us={} publish_surface_spans_avg_us={} copy_out_avg_us={} sprites_avg={} alpha_sprites_avg={}\n",
-            .{
-                self.count,
-                self.copy_in_ns_total / self.count / std.time.ns_per_us,
-                self.fills_ns_total / self.count / std.time.ns_per_us,
-                self.full_redraw_clear_ns_total / self.count / std.time.ns_per_us,
-                self.clear_pass_ns_total / self.count / std.time.ns_per_us,
-                self.background_pass_ns_total / self.count / std.time.ns_per_us,
-                self.decoration_pass_ns_total / self.count / std.time.ns_per_us,
-                self.cursor_pass_ns_total / self.count / std.time.ns_per_us,
-                self.sprites_ns_total / self.count / std.time.ns_per_us,
-                self.sprite_lookup_ns_total / self.count / std.time.ns_per_us,
-                self.stage_upload_ns_total / self.count / std.time.ns_per_us,
-                self.atlas_resource_ns_total / self.count / std.time.ns_per_us,
-                self.direct_resource_ns_total / self.count / std.time.ns_per_us,
-                self.alpha_glyph_append_ns_total / self.count / std.time.ns_per_us,
-                self.direct_command_append_ns_total / self.count / std.time.ns_per_us,
-                self.transient_retire_ns_total / self.count / std.time.ns_per_us,
-                self.publish_ns_total / self.count / std.time.ns_per_us,
-                self.publish_glyph_fixup_ns_total / self.count / std.time.ns_per_us,
-                self.publish_upload_fixup_ns_total / self.count / std.time.ns_per_us,
-                self.publish_surface_spans_ns_total / self.count / std.time.ns_per_us,
-                self.copy_out_ns_total / self.count / std.time.ns_per_us,
-                self.sprite_count_total / self.count,
-                self.alpha_sprite_count_total / self.count,
-            },
-        );
-    }
-};
-
-var debug_emit_prepared_timing: DebugEmitPreparedTiming = .{};
-
 comptime {
     std.debug.assert(glyph_refs_max > c.HOWL_RENDER_SURFACE_COMMANDS_MAX);
     std.debug.assert(glyph_refs_max <=
@@ -275,13 +109,6 @@ pub fn Emitter(comptime limits: Limits) type {
 
         const Self = @This();
 
-        const EmitPreparedPassTotals = struct {
-            fill_totals: DebugEmitPreparedTiming.FillTotals,
-            sprite_totals: DebugEmitPreparedTiming.SpriteTotals,
-            fills_ns: u64,
-            sprites_ns: u64,
-        };
-
         pub fn init() Self {
             return .{};
         }
@@ -291,72 +118,37 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         pub fn emitPrepared(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
-            const copy_in_start_ns = monotonicNs();
             var next = self.*;
             var next_resources = resources.*;
-            const copy_in_ns = monotonicNs() -| copy_in_start_ns;
-            const pass_totals = try next.appendPreparedPass(&next_resources, session, prepared);
+            try next.appendPreparedPass(&next_resources, session, prepared);
             next.assertReadyToPublish();
-            const copy_out_start_ns = monotonicNs();
             self.* = next;
             resources.* = next_resources;
-            const copy_out_ns = monotonicNs() -| copy_out_start_ns;
             self.assertReadyToPublish();
-            const publish_start_ns = monotonicNs();
-            const publish_totals = self.publishSurface();
+            self.publishSurface();
             self.assertPublishedSurface();
-            const publish_ns = monotonicNs() -| publish_start_ns;
-            debug_emit_prepared_timing.record(copy_in_ns, pass_totals.fills_ns, pass_totals.sprites_ns, publish_ns, copy_out_ns, pass_totals.fill_totals, pass_totals.sprite_totals, publish_totals);
             return &self.surface_storage;
         }
 
         pub fn emitPreparedFresh(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
             const resource_rollback = resources.admissionRollback();
             errdefer resources.restoreAdmission(resource_rollback);
-            const copy_in_ns: u64 = 0;
-            const pass_totals = try self.appendPreparedPass(resources, session, prepared);
+            try self.appendPreparedPass(resources, session, prepared);
             self.assertReadyToPublish();
-            const copy_out_ns: u64 = 0;
-            const publish_start_ns = monotonicNs();
-            const publish_totals = self.publishSurface();
+            self.publishSurface();
             self.assertPublishedSurface();
-            const publish_ns = monotonicNs() -| publish_start_ns;
-            debug_emit_prepared_timing.record(copy_in_ns, pass_totals.fills_ns, pass_totals.sprites_ns, publish_ns, copy_out_ns, pass_totals.fill_totals, pass_totals.sprite_totals, publish_totals);
             return &self.surface_storage;
         }
 
-        fn appendPreparedPass(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!EmitPreparedPassTotals {
+        fn appendPreparedPass(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!void {
             self.resetPrepared(prepared);
-            var fill_totals: DebugEmitPreparedTiming.FillTotals = .{};
-            var fill_step_start_ns = monotonicNs();
             try self.appendFullDamage(pixelSizeOut(prepared.render_px));
-            fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
-            fill_step_start_ns = monotonicNs();
             try self.appendPreparedFullRedrawClear(prepared);
-            fill_totals.full_redraw_clear_ns += monotonicNs() -| fill_step_start_ns;
-            fill_step_start_ns = monotonicNs();
             try self.appendPreparedClears(prepared.text_surface.scene.scene.clear_draws);
-            fill_totals.clear_pass_ns = monotonicNs() -| fill_step_start_ns;
-            fill_step_start_ns = monotonicNs();
             try self.appendPreparedBackgrounds(prepared.text_surface.scene.scene.background_draws);
-            fill_totals.background_pass_ns = monotonicNs() -| fill_step_start_ns;
-            fill_step_start_ns = monotonicNs();
             try self.appendPreparedDecorations(prepared.text_surface.scene.scene.decoration_draws);
-            fill_totals.decoration_pass_ns = monotonicNs() -| fill_step_start_ns;
-            var sprite_totals: DebugEmitPreparedTiming.SpriteTotals = .{};
-            const sprites_start_ns = monotonicNs();
-            try self.appendPreparedSprites(resources, session, prepared, &sprite_totals);
-            const sprites_ns = monotonicNs() -| sprites_start_ns;
-            fill_step_start_ns = monotonicNs();
+            try self.appendPreparedSprites(resources, session, prepared);
             try self.appendPreparedCursors(prepared.text_surface.scene.scene.cursor_draws);
-            fill_totals.cursor_pass_ns = monotonicNs() -| fill_step_start_ns;
-            return .{
-                .fill_totals = fill_totals,
-                .sprite_totals = sprite_totals,
-                .fills_ns = fill_totals.full_redraw_clear_ns + fill_totals.clear_pass_ns + fill_totals.background_pass_ns +
-                    fill_totals.decoration_pass_ns + fill_totals.cursor_pass_ns,
-                .sprites_ns = sprites_ns,
-            };
         }
 
         fn assertReadyToPublish(self: *const Self) void {
@@ -557,10 +349,8 @@ pub fn Emitter(comptime limits: Limits) type {
             return true;
         }
 
-        fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_totals: *DebugEmitPreparedTiming.SpriteTotals) Error!void {
+        fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!void {
             for (prepared.text_surface.scene.scene.sprite_draws) |draw| {
-                sprite_totals.sprite_count += 1;
-                const lookup_start_ns = monotonicNs();
                 const sprite = lookupPreparedSprite(
                     session,
                     prepared,
@@ -570,7 +360,6 @@ pub fn Emitter(comptime limits: Limits) type {
                         error.MissingSprite => error.MissingPreparedSprite,
                     };
                 };
-                sprite_totals.lookup_ns += monotonicNs() -| lookup_start_ns;
                 const bounds = visualBoundsForDraw(sprite.visual_bounds, draw);
                 const width_px = @min(draw.width_px, bounds.width_px);
                 const height_px = @min(draw.height_px, bounds.height_px);
@@ -586,26 +375,21 @@ pub fn Emitter(comptime limits: Limits) type {
 
                 const upload_start = self.upload_bytes_count;
                 if (sprite.color_mode == .alpha) {
-                    sprite_totals.alpha_sprite_count += 1;
-                    const atlas_start_ns = monotonicNs();
                     const atlas = try resources.atlasAdmissionForPrepared(
                         sprite,
                         bounds,
                         width_px,
                         height_px,
                     );
-                    sprite_totals.atlas_resource_ns += monotonicNs() -| atlas_start_ns;
                     if (atlas.created) try self.appendGlyphAtlasCreate(atlas.resource);
                     if (atlas.uploaded) {
                         const upload_count_start = self.upload_count;
-                        const upload_start_ns = monotonicNs();
                         const upload_range = try self.stagePreparedUploadBytes(
                             sprite,
                             bounds,
                             width_px,
                             height_px,
                         );
-                        sprite_totals.stage_upload_ns += monotonicNs() -| upload_start_ns;
                         try self.appendPreparedAtlasUpload(
                             atlas.resource,
                             atlas.rect,
@@ -618,7 +402,6 @@ pub fn Emitter(comptime limits: Limits) type {
                         self.rollbackUploadBytes(upload_start);
                     }
                     std.debug.assert(atlas.resource.value != 0);
-                    const alpha_append_start_ns = monotonicNs();
                     try self.appendGlyphRef(.{
                         .atlas_resource = atlas.resource,
                         .atlas_rect = atlas.rect,
@@ -627,28 +410,23 @@ pub fn Emitter(comptime limits: Limits) type {
                         .glyph_id = @intCast(draw.sprite.key.value & 0xffffffff),
                         .color_rgba = packRgba(draw.color),
                     });
-                    sprite_totals.alpha_glyph_append_ns += monotonicNs() -| alpha_append_start_ns;
                     continue;
                 }
-                const resource_start_ns = monotonicNs();
                 const result = try resources.resourceAdmissionForPrepared(
                     sprite,
                     bounds,
                     width_px,
                     height_px,
                 );
-                sprite_totals.direct_resource_ns += monotonicNs() -| resource_start_ns;
                 switch (result.lifetime) {
                     .persistent, .transient => {
                         const upload_count_start = self.upload_count;
-                        const upload_start_ns = monotonicNs();
                         const upload_range = try self.stagePreparedUploadBytes(
                             sprite,
                             bounds,
                             width_px,
                             height_px,
                         );
-                        sprite_totals.stage_upload_ns += monotonicNs() -| upload_start_ns;
                         try self.appendPreparedCreate(result.resource, sprite, width_px, height_px);
                         try self.appendPreparedUpload(
                             result.resource,
@@ -666,7 +444,6 @@ pub fn Emitter(comptime limits: Limits) type {
                     },
                 }
                 std.debug.assert(result.resource.value != 0);
-                const direct_command_start_ns = monotonicNs();
                 try self.appendCommand(.{
                     .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE,
                     .reserved0 = 0,
@@ -681,11 +458,8 @@ pub fn Emitter(comptime limits: Limits) type {
                     .resource = result.resource,
                     .glyphs = emptyGlyphs(),
                 });
-                sprite_totals.direct_command_append_ns += monotonicNs() -| direct_command_start_ns;
                 if (result.lifetime == .transient) {
-                    const retire_start_ns = monotonicNs();
                     try self.appendRetire(result.resource, self.command_count);
-                    sprite_totals.transient_retire_ns += monotonicNs() -| retire_start_ns;
                 }
             }
         }
@@ -838,9 +612,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.retire_count += 1;
         }
 
-        fn publishSurface(self: *Self) DebugEmitPreparedTiming.PublishTotals {
-            var totals: DebugEmitPreparedTiming.PublishTotals = .{};
-            var publish_step_start_ns = monotonicNs();
+        fn publishSurface(self: *Self) void {
             var glyph_offset: u32 = 0;
             var command_index: u32 = 0;
             while (command_index < self.command_count) : (command_index += 1) {
@@ -854,16 +626,12 @@ pub fn Emitter(comptime limits: Limits) type {
                 std.debug.assert(glyph_offset <= self.glyph_count);
             }
             std.debug.assert(glyph_offset == self.glyph_count);
-            totals.glyph_fixup_ns = monotonicNs() -| publish_step_start_ns;
-            publish_step_start_ns = monotonicNs();
             var upload_index: u32 = 0;
             while (upload_index < self.upload_count) : (upload_index += 1) {
                 const byte_offset = self.upload_byte_offsets[upload_index];
                 std.debug.assert(byte_offset < self.upload_bytes_count);
                 self.uploads[upload_index].bytes_ptr = &self.upload_bytes[byte_offset];
             }
-            totals.upload_fixup_ns = monotonicNs() -| publish_step_start_ns;
-            publish_step_start_ns = monotonicNs();
             self.surface_storage.damage = .{
                 .ptr = if (self.damage_count == 0) null else &self.damage[0],
                 .count = self.damage_count,
@@ -908,8 +676,6 @@ pub fn Emitter(comptime limits: Limits) type {
             if (self.surface_storage.commands.count > 0) std.debug.assert(self.surface_storage.commands.ptr != null);
             if (self.surface_storage.retires.count == 0) std.debug.assert(self.surface_storage.retires.ptr == null);
             if (self.surface_storage.retires.count > 0) std.debug.assert(self.surface_storage.retires.ptr != null);
-            totals.surface_spans_ns = monotonicNs() -| publish_step_start_ns;
-            return totals;
         }
     };
 }
@@ -1013,6 +779,6 @@ pub const testing = struct {
     }
 
     pub fn publishSurface(comptime limits: Limits, emitter: *Emitter(limits)) void {
-        _ = emitter.publishSurface();
+        emitter.publishSurface();
     }
 };
