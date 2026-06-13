@@ -11,6 +11,7 @@ pub const SourceCellAttrs = abi.SourceCellAttrs;
 pub const SourceCell = abi.SourceCell;
 pub const SourceSelectionPoint = abi.SourceSelectionPoint;
 pub const SourceSelection = abi.SourceSelection;
+pub const SourceCursorShape = abi.SourceCursorShape;
 pub const SourceCursor = abi.SourceCursor;
 
 pub const VtSnapshot = struct {
@@ -246,7 +247,7 @@ fn validateDirtySource(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_
 
 fn vtCursorIn(value: c.HowlVtCursor) abi.SourceCursor {
     const shape = switch (value.shape) {
-        1 => @import("../tv_surface/cell.zig").CursorShape.underline,
+        1 => abi.SourceCursorShape.underline,
         2 => .beam,
         3 => .hollow_block,
         else => .block,

@@ -1,5 +1,4 @@
 const std = @import("std");
-const source_cell = @import("../tv_surface/cell.zig");
 const source_publication = @import("../vt_publication/publication.zig");
 const contract = @import("../text/contract.zig");
 const scene = @import("../text/scene.zig");
@@ -64,34 +63,34 @@ fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) 
     return .any;
 }
 
-pub fn mapCellInput(src: source_cell.Cell, theme: SurfaceTheme) contract.CellInput {
+pub fn mapCellInput(src: source_publication.SourceCell, theme: SurfaceTheme) contract.CellInput {
     std.debug.assert(src.combining_len <= src.combining.len);
-    const truth = color.vtCellTruth(src);
-    const bg = color.mapCellColor(src.bg_color, false, theme);
+    const truth = color.publicationCellTruth(src);
+    const bg = color.mapPublicationColor(src.bg_color, false, theme);
     var out: contract.CellInput = .{
-        .codepoint = src.codepoint,
+        .codepoint = @intCast(src.codepoint),
         .combining_len = src.combining_len,
         .combining = src.combining,
-        .style = mapFontStyle(src.attrs.bold, src.attrs.italic),
-        .presentation = detectCellPresentation(src.codepoint, src.combining_len, src.combining),
-        .dim = src.attrs.dim,
-        .invisible = src.attrs.invisible,
-        .semantic_fg = color.semanticColorFromCellColor(src.fg_color),
-        .semantic_bg = color.semanticColorFromCellColor(src.bg_color),
-        .fg = color.mapCellColor(src.fg_color, true, theme),
+        .style = mapFontStyle(src.attrs.bold != 0, src.attrs.italic != 0),
+        .presentation = detectCellPresentation(@intCast(src.codepoint), src.combining_len, src.combining),
+        .dim = src.attrs.dim != 0,
+        .invisible = src.attrs.invisible != 0,
+        .semantic_fg = color.semanticColorFromPublicationColor(src.fg_color),
+        .semantic_bg = color.semanticColorFromPublicationColor(src.bg_color),
+        .fg = color.mapPublicationColor(src.fg_color, true, theme),
         .bg = bg,
-        .underline_color_set = src.attrs.underline_color_set,
-        .semantic_underline_color = color.semanticColorFromCellColor(src.underline_color),
-        .underline_color = if (src.attrs.underline_color_set) color.mapCellColor(src.underline_color, true, theme) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
-        .underline_style = color.mapUnderlineStyle(src.underline_style),
-        .underline = src.attrs.underline,
-        .strikethrough = src.attrs.strikethrough,
-        .continuation = src.flags.continuation,
+        .underline_color_set = src.attrs.underline_color_set != 0,
+        .semantic_underline_color = color.semanticColorFromPublicationColor(src.underline_color),
+        .underline_color = if (src.attrs.underline_color_set != 0) color.mapPublicationColor(src.underline_color, true, theme) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        .underline_style = color.mapPublicationUnderlineStyle(src.underline_style),
+        .underline = src.attrs.underline != 0,
+        .strikethrough = src.attrs.strikethrough != 0,
+        .continuation = src.flags.continuation != 0,
         .empty = truth.empty,
     };
     color.assertSemanticEmptyClassification(truth, theme, out.bg, out.empty);
-    if (src.attrs.inverse) color.applyInverseStyle(&out, theme, truth);
-    if (src.attrs.selected) color.applySelectionStyle(&out, theme, truth);
+    if (src.attrs.inverse != 0) color.applyInverseStyle(&out, theme, truth);
+    if (src.attrs.selected != 0) color.applySelectionStyle(&out, theme, truth);
     return out;
 }
 
@@ -145,7 +144,7 @@ fn canMapDirtyOnly(state: anytype) bool {
     return !state.damage.full and count16(state.damage.dirty_rows) == rows and count16(state.damage.dirty_cols_start) == rows and count16(state.damage.dirty_cols_end) == rows;
 }
 
-fn mapDirtyCellsOnly(dst: []contract.CellInput, cells: []const source_cell.Cell, grid_cols: u16, grid_rows: u16, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, theme: SurfaceTheme) void {
+fn mapDirtyCellsOnly(dst: []contract.CellInput, cells: []const source_publication.SourceCell, grid_cols: u16, grid_rows: u16, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, theme: SurfaceTheme) void {
     const cols: u16 = @max(grid_cols, 1);
     const cell_len = count32(cells);
     var row: u16 = 0;
@@ -258,10 +257,10 @@ pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contrac
 }
 
 test "renderable content converts VT source to text scene input" {
-    const cells = [_]source_cell.Cell{.{
+    const cells = [_]source_publication.SourceCell{.{
         .codepoint = 'A',
-        .underline_color = .{ .kind = .rgb, .value = 0xCC3366 },
-        .attrs = .{ .underline = true, .underline_color_set = true },
+        .underline_color = .{ .kind = 2, .value = 0xCC3366 },
+        .attrs = .{ .underline = 1, .underline_color_set = 1 },
     }};
     const state = .{
         .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
@@ -280,11 +279,11 @@ test "renderable content converts VT source to text scene input" {
 }
 
 test "renderable content maps inverse VT source colors" {
-    const cells = [_]source_cell.Cell{.{
+    const cells = [_]source_publication.SourceCell{.{
         .codepoint = 'R',
-        .fg_color = .{ .kind = .rgb, .value = 0x102030 },
-        .bg_color = .{ .kind = .rgb, .value = 0xA0B0C0 },
-        .attrs = .{ .inverse = true },
+        .fg_color = .{ .kind = 2, .value = 0x102030 },
+        .bg_color = .{ .kind = 2, .value = 0xA0B0C0 },
+        .attrs = .{ .inverse = 1 },
     }};
     const state = .{
         .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
@@ -299,7 +298,7 @@ test "renderable content maps inverse VT source colors" {
 }
 
 test "renderable content keeps opaque default background for blank VT cell" {
-    const cells = [_]source_cell.Cell{.{ .codepoint = ' ', .bg_color = .{ .kind = .default, .value = 0 } }};
+    const cells = [_]source_publication.SourceCell{.{ .codepoint = ' ', .bg_color = .{ .kind = 0, .value = 0 } }};
     const state = .{
         .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
         .cursor = .{ .visible = false, .col = 0, .row = 0, .shape = .block },
@@ -313,11 +312,11 @@ test "renderable content keeps opaque default background for blank VT cell" {
 }
 
 test "renderable content keeps default background truth through inverse VT cell" {
-    const cells = [_]source_cell.Cell{.{
+    const cells = [_]source_publication.SourceCell{.{
         .codepoint = 'I',
-        .fg_color = .{ .kind = .default, .value = 0 },
-        .bg_color = .{ .kind = .default, .value = 0 },
-        .attrs = .{ .inverse = true },
+        .fg_color = .{ .kind = 0, .value = 0 },
+        .bg_color = .{ .kind = 0, .value = 0 },
+        .attrs = .{ .inverse = 1 },
     }};
     const state = .{
         .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
@@ -369,7 +368,7 @@ test "renderable content publication mapping preserves combining truth" {
 }
 
 test "renderable content publication mapping threads partial damage" {
-    const cells = [_]source_cell.Cell{ .{}, .{} };
+    const cells = [_]source_publication.SourceCell{ .{}, .{} };
     const dirty_rows = [_]bool{ false, true };
     const dirty_starts = [_]u16{ 0, 2 };
     const dirty_ends = [_]u16{ 0, 5 };
@@ -385,7 +384,7 @@ test "renderable content publication mapping threads partial damage" {
 }
 
 test "renderable content maps only dirty ranges for partial damage" {
-    const cells = [_]source_cell.Cell{ .{ .codepoint = 'A' }, .{ .codepoint = 'B' }, .{ .codepoint = 'C' }, .{ .codepoint = 'D' } };
+    const cells = [_]source_publication.SourceCell{ .{ .codepoint = 'A' }, .{ .codepoint = 'B' }, .{ .codepoint = 'C' }, .{ .codepoint = 'D' } };
     const dirty_rows = [_]bool{ false, true };
     const dirty_starts = [_]u16{ 0, 1 };
     const dirty_ends = [_]u16{ 0, 1 };
@@ -471,7 +470,7 @@ test "renderable content uses VT-owned color state and selection styling" {
 }
 
 test "renderable content semantic empty truth does not treat invisible or continuation cells as empty" {
-    const invisible = mapCellInput(.{ .codepoint = ' ', .attrs = .{ .invisible = true } }, default_theme);
+    const invisible = mapPublicationCellInput(.{ .codepoint = ' ', .attrs = .{ .invisible = 1 } }, default_theme);
     try std.testing.expect(!invisible.empty);
 
     var publication = std.mem.zeroes(source_publication.SourceCell);

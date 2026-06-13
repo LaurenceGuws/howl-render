@@ -1,5 +1,4 @@
 const std = @import("std");
-const source_cell = @import("../tv_surface/cell.zig");
 const source_publication = @import("../vt_publication/publication.zig");
 const contract = @import("../text/contract.zig");
 
@@ -87,19 +86,6 @@ pub fn themeFromPublicationColors(colors: source_publication.SourceColors) Surfa
     };
 }
 
-pub fn mapCellColor(color: source_cell.Color, is_fg: bool, theme: SurfaceTheme) contract.Rgba8 {
-    return switch (color.kind) {
-        .default => if (is_fg) theme.default_fg else theme.default_bg,
-        .indexed => indexed256(@intCast(color.value & 0xFF), theme),
-        .rgb => .{
-            .r = @intCast((color.value >> 16) & 0xFF),
-            .g = @intCast((color.value >> 8) & 0xFF),
-            .b = @intCast(color.value & 0xFF),
-            .a = 255,
-        },
-    };
-}
-
 pub fn mapPublicationColor(color: source_publication.SourceColor, is_fg: bool, theme: SurfaceTheme) contract.Rgba8 {
     return switch (color.kind) {
         0 => if (is_fg) theme.default_fg else theme.default_bg,
@@ -114,14 +100,6 @@ pub fn mapPublicationColor(color: source_publication.SourceColor, is_fg: bool, t
     };
 }
 
-pub fn semanticColorFromCellColor(color: source_cell.Color) contract.SemanticColor {
-    return switch (color.kind) {
-        .default => .{ .kind = .default },
-        .indexed => .{ .kind = .indexed, .value = color.value & 0xFF },
-        .rgb => .{ .kind = .rgb, .value = color.value & 0xFFFFFF },
-    };
-}
-
 pub fn semanticColorFromPublicationColor(color: source_publication.SourceColor) contract.SemanticColor {
     std.debug.assert(color.kind <= publication_color_kind_max);
     return switch (color.kind) {
@@ -132,16 +110,6 @@ pub fn semanticColorFromPublicationColor(color: source_publication.SourceColor) 
     };
 }
 
-pub fn mapUnderlineStyle(style: source_cell.UnderlineStyle) contract.UnderlineStyle {
-    return switch (style) {
-        .straight => .straight,
-        .double => .double,
-        .curly => .curly,
-        .dotted => .dotted,
-        .dashed => .dashed,
-    };
-}
-
 pub fn mapPublicationUnderlineStyle(value: u8) contract.UnderlineStyle {
     return switch (value) {
         1 => .double,
@@ -149,19 +117,6 @@ pub fn mapPublicationUnderlineStyle(value: u8) contract.UnderlineStyle {
         3 => .dotted,
         4 => .dashed,
         else => .straight,
-    };
-}
-
-pub fn vtCellTruth(src: source_cell.Cell) CellSemanticTruth {
-    std.debug.assert(src.combining_len <= src.combining.len);
-    const default_fg = src.fg_color.kind == .default;
-    const default_bg = src.bg_color.kind == .default;
-    const blank = src.codepoint == ' ' or src.codepoint == '\t';
-    const visible_flags = src.flags.continuation or src.attrs.inverse or src.attrs.underline or src.attrs.strikethrough or src.attrs.invisible;
-    return .{
-        .default_fg = default_fg,
-        .default_bg = default_bg,
-        .empty = blank and src.combining_len == 0 and default_fg and default_bg and !visible_flags,
     };
 }
 
@@ -265,6 +220,6 @@ test "renderable content color keeps default background truth through inverse an
 }
 
 test "renderable content color semantic empty truth does not treat continuation as empty" {
-    const continuation = vtCellTruth(.{ .codepoint = ' ', .flags = .{ .continuation = true } });
+    const continuation = publicationCellTruth(.{ .codepoint = ' ', .flags = .{ .continuation = 1 } });
     try std.testing.expect(!continuation.empty);
 }

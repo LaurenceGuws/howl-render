@@ -1,6 +1,5 @@
 const std = @import("std");
 const geometry_contract = @import("geometry/geometry_contract.zig");
-const source_cell = @import("tv_surface/cell.zig");
 const source_text_input = @import("renderable_content/content.zig");
 const source_publication = @import("vt_publication/publication.zig");
 const source_vt = source_publication;
@@ -409,7 +408,7 @@ fn buildPublicationAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
             .dirty_epoch = 1,
             .is_alternate_screen = false,
             .cells = cells,
-            .cursor = std.mem.zeroes(source_cell.CursorInfo),
+            .cursor = std.mem.zeroes(source_vt.SourceCursor),
             .colors = defaultSourceColors(),
             .selection = std.mem.zeroes(source_vt.SourceSelection),
             .cursor_phase_visible = true,
@@ -498,7 +497,7 @@ fn buildPublicationAsciiFullLargeWorkload(allocator: std.mem.Allocator) !Workloa
             .dirty_epoch = 1,
             .is_alternate_screen = false,
             .cells = cells,
-            .cursor = std.mem.zeroes(source_cell.CursorInfo),
+            .cursor = std.mem.zeroes(source_vt.SourceCursor),
             .colors = defaultSourceColors(),
             .selection = std.mem.zeroes(source_vt.SourceSelection),
             .cursor_phase_visible = true,

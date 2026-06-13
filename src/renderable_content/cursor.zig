@@ -1,10 +1,9 @@
 const std = @import("std");
-const source_cell = @import("../tv_surface/cell.zig");
 const source_publication = @import("../vt_publication/publication.zig");
 const scene = @import("../text/scene.zig");
 const color = @import("color.zig");
 
-pub fn mapCursorShape(shape: source_cell.CursorShape) scene.CursorShape {
+pub fn mapCursorShape(shape: source_publication.SourceCursorShape) scene.CursorShape {
     return switch (shape) {
         .block => .block,
         .underline => .underline,

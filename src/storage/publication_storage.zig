@@ -1,6 +1,5 @@
 const std = @import("std");
-const source_cell = @import("../tv_surface/cell.zig");
-const source_damage = @import("../tv_surface/damage.zig");
+const source_damage = @import("../damage/publication_damage.zig");
 const source_abi = @import("../vt_publication/abi.zig");
 const source_publication = @import("../vt_publication/publication.zig");
 
@@ -235,7 +234,7 @@ pub const SourceSlot = struct {
 
 fn vtCursorIn(value: anytype) source_abi.SourceCursor {
     const shape = switch (value.shape) {
-        1 => source_cell.CursorShape.underline,
+        1 => source_abi.SourceCursorShape.underline,
         2 => .beam,
         3 => .hollow_block,
         else => .block,
@@ -304,7 +303,7 @@ test "source slot commit rejects invalid source cell without ffi scratch" {
         .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(source_cell.CursorInfo),
+        .cursor = std.mem.zeroes(source_abi.SourceCursor),
         .colors = std.mem.zeroes(source_abi.SourceColors),
         .selection = std.mem.zeroes(source_abi.SourceSelection),
     }, 1));
@@ -330,7 +329,7 @@ test "source slot commit returns source without prepare or submit state" {
         .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(source_cell.CursorInfo),
+        .cursor = std.mem.zeroes(source_abi.SourceCursor),
         .colors = std.mem.zeroes(source_abi.SourceColors),
         .selection = std.mem.zeroes(source_abi.SourceSelection),
     }, 7);
@@ -356,7 +355,7 @@ test "source slot retained source deinit does not free retained storage" {
         .scroll_row = 0,
         .snapshot_seq = 1,
         .is_alternate_screen = false,
-        .cursor = std.mem.zeroes(source_cell.CursorInfo),
+        .cursor = std.mem.zeroes(source_abi.SourceCursor),
         .colors = std.mem.zeroes(source_abi.SourceColors),
         .selection = std.mem.zeroes(source_abi.SourceSelection),
     }, 1);
@@ -421,7 +420,7 @@ test "source slot refresh preserves snapshot and dirty metadata" {
         .scroll_row = 3,
         .snapshot_seq = 8,
         .is_alternate_screen = true,
-        .cursor = source_cell.CursorInfo{ .row = 0, .col = 1, .visible = true, .shape = .beam, .blink = true },
+        .cursor = source_abi.SourceCursor{ .row = 0, .col = 1, .visible = true, .shape = .beam, .blink = true },
         .colors = std.mem.zeroes(source_abi.SourceColors),
         .selection = std.mem.zeroes(source_abi.SourceSelection),
     }, 9);

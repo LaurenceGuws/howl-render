@@ -1,6 +1,5 @@
 const std = @import("std");
 const c = @import("howl_render_c");
-const source_cell = @import("../tv_surface/cell.zig");
 
 pub const SourceRgb = c.HowlVtRgb8;
 pub const SourceColor = c.HowlVtColor;
@@ -10,7 +9,20 @@ pub const SourceCellAttrs = c.HowlVtSurfaceCellAttrs;
 pub const SourceCell = c.HowlVtSurfaceCell;
 pub const SourceSelectionPoint = c.HowlVtSelectionPos;
 pub const SourceSelection = c.HowlVtSelection;
-pub const SourceCursor = source_cell.CursorInfo;
+pub const SourceCursorShape = enum {
+    block,
+    underline,
+    beam,
+    hollow_block,
+};
+
+pub const SourceCursor = struct {
+    row: u16 = 0,
+    col: u16 = 0,
+    visible: bool = true,
+    shape: SourceCursorShape = .block,
+    blink: bool = false,
+};
 
 pub fn validateSourceCell(cell: SourceCell) !void {
     if (cell.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
