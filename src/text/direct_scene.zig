@@ -2,6 +2,7 @@ const std = @import("std");
 const contract = @import("contract.zig");
 const scene = @import("scene.zig");
 const scene_damage = @import("scene_damage.zig");
+const scene_rects = @import("scene_rects.zig");
 
 pub const Damage = struct {
     full: bool,
@@ -40,7 +41,7 @@ pub fn appendBackgrounds(
     grid_metrics: contract.GridMetrics,
     damage: Damage,
 ) void {
-    scene.appendBackgroundDrawsUnmanaged(out, cells, cell_metrics, grid_metrics, toSceneDamage(damage));
+    scene_rects.appendBackgroundDrawsUnmanaged(out, cells, cell_metrics, grid_metrics, toSceneDamage(damage));
 }
 
 pub fn appendClears(
@@ -50,11 +51,11 @@ pub fn appendClears(
     grid_metrics: contract.GridMetrics,
     damage: Damage,
 ) void {
-    scene.appendClearDrawsUnmanaged(out, cells, cell_metrics, grid_metrics, toSceneDamage(damage));
+    scene_rects.appendClearDrawsUnmanaged(out, cells, cell_metrics, grid_metrics, toSceneDamage(damage));
 }
 
 pub fn appendCursor(out: *std.ArrayListUnmanaged(contract.TextCursorDraw), cursor: ?scene.CursorInput, cell_metrics: contract.CellMetrics, damage: Damage) void {
-    scene.appendCursorDrawsUnmanaged(out, cursor, toSceneDamage(damage), cell_metrics);
+    scene_rects.appendCursorDrawsUnmanaged(out, cursor, toSceneDamage(damage), cell_metrics);
 }
 
 pub fn appendDecorations(
@@ -64,7 +65,7 @@ pub fn appendDecorations(
     grid_metrics: contract.GridMetrics,
     damage: Damage,
 ) void {
-    scene.appendDecorationDrawsUnmanaged(out, cells, cell_metrics, grid_metrics, toSceneDamage(damage));
+    scene_rects.appendRectDecorationDrawsUnmanaged(scene.underlineDrawColor, scene.spriteDrawColor, out, cells, cell_metrics, grid_metrics, toSceneDamage(damage));
 }
 
 fn toSceneDamage(damage: Damage) scene_damage.NormalizedDamage {

@@ -15,6 +15,7 @@ const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
 const scene_damage = @import("scene_damage.zig");
+const scene_rects = @import("scene_rects.zig");
 const shape_run = @import("shape/run.zig");
 const lane = @import("lane.zig");
 const source_vt = @import("../vt_publication/abi.zig");
@@ -670,7 +671,7 @@ fn buildClearDraws(
     var draws: std.ArrayListUnmanaged(contract.TextClearDraw) = .empty;
     defer draws.deinit(allocator);
     try draws.ensureTotalCapacity(allocator, grid_metrics.rows);
-    scene.appendClearDrawsUnmanaged(&draws, cells, cell_metrics, grid_metrics, damage);
+    scene_rects.appendClearDrawsUnmanaged(&draws, cells, cell_metrics, grid_metrics, damage);
     return draws.toOwnedSlice(allocator);
 }
 
@@ -678,7 +679,7 @@ fn buildCursorDraws(allocator: std.mem.Allocator, cursor: ?scene.CursorInput, ce
     var draws: std.ArrayListUnmanaged(contract.TextCursorDraw) = .empty;
     defer draws.deinit(allocator);
     try draws.ensureTotalCapacity(allocator, 4);
-    scene.appendCursorDrawsUnmanaged(&draws, cursor, damage, cell_metrics);
+    scene_rects.appendCursorDrawsUnmanaged(&draws, cursor, damage, cell_metrics);
     return draws.toOwnedSlice(allocator);
 }
 
