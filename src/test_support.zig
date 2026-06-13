@@ -15,6 +15,7 @@ const render_surface_realizer = @import("geometry/render_surface_realizer.zig");
 const text_contract = @import("text/contract.zig");
 const rasterizer = @import("text/raster/rasterizer.zig");
 const text_session_model = @import("session/text.zig");
+const source_abi = @import("vt_publication/abi.zig");
 
 pub const prepare = prepare_request;
 pub const prepared = prepared_surface;
@@ -32,8 +33,8 @@ pub const text_rasterizer = rasterizer;
 pub const text_session_model_ns = text_session_model;
 
 pub const VtSurfaceResult = c.HowlVtSurfaceResult;
-pub const VtSurfaceCell = c.HowlVtSurfaceCell;
-pub const VtSurfaceCellAttrs = c.HowlVtSurfaceCellAttrs;
+pub const VtSurfaceCell = source_abi.SourceCell;
+pub const VtSurfaceCellAttrs = source_abi.SourceCellAttrs;
 
 comptime {
     std.debug.assert(c.HOWL_RENDER_CALL_OK == 0);

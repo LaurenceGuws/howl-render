@@ -7,8 +7,8 @@ const prepared_handle = @import("../prepared/handle.zig");
 const render_geometry = @import("../geometry/geometry.zig");
 const geometry_contract = @import("../geometry/geometry_contract.zig");
 const source_cell = @import("../tv_surface/cell.zig");
-const source_vt = @import("../tv_surface/vt.zig");
-const source_slot = @import("../tv_surface/slot.zig");
+const source_publication = @import("../vt_publication/publication.zig");
+const source_slot = @import("../storage/publication_storage.zig");
 const source_prepare = @import("../tv_surface/prepare_request.zig");
 const prepared_surface = @import("../prepared/surface.zig");
 const session_submitted = @import("submitted.zig");
@@ -176,7 +176,7 @@ pub const TextSession = struct {
         config: TextSessionConfig,
         request: tokens.RenderRequest,
         layout: geometry_contract.PrepareLayout,
-        state: source_vt.PublicationSource,
+        state: source_publication.PublicationSource,
     };
 
     pub fn init(allocator: std.mem.Allocator) TextSession {

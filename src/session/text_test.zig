@@ -1,6 +1,7 @@
 const std = @import("std");
 const text_session = @import("text.zig");
-const source_vt = @import("../tv_surface/vt.zig");
+const source_abi = @import("../vt_publication/abi.zig");
+const source_publication = @import("../vt_publication/publication.zig");
 const prepared_handle = @import("../prepared/handle.zig");
 const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
 const support = @import("../test_support.zig");
@@ -115,14 +116,14 @@ test "surface text owner rejects prepared work after resize publication" {
     try std.testing.expect(!resized_request.allow_retained_reuse);
 }
 
-fn testCell(codepoint: u21) source_vt.SourceCell {
-    var cell = std.mem.zeroes(source_vt.SourceCell);
+fn testCell(codepoint: u21) source_abi.SourceCell {
+    var cell = std.mem.zeroes(source_abi.SourceCell);
     cell.codepoint = codepoint;
     return cell;
 }
 
-fn testSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !source_vt.PublicationSource {
-    return source_vt.ownedTestSource(allocator, snapshot_seq, codepoint);
+fn testSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !source_publication.PublicationSource {
+    return source_publication.ownedTestSource(allocator, snapshot_seq, codepoint);
 }
 
 test "surface text owner rejects partial rdr_sfc handle with wrong submitted base" {

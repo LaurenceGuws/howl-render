@@ -2,7 +2,8 @@ const std = @import("std");
 const geometry_contract = @import("geometry/geometry_contract.zig");
 const source_cell = @import("tv_surface/cell.zig");
 const source_text_input = @import("tv_surface/text_input.zig");
-const source_vt = @import("tv_surface/vt.zig");
+const source_publication = @import("vt_publication/publication.zig");
+const source_vt = source_publication;
 const contract = @import("text/contract.zig");
 const surface_preparer = @import("text/surface_preparer.zig");
 const font_session = @import("text/session.zig");
@@ -14,7 +15,7 @@ const OutputFormat = enum { ndjson, text };
 const WorkloadInput = union(enum) {
     cells: []contract.CellInput,
     cell_texts: []const cluster.CellTextInput,
-    publication: source_vt.PublicationSource,
+    publication: source_publication.PublicationSource,
 };
 
 const Options = struct {

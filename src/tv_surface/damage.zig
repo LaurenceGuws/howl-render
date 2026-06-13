@@ -1,6 +1,6 @@
 const std = @import("std");
 const tokens = @import("../geometry/tokens.zig");
-const source_vt = @import("vt.zig");
+const source_publication = @import("../vt_publication/publication.zig");
 
 pub fn validateDirtySource(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) !void {
     if (dirty_rows.len != rows) return error.InvalidSurfaceSource;
@@ -34,7 +34,7 @@ pub fn canonicalizeDirtyMetadata(rows: u16, dirty_rows: []const u8, dirty_cols_s
     }
 }
 
-pub fn cursorPresentationChanged(prior: source_vt.PublicationSource, current: source_vt.PublicationSource) bool {
+pub fn cursorPresentationChanged(prior: source_publication.PublicationSource, current: source_publication.PublicationSource) bool {
     if (prior.cursor.visible != current.cursor.visible) return true;
     if (prior.cursor.row != current.cursor.row or prior.cursor.col != current.cursor.col) return true;
     if (prior.cursor.shape != current.cursor.shape) return true;
@@ -44,11 +44,11 @@ pub fn cursorPresentationChanged(prior: source_vt.PublicationSource, current: so
     return false;
 }
 
-pub fn colorPresentationChanged(prior: source_vt.PublicationSource, current: source_vt.PublicationSource) bool {
+pub fn colorPresentationChanged(prior: source_publication.PublicationSource, current: source_publication.PublicationSource) bool {
     return !std.mem.eql(u8, std.mem.asBytes(&prior.colors), std.mem.asBytes(&current.colors));
 }
 
-pub fn setSourceCursorBlinkVisible(source: *source_vt.PublicationSource, visible: bool) bool {
+pub fn setSourceCursorBlinkVisible(source: *source_publication.PublicationSource, visible: bool) bool {
     if (!source.cursor.blink or source.cursor_phase_visible == visible) return false;
     source.cursor_phase_visible = visible;
     return true;
@@ -62,7 +62,7 @@ pub fn sameSnapshotToken(a: tokens.SnapshotToken, b: tokens.SnapshotToken) bool 
         a.damage_kind == b.damage_kind;
 }
 
-pub fn samePublicationSource(a: source_vt.PublicationSource, b: source_vt.PublicationSource) bool {
+pub fn samePublicationSource(a: source_publication.PublicationSource, b: source_publication.PublicationSource) bool {
     return a.cols == b.cols and
         a.rows == b.rows and
         a.history_count == b.history_count and
@@ -83,7 +83,7 @@ pub fn samePublicationSource(a: source_vt.PublicationSource, b: source_vt.Public
         std.mem.eql(u16, a.dirty_cols_end, b.dirty_cols_end);
 }
 
-pub fn classifyDirty(snapshot: source_vt.VtSnapshot) tokens.DamageKind {
+pub fn classifyDirty(snapshot: source_publication.VtSnapshot) tokens.DamageKind {
     std.debug.assert(snapshot.dirty_rows.len == snapshot.rows);
     std.debug.assert(snapshot.dirty_cols_start.len == snapshot.rows);
     std.debug.assert(snapshot.dirty_cols_end.len == snapshot.rows);
@@ -104,7 +104,7 @@ pub fn classifyDirty(snapshot: source_vt.VtSnapshot) tokens.DamageKind {
     return .partial;
 }
 
-fn testSnapshot(rows: u16, cols: u16, scroll_row: u64, snapshot_seq: u64, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) source_vt.VtSnapshot {
+fn testSnapshot(rows: u16, cols: u16, scroll_row: u64, snapshot_seq: u64, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) source_publication.VtSnapshot {
     return .{
         .cols = cols,
         .rows = rows,
@@ -120,7 +120,7 @@ fn testSnapshot(rows: u16, cols: u16, scroll_row: u64, snapshot_seq: u64, dirty_
 }
 
 test "source damage canonicalizes clean dirty metadata before equality dedupe" {
-    var first = try source_vt.testSourceFromSnapshot(std.testing.allocator, testSnapshot(
+    var first = try source_publication.testSourceFromSnapshot(std.testing.allocator, testSnapshot(
         2,
         3,
         0,
@@ -130,7 +130,7 @@ test "source damage canonicalizes clean dirty metadata before equality dedupe" {
         &[_]u16{ 1, 1 },
     ));
     defer first.deinit(std.testing.allocator);
-    var second = try source_vt.testSourceFromSnapshot(std.testing.allocator, testSnapshot(
+    var second = try source_publication.testSourceFromSnapshot(std.testing.allocator, testSnapshot(
         2,
         3,
         0,
@@ -163,7 +163,7 @@ test "source damage preserves dirty row spans and sentinels while canonicalizing
 }
 
 test "source damage boundary rejects invalid dirty metadata before canonicalization" {
-    var source = try source_vt.testSourceFromSnapshot(std.testing.allocator, testSnapshot(
+    var source = try source_publication.testSourceFromSnapshot(std.testing.allocator, testSnapshot(
         1,
         3,
         0,
@@ -174,7 +174,7 @@ test "source damage boundary rejects invalid dirty metadata before canonicalizat
     ));
     defer source.deinit(std.testing.allocator);
 
-    try std.testing.expectError(error.InvalidSurfaceSource, source_vt.validatePublicationSourceBoundary(source));
+    try std.testing.expectError(error.InvalidSurfaceSource, source_publication.validatePublicationSourceBoundary(source));
     try std.testing.expectEqual(@as(u16, 3), source.dirty_cols_start[0]);
     try std.testing.expectEqual(@as(u16, 1), source.dirty_cols_end[0]);
 }

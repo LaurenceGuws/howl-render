@@ -1,3 +1,4 @@
+// Temporary compatibility input until Slice 2 moves renderable content owners out of `tv_surface`.
 pub const Color = struct {
     pub const Kind = enum {
         default,
