@@ -10,6 +10,7 @@ const provider = @import("provider.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
+const scene_damage = @import("scene_damage.zig");
 const sprite_key = @import("raster/key.zig");
 const source_vt = @import("../vt_publication/abi.zig");
 const source_theme = @import("../vt_publication/theme.zig");
@@ -113,7 +114,7 @@ pub fn prepare(
     policy: Policy,
     grid_metrics: contract.GridMetrics,
     session: font_session.FontSession,
-    damage_input: scene.DamageInput,
+    damage_input: scene_damage.DamageInput,
     cursor: ?scene.CursorInput,
     lane_report: *lane.LaneReport,
     rejected_complex_cells_out: ?*u64,
@@ -404,7 +405,7 @@ fn sourceItem(source: Source, idx: u32) ?cluster.RenderableText {
     };
 }
 
-fn damageInput(damage: direct_scene.Damage) scene.DamageInput {
+fn damageInput(damage: direct_scene.Damage) scene_damage.DamageInput {
     return .{
         .full = damage.full,
         .dirty_rows = damage.dirty_rows,

@@ -14,6 +14,7 @@ const provider = @import("provider.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
+const scene_damage = @import("scene_damage.zig");
 const shape_run = @import("shape/run.zig");
 const lane = @import("lane.zig");
 const source_vt = @import("../vt_publication/abi.zig");
@@ -292,7 +293,7 @@ pub const TextSurfacePreparer = struct {
         };
     }
 
-    fn selectComplexCells(self: *TextSurfacePreparer, prepared: *const PreparedComplexSurface, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) !cluster.ComplexSelection {
+    fn selectComplexCells(self: *TextSurfacePreparer, prepared: *const PreparedComplexSurface, grid_metrics: contract.GridMetrics, damage: scene_damage.DamageInput) !cluster.ComplexSelection {
         var complex = try cluster.selectComplexWithDamageScratch(
             self.allocator,
             &self.cluster_scratch,
@@ -385,7 +386,7 @@ pub const TextSurfacePreparer = struct {
         text_scene: *scene.BorrowedTextScene,
         raster_plan: *rasterizer.OwnedRasterPlan,
     ) !PreparedSceneMerge {
-        const damage: scene.NormalizedDamage = .{
+        const damage: scene_damage.NormalizedDamage = .{
             .full = direct.damage.full,
             .dirty_rows = direct.damage.dirty_rows,
             .dirty_cols_start = direct.damage.dirty_cols_start,
@@ -664,7 +665,7 @@ fn buildClearDraws(
     cells: []const contract.RenderableCell,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: scene.NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
 ) ![]contract.TextClearDraw {
     var draws: std.ArrayListUnmanaged(contract.TextClearDraw) = .empty;
     defer draws.deinit(allocator);
@@ -673,7 +674,7 @@ fn buildClearDraws(
     return draws.toOwnedSlice(allocator);
 }
 
-fn buildCursorDraws(allocator: std.mem.Allocator, cursor: ?scene.CursorInput, cell_metrics: contract.CellMetrics, damage: scene.NormalizedDamage) ![]contract.TextCursorDraw {
+fn buildCursorDraws(allocator: std.mem.Allocator, cursor: ?scene.CursorInput, cell_metrics: contract.CellMetrics, damage: scene_damage.NormalizedDamage) ![]contract.TextCursorDraw {
     var draws: std.ArrayListUnmanaged(contract.TextCursorDraw) = .empty;
     defer draws.deinit(allocator);
     try draws.ensureTotalCapacity(allocator, 4);

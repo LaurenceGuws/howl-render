@@ -1,6 +1,7 @@
 const std = @import("std");
 const contract = @import("contract.zig");
 const scene = @import("scene.zig");
+const scene_damage = @import("scene_damage.zig");
 
 pub const Damage = struct {
     full: bool,
@@ -8,8 +9,8 @@ pub const Damage = struct {
     dirty_cols_start: []const u16,
     dirty_cols_end: []const u16,
 
-    pub fn init(damage: scene.DamageInput, rows: u16) Damage {
-        const normalized = scene.normalizeDamage(damage, rows);
+    pub fn init(damage: scene_damage.DamageInput, rows: u16) Damage {
+        const normalized = scene_damage.normalizeDamage(damage, rows);
         return .{
             .full = normalized.full,
             .dirty_rows = normalized.dirty_rows,
@@ -66,7 +67,7 @@ pub fn appendDecorations(
     scene.appendDecorationDrawsUnmanaged(out, cells, cell_metrics, grid_metrics, toSceneDamage(damage));
 }
 
-fn toSceneDamage(damage: Damage) scene.NormalizedDamage {
+fn toSceneDamage(damage: Damage) scene_damage.NormalizedDamage {
     return .{
         .full = damage.full,
         .dirty_rows = damage.dirty_rows,

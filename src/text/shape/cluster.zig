@@ -1,6 +1,6 @@
 const std = @import("std");
 const contract = @import("../contract.zig");
-const scene = @import("../scene.zig");
+const scene_damage = @import("../scene_damage.zig");
 const lane = @import("../lane.zig");
 const source_text_input = @import("../../vt_publication/text_input.zig");
 const source_theme = @import("../../vt_publication/theme.zig");
@@ -270,7 +270,7 @@ pub fn buildLineTextCacheFromCells(allocator: std.mem.Allocator, cells: []const 
     return assembly.toOwnedLineTextCache();
 }
 
-pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const contract.CellInput, grid_metrics: contract.GridMetrics, damage: scene.DamageInput) !SparseCells {
+pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const contract.CellInput, grid_metrics: contract.GridMetrics, damage: scene_damage.DamageInput) !SparseCells {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     const total_cells = count32(cells);
@@ -283,9 +283,9 @@ pub fn buildSparseCellsWithDamageScratch(
     scratch: *RetainedScratch,
     cells: []const contract.CellInput,
     grid_metrics: contract.GridMetrics,
-    damage: scene.DamageInput,
+    damage: scene_damage.DamageInput,
 ) !SparseCells {
-    const damage_filter = DamageFilter.init(damage, grid_metrics);
+    const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
     const total_cells = count32(cells);
     try scratch.require(total_cells, countCellInputCodepoints(cells));
 
@@ -294,7 +294,7 @@ pub fn buildSparseCellsWithDamageScratch(
     var renderable_count: u32 = 0;
     var cell_idx: u32 = 0;
     while (cell_idx < total_cells) {
-        if (damage_filter.cleanRowSkip(cell_idx, total_cells)) |next_idx| {
+        if (scene_damage.cleanRowSkip(normalized_damage, grid_metrics, cell_idx, total_cells)) |next_idx| {
             cell_idx = next_idx;
             continue;
         }
@@ -304,7 +304,7 @@ pub fn buildSparseCellsWithDamageScratch(
         if (cell.continuation) continue;
         const first_cell = idx;
         const span = inferredCellSpan(cells, first_cell);
-        if (!damage_filter.includeSpan(first_cell, span)) continue;
+        if (!scene_damage.includeSpan(normalized_damage, grid_metrics, first_cell, span)) continue;
         var scratch_codepoints: [4]u32 = undefined;
         const cps = cellCodepointsForRenderableOwnership(cell, &scratch_codepoints);
         const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
@@ -332,9 +332,9 @@ pub fn buildSparsePublicationCellsWithDamageScratch(
     cells: []const source_vt.SourceCell,
     theme: source_theme.SurfaceTheme,
     grid_metrics: contract.GridMetrics,
-    damage: scene.DamageInput,
+    damage: scene_damage.DamageInput,
 ) !SparseCells {
-    const damage_filter = DamageFilter.init(damage, grid_metrics);
+    const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
     const total_cells = count32(cells);
     try scratch.require(total_cells, countPublicationCodepoints(cells));
 
@@ -343,7 +343,7 @@ pub fn buildSparsePublicationCellsWithDamageScratch(
     var renderable_count: u32 = 0;
     var cell_idx: u32 = 0;
     while (cell_idx < total_cells) {
-        if (damage_filter.cleanRowSkip(cell_idx, total_cells)) |next_idx| {
+        if (scene_damage.cleanRowSkip(normalized_damage, grid_metrics, cell_idx, total_cells)) |next_idx| {
             cell_idx = next_idx;
             continue;
         }
@@ -354,7 +354,7 @@ pub fn buildSparsePublicationCellsWithDamageScratch(
         const mapped = source_text_input.mapPublicationCellInput(source_cell_value, theme);
         const first_cell = idx;
         const span = inferredPublicationCellSpan(cells, first_cell);
-        if (!damage_filter.includeSpan(first_cell, span)) continue;
+        if (!scene_damage.includeSpan(normalized_damage, grid_metrics, first_cell, span)) continue;
         var scratch_codepoints: [4]u32 = undefined;
         const cps = cellCodepointsForRenderableOwnership(mapped, &scratch_codepoints);
         const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
@@ -493,7 +493,7 @@ pub fn extractClustersWithDamage(
     cells: []const contract.RenderableCell,
     cache: contract.LineTextCache,
     grid_metrics: contract.GridMetrics,
-    damage: scene.DamageInput,
+    damage: scene_damage.DamageInput,
 ) !OwnedClusters {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
@@ -507,14 +507,14 @@ pub fn extractClustersWithDamageScratch(
     cells: []const contract.RenderableCell,
     cache: contract.LineTextCache,
     grid_metrics: contract.GridMetrics,
-    damage: scene.DamageInput,
+    damage: scene_damage.DamageInput,
 ) !OwnedClusters {
-    const damage_filter = DamageFilter.init(damage, grid_metrics);
+    const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
     try scratch.require(count32(cells), 0);
     var cluster_count: u32 = 0;
     for (cells, 0..) |cell, idx| {
         if (cell.continuation) continue;
-        if (!damage_filter.includeSpan(cell.first_cell, cell.cell_span)) continue;
+        if (!scene_damage.includeSpan(normalized_damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
         const text = textForCell(cell, cache);
         if (isBlankText(text)) continue;
         const inferred_span = inferredRenderableCellSpan(cells, @intCast(idx));
@@ -532,7 +532,7 @@ pub fn selectComplexWithDamage(
     cache: contract.LineTextCache,
     clusters: []const contract.CellCluster,
     grid_metrics: contract.GridMetrics,
-    damage: scene.DamageInput,
+    damage: scene_damage.DamageInput,
 ) !ComplexSelection {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
@@ -574,8 +574,8 @@ pub fn sourceRenderableTextFromPrepared(cells: []const contract.RenderableCell, 
     return .{ .renderable = renderable, .text = textForCell(renderable, cache) };
 }
 
-pub fn includeDamage(grid_metrics: contract.GridMetrics, damage: scene.DamageInput, renderable: contract.RenderableCell) bool {
-    return DamageFilter.init(damage, grid_metrics).includeSpan(renderable.first_cell, renderable.cell_span);
+pub fn includeDamage(grid_metrics: contract.GridMetrics, damage: scene_damage.DamageInput, renderable: contract.RenderableCell) bool {
+    return scene_damage.includeSpan(scene_damage.normalizeDamage(damage, grid_metrics.rows), grid_metrics, renderable.first_cell, renderable.cell_span);
 }
 
 pub fn selectComplexWithDamageScratch(
@@ -585,15 +585,15 @@ pub fn selectComplexWithDamageScratch(
     cache: contract.LineTextCache,
     clusters: []const contract.CellCluster,
     grid_metrics: contract.GridMetrics,
-    damage: scene.DamageInput,
+    damage: scene_damage.DamageInput,
 ) !ComplexSelection {
-    const damage_filter = DamageFilter.init(damage, grid_metrics);
+    const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
     try scratch.require(@max(count32(cells), count32(clusters)), 0);
     var cell_count: u32 = 0;
     var cluster_count: u32 = 0;
     for (cells) |cell| {
         if (cell.continuation) continue;
-        if (!damage_filter.includeSpan(cell.first_cell, cell.cell_span)) continue;
+        if (!scene_damage.includeSpan(normalized_damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
         if (!classifyComplexCell(cell, cache)) continue;
         scratch.renderable[@intCast(cell_count)] = cell;
         cell_count += 1;
@@ -634,46 +634,6 @@ fn isBlankText(text: contract.CellText) bool {
     }
     return true;
 }
-
-const DamageFilter = struct {
-    cols: u32,
-    dirty_rows: []const bool,
-    dirty_cols_start: []const u16,
-    dirty_cols_end: []const u16,
-    valid: bool,
-
-    fn init(damage: scene.DamageInput, grid_metrics: contract.GridMetrics) DamageFilter {
-        const row_count = grid_metrics.rows;
-        const valid = !damage.full and
-            count16(damage.dirty_rows) == row_count and
-            count16(damage.dirty_cols_start) == row_count and
-            count16(damage.dirty_cols_end) == row_count;
-        return .{
-            .cols = @max(@as(u32, grid_metrics.cols), 1),
-            .dirty_rows = damage.dirty_rows,
-            .dirty_cols_start = damage.dirty_cols_start,
-            .dirty_cols_end = damage.dirty_cols_end,
-            .valid = valid,
-        };
-    }
-
-    fn cleanRowSkip(self: DamageFilter, idx: u32, cells_len: u32) ?u32 {
-        if (!self.valid) return null;
-        const row = idx / self.cols;
-        if (row >= count32(self.dirty_rows)) return cells_len;
-        if (self.dirty_rows[@intCast(row)]) return null;
-        return @min((row + 1) * self.cols, cells_len);
-    }
-
-    fn includeSpan(self: DamageFilter, first_cell: u32, cell_span: u8) bool {
-        if (!self.valid) return true;
-        const row = first_cell / self.cols;
-        if (row >= count32(self.dirty_rows) or !self.dirty_rows[@intCast(row)]) return false;
-        const start_col = @as(u16, @intCast(first_cell % self.cols));
-        const end_col = start_col +| (@max(cell_span, 1) - 1);
-        return !(end_col < self.dirty_cols_start[@intCast(row)] or start_col > self.dirty_cols_end[@intCast(row)]);
-    }
-};
 
 fn renderableFromCellInput(text_id: contract.CellTextId, first_cell: u32, cell_span: u8, cell: contract.CellInput, continuation: bool) contract.RenderableCell {
     return renderableCell(
@@ -845,11 +805,6 @@ fn resolvedRun(cluster_start: u32, cluster_count: u32, face_id: contract.FontFac
 
 fn count32(items: anytype) u32 {
     std.debug.assert(items.len <= std.math.maxInt(u32));
-    return @intCast(items.len);
-}
-
-fn count16(items: anytype) u16 {
-    std.debug.assert(items.len <= std.math.maxInt(u16));
     return @intCast(items.len);
 }
 

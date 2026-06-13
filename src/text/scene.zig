@@ -1,5 +1,6 @@
 const std = @import("std");
 const contract = @import("contract.zig");
+const scene_damage = @import("scene_damage.zig");
 const atlas_cache = @import("raster/atlas.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const sprite_key = @import("raster/key.zig");
@@ -32,16 +33,9 @@ pub const CursorInput = struct {
     blink: bool = false,
 };
 
-pub const DamageInput = struct {
-    full: bool = true,
-    dirty_rows: []const bool = &.{},
-    dirty_cols_start: []const u16 = &.{},
-    dirty_cols_end: []const u16 = &.{},
-};
-
 pub const BuildOptions = struct {
     cursor: ?CursorInput = null,
-    damage: DamageInput = .{},
+    damage: scene_damage.DamageInput = .{},
 };
 
 pub const OwnedTextScene = struct {
@@ -128,7 +122,7 @@ pub fn buildSceneWithAtlasCacheOptions(
     cache: *atlas_cache.OwnedAtlasCache,
     options: BuildOptions,
 ) !OwnedTextScene {
-    const damage = normalizeDamage(options.damage, grid_metrics.rows);
+    const damage = scene_damage.normalizeDamage(options.damage, grid_metrics.rows);
     var assembly = SceneAssembly{ .allocator = allocator };
     errdefer assembly.deinit();
     try appendSceneAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
@@ -146,7 +140,7 @@ pub fn buildBorrowedSceneWithAtlasCacheOptions(
     cache: *atlas_cache.OwnedAtlasCache,
     options: BuildOptions,
 ) !BorrowedTextScene {
-    const damage = normalizeDamage(options.damage, grid_metrics.rows);
+    const damage = scene_damage.normalizeDamage(options.damage, grid_metrics.rows);
     const capacities = drawCapacities(cells, groups, cell_metrics, grid_metrics, damage, options.cursor);
     try scratch.reset(allocator, capacities);
 
@@ -165,7 +159,7 @@ fn appendSceneAssemblyPopulation(
     missing: []const contract.MissingGlyph,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
     cursor: ?CursorInput,
 ) !void {
     try assembly.missing.appendSlice(assembly.allocator, missing);
@@ -177,13 +171,6 @@ fn appendSceneAssemblyPopulation(
     try appendBackgroundDraws(assembly.allocator, &assembly.background_draws, cells, cell_metrics, grid_metrics, damage);
     try appendDecorationDraws(assembly, cache, cells, cell_metrics, grid_metrics, damage);
 }
-
-pub const NormalizedDamage = struct {
-    full: bool,
-    dirty_rows: []const bool,
-    dirty_cols_start: []const u16,
-    dirty_cols_end: []const u16,
-};
 
 const DrawCapacities = struct {
     sprite_draws: usize,
@@ -237,7 +224,7 @@ const SceneAssembly = struct {
         self.* = undefined;
     }
 
-    fn toOwnedScene(self: *SceneAssembly, damage: NormalizedDamage) !OwnedTextScene {
+    fn toOwnedScene(self: *SceneAssembly, damage: scene_damage.NormalizedDamage) !OwnedTextScene {
         defer if (self.retained_scratch != null) self.releaseRetainedScratch();
         return .{ .allocator = self.allocator, .scene = .{
             .full_redraw = damage.full,
@@ -251,7 +238,7 @@ const SceneAssembly = struct {
         } };
     }
 
-    fn toBorrowedScene(self: *SceneAssembly, damage: NormalizedDamage) !BorrowedTextScene {
+    fn toBorrowedScene(self: *SceneAssembly, damage: scene_damage.NormalizedDamage) !BorrowedTextScene {
         std.debug.assert(self.retained_scratch != null);
         defer self.releaseRetainedScratch();
         const raster_requests = try self.raster_requests.toOwnedSlice(self.allocator);
@@ -344,7 +331,7 @@ const SceneAssembly = struct {
     }
 };
 
-fn appendSceneCursorDraws(assembly: *SceneAssembly, cursor: ?CursorInput, damage: NormalizedDamage, cell_metrics: contract.CellMetrics) !void {
+fn appendSceneCursorDraws(assembly: *SceneAssembly, cursor: ?CursorInput, damage: scene_damage.NormalizedDamage, cell_metrics: contract.CellMetrics) !void {
     const cursor_value = cursor orelse return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
     const count_before = assembly.cursor_draws.items.len;
@@ -357,7 +344,7 @@ fn drawCapacities(
     groups: []const contract.GlyphGroup,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
     cursor: ?CursorInput,
 ) DrawCapacities {
     return .{
@@ -369,7 +356,7 @@ fn drawCapacities(
     };
 }
 
-fn countGroupSpriteDraws(groups: []const contract.GlyphGroup, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) usize {
+fn countGroupSpriteDraws(groups: []const contract.GlyphGroup, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
     var count: usize = 0;
     for (groups) |group| {
         if (classifyGroupLead(damage, grid_metrics, group) != .draw) continue;
@@ -378,7 +365,7 @@ fn countGroupSpriteDraws(groups: []const contract.GlyphGroup, grid_metrics: cont
     return count;
 }
 
-fn countCurlyUnderlineSprites(cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) usize {
+fn countCurlyUnderlineSprites(cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
     var count: usize = 0;
     for (cells) |cell| {
         if (classifyDecorationLead(damage, grid_metrics, cell) != .draw) continue;
@@ -389,19 +376,19 @@ fn countCurlyUnderlineSprites(cells: []const contract.RenderableCell, grid_metri
     return count;
 }
 
-fn countClearDraws(grid_metrics: contract.GridMetrics, damage: NormalizedDamage) usize {
+fn countClearDraws(grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
     if (damage.full) return 0;
-    const rows = @min(grid_metrics.rows, damageRowCount(damage));
+    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
     var count: usize = 0;
     var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        if (dirtyRowSpan(damage, grid_metrics, row) == null) continue;
+        if (scene_damage.dirtyRowSpan(damage, grid_metrics, row) == null) continue;
         count += 1;
     }
     return count;
 }
 
-fn countDecorationDraws(cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: NormalizedDamage) usize {
+fn countDecorationDraws(cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
     const font_metrics = defaultFontMetrics(cell_metrics);
     const deco = decorationGeometry(cell_metrics, font_metrics);
     var count: usize = 0;
@@ -433,14 +420,14 @@ fn countSteppedDecorationDraws(width_px: u16, step_px: u16) usize {
     return (width + step - 1) / step;
 }
 
-fn countCursorDraws(cursor: ?CursorInput, damage: NormalizedDamage) usize {
+fn countCursorDraws(cursor: ?CursorInput, damage: scene_damage.NormalizedDamage) usize {
     const cursor_value = cursor orelse return 0;
     if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
     return @intCast(cursorDrawCount(cursor_value.shape));
 }
 
-fn classifyCursorLead(damage: NormalizedDamage, cursor: CursorInput) CursorLead {
-    if (!damage.full and !rowDirty(damage, cursor.cell_row)) return .skip;
+fn classifyCursorLead(damage: scene_damage.NormalizedDamage, cursor: CursorInput) CursorLead {
+    if (!damage.full and !scene_damage.rowDirty(damage, cursor.cell_row)) return .skip;
     return .draw;
 }
 
@@ -477,43 +464,6 @@ const SpriteDrawInput = struct {
     color: contract.Rgba8,
     first_cell: u32,
     cell_span: u8,
-};
-
-const CellSpan = struct {
-    row: u16,
-    start_col: u16,
-    end_col: u16,
-
-    fn init(grid_metrics: contract.GridMetrics, first_cell: u32, cell_span: u8) CellSpan {
-        const cols = @max(@as(u32, grid_metrics.cols), 1);
-        const start_col_u32 = first_cell % cols;
-        const span_u32 = @as(u32, @max(cell_span, 1));
-        return .{
-            .row = @intCast(first_cell / cols),
-            .start_col = @intCast(start_col_u32),
-            .end_col = @intCast(start_col_u32 + span_u32 - 1),
-        };
-    }
-
-    fn overlaps(self: CellSpan, other: CellSpan) bool {
-        if (self.row != other.row) return false;
-        return !(self.end_col < other.start_col or self.start_col > other.end_col);
-    }
-};
-
-const DirtyRowSpan = struct {
-    row: u16,
-    start_col: u16,
-    end_col: u16,
-
-    fn firstCell(self: DirtyRowSpan, grid_metrics: contract.GridMetrics) u32 {
-        return @as(u32, self.row) * @as(u32, @max(grid_metrics.cols, 1)) + @as(u32, self.start_col);
-    }
-
-    fn cellSpan(self: DirtyRowSpan) u8 {
-        const span_u32 = @as(u32, self.end_col - self.start_col) + 1;
-        return @intCast(@min(span_u32, @as(u32, std.math.maxInt(u8))));
-    }
 };
 
 const BackgroundLead = enum(u2) {
@@ -575,70 +525,20 @@ const IconSpan = enum(u3) {
     expand,
 };
 
-pub fn normalizeDamage(damage: DamageInput, rows: u16) NormalizedDamage {
-    const row_len = rows;
-    if (!damage.full) assertDamageRowLengths(damage, rows);
-    const valid = !damage.full and
-        count16(damage.dirty_rows) == row_len and
-        count16(damage.dirty_cols_start) == row_len and
-        count16(damage.dirty_cols_end) == row_len;
-    return .{
-        .full = !valid,
-        .dirty_rows = if (valid) damage.dirty_rows else &.{},
-        .dirty_cols_start = if (valid) damage.dirty_cols_start else &.{},
-        .dirty_cols_end = if (valid) damage.dirty_cols_end else &.{},
-    };
-}
-
-fn assertDamageRowLengths(damage: DamageInput, rows: u16) void {
-    std.debug.assert(damage.dirty_rows.len == rows);
-    std.debug.assert(damage.dirty_cols_start.len == rows);
-    std.debug.assert(damage.dirty_cols_end.len == rows);
-}
-
-fn rowDirty(damage: NormalizedDamage, row: u16) bool {
-    if (damage.full) return true;
-    return row < count16(damage.dirty_rows) and damage.dirty_rows[@intCast(row)];
-}
-
-fn dirtyRowSpan(damage: NormalizedDamage, grid_metrics: contract.GridMetrics, row: u16) ?DirtyRowSpan {
-    if (damage.full) return null;
-    if (!rowDirty(damage, row)) return null;
-
-    const cols = @max(grid_metrics.cols, 1);
-    const last_col: u16 = cols - 1;
-    const start_col = @min(damage.dirty_cols_start[@intCast(row)], last_col);
-    const end_col = @min(damage.dirty_cols_end[@intCast(row)], last_col);
-    if (end_col < start_col) return null;
-
-    return .{
-        .row = row,
-        .start_col = start_col,
-        .end_col = end_col,
-    };
-}
-
-fn includeSpan(damage: NormalizedDamage, grid_metrics: contract.GridMetrics, first_cell: u32, cell_span: u8) bool {
-    if (damage.full) return true;
-    const cell = CellSpan.init(grid_metrics, first_cell, cell_span);
-    const dirty = dirtyRowSpan(damage, grid_metrics, cell.row) orelse return false;
-    return !(cell.end_col < dirty.start_col or cell.start_col > dirty.end_col);
-}
-
-fn classifyGroupLead(damage: NormalizedDamage, grid_metrics: contract.GridMetrics, group: contract.GlyphGroup) GroupLead {
-    if (!includeSpan(damage, grid_metrics, group.first_cell, group.cell_span)) return .skip;
+fn classifyGroupLead(damage: scene_damage.NormalizedDamage, grid_metrics: contract.GridMetrics, group: contract.GlyphGroup) GroupLead {
+    if (!scene_damage.includeSpan(damage, grid_metrics, group.first_cell, group.cell_span)) return .skip;
     return .draw;
 }
 
-fn classifyBackgroundLead(damage: NormalizedDamage, grid_metrics: contract.GridMetrics, cell: contract.RenderableCell) BackgroundLead {
+fn classifyBackgroundLead(damage: scene_damage.NormalizedDamage, grid_metrics: contract.GridMetrics, cell: contract.RenderableCell) BackgroundLead {
     if (cell.continuation) return .skip;
-    if (!includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .skip;
+    if (!scene_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .skip;
     if (cell.bg.a == 0) return .transparent;
     return .span;
 }
 
 fn classifyBackgroundNext(
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
     grid_metrics: contract.GridMetrics,
     row: u16,
     fill_color: contract.Rgba8,
@@ -646,9 +546,9 @@ fn classifyBackgroundNext(
     cell: contract.RenderableCell,
 ) BackgroundNext {
     if (cell.continuation) return .stop_continuation;
-    if (!includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .stop_damage;
+    if (!scene_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .stop_damage;
     if (!sameRgba8(cell.bg, fill_color)) return .stop_color;
-    if (CellSpan.init(grid_metrics, cell.first_cell, cell.cell_span).row != row) return .stop_row;
+    if (cell.first_cell / @max(@as(u32, grid_metrics.cols), 1) != row) return .stop_row;
     if (cell.first_cell != span_end_cell) return .stop_gap;
     return .merge;
 }
@@ -660,7 +560,7 @@ fn appendGroupSpriteDraws(
     groups: []const contract.GlyphGroup,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
 ) !void {
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const cell_w = @as(i32, @intCast(cell_metrics.cell_w_px));
@@ -724,7 +624,7 @@ pub fn appendBackgroundDrawsUnmanaged(
     cells: []const contract.RenderableCell,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
 ) void {
     const cell_len = count32(cells);
     var idx: u32 = 0;
@@ -736,8 +636,8 @@ pub fn appendBackgroundDrawsUnmanaged(
             continue;
         }
         const fill_color = cell.bg;
-        const span = CellSpan.init(grid_metrics, cell.first_cell, cell.cell_span);
-        const row = span.row;
+        const cols = @max(@as(u32, grid_metrics.cols), 1);
+        const row: u16 = @intCast(cell.first_cell / cols);
         const span_first_cell = cell.first_cell;
         var span_cell_count: u32 = @max(cell.cell_span, 1);
         var next_idx = idx + 1;
@@ -750,7 +650,7 @@ pub fn appendBackgroundDrawsUnmanaged(
             span_end_cell += next_span;
         }
 
-        const col = span.start_col;
+        const col: u16 = @intCast(cell.first_cell % cols);
         const base_x = @as(i32, @intCast(col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
         const base_y = @as(i32, @intCast(row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
         out.appendAssumeCapacity(.{
@@ -771,13 +671,13 @@ pub fn appendClearDrawsUnmanaged(
     cells: []const contract.RenderableCell,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
 ) void {
     if (damage.full) return;
-    const rows = @min(grid_metrics.rows, damageRowCount(damage));
+    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
     var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        const dirty = dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+        const dirty = scene_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
         const first_cell = dirty.firstCell(grid_metrics);
         const cell_span = dirty.cellSpan();
         const span_cells = @as(u32, @max(cell_span, 1));
@@ -796,7 +696,7 @@ pub fn appendClearDrawsUnmanaged(
 pub fn appendCursorDrawsUnmanaged(
     out: *std.ArrayListUnmanaged(contract.TextCursorDraw),
     cursor: ?CursorInput,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
     cell_metrics: contract.CellMetrics,
 ) void {
     const cursor_value = cursor orelse return;
@@ -812,7 +712,7 @@ pub fn appendDecorationDrawsUnmanaged(
     cells: []const contract.RenderableCell,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
 ) void {
     const font_metrics = defaultFontMetrics(cell_metrics);
     const deco = decorationGeometry(cell_metrics, font_metrics);
@@ -844,7 +744,7 @@ fn appendBackgroundDraws(
     cells: []const contract.RenderableCell,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
 ) !void {
     const cell_len = count32(cells);
     var idx: u32 = 0;
@@ -856,8 +756,8 @@ fn appendBackgroundDraws(
             continue;
         }
         const fill_color = cell.bg;
-        const span = CellSpan.init(grid_metrics, cell.first_cell, cell.cell_span);
-        const row = span.row;
+        const cols = @max(@as(u32, grid_metrics.cols), 1);
+        const row: u16 = @intCast(cell.first_cell / cols);
         const span_first_cell = cell.first_cell;
         var span_cell_count: u32 = @max(cell.cell_span, 1);
         var next_idx = idx + 1;
@@ -870,7 +770,7 @@ fn appendBackgroundDraws(
             span_end_cell += next_span;
         }
 
-        const col = span.start_col;
+        const col: u16 = @intCast(cell.first_cell % cols);
         const base_x = @as(i32, @intCast(col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
         const base_y = @as(i32, @intCast(row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
         try out.append(allocator, .{
@@ -892,13 +792,13 @@ fn appendClearDraws(
     cells: []const contract.RenderableCell,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
 ) !void {
     if (damage.full) return;
-    const rows = @min(grid_metrics.rows, damageRowCount(damage));
+    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
     var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        const dirty = dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+        const dirty = scene_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
         const first_cell = dirty.firstCell(grid_metrics);
         const cell_span = dirty.cellSpan();
         const span_cells = @as(u32, @max(cell_span, 1));
@@ -914,14 +814,9 @@ fn appendClearDraws(
     }
 }
 
-fn clearColorForSpan(cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, dirty: DirtyRowSpan) contract.Rgba8 {
-    const dirty_span = CellSpan{
-        .row = dirty.row,
-        .start_col = dirty.start_col,
-        .end_col = dirty.end_col,
-    };
+fn clearColorForSpan(cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, dirty: scene_damage.DirtyRowSpan) contract.Rgba8 {
     for (cells) |cell| {
-        if (classifyClearColorCell(grid_metrics, dirty_span, cell) != .match) continue;
+        if (classifyClearColorCell(grid_metrics, dirty, cell) != .match) continue;
         const clear = contract.Rgba8{ .r = cell.bg.r, .g = cell.bg.g, .b = cell.bg.b, .a = 255 };
         std.debug.assert(clear.r == cell.bg.r and clear.g == cell.bg.g and clear.b == cell.bg.b and clear.a == 255);
         return clear;
@@ -929,18 +824,17 @@ fn clearColorForSpan(cells: []const contract.RenderableCell, grid_metrics: contr
     return .{ .r = 0, .g = 0, .b = 0, .a = 255 };
 }
 
-fn classifyClearColorCell(grid_metrics: contract.GridMetrics, dirty_span: CellSpan, cell: contract.RenderableCell) ClearColorCell {
+fn classifyClearColorCell(grid_metrics: contract.GridMetrics, dirty_span: scene_damage.DirtyRowSpan, cell: contract.RenderableCell) ClearColorCell {
     if (cell.continuation) return .skip;
     if (cell.bg.a != 0) return .skip;
-    const cell_span = CellSpan.init(grid_metrics, cell.first_cell, cell.cell_span);
-    if (!cell_span.overlaps(dirty_span)) return .skip;
+    if (!scene_damage.dirtySpanOverlapsCellSpan(grid_metrics, dirty_span, cell)) return .skip;
     return .match;
 }
 
-fn classifyDecorationLead(damage: NormalizedDamage, grid_metrics: contract.GridMetrics, cell: contract.RenderableCell) DecorationLead {
+fn classifyDecorationLead(damage: scene_damage.NormalizedDamage, grid_metrics: contract.GridMetrics, cell: contract.RenderableCell) DecorationLead {
     if (cell.continuation) return .skip;
     if (!cell.underline and !cell.strikethrough) return .skip;
-    if (!includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .skip;
+    if (!scene_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .skip;
     return .draw;
 }
 
@@ -954,7 +848,7 @@ fn appendDecorationDraws(
     cells: []const contract.RenderableCell,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
-    damage: NormalizedDamage,
+    damage: scene_damage.NormalizedDamage,
 ) !void {
     const font_metrics = defaultFontMetrics(cell_metrics);
     const deco = decorationGeometry(cell_metrics, font_metrics);
@@ -1217,13 +1111,6 @@ fn count32(items: anytype) u32 {
 fn count16(items: anytype) u16 {
     std.debug.assert(items.len <= std.math.maxInt(u16));
     return @intCast(items.len);
-}
-
-fn damageRowCount(damage: NormalizedDamage) u16 {
-    std.debug.assert(damage.dirty_rows.len == damage.dirty_cols_start.len);
-    std.debug.assert(damage.dirty_rows.len == damage.dirty_cols_end.len);
-    std.debug.assert(damage.dirty_rows.len <= std.math.maxInt(u16));
-    return @intCast(damage.dirty_rows.len);
 }
 
 test "scene builds ordered sprite draws from groups" {

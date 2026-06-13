@@ -3,6 +3,7 @@ const source_abi = @import("abi.zig");
 const source_publication = @import("publication.zig");
 const contract = @import("../text/contract.zig");
 const scene = @import("../text/scene.zig");
+const scene_damage = @import("../text/scene_damage.zig");
 const color = @import("theme.zig");
 const cursor = @import("cursor.zig");
 
@@ -200,7 +201,7 @@ pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contrac
 
     assertDirtyRowsBoolBytes(source.dirty_rows);
     const dirty_rows: []const bool = @ptrCast(source.dirty_rows);
-    const damage = scene.DamageInput{
+    const damage = scene_damage.DamageInput{
         .full = full_damage,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = source.dirty_cols_start,
