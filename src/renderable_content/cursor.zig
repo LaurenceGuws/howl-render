@@ -1,9 +1,10 @@
 const std = @import("std");
+const source_abi = @import("../vt_publication/abi.zig");
 const source_publication = @import("../vt_publication/publication.zig");
 const scene = @import("../text/scene.zig");
 const color = @import("color.zig");
 
-pub fn mapCursorShape(shape: source_publication.SourceCursorShape) scene.CursorShape {
+pub fn mapCursorShape(shape: source_abi.SourceCursorShape) scene.CursorShape {
     return switch (shape) {
         .block => .block,
         .underline => .underline,
@@ -49,7 +50,7 @@ pub fn mapStateCursor(state: anytype, theme: color.SurfaceTheme) ?scene.CursorIn
 
 test "renderable content cursor maps blink visible and hidden publication cursor" {
     const theme = color.default_theme;
-    var cells = [_]source_publication.SourceCell{std.mem.zeroes(source_publication.SourceCell)};
+    var cells = [_]source_abi.SourceCell{std.mem.zeroes(source_abi.SourceCell)};
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
@@ -63,8 +64,8 @@ test "renderable content cursor maps blink visible and hidden publication cursor
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true },
-        .colors = std.mem.zeroes(source_publication.SourceColors),
-        .selection = std.mem.zeroes(source_publication.SourceSelection),
+        .colors = std.mem.zeroes(source_abi.SourceColors),
+        .selection = std.mem.zeroes(source_abi.SourceSelection),
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
@@ -83,8 +84,8 @@ test "renderable content cursor maps blink visible and hidden publication cursor
         .is_alternate_screen = false,
         .cells = cells[0..],
         .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .beam, .blink = true },
-        .colors = std.mem.zeroes(source_publication.SourceColors),
-        .selection = std.mem.zeroes(source_publication.SourceSelection),
+        .colors = std.mem.zeroes(source_abi.SourceColors),
+        .selection = std.mem.zeroes(source_abi.SourceSelection),
         .cursor_phase_visible = false,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),

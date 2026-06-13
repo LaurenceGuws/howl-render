@@ -2,18 +2,6 @@ const std = @import("std");
 const abi = @import("abi.zig");
 const c = @import("howl_render_c");
 
-pub const source_abi = abi;
-pub const SourceRgb = abi.SourceRgb;
-pub const SourceColor = abi.SourceColor;
-pub const SourceColors = abi.SourceColors;
-pub const SourceCellFlags = abi.SourceCellFlags;
-pub const SourceCellAttrs = abi.SourceCellAttrs;
-pub const SourceCell = abi.SourceCell;
-pub const SourceSelectionPoint = abi.SourceSelectionPoint;
-pub const SourceSelection = abi.SourceSelection;
-pub const SourceCursorShape = abi.SourceCursorShape;
-pub const SourceCursor = abi.SourceCursor;
-
 pub const VtSnapshot = struct {
     cols: u16,
     rows: u16,

@@ -16,7 +16,8 @@ const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
 const shape_run = @import("shape/run.zig");
 const lane = @import("classify/lane.zig");
-const source_vt = @import("../vt_publication/publication.zig");
+const source_vt = @import("../vt_publication/abi.zig");
+const source_publication = @import("../vt_publication/publication.zig");
 const renderable_color = @import("../renderable_content/color.zig");
 
 pub const PrepareTimings = struct {
@@ -154,7 +155,7 @@ pub const TextSurfacePreparer = struct {
 
     pub fn preparePublicationWithSessionOptions(
         self: *TextSurfacePreparer,
-        source: source_vt.PublicationSource,
+        source: source_publication.PublicationSource,
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
@@ -727,7 +728,7 @@ fn testPublicationCell(codepoint: u32) source_vt.SourceCell {
     };
 }
 
-fn testOneRowPublicationSource(cells: []source_vt.SourceCell, colors: source_vt.SourceColors) source_vt.PublicationSource {
+fn testOneRowPublicationSource(cells: []source_vt.SourceCell, colors: source_vt.SourceColors) source_publication.PublicationSource {
     std.debug.assert(cells.len <= std.math.maxInt(u16));
     return .{
         .cols = @intCast(cells.len),
@@ -997,7 +998,7 @@ test "text preparation publication clears use empty default background truth" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
-    const source = source_vt.PublicationSource{
+    const source = source_publication.PublicationSource{
         .cols = 1,
         .rows = 1,
         .history_count = 0,
@@ -1056,7 +1057,7 @@ test "text preparation publication ascii stays on direct normal path" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
-    const source = source_vt.PublicationSource{
+    const source = source_publication.PublicationSource{
         .cols = 2,
         .rows = 1,
         .history_count = 0,
@@ -1436,7 +1437,7 @@ test "text preparation prepares publication cells through shared full pipeline s
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
-    const source = source_vt.PublicationSource{
+    const source = source_publication.PublicationSource{
         .cols = 2,
         .rows = 1,
         .history_count = 0,
@@ -1495,7 +1496,7 @@ test "text preparation publication complex rejection falls back once" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
-    const source = source_vt.PublicationSource{
+    const source = source_publication.PublicationSource{
         .cols = 2,
         .rows = 1,
         .history_count = 0,

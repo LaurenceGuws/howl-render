@@ -1,3 +1,4 @@
+const std = @import("std");
 const c = @import("howl_render_c");
 const handle_owner = @import("handle.zig");
 const prepared_handle = @import("surface/handle.zig");
@@ -69,6 +70,15 @@ fn renderSurfaceStatusFromFailure(failure: render_surface_emitter.RenderSurfaceE
 }
 
 pub fn preparedInfoOut(value: prepared_surface.PreparedInfo) c.HowlRenderPreparedSurfaceInfo {
+    std.debug.assert(value.snapshot_seq != 0);
+    std.debug.assert(value.dirty_epoch != 0);
+    std.debug.assert(value.geometry_epoch != 0);
+    std.debug.assert(value.render_px.width > 0);
+    std.debug.assert(value.render_px.height > 0);
+    std.debug.assert(value.cell_px.width > 0);
+    std.debug.assert(value.cell_px.height > 0);
+    std.debug.assert(value.grid.cols > 0);
+    std.debug.assert(value.grid.rows > 0);
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .snapshot_seq = value.snapshot_seq,

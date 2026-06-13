@@ -1,3 +1,4 @@
+const std = @import("std");
 const c = @import("howl_render_c");
 const handle_owner = @import("handle.zig");
 const prepared_handle = @import("surface/handle.zig");
@@ -62,6 +63,17 @@ pub fn submit(
 }
 
 pub fn preparedSurfaceTokenOut(value: tokens.PreparedSurfaceToken) c.HowlRenderPreparedSurfaceToken {
+    std.debug.assert(value.token.snapshot_seq != 0);
+    std.debug.assert(value.token.dirty_epoch != 0);
+    std.debug.assert(value.token.geometry_epoch != 0);
+    std.debug.assert(value.token.damage_kind != .none);
+    if (value.token.damage_kind == .partial) {
+        std.debug.assert(value.token.damage_base_seq != 0);
+        std.debug.assert(value.required_base_seq == value.token.damage_base_seq);
+    } else {
+        std.debug.assert(value.token.damage_base_seq == 0);
+        std.debug.assert(value.required_base_seq == 0);
+    }
     return .{
         .snapshot_seq = value.token.snapshot_seq,
         .dirty_epoch = value.token.dirty_epoch,
@@ -141,6 +153,8 @@ pub fn submitHandle(
 }
 
 fn submitResultOut(value: render_session.SubmitResult) c.HowlRenderSubmitResult {
+    std.debug.assert(value.host_surface.width > 0);
+    std.debug.assert(value.host_surface.height > 0);
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .damage_kind = @intFromEnum(value.damage_kind),

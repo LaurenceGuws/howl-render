@@ -11,7 +11,7 @@ const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const scene = @import("scene.zig");
 const sprite_key = @import("raster/key.zig");
-const source_vt = @import("../vt_publication/publication.zig");
+const source_vt = @import("../vt_publication/abi.zig");
 const renderable_color = @import("../renderable_content/color.zig");
 
 pub const Product = struct {

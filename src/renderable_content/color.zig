@@ -1,5 +1,5 @@
 const std = @import("std");
-const source_publication = @import("../vt_publication/publication.zig");
+const source_abi = @import("../vt_publication/abi.zig");
 const contract = @import("../text/contract.zig");
 
 pub const SurfaceTheme = struct {
@@ -67,7 +67,7 @@ fn indexedDefaultColor(idx: u8) contract.Rgba8 {
     return .{ .r = gray, .g = gray, .b = gray, .a = 255 };
 }
 
-fn rgbaFromVtRgb(color: source_publication.SourceRgb) contract.Rgba8 {
+fn rgbaFromVtRgb(color: source_abi.SourceRgb) contract.Rgba8 {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = 255 };
 }
 
@@ -75,7 +75,7 @@ fn indexed256(idx: u8, theme: SurfaceTheme) contract.Rgba8 {
     return theme.palette[idx];
 }
 
-pub fn themeFromPublicationColors(colors: source_publication.SourceColors) SurfaceTheme {
+pub fn themeFromPublicationColors(colors: source_abi.SourceColors) SurfaceTheme {
     var palette: [256]contract.Rgba8 = undefined;
     for (colors.palette, 0..) |color, idx| palette[idx] = rgbaFromVtRgb(color);
     return .{
@@ -86,7 +86,7 @@ pub fn themeFromPublicationColors(colors: source_publication.SourceColors) Surfa
     };
 }
 
-pub fn mapPublicationColor(color: source_publication.SourceColor, is_fg: bool, theme: SurfaceTheme) contract.Rgba8 {
+pub fn mapPublicationColor(color: source_abi.SourceColor, is_fg: bool, theme: SurfaceTheme) contract.Rgba8 {
     return switch (color.kind) {
         0 => if (is_fg) theme.default_fg else theme.default_bg,
         1 => indexed256(@intCast(color.value & 0xFF), theme),
@@ -100,7 +100,7 @@ pub fn mapPublicationColor(color: source_publication.SourceColor, is_fg: bool, t
     };
 }
 
-pub fn semanticColorFromPublicationColor(color: source_publication.SourceColor) contract.SemanticColor {
+pub fn semanticColorFromPublicationColor(color: source_abi.SourceColor) contract.SemanticColor {
     std.debug.assert(color.kind <= publication_color_kind_max);
     return switch (color.kind) {
         0 => .{ .kind = .default },
@@ -120,7 +120,7 @@ pub fn mapPublicationUnderlineStyle(value: u8) contract.UnderlineStyle {
     };
 }
 
-pub fn publicationCellTruth(src: source_publication.SourceCell) CellSemanticTruth {
+pub fn publicationCellTruth(src: source_abi.SourceCell) CellSemanticTruth {
     std.debug.assert(src.combining_len <= src.combining.len);
     const default_fg = src.fg_color.kind == 0;
     const default_bg = src.bg_color.kind == 0;
@@ -180,7 +180,7 @@ test "renderable content color keeps opaque default background for ordinary publ
         .bg_color = .{ .kind = 0, .value = 0 },
         .underline_color = .{ .kind = 0, .value = 0 },
         .underline_style = 0,
-        .attrs = std.mem.zeroes(source_publication.SourceCellAttrs),
+        .attrs = std.mem.zeroes(source_abi.SourceCellAttrs),
         .link_id = 0,
     });
 

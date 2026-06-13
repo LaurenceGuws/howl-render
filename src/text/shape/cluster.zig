@@ -4,7 +4,7 @@ const scene = @import("../scene.zig");
 const lane = @import("../classify/lane.zig");
 const renderable_content = @import("../../renderable_content/content.zig");
 const renderable_color = @import("../../renderable_content/color.zig");
-const source_vt = @import("../../vt_publication/publication.zig");
+const source_vt = @import("../../vt_publication/abi.zig");
 
 const VS15: u32 = 0xfe0e;
 const VS16: u32 = 0xfe0f;

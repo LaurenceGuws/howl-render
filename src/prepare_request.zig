@@ -17,6 +17,10 @@ pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, vt_surface: ?*co
 }
 
 pub fn prepareRequestOut(value: tokens.RenderRequest) c.HowlRenderPrepareRequest {
+    std.debug.assert(value.token.snapshot_seq != 0);
+    std.debug.assert(value.token.dirty_epoch != 0);
+    std.debug.assert(value.token.geometry_epoch != 0);
+    std.debug.assert(value.token.damage_kind != .none);
     return .{
         .snapshot_seq = value.token.snapshot_seq,
         .dirty_epoch = value.token.dirty_epoch,
