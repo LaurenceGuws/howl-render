@@ -18,7 +18,7 @@ const shape_run = @import("shape/run.zig");
 const lane = @import("classify/lane.zig");
 const source_vt = @import("../vt_publication/abi.zig");
 const source_publication = @import("../vt_publication/publication.zig");
-const renderable_color = @import("../renderable_content/color.zig");
+const source_theme = @import("../vt_publication/theme.zig");
 
 pub const PrepareTimings = struct {
     direct_normal_us: u64 = 0,
@@ -159,7 +159,7 @@ pub const TextSurfacePreparer = struct {
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
-        theme: renderable_color.SurfaceTheme,
+        theme: source_theme.SurfaceTheme,
     ) !?OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
         var timings = PrepareTimings{};
@@ -1017,7 +1017,7 @@ test "text preparation publication clears use empty default background truth" {
         .retained_storage = true,
     };
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.clear_draws));
@@ -1076,7 +1076,7 @@ test "text preparation publication ascii stays on direct normal path" {
         .retained_storage = true,
     };
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(source.colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(source.colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -1095,7 +1095,7 @@ test "text preparation publication styled indexed ascii stays on direct normal p
     cells[0].attrs = .{ .bold = 1, .dim = 1, .italic = 1, .underline = 1, .underline_color_set = 0, .blink = 1, .inverse = 1, .invisible = 0, .strikethrough = 0, .selected = 0 };
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1121,7 +1121,7 @@ test "text preparation publication non inverse indexed ascii stays on direct nor
     cells[0].bg_color = .{ .kind = 1, .value = 5 };
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1143,7 +1143,7 @@ test "text preparation publication zero codepoint stays on direct normal path wi
     var cells = [_]source_vt.SourceCell{testPublicationCell(0)};
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
@@ -1166,7 +1166,7 @@ test "text preparation publication styled indexed zero codepoint stays on direct
     cells[0].attrs = .{ .bold = 1, .dim = 1, .italic = 1, .underline = 1, .underline_color_set = 0, .blink = 1, .inverse = 1, .invisible = 0, .strikethrough = 0, .selected = 0 };
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
@@ -1190,7 +1190,7 @@ test "text preparation publication unsupported space and rgb keep fallback scrat
     cells[1].fg_color = .{ .kind = 2, .value = 0x123456 };
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1208,7 +1208,7 @@ test "text preparation publication tab stays on generic fallback without partial
     var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('\t') };
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1224,7 +1224,7 @@ test "text preparation publication other control stays on generic fallback witho
     var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell(0x1f) };
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -1245,7 +1245,7 @@ test "text preparation publication unsupported curly falls back without partial 
     cells[1].underline_style = 2;
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expect(count32(analysis.scene.scene.sprite_draws) >= 2);
@@ -1263,7 +1263,7 @@ test "text preparation publication unsupported combining falls back without part
     cells[1].combining = .{ 0x0332, 0, 0 };
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -1280,7 +1280,7 @@ test "text preparation publication unsupported link reaches generic path without
     cells[0].link_id = 9;
     const source = testOneRowPublicationSource(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1456,7 +1456,7 @@ test "text preparation prepares publication cells through shared full pipeline s
         .retained_storage = true,
     };
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(source.colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(source.colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -1515,7 +1515,7 @@ test "text preparation publication complex rejection falls back once" {
         .retained_storage = true,
     };
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, renderable_color.themeFromPublicationColors(source.colors))).?;
+    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(source.colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));

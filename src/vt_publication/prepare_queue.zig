@@ -1,9 +1,9 @@
 const std = @import("std");
 const geometry_contract = @import("../geometry/geometry_contract.zig");
 const tokens = @import("../geometry/tokens.zig");
-const publication_damage = @import("../damage/publication_damage.zig");
-const publication_storage = @import("../storage/publication_storage.zig");
-const vt_publication = @import("../vt_publication/publication.zig");
+const publication_damage = @import("damage.zig");
+const publication_storage = @import("source_slot.zig");
+const vt_publication = @import("publication.zig");
 
 pub const PrepareConsume = struct {
     request: tokens.RenderRequest,

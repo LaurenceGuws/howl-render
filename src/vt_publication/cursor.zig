@@ -1,8 +1,8 @@
 const std = @import("std");
-const source_abi = @import("../vt_publication/abi.zig");
-const source_publication = @import("../vt_publication/publication.zig");
+const source_abi = @import("abi.zig");
+const source_publication = @import("publication.zig");
 const scene = @import("../text/scene.zig");
-const color = @import("color.zig");
+const color = @import("theme.zig");
 
 pub fn mapCursorShape(shape: source_abi.SourceCursorShape) scene.CursorShape {
     return switch (shape) {

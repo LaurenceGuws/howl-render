@@ -1,9 +1,9 @@
 const std = @import("std");
-const source_abi = @import("../vt_publication/abi.zig");
-const source_publication = @import("../vt_publication/publication.zig");
+const source_abi = @import("abi.zig");
+const source_publication = @import("publication.zig");
 const contract = @import("../text/contract.zig");
 const scene = @import("../text/scene.zig");
-const color = @import("color.zig");
+const color = @import("theme.zig");
 const cursor = @import("cursor.zig");
 
 pub const SurfaceTheme = color.SurfaceTheme;

@@ -1,7 +1,7 @@
 const std = @import("std");
-const source_damage = @import("../damage/publication_damage.zig");
-const source_abi = @import("../vt_publication/abi.zig");
-const source_publication = @import("../vt_publication/publication.zig");
+const source_damage = @import("damage.zig");
+const source_abi = @import("abi.zig");
+const source_publication = @import("publication.zig");
 
 pub const VtSurfaceSlot = struct {
     cells: []source_abi.SourceCell,

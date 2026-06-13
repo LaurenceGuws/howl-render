@@ -1,5 +1,5 @@
 const std = @import("std");
-const source_abi = @import("../vt_publication/abi.zig");
+const source_abi = @import("abi.zig");
 const contract = @import("../text/contract.zig");
 
 pub const SurfaceTheme = struct {

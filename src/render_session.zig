@@ -1,16 +1,16 @@
 const std = @import("std");
 const geometry_mod = @import("geometry/grid_geometry.zig");
-const renderable_content = @import("renderable_content/content.zig");
-const renderable_color = @import("renderable_content/color.zig");
-const renderable_cursor = @import("renderable_content/cursor.zig");
+const source_text_input = @import("vt_publication/text_input.zig");
+const source_theme = @import("vt_publication/theme.zig");
+const source_cursor = @import("vt_publication/cursor.zig");
 const tokens = @import("geometry/tokens.zig");
 const prepared_handle = @import("surface/handle.zig");
 const render_geometry = @import("geometry/geometry.zig");
 const geometry_contract = @import("geometry/geometry_contract.zig");
 const source_publication = @import("vt_publication/publication.zig");
-const source_slot = @import("storage/publication_storage.zig");
-const source_prepare = @import("prepare/queue.zig");
-const publication_damage = @import("damage/publication_damage.zig");
+const source_slot = @import("vt_publication/source_slot.zig");
+const source_prepare = @import("vt_publication/prepare_queue.zig");
+const publication_damage = @import("vt_publication/damage.zig");
 const prepared_surface = @import("surface/prepared_surface.zig");
 const submitted_surface = @import("submitted_surface.zig");
 const sprite_resource_store = @import("surface/resource_store.zig");
@@ -243,10 +243,10 @@ pub const TextSession = struct {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         var resolve: font_resolve.ResolveObservability = .{};
-        const theme = renderable_color.themeFromPublicationColors(prepare.state.colors);
+        const theme = source_theme.themeFromPublicationColors(prepare.state.colors);
         const dirty_rows: []const bool = @ptrCast(prepare.state.dirty_rows);
         const options: surface_preparer.PrepareOptions = .{ .scene = .{
-            .cursor = renderable_cursor.mapPublicationCursor(prepare.state, theme),
+            .cursor = source_cursor.mapPublicationCursor(prepare.state, theme),
             .damage = .{
                 .full = prepare.request.token.damage_kind == .full,
                 .dirty_rows = dirty_rows,
@@ -274,7 +274,7 @@ pub const TextSession = struct {
         const cell_input_scratch = self.cell_input_scratch[0..prepare.state.cells.len];
         std.debug.assert(cell_input_scratch.len == prepare.state.cells.len);
         const input_start_ns = monotonicNs();
-        const text_input = renderable_content.publicationSourceToTextSceneInputBorrowedWithTheme(
+        const text_input = source_text_input.publicationSourceToTextSceneInputBorrowedWithTheme(
             cell_input_scratch,
             prepare.state,
             prepare.request.token.damage_kind == .full,
