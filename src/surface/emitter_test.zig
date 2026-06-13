@@ -9,7 +9,7 @@ const render_surface_emitter = @import("emitter.zig");
 const sprite_resource_store = @import("resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const text_session = @import("../render_session.zig");
-const test_support = @import("../test_support.zig");
+const test_support = @import("../c/test_support.zig");
 
 const GlyphRef = c.HowlRenderGlyphRef;
 const Limits = render_surface_emitter.Limits;

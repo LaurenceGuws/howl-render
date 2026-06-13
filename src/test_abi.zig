@@ -3,11 +3,11 @@ const c = @import("howl_render_c");
 
 test {
     std.testing.refAllDecls(@import("libhowl_render.zig"));
-    _ = @import("text_session_test.zig");
-    _ = @import("surface_geometry_test.zig");
-    _ = @import("prepare_request_test.zig");
-    _ = @import("prepared_surface_test.zig");
-    _ = @import("submission_test.zig");
+    _ = @import("c/text_session_test.zig");
+    _ = @import("c/surface_geometry_test.zig");
+    _ = @import("c/prepare_request_test.zig");
+    _ = @import("c/prepared_surface_test.zig");
+    _ = @import("c/submission_test.zig");
 }
 
 test "render c header translation exports shipped entrypoints" {

@@ -1,9 +1,9 @@
-const text_session = @import("text_session.zig");
-const surface_geometry = @import("surface_geometry.zig");
-const prepared_surface = @import("prepared_surface.zig");
-const prepare_request = @import("prepare_request.zig");
-const submission = @import("submission.zig");
-const work_state = @import("work_state.zig");
+const text_session = @import("c/text_session.zig");
+const surface_geometry = @import("c/surface_geometry.zig");
+const prepared_surface = @import("c/prepared_surface.zig");
+const prepare_request = @import("c/prepare_request.zig");
+const submission = @import("c/submission.zig");
+const work_state = @import("c/work_state.zig");
 
 comptime {
     @export(&text_session.init, .{ .name = "howl_render_text_session_init" });

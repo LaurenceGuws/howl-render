@@ -7,15 +7,15 @@ const submission = @import("submission.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const text_session = @import("text_session.zig");
 const work_state = @import("work_state.zig");
-const prepared_buffer_model = @import("surface/compositor.zig");
-const prepared_handle_model = @import("surface/handle.zig");
-const prepared_surface_model = @import("surface/prepared_surface.zig");
-const render_surface_emitter_model = @import("surface/emitter.zig");
-const render_surface_realizer = @import("surface/realizer.zig");
-const text_contract = @import("text/contract.zig");
-const rasterizer = @import("text/raster/rasterizer.zig");
-const text_session_model = @import("render_session.zig");
-const source_abi = @import("vt_publication/abi.zig");
+const prepared_buffer_model = @import("../surface/compositor.zig");
+const prepared_handle_model = @import("../surface/handle.zig");
+const prepared_surface_model = @import("../surface/prepared_surface.zig");
+const render_surface_emitter_model = @import("../surface/emitter.zig");
+const render_surface_realizer = @import("../surface/realizer.zig");
+const text_contract = @import("../text/contract.zig");
+const rasterizer = @import("../text/raster/rasterizer.zig");
+const text_session_model = @import("../render_session.zig");
+const source_abi = @import("../vt_publication/abi.zig");
 
 pub const prepare = prepare_request;
 pub const prepared = prepared_surface;
@@ -110,7 +110,7 @@ pub fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, s
 }
 
 pub fn createTestTextSessionHandle() !c.HowlRenderTextSessionHandle {
-    const owner = @import("render_session.zig").TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
+    const owner = @import("../render_session.zig").TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
     return @ptrCast(owner);
 }
 
@@ -219,10 +219,10 @@ pub fn preparedSurface(options: PreparedOptions) prepared_surface_model.Prepared
     };
 }
 
-pub fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: text_contract.Rgba8) text_contract.TextBackgroundDraw {
-    return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = 0, .cell_span = 1 };
-}
-
 pub fn rgba(r: u8, g: u8, b: u8, a: u8) text_contract.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = a };
+}
+
+pub fn backgroundDraw(x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: text_contract.Rgba8) text_contract.TextBackgroundDraw {
+    return .{ .x_px = x_px, .y_px = y_px, .width_px = width_px, .height_px = height_px, .color = color, .first_cell = 0, .cell_span = 1 };
 }

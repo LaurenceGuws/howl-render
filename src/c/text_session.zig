@@ -1,9 +1,9 @@
 const std = @import("std");
 const c = @import("howl_render_c");
-const handle_owner = @import("handle.zig");
+const handle_owner = @import("text_session_handle.zig");
 const surface_geometry = @import("surface_geometry.zig");
-const render_session = @import("render_session.zig");
-const text_support = @import("text/ft_hb/support.zig");
+const render_session = @import("../render_session.zig");
+const text_support = @import("../text/ft_hb/support.zig");
 
 pub fn init(config: c.HowlRenderTextConfig) callconv(.c) c.HowlRenderTextSessionHandle {
     if (config.surface_px.width == 0 or config.surface_px.height == 0) return null;

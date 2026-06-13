@@ -1,9 +1,9 @@
 const std = @import("std");
 const c = @import("howl_render_c");
-const handle_owner = @import("handle.zig");
-const prepared_handle = @import("surface/handle.zig");
-const render_session = @import("render_session.zig");
-const tokens = @import("geometry/tokens.zig");
+const handle_owner = @import("text_session_handle.zig");
+const prepared_handle = @import("../surface/handle.zig");
+const render_session = @import("../render_session.zig");
+const tokens = @import("../geometry/tokens.zig");
 
 pub fn takeSubmitHandle(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderRdrSfcHandle) callconv(.c) c_int {
     const rdr_sfc_out = out orelse return c.HOWL_RENDER_SUBMIT_DECISION_FAILED;
@@ -28,13 +28,7 @@ pub fn acceptSubmitted(value: c.HowlRenderTextSessionHandle, prepared_in: c.Howl
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn submit(
-    text_session_handle: c.HowlRenderTextSessionHandle,
-    rdr_sfc_handle: c.HowlRenderRdrSfcHandle,
-    prepared_token_in: c.HowlRenderPreparedSurfaceToken,
-    execution_in: ?*const c.HowlRenderSubmitExecution,
-    result_out: ?*c.HowlRenderSubmitResult,
-) callconv(.c) c_int {
+pub fn submit(text_session_handle: c.HowlRenderTextSessionHandle, rdr_sfc_handle: c.HowlRenderRdrSfcHandle, prepared_token_in: c.HowlRenderPreparedSurfaceToken, execution_in: ?*const c.HowlRenderSubmitExecution, result_out: ?*c.HowlRenderSubmitResult) callconv(.c) c_int {
     if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_FAILED);
     const owner = handle_owner.textSessionOwner(text_session_handle) orelse {
         if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_MISSING_HANDLE);
@@ -123,12 +117,7 @@ fn damageKindIn(value: u8) ?tokens.DamageKind {
     };
 }
 
-pub fn submitHandle(
-    text_session_handle: c.HowlRenderTextSessionHandle,
-    rdr_sfc_handle: c.HowlRenderRdrSfcHandle,
-    execution_in: ?*const c.HowlRenderSubmitExecution,
-    result_out: ?*c.HowlRenderSubmitResult,
-) callconv(.c) c_int {
+pub fn submitHandle(text_session_handle: c.HowlRenderTextSessionHandle, rdr_sfc_handle: c.HowlRenderRdrSfcHandle, execution_in: ?*const c.HowlRenderSubmitExecution, result_out: ?*c.HowlRenderSubmitResult) callconv(.c) c_int {
     if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_FAILED);
     const owner = handle_owner.textSessionOwner(text_session_handle) orelse {
         if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_MISSING_HANDLE);

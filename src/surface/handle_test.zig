@@ -8,7 +8,7 @@ const render_surface_realizer = @import("realizer.zig");
 const render_session = @import("../render_session.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const contract = @import("../text/contract.zig");
-const test_support = @import("../test_support.zig");
+const test_support = @import("../c/test_support.zig");
 
 const PreparedHandle = prepared_handle.PreparedHandle;
 const RenderSurfaceEmissionFailure = render_surface_emitter.RenderSurfaceEmissionFailure;

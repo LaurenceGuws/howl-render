@@ -1,16 +1,12 @@
 const std = @import("std");
 const c = @import("howl_render_c");
-const handle_owner = @import("handle.zig");
-const prepared_handle = @import("surface/handle.zig");
-const prepared_surface = @import("surface/prepared_surface.zig");
-const render_surface_emitter = @import("surface/emitter.zig");
+const handle_owner = @import("text_session_handle.zig");
+const prepared_handle = @import("../surface/handle.zig");
+const prepared_surface = @import("../surface/prepared_surface.zig");
+const render_surface_emitter = @import("../surface/emitter.zig");
 const prepare_request_boundary = @import("prepare_request.zig");
 
-pub fn prepareHandle(
-    text_session_handle: c.HowlRenderTextSessionHandle,
-    prepare_request: c.HowlRenderPrepareRequest,
-    rdr_sfc_handle_out: ?*c.HowlRenderRdrSfcHandle,
-) callconv(.c) c_int {
+pub fn prepareHandle(text_session_handle: c.HowlRenderTextSessionHandle, prepare_request: c.HowlRenderPrepareRequest, rdr_sfc_handle_out: ?*c.HowlRenderRdrSfcHandle) callconv(.c) c_int {
     const rdr_sfc_out = rdr_sfc_handle_out;
     if (rdr_sfc_out) |value| value.* = null;
     const owner = handle_owner.textSessionOwner(text_session_handle) orelse return c.HOWL_RENDER_PREPARE_FAILED;

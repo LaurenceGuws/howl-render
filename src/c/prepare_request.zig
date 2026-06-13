@@ -1,8 +1,8 @@
 const std = @import("std");
 const c = @import("howl_render_c");
-const handle_owner = @import("handle.zig");
-const tokens = @import("geometry/tokens.zig");
-const source_publication = @import("vt_publication/publication.zig");
+const handle_owner = @import("text_session_handle.zig");
+const tokens = @import("../geometry/tokens.zig");
+const source_publication = @import("../vt_publication/publication.zig");
 
 pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, vt_surface: ?*const c.HowlVtSurfaceResult, out: ?*c.HowlRenderPrepareRequest) callconv(.c) c_int {
     const prepare_out = out orelse return c.HOWL_RENDER_PREPARE_FAILED;

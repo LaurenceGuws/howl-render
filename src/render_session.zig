@@ -889,7 +889,7 @@ test "render session owner rejects partial rdr_sfc handle with wrong submitted b
     owner.submitted.acceptSubmitted(.{
         .token = .{ .snapshot_seq = 9, .dirty_epoch = 9, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     });
-    var prepared_value = @import("test_support.zig").preparedSurface(.{ .width_px = 8, .height_px = 16, .full_redraw = false });
+    var prepared_value = @import("c/test_support.zig").preparedSurface(.{ .width_px = 8, .height_px = 16, .full_redraw = false });
     prepared_value.request.token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial };
     const rdr_sfc_handle = try prepared_handle.PreparedHandle.create(owner, &prepared_value);
     defer rdr_sfc_handle.release();
