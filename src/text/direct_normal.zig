@@ -19,7 +19,6 @@ pub const Product = struct {
     damage: direct_scene.Damage,
     outputs: []rasterizer.RasterSpriteOutput = &.{},
     outputs_owned: bool = false,
-    timings: Timings = .{},
 
     pub fn deinit(self: *Product, allocator: std.mem.Allocator) void {
         if (!self.outputs_owned) return;
@@ -28,15 +27,6 @@ pub const Product = struct {
         self.outputs = &.{};
         self.outputs_owned = false;
     }
-};
-
-pub const Timings = struct {
-    scan_us: u64 = 0,
-    backgrounds_us: u64 = 0,
-    clears_us: u64 = 0,
-    decorations_us: u64 = 0,
-    cursor_us: u64 = 0,
-    raster_us: u64 = 0,
 };
 
 pub const Policy = enum {
@@ -119,12 +109,10 @@ pub fn prepare(
     lane_report: *lane.LaneReport,
     rejected_complex_cells_out: ?*u64,
 ) !?Product {
-    var timings = Timings{};
     const damage = direct_scene.Damage.init(damage_input, grid_metrics.rows);
     const source_len = sourceLen(source);
     var rejected_complex_cells: u64 = 0;
     try driver.scratch.reset(driver.allocator, source_len, source_len, grid_metrics.rows);
-    const scan_start_ns = monotonicNs();
     if (!try appendVisible(driver, source, damage, grid_metrics, session, policy, lane_report, &rejected_complex_cells)) {
         std.debug.assert(policy == .require_all_normal);
         std.debug.assert(rejected_complex_cells != 0);
@@ -133,22 +121,13 @@ pub fn prepare(
         lane_report.assertValid();
         return null;
     }
-    timings.scan_us = elapsedUs(scan_start_ns);
     std.debug.assert(rejected_complex_cells == 0);
     if (rejected_complex_cells_out) |out| out.* = 0;
-    const backgrounds_start_ns = monotonicNs();
     direct_scene.appendBackgrounds(&driver.scratch.background_draws, driver.scratch.renderable.items, session.metrics, grid_metrics, damage);
-    timings.backgrounds_us = elapsedUs(backgrounds_start_ns);
-    const clears_start_ns = monotonicNs();
     direct_scene.appendClears(&driver.scratch.clear_draws, driver.scratch.renderable.items, session.metrics, grid_metrics, damage);
-    timings.clears_us = elapsedUs(clears_start_ns);
-    const decorations_start_ns = monotonicNs();
     direct_scene.appendDecorations(&driver.scratch.decoration_draws, driver.scratch.renderable.items, session.metrics, grid_metrics, damage);
-    timings.decorations_us = elapsedUs(decorations_start_ns);
-    const cursor_start_ns = monotonicNs();
     direct_scene.appendCursor(&driver.scratch.cursor_draws, cursor, session.metrics, damage);
-    timings.cursor_us = elapsedUs(cursor_start_ns);
-    return try finishScene(driver, damage, lane_report, timings);
+    return try finishScene(driver, damage, lane_report);
 }
 
 pub fn counters(scratch: *const Scratch, lane_report: lane.LaneReport, direct: Product) prepare_counters.TextPrepareCounters {
@@ -511,13 +490,11 @@ fn scratchEmpty(scratch: *const Scratch) bool {
     return true;
 }
 
-fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.LaneReport, timings: Timings) !Product {
+fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.LaneReport) !Product {
     var outputs: []rasterizer.RasterSpriteOutput = &.{};
     var outputs_owned = false;
-    var final_timings = timings;
     if (driver.scratch.raster_reqs.items.len > 0) {
         lane_report.direct_normal_raster_misses = @intCast(driver.scratch.raster_reqs.items.len);
-        const raster_start_ns = monotonicNs();
         outputs = try driver.allocator.alloc(rasterizer.RasterSpriteOutput, driver.scratch.raster_reqs.items.len);
         outputs_owned = true;
         var filled: u32 = 0;
@@ -531,19 +508,8 @@ fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.L
             raster.alpha_mask = &.{};
             filled += 1;
         }
-        final_timings.raster_us = elapsedUs(raster_start_ns);
     }
-    return .{ .damage = damage, .outputs = outputs, .outputs_owned = outputs_owned, .timings = final_timings };
-}
-
-fn monotonicNs() u64 {
-    var ts: std.posix.timespec = undefined;
-    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
-    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
-}
-
-fn elapsedUs(start_ns: u64) u64 {
-    return @divTrunc(monotonicNs() -| start_ns, std.time.ns_per_us);
+    return .{ .damage = damage, .outputs = outputs, .outputs_owned = outputs_owned };
 }
 
 fn resolveFace(session: font_session.FontSession, cell: contract.RenderableCell, text: contract.CellText) ?font_session.FontFaceRecord {

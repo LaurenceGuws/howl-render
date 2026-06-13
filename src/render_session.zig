@@ -37,82 +37,6 @@ const ft_hb_shape_input_codepoints_per_cluster_cap: u32 = 16;
 const ft_hb_cached_glyphs_per_run_cap: u32 = 512;
 const RdrSfcHandle = ?*anyopaque;
 
-fn monotonicNs() u64 {
-    var ts: std.posix.timespec = undefined;
-    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
-    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
-}
-
-const DebugPrepareTiming = struct {
-    enabled_known: bool = false,
-    enabled: bool = false,
-    count: u64 = 0,
-    prepare_surface_ns_total: u64 = 0,
-    prepare_surface_ns_max: u64 = 0,
-    input_us_total: u64 = 0,
-    session_preparer_us_total: u64 = 0,
-    session_prepare_cells_us_total: u64 = 0,
-    direct_normal_us_total: u64 = 0,
-    direct_normal_scan_us_total: u64 = 0,
-    direct_normal_backgrounds_us_total: u64 = 0,
-    direct_normal_clears_us_total: u64 = 0,
-    direct_normal_decorations_us_total: u64 = 0,
-    direct_normal_cursor_us_total: u64 = 0,
-    direct_normal_raster_us_total: u64 = 0,
-    owner_create_ns_total: u64 = 0,
-    owner_create_ns_max: u64 = 0,
-
-    fn active(self: *DebugPrepareTiming) bool {
-        if (!self.enabled_known) {
-            self.enabled = std.c.getenv("HOWL_RENDER_DEBUG_TIMING") != null;
-            self.enabled_known = true;
-        }
-        return self.enabled;
-    }
-
-    fn record(self: *DebugPrepareTiming, timings: surface_preparer.PrepareTimings, prepare_surface_ns: u64, owner_create_ns: u64) void {
-        if (!self.active()) return;
-        self.count += 1;
-        self.prepare_surface_ns_total += prepare_surface_ns;
-        self.prepare_surface_ns_max = @max(self.prepare_surface_ns_max, prepare_surface_ns);
-        self.input_us_total += timings.input_us;
-        self.session_preparer_us_total += timings.session_preparer_us;
-        self.session_prepare_cells_us_total += timings.session_prepare_cells_us;
-        self.direct_normal_us_total += timings.direct_normal_us;
-        self.direct_normal_scan_us_total += timings.direct_normal_scan_us;
-        self.direct_normal_backgrounds_us_total += timings.direct_normal_backgrounds_us;
-        self.direct_normal_clears_us_total += timings.direct_normal_clears_us;
-        self.direct_normal_decorations_us_total += timings.direct_normal_decorations_us;
-        self.direct_normal_cursor_us_total += timings.direct_normal_cursor_us;
-        self.direct_normal_raster_us_total += timings.direct_normal_raster_us;
-        self.owner_create_ns_total += owner_create_ns;
-        self.owner_create_ns_max = @max(self.owner_create_ns_max, owner_create_ns);
-        if (self.count % 128 != 0) return;
-        std.debug.print(
-            "howl-render-debug prepare_handle count={} prepare_surface_avg_us={} prepare_surface_max_us={} input_avg_us={} session_preparer_avg_us={} session_prepare_cells_avg_us={} direct_normal_avg_us={} direct_normal_scan_avg_us={} direct_normal_backgrounds_avg_us={} direct_normal_clears_avg_us={} direct_normal_decorations_avg_us={} direct_normal_cursor_avg_us={} direct_normal_raster_avg_us={} owner_create_avg_us={} owner_create_max_us={}\n",
-            .{
-                self.count,
-                self.prepare_surface_ns_total / self.count / std.time.ns_per_us,
-                self.prepare_surface_ns_max / std.time.ns_per_us,
-                self.input_us_total / self.count,
-                self.session_preparer_us_total / self.count,
-                self.session_prepare_cells_us_total / self.count,
-                self.direct_normal_us_total / self.count,
-                self.direct_normal_scan_us_total / self.count,
-                self.direct_normal_backgrounds_us_total / self.count,
-                self.direct_normal_clears_us_total / self.count,
-                self.direct_normal_decorations_us_total / self.count,
-                self.direct_normal_cursor_us_total / self.count,
-                self.direct_normal_raster_us_total / self.count,
-                self.owner_create_ns_total / self.count / std.time.ns_per_us,
-                self.owner_create_ns_max / std.time.ns_per_us,
-            },
-        );
-    }
-};
-
-var debug_prepare_timing: DebugPrepareTiming = .{};
-
 pub const SessionWorkState = struct {
     source_pending: bool,
     prepare_pending: bool,
@@ -254,9 +178,7 @@ pub const TextSession = struct {
                 .dirty_cols_end = prepare.state.dirty_cols_end,
             },
         } };
-        const ensure_preparer_start_ns = monotonicNs();
         const preparer = try self.ensureTextPreparer(&context);
-        const session_preparer_us = (monotonicNs() -| ensure_preparer_start_ns) / std.time.ns_per_us;
         if (try preparer.preparePublicationWithSessionOptions(
             prepare.state,
             .{ .cols = prepare.state.cols, .rows = prepare.state.rows },
@@ -264,28 +186,20 @@ pub const TextSession = struct {
             options,
             theme,
         )) |prepared_direct| {
-            var direct = prepared_direct;
-            direct.timings.session_preparer_us += session_preparer_us;
-            const owned_direct = ownPreparedSurface(self.allocator, prepare, .{ .cols = prepare.state.cols, .rows = prepare.state.rows }, direct, resolve);
+            const owned_direct = ownPreparedSurface(self.allocator, prepare, .{ .cols = prepare.state.cols, .rows = prepare.state.rows }, prepared_direct, resolve);
             self.mutex.unlock();
             return owned_direct;
         }
         try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
         const cell_input_scratch = self.cell_input_scratch[0..prepare.state.cells.len];
         std.debug.assert(cell_input_scratch.len == prepare.state.cells.len);
-        const input_start_ns = monotonicNs();
         const text_input = source_text_input.publicationSourceToTextSceneInputBorrowedWithTheme(
             cell_input_scratch,
             prepare.state,
             prepare.request.token.damage_kind == .full,
             theme,
         );
-        const input_us = (monotonicNs() -| input_start_ns) / std.time.ns_per_us;
-        const prepare_cells_start_ns = monotonicNs();
         var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), .{ .scene = text_input.options.scene });
-        prepared.timings.input_us += input_us;
-        prepared.timings.session_preparer_us += session_preparer_us;
-        prepared.timings.session_prepare_cells_us += (monotonicNs() -| prepare_cells_start_ns) / std.time.ns_per_us;
         errdefer prepared.deinit();
         const owned = ownPreparedSurface(self.allocator, prepare, text_input.grid, prepared, resolve);
         self.mutex.unlock();
@@ -547,7 +461,6 @@ pub const TextSessionOwner = struct {
             token,
         );
         errdefer _ = self.prepare_requests.retryTakenPrepare(token);
-        const prepare_surface_start_ns = monotonicNs();
         var prepared = self.session.prepareSurface(.{
             .config = self.config,
             .request = consume.request,
@@ -556,14 +469,10 @@ pub const TextSessionOwner = struct {
         }) catch |err| {
             return err;
         };
-        const prepare_surface_ns = monotonicNs() -| prepare_surface_start_ns;
-        const prepare_timings = prepared.text_surface.timings;
         errdefer prepared.deinit();
-        const owner_create_start_ns = monotonicNs();
         std.debug.assert(!self.session.mutex.locked.load(.acquire));
         const owner = prepared_handle.PreparedHandle.create(self, &prepared) catch |err| return err;
         self.rdr_sfc_handle = @ptrCast(owner);
-        debug_prepare_timing.record(prepare_timings, prepare_surface_ns, monotonicNs() -| owner_create_start_ns);
         return owner;
     }
 

@@ -22,37 +22,6 @@ const source_vt = @import("../vt_publication/abi.zig");
 const source_publication = @import("../vt_publication/publication.zig");
 const source_theme = @import("../vt_publication/theme.zig");
 
-pub const PrepareTimings = struct {
-    direct_normal_us: u64 = 0,
-    direct_normal_scan_us: u64 = 0,
-    direct_normal_backgrounds_us: u64 = 0,
-    direct_normal_clears_us: u64 = 0,
-    direct_normal_decorations_us: u64 = 0,
-    direct_normal_cursor_us: u64 = 0,
-    direct_normal_raster_us: u64 = 0,
-    input_us: u64 = 0,
-    session_preparer_us: u64 = 0,
-    session_prepare_cells_us: u64 = 0,
-    sparse_us: u64 = 0,
-    clusters_us: u64 = 0,
-    resolve_us: u64 = 0,
-    shape_us: u64 = 0,
-    group_us: u64 = 0,
-    scene_us: u64 = 0,
-    raster_us: u64 = 0,
-    atlas_us: u64 = 0,
-};
-
-fn monotonicNs() u64 {
-    var ts: std.posix.timespec = undefined;
-    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
-    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
-}
-
-fn elapsedUs(start_ns: u64) u64 {
-    return @divTrunc(monotonicNs() -| start_ns, std.time.ns_per_us);
-}
-
 pub const TextSurfacePreparer = struct {
     allocator: std.mem.Allocator,
     counters: prepare_counters.TextPrepareCounters = .{},
@@ -119,17 +88,14 @@ pub const TextSurfacePreparer = struct {
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
-        var timings = PrepareTimings{};
-        if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings, null)) |direct| {
-            return self.finishNormalOnlySurface(direct, lane_report, timings);
+        if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report, null)) |direct| {
+            return self.finishNormalOnlySurface(direct, lane_report);
         }
-        const sparse_start_ns = monotonicNs();
         const cell_count = count32(cells);
         try self.ensureClusterScratchCapacity(cell_count, countCellInputCodepoints(cells));
         var sparse = try cluster.buildSparseCellsWithDamageScratch(self.allocator, &self.cluster_scratch, cells, grid_metrics, options.scene.damage);
-        timings.sparse_us = elapsedUs(sparse_start_ns);
         errdefer sparse.deinit();
-        return self.preparePreparedTextSurface(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings);
+        return self.preparePreparedTextSurface(sparse.text_cache, sparse.renderable, grid_metrics, session, options);
     }
 
     pub fn prepareCellTextInputsWithSessionOptions(
@@ -140,9 +106,8 @@ pub const TextSurfacePreparer = struct {
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
-        var timings = PrepareTimings{};
-        if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings, null)) |direct| {
-            return self.finishNormalOnlySurface(direct, lane_report, timings);
+        if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report, null)) |direct| {
+            return self.finishNormalOnlySurface(direct, lane_report);
         }
         const input_count = count32(inputs);
         var input_codepoints: u32 = 0;
@@ -152,7 +117,7 @@ pub const TextSurfacePreparer = struct {
         errdefer text_cache.deinit();
         var renderable = try cluster.buildRenderableCellsFromInputs(self.allocator, inputs, text_cache.view());
         errdefer renderable.deinit();
-        return self.preparePreparedTextSurface(text_cache, renderable, grid_metrics, session, options, .{});
+        return self.preparePreparedTextSurface(text_cache, renderable, grid_metrics, session, options);
     }
 
     pub fn preparePublicationWithSessionOptions(
@@ -164,20 +129,17 @@ pub const TextSurfacePreparer = struct {
         theme: source_theme.SurfaceTheme,
     ) !?OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
-        var timings = PrepareTimings{};
         var publication_complex_cells: u64 = 0;
-        if (try self.prepareDirectNormal(.{ .publication = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &timings, &publication_complex_cells)) |direct| {
-            return self.finishNormalOnlySurface(direct, lane_report, timings);
+        if (try self.prepareDirectNormal(.{ .publication = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &publication_complex_cells)) |direct| {
+            return self.finishNormalOnlySurface(direct, lane_report);
         }
         const cell_count = count32(source.cells);
         try self.ensureClusterScratchCapacity(cell_count, countPublicationCodepoints(source.cells));
         // If publication failed direct-normal, it must continue through the shared shaped-scene owner.
         std.debug.assert(publication_complex_cells != 0);
-        const sparse_start_ns = monotonicNs();
         var sparse = try cluster.buildSparsePublicationCellsWithDamageScratch(self.allocator, &self.cluster_scratch, source.cells, theme, grid_metrics, options.scene.damage);
-        timings.sparse_us = elapsedUs(sparse_start_ns);
         errdefer sparse.deinit();
-        return try self.preparePreparedTextSurfaceWithExpectedComplexCells(sparse.text_cache, sparse.renderable, grid_metrics, session, options, timings, publication_complex_cells);
+        return try self.preparePreparedTextSurfaceWithExpectedComplexCells(sparse.text_cache, sparse.renderable, grid_metrics, session, options, publication_complex_cells);
     }
 
     fn preparePreparedTextSurface(
@@ -187,9 +149,8 @@ pub const TextSurfacePreparer = struct {
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
-        initial_timings: PrepareTimings,
     ) !OwnedPreparedTextSurface {
-        return self.preparePreparedTextSurfaceWithExpectedComplexCells(text_cache, renderable, grid_metrics, session, options, initial_timings, null);
+        return self.preparePreparedTextSurfaceWithExpectedComplexCells(text_cache, renderable, grid_metrics, session, options, null);
     }
 
     fn preparePreparedTextSurfaceWithExpectedComplexCells(
@@ -199,15 +160,12 @@ pub const TextSurfacePreparer = struct {
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
-        initial_timings: PrepareTimings,
         expected_complex_cells: ?u64,
     ) !OwnedPreparedTextSurface {
-        var timings = initial_timings;
         var owned_text_cache = text_cache;
         errdefer owned_text_cache.deinit();
         var owned_renderable = renderable;
         errdefer owned_renderable.deinit();
-        const clusters_start_ns = monotonicNs();
         var clusters = try cluster.extractClustersWithDamageScratch(
             self.allocator,
             &self.cluster_scratch,
@@ -216,7 +174,6 @@ pub const TextSurfacePreparer = struct {
             grid_metrics,
             options.scene.damage,
         );
-        timings.clusters_us = elapsedUs(clusters_start_ns);
         errdefer clusters.deinit();
         try self.ensureResolverScratchCapacity(count32(clusters.clusters));
         var final_lane_report = lane.LaneReport.init(owned_text_cache.view(), owned_renderable.cells, clusters.clusters);
@@ -231,7 +188,6 @@ pub const TextSurfacePreparer = struct {
             session,
             options,
             &final_lane_report,
-            &timings,
             null,
         )).?;
 
@@ -240,7 +196,7 @@ pub const TextSurfacePreparer = struct {
             owned_text_cache.deinit();
             clusters.deinit();
             owned_renderable.deinit();
-            return self.finishNormalOnlySurface(direct, final_lane_report, timings);
+            return self.finishNormalOnlySurface(direct, final_lane_report);
         }
 
         if (expected_complex_cells != null) std.debug.assert(final_lane_report.complex_cells != 0);
@@ -256,7 +212,6 @@ pub const TextSurfacePreparer = struct {
             grid_metrics,
             session,
             options,
-            &timings,
         );
     }
 
@@ -266,17 +221,16 @@ pub const TextSurfacePreparer = struct {
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
-        timings: *PrepareTimings,
     ) !OwnedPreparedTextSurface {
         var final_prepared = prepared;
         errdefer final_prepared.deinit(self.allocator);
         var complex = try self.selectComplexCells(&final_prepared, grid_metrics, options.scene.damage);
         defer complex.deinit();
 
-        try self.resolveShapeAndGroupComplex(&final_prepared, complex, grid_metrics, session, timings);
-        var text_scene = try self.buildComplexScene(&final_prepared, complex.cells, grid_metrics, session.metrics, options.scene, timings);
+        try self.resolveShapeAndGroupComplex(&final_prepared, complex, grid_metrics, session);
+        var text_scene = try self.buildComplexScene(&final_prepared, complex.cells, grid_metrics, session.metrics, options.scene);
         errdefer text_scene.deinit();
-        var raster_plan = try self.rasterizeComplexScene(&text_scene, timings);
+        var raster_plan = try self.rasterizeComplexScene(&text_scene);
         errdefer raster_plan.deinit();
         const complex_sprite_cache_hits = text_scene.scene.sprite_draws.len - text_scene.scene.raster_requests.len;
 
@@ -290,7 +244,6 @@ pub const TextSurfacePreparer = struct {
         return .{
             .scene = merged.scene,
             .raster_plan = merged.raster_plan,
-            .timings = timings.*,
         };
     }
 
@@ -310,15 +263,14 @@ pub const TextSurfacePreparer = struct {
         return complex;
     }
 
-    fn resolveShapeAndGroupComplex(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, complex: cluster.ComplexSelection, grid_metrics: contract.GridMetrics, session: font_session.FontSession, timings: *PrepareTimings) !void {
-        prepared.runs = try resolveComplexRuns(self, prepared.text_cache.view(), complex.clusters, grid_metrics, session, timings, &prepared.lane_report, complex.cells);
+    fn resolveShapeAndGroupComplex(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, complex: cluster.ComplexSelection, grid_metrics: contract.GridMetrics, session: font_session.FontSession) !void {
+        prepared.runs = try resolveComplexRuns(self, prepared.text_cache.view(), complex.clusters, grid_metrics, session, &prepared.lane_report, complex.cells);
         prepared.shaped_runs = try shapeComplexRuns(
             self,
             prepared.runs.?.runs,
             prepared.text_cache.view(),
             complex.clusters,
             session.metrics,
-            timings,
             &prepared.lane_report,
             complex.cells,
         );
@@ -328,15 +280,13 @@ pub const TextSurfacePreparer = struct {
             prepared.runs.?.sprite_routes,
             complex.clusters,
             session.metrics,
-            timings,
             &prepared.lane_report,
             prepared.text_cache.view(),
             complex.cells,
         );
     }
 
-    fn buildComplexScene(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, cell_metrics: contract.CellMetrics, options: scene.BuildOptions, timings: *PrepareTimings) !scene.BorrowedTextScene {
-        const scene_start_ns = monotonicNs();
+    fn buildComplexScene(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, cell_metrics: contract.CellMetrics, options: scene.BuildOptions) !scene.BorrowedTextScene {
         const text_scene = try scene.buildBorrowedSceneWithAtlasCacheOptions(
             self.allocator,
             &self.scene_scratch,
@@ -348,15 +298,12 @@ pub const TextSurfacePreparer = struct {
             &self.atlas,
             options,
         );
-        timings.scene_us = elapsedUs(scene_start_ns);
         for (text_scene.scene.sprite_draws) |draw| prepared.lane_report.recordLegacySceneSpriteDraw(prepared.text_cache.view(), cells, draw);
         return text_scene;
     }
 
-    fn rasterizeComplexScene(self: *TextSurfacePreparer, text_scene: *const scene.BorrowedTextScene, timings: *PrepareTimings) !rasterizer.OwnedRasterPlan {
-        const raster_start_ns = monotonicNs();
+    fn rasterizeComplexScene(self: *TextSurfacePreparer, text_scene: *const scene.BorrowedTextScene) !rasterizer.OwnedRasterPlan {
         const raster_plan = try rasterizer.rasterizeRequestsWithRasterizer(self.allocator, self.sprite_rasterizer, text_scene.scene.raster_requests);
-        timings.raster_us = elapsedUs(raster_start_ns);
         return raster_plan;
     }
 
@@ -426,7 +373,7 @@ pub const TextSurfacePreparer = struct {
         return .{ .scene = merged_scene, .raster_plan = merged_raster_plan };
     }
 
-    fn finishNormalOnlySurface(self: *TextSurfacePreparer, direct: direct_normal.Product, lane_report: lane.LaneReport, timings: PrepareTimings) OwnedPreparedTextSurface {
+    fn finishNormalOnlySurface(self: *TextSurfacePreparer, direct: direct_normal.Product, lane_report: lane.LaneReport) OwnedPreparedTextSurface {
         var final_lane_report = lane_report;
         final_lane_report.assertValid();
         const counters = direct_normal.counters(&self.direct_normal, final_lane_report, direct);
@@ -434,7 +381,6 @@ pub const TextSurfacePreparer = struct {
         return .{
             .scene = direct_scene.borrowScene(self.allocator, direct.damage, &self.direct_normal),
             .raster_plan = .{ .allocator = self.allocator, .outputs = direct.outputs, .owned = direct.outputs_owned },
-            .timings = timings,
         };
     }
 
@@ -446,10 +392,8 @@ pub const TextSurfacePreparer = struct {
         session: font_session.FontSession,
         options: PrepareOptions,
         lane_report: *lane.LaneReport,
-        timings: *PrepareTimings,
         rejected_complex_cells: ?*u64,
     ) !?direct_normal.Product {
-        const start_ns = monotonicNs();
         const product = try direct_normal.prepare(
             .{
                 .allocator = self.allocator,
@@ -467,15 +411,6 @@ pub const TextSurfacePreparer = struct {
             lane_report,
             rejected_complex_cells,
         );
-        timings.direct_normal_us += elapsedUs(start_ns);
-        if (product) |direct| {
-            timings.direct_normal_scan_us += direct.timings.scan_us;
-            timings.direct_normal_backgrounds_us += direct.timings.backgrounds_us;
-            timings.direct_normal_clears_us += direct.timings.clears_us;
-            timings.direct_normal_decorations_us += direct.timings.decorations_us;
-            timings.direct_normal_cursor_us += direct.timings.cursor_us;
-            timings.direct_normal_raster_us += direct.timings.raster_us;
-        }
         return product;
     }
 
@@ -538,13 +473,10 @@ fn resolveComplexRuns(
     clusters: []const contract.CellCluster,
     grid_metrics: contract.GridMetrics,
     session: font_session.FontSession,
-    timings: *PrepareTimings,
     lane_report: *lane.LaneReport,
     cells: []const contract.RenderableCell,
 ) !font_resolver.OwnedResolvedRuns {
-    const resolve_start_ns = monotonicNs();
     const runs = try font_resolver.resolveClusters(self.allocator, &self.resolver_scratch, session, clusters, text_cache, grid_metrics);
-    timings.resolve_us = elapsedUs(resolve_start_ns);
     for (runs.runs) |run| lane_report.recordLegacyResolvedRunWithCells(text_cache, cells, clusters, run);
     return runs;
 }
@@ -555,13 +487,10 @@ fn shapeComplexRuns(
     text_cache: contract.LineTextCache,
     clusters: []const contract.CellCluster,
     cell_metrics: contract.CellMetrics,
-    timings: *PrepareTimings,
     lane_report: *lane.LaneReport,
     cells: []const contract.RenderableCell,
 ) !shape_run.OwnedShapedRuns {
-    const shape_start_ns = monotonicNs();
     const shaped_runs = try shape_run.shapeResolvedRunsWithShaper(self.allocator, self.shaper, runs, text_cache, clusters, cell_metrics);
-    timings.shape_us = elapsedUs(shape_start_ns);
     for (shaped_runs.runs) |run| lane_report.recordLegacyShapedRunWithCells(text_cache, cells, clusters, run.run);
     return shaped_runs;
 }
@@ -572,18 +501,15 @@ fn groupComplexRuns(
     sprite_routes: []const font_resolver.SpriteRouteHit,
     clusters: []const contract.CellCluster,
     cell_metrics: contract.CellMetrics,
-    timings: *PrepareTimings,
     lane_report: *lane.LaneReport,
     text_cache: contract.LineTextCache,
     cells: []const contract.RenderableCell,
 ) !PreparedGroups {
-    const group_start_ns = monotonicNs();
     var font_groups = try grouping.groupShapedRunsWithPolicy(self.allocator, shaped_runs, clusters, cell_metrics, .{});
     errdefer font_groups.deinit();
     var sprite_groups = try grouping.groupSpriteRoutes(self.allocator, sprite_routes, clusters, cell_metrics);
     errdefer sprite_groups.deinit();
     const groups = try grouping.concatGroups(self.allocator, font_groups.groups, sprite_groups.groups);
-    timings.group_us = elapsedUs(group_start_ns);
     for (groups.groups) |group| lane_report.recordLegacyGroup(text_cache, cells, group);
     return .{ .font_groups = font_groups, .sprite_groups = sprite_groups, .groups = groups };
 }
@@ -591,7 +517,6 @@ fn groupComplexRuns(
 pub const OwnedPreparedTextSurface = struct {
     scene: scene.OwnedTextScene,
     raster_plan: rasterizer.OwnedRasterPlan,
-    timings: PrepareTimings = .{},
 
     pub fn deinit(self: *OwnedPreparedTextSurface) void {
         self.raster_plan.deinit();

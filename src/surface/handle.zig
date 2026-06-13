@@ -7,58 +7,6 @@ const render_session = @import("../render_session.zig");
 
 pub const PreparedSurfaceHandle = ?*anyopaque;
 
-fn monotonicNs() u64 {
-    var ts: std.posix.timespec = undefined;
-    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
-    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
-}
-
-const DebugPreparedHandleCreateTiming = struct {
-    enabled_known: bool = false,
-    enabled: bool = false,
-    count: u64 = 0,
-    alloc_ns_total: u64 = 0,
-    alloc_ns_max: u64 = 0,
-    register_ns_total: u64 = 0,
-    register_ns_max: u64 = 0,
-    emit_ns_total: u64 = 0,
-    emit_ns_max: u64 = 0,
-
-    fn active(self: *DebugPreparedHandleCreateTiming) bool {
-        if (!self.enabled_known) {
-            self.enabled = std.c.getenv("HOWL_RENDER_DEBUG_TIMING") != null;
-            self.enabled_known = true;
-        }
-        return self.enabled;
-    }
-
-    fn record(self: *DebugPreparedHandleCreateTiming, alloc_ns: u64, register_ns: u64, emit_ns: u64) void {
-        if (!self.active()) return;
-        self.count += 1;
-        self.alloc_ns_total += alloc_ns;
-        self.alloc_ns_max = @max(self.alloc_ns_max, alloc_ns);
-        self.register_ns_total += register_ns;
-        self.register_ns_max = @max(self.register_ns_max, register_ns);
-        self.emit_ns_total += emit_ns;
-        self.emit_ns_max = @max(self.emit_ns_max, emit_ns);
-        if (self.count % 128 != 0) return;
-        std.debug.print(
-            "howl-render-debug prepared_handle_create count={} alloc_avg_us={} alloc_max_us={} register_avg_us={} register_max_us={} emit_avg_us={} emit_max_us={}\n",
-            .{
-                self.count,
-                self.alloc_ns_total / self.count / std.time.ns_per_us,
-                self.alloc_ns_max / std.time.ns_per_us,
-                self.register_ns_total / self.count / std.time.ns_per_us,
-                self.register_ns_max / std.time.ns_per_us,
-                self.emit_ns_total / self.count / std.time.ns_per_us,
-                self.emit_ns_max / std.time.ns_per_us,
-            },
-        );
-    }
-};
-
-var debug_prepared_handle_create_timing: DebugPreparedHandleCreateTiming = .{};
-
 pub const PreparedHandle = struct {
     pub const State = enum { prepared, submit_ready, released, consumed };
     const RenderSurfacePayload = render_surface_emitter.Emitter(.{});
@@ -70,9 +18,7 @@ pub const PreparedHandle = struct {
     registered: bool = false,
 
     pub fn create(session_owner: *render_session.TextSessionOwner, value: *prepared_surface.PreparedSurface) !*PreparedHandle {
-        const alloc_start_ns = monotonicNs();
         var prepared_handle = try session_owner.allocator.create(PreparedHandle);
-        const alloc_ns = monotonicNs() -| alloc_start_ns;
         const prepared_allocator = value.allocator;
         prepared_handle.* = .{
             .session_owner = session_owner,
@@ -80,18 +26,14 @@ pub const PreparedHandle = struct {
         };
         value.* = emptyPreparedSurface(prepared_allocator);
         errdefer prepared_handle.destroy();
-        const register_start_ns = monotonicNs();
         try session_owner.registerPreparedHandle(prepared_handle);
         prepared_handle.registered = true;
-        const register_ns = monotonicNs() -| register_start_ns;
-        const emit_start_ns = monotonicNs();
         prepared_handle.emitRenderSurfacePayload() catch |err| {
             prepared_handle.prepared.render_surface_emission_failure = switch (err) {
                 error.OutOfMemory => .allocation_failed,
                 else => render_surface_emitter.emissionFailureFromError(@errorCast(err)),
             };
         };
-        debug_prepared_handle_create_timing.record(alloc_ns, register_ns, monotonicNs() -| emit_start_ns);
         return prepared_handle;
     }
 

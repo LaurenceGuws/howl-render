@@ -28,17 +28,6 @@ const RunObservation = struct {
     alloc_count: u64,
     alloc_bytes: u64,
     peak_live_bytes: u64,
-    direct_normal_us: u64,
-    direct_normal_scan_us: u64,
-    direct_normal_backgrounds_us: u64,
-    direct_normal_clears_us: u64,
-    direct_normal_decorations_us: u64,
-    direct_normal_cursor_us: u64,
-    direct_normal_raster_us: u64,
-    resolve_us: u64,
-    shape_us: u64,
-    group_us: u64,
-    scene_us: u64,
 };
 
 const WorkloadResult = struct {
@@ -48,17 +37,6 @@ const WorkloadResult = struct {
     dirty_cells_per_run: u32,
     runs: RunCount,
     cold_ns: u64,
-    cold_direct_normal_us: u64,
-    cold_direct_normal_scan_us: u64,
-    cold_direct_normal_backgrounds_us: u64,
-    cold_direct_normal_clears_us: u64,
-    cold_direct_normal_decorations_us: u64,
-    cold_direct_normal_cursor_us: u64,
-    cold_direct_normal_raster_us: u64,
-    cold_resolve_us: u64,
-    cold_shape_us: u64,
-    cold_group_us: u64,
-    cold_scene_us: u64,
     cold_alloc_count: u64,
     cold_alloc_bytes: u64,
     cold_peak_live_bytes: u64,
@@ -67,17 +45,6 @@ const WorkloadResult = struct {
     cold_uploads: u64,
     warm_median_ns: u64,
     warm_p95_ns: u64,
-    warm_median_direct_normal_us: u64,
-    warm_median_direct_normal_scan_us: u64,
-    warm_median_direct_normal_backgrounds_us: u64,
-    warm_median_direct_normal_clears_us: u64,
-    warm_median_direct_normal_decorations_us: u64,
-    warm_median_direct_normal_cursor_us: u64,
-    warm_median_direct_normal_raster_us: u64,
-    warm_median_resolve_us: u64,
-    warm_median_shape_us: u64,
-    warm_median_group_us: u64,
-    warm_median_scene_us: u64,
     warm_median_alloc_count: u64,
     warm_median_alloc_bytes: u64,
     warm_median_peak_live_bytes: u64,
@@ -123,17 +90,6 @@ const ColdRun = struct {
 const WarmSummary = struct {
     median_ns: u64,
     p95_ns: u64,
-    median_direct_normal_us: u64,
-    median_direct_normal_scan_us: u64,
-    median_direct_normal_backgrounds_us: u64,
-    median_direct_normal_clears_us: u64,
-    median_direct_normal_decorations_us: u64,
-    median_direct_normal_cursor_us: u64,
-    median_direct_normal_raster_us: u64,
-    median_resolve_us: u64,
-    median_shape_us: u64,
-    median_group_us: u64,
-    median_scene_us: u64,
     median_alloc_count: u64,
     median_alloc_bytes: u64,
     median_peak_live_bytes: u64,
@@ -257,16 +213,6 @@ fn nowNs(io: std.Io) u64 {
 
 fn rgba(r: u8, g: u8, b: u8) contract.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = 255 };
-}
-
-fn monotonicNs() u64 {
-    var ts: std.posix.timespec = undefined;
-    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
-    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
-}
-
-fn elapsedUs(start_ns: u64) u64 {
-    return @divTrunc(monotonicNs() -| start_ns, std.time.ns_per_us);
 }
 
 fn defaultCellMetrics(cell_px: geometry_contract.CellSize) contract.CellMetrics {
@@ -873,37 +819,23 @@ fn prepareWorkloadSurface(preparer: *surface_preparer.TextSurfacePreparer, workl
             context.options,
         ),
         .publication => |source| blk: {
-            const input_start_ns = monotonicNs();
             const mapped = source_text_input.publicationSourceToTextSceneInputBorrowed(context.borrowed_cells, source, true);
-            var prepared = try preparer.prepareCellsWithSessionOptions(
+            break :blk try preparer.prepareCellsWithSessionOptions(
                 mapped.cells,
                 mapped.grid,
                 context.session,
                 .{ .scene = mapped.options.scene },
             );
-            prepared.timings.input_us += elapsedUs(input_start_ns);
-            break :blk prepared;
         },
     };
 }
 
-fn extractObservation(duration_ns: u64, counting: CountingAllocator, analysis: surface_preparer.OwnedPreparedTextSurface) RunObservation {
+fn extractObservation(duration_ns: u64, counting: CountingAllocator) RunObservation {
     return .{
         .ns = duration_ns,
         .alloc_count = counting.window_alloc_count,
         .alloc_bytes = counting.window_alloc_bytes,
         .peak_live_bytes = counting.window_peak_live_bytes,
-        .direct_normal_us = analysis.timings.direct_normal_us,
-        .direct_normal_scan_us = analysis.timings.direct_normal_scan_us,
-        .direct_normal_backgrounds_us = analysis.timings.direct_normal_backgrounds_us,
-        .direct_normal_clears_us = analysis.timings.direct_normal_clears_us,
-        .direct_normal_decorations_us = analysis.timings.direct_normal_decorations_us,
-        .direct_normal_cursor_us = analysis.timings.direct_normal_cursor_us,
-        .direct_normal_raster_us = analysis.timings.direct_normal_raster_us,
-        .resolve_us = analysis.timings.resolve_us,
-        .shape_us = analysis.timings.shape_us,
-        .group_us = analysis.timings.group_us,
-        .scene_us = analysis.timings.scene_us,
     };
 }
 
@@ -927,7 +859,7 @@ fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *surface_
     const duration_ns = nowNs(io) - start_ns;
     const uploads = count64(analysis.raster_plan.outputs);
     const result: ColdRun = .{
-        .observation = extractObservation(duration_ns, counting.*, analysis),
+        .observation = extractObservation(duration_ns, counting.*),
         .fills = countSceneFills(analysis),
         .glyphs = count64(analysis.scene.scene.sprite_draws),
         .uploads = uploads,
@@ -953,7 +885,7 @@ fn runWorkloadWarm(
         var analysis = try prepareWorkloadSurface(preparer, workload, context);
         defer analysis.deinit();
         const duration_ns = nowNs(io) - start_ns;
-        observation.* = extractObservation(duration_ns, counting.*, analysis);
+        observation.* = extractObservation(duration_ns, counting.*);
         markAtlasOutputs(preparer, analysis);
         fill_values[idx] = countSceneFills(analysis);
         glyph_values[idx] = count64(analysis.scene.scene.sprite_draws);
@@ -970,61 +902,16 @@ fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObse
     defer allocator.free(alloc_bytes_values);
     const peak_live_values = try allocator.alloc(u64, observations.len);
     defer allocator.free(peak_live_values);
-    const direct_normal_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(direct_normal_values);
-    const direct_normal_scan_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(direct_normal_scan_values);
-    const direct_normal_backgrounds_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(direct_normal_backgrounds_values);
-    const direct_normal_clears_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(direct_normal_clears_values);
-    const direct_normal_decorations_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(direct_normal_decorations_values);
-    const direct_normal_cursor_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(direct_normal_cursor_values);
-    const direct_normal_raster_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(direct_normal_raster_values);
-    const resolve_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(resolve_values);
-    const shape_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(shape_values);
-    const group_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(group_values);
-    const scene_values = try allocator.alloc(u64, observations.len);
-    defer allocator.free(scene_values);
-
     for (observations, 0..) |observation, idx| {
         ns_values[idx] = observation.ns;
         alloc_count_values[idx] = observation.alloc_count;
         alloc_bytes_values[idx] = observation.alloc_bytes;
         peak_live_values[idx] = observation.peak_live_bytes;
-        direct_normal_values[idx] = observation.direct_normal_us;
-        direct_normal_scan_values[idx] = observation.direct_normal_scan_us;
-        direct_normal_backgrounds_values[idx] = observation.direct_normal_backgrounds_us;
-        direct_normal_clears_values[idx] = observation.direct_normal_clears_us;
-        direct_normal_decorations_values[idx] = observation.direct_normal_decorations_us;
-        direct_normal_cursor_values[idx] = observation.direct_normal_cursor_us;
-        direct_normal_raster_values[idx] = observation.direct_normal_raster_us;
-        resolve_values[idx] = observation.resolve_us;
-        shape_values[idx] = observation.shape_us;
-        group_values[idx] = observation.group_us;
-        scene_values[idx] = observation.scene_us;
     }
 
     return .{
         .median_ns = medianU64(ns_values),
         .p95_ns = p95U64(ns_values),
-        .median_direct_normal_us = medianU64(direct_normal_values),
-        .median_direct_normal_scan_us = medianU64(direct_normal_scan_values),
-        .median_direct_normal_backgrounds_us = medianU64(direct_normal_backgrounds_values),
-        .median_direct_normal_clears_us = medianU64(direct_normal_clears_values),
-        .median_direct_normal_decorations_us = medianU64(direct_normal_decorations_values),
-        .median_direct_normal_cursor_us = medianU64(direct_normal_cursor_values),
-        .median_direct_normal_raster_us = medianU64(direct_normal_raster_values),
-        .median_resolve_us = medianU64(resolve_values),
-        .median_shape_us = medianU64(shape_values),
-        .median_group_us = medianU64(group_values),
-        .median_scene_us = medianU64(scene_values),
         .median_alloc_count = medianU64(alloc_count_values),
         .median_alloc_bytes = medianU64(alloc_bytes_values),
         .median_peak_live_bytes = medianU64(peak_live_values),
@@ -1052,17 +939,6 @@ fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: Wa
         .dirty_cells_per_run = workload.dirty_cells_per_run,
         .runs = runs,
         .cold_ns = cold.observation.ns,
-        .cold_direct_normal_us = cold.observation.direct_normal_us,
-        .cold_direct_normal_scan_us = cold.observation.direct_normal_scan_us,
-        .cold_direct_normal_backgrounds_us = cold.observation.direct_normal_backgrounds_us,
-        .cold_direct_normal_clears_us = cold.observation.direct_normal_clears_us,
-        .cold_direct_normal_decorations_us = cold.observation.direct_normal_decorations_us,
-        .cold_direct_normal_cursor_us = cold.observation.direct_normal_cursor_us,
-        .cold_direct_normal_raster_us = cold.observation.direct_normal_raster_us,
-        .cold_resolve_us = cold.observation.resolve_us,
-        .cold_shape_us = cold.observation.shape_us,
-        .cold_group_us = cold.observation.group_us,
-        .cold_scene_us = cold.observation.scene_us,
         .cold_alloc_count = cold.observation.alloc_count,
         .cold_alloc_bytes = cold.observation.alloc_bytes,
         .cold_peak_live_bytes = cold.observation.peak_live_bytes,
@@ -1071,17 +947,6 @@ fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: Wa
         .cold_uploads = cold.uploads,
         .warm_median_ns = warm.median_ns,
         .warm_p95_ns = warm.p95_ns,
-        .warm_median_direct_normal_us = warm.median_direct_normal_us,
-        .warm_median_direct_normal_scan_us = warm.median_direct_normal_scan_us,
-        .warm_median_direct_normal_backgrounds_us = warm.median_direct_normal_backgrounds_us,
-        .warm_median_direct_normal_clears_us = warm.median_direct_normal_clears_us,
-        .warm_median_direct_normal_decorations_us = warm.median_direct_normal_decorations_us,
-        .warm_median_direct_normal_cursor_us = warm.median_direct_normal_cursor_us,
-        .warm_median_direct_normal_raster_us = warm.median_direct_normal_raster_us,
-        .warm_median_resolve_us = warm.median_resolve_us,
-        .warm_median_shape_us = warm.median_shape_us,
-        .warm_median_group_us = warm.median_group_us,
-        .warm_median_scene_us = warm.median_scene_us,
         .warm_median_alloc_count = warm.median_alloc_count,
         .warm_median_alloc_bytes = warm.median_alloc_bytes,
         .warm_median_peak_live_bytes = warm.median_peak_live_bytes,
@@ -1149,17 +1014,6 @@ fn printTextResult(result: WorkloadResult) void {
     std.debug.print("runs={d}\n", .{result.runs});
     std.debug.print("dirty_cells_per_run={d}\n", .{result.dirty_cells_per_run});
     std.debug.print("cold_ms={d:.3}\n", .{cold_ms});
-    std.debug.print("cold_direct_normal_us={d}\n", .{result.cold_direct_normal_us});
-    std.debug.print("cold_direct_normal_scan_us={d}\n", .{result.cold_direct_normal_scan_us});
-    std.debug.print("cold_direct_normal_backgrounds_us={d}\n", .{result.cold_direct_normal_backgrounds_us});
-    std.debug.print("cold_direct_normal_clears_us={d}\n", .{result.cold_direct_normal_clears_us});
-    std.debug.print("cold_direct_normal_decorations_us={d}\n", .{result.cold_direct_normal_decorations_us});
-    std.debug.print("cold_direct_normal_cursor_us={d}\n", .{result.cold_direct_normal_cursor_us});
-    std.debug.print("cold_direct_normal_raster_us={d}\n", .{result.cold_direct_normal_raster_us});
-    std.debug.print("cold_resolve_us={d}\n", .{result.cold_resolve_us});
-    std.debug.print("cold_shape_us={d}\n", .{result.cold_shape_us});
-    std.debug.print("cold_group_us={d}\n", .{result.cold_group_us});
-    std.debug.print("cold_scene_us={d}\n", .{result.cold_scene_us});
     std.debug.print("cold_alloc_count={d}\n", .{result.cold_alloc_count});
     std.debug.print("cold_alloc_bytes={d}\n", .{result.cold_alloc_bytes});
     std.debug.print("cold_peak_live_bytes={d}\n", .{result.cold_peak_live_bytes});
@@ -1168,17 +1022,6 @@ fn printTextResult(result: WorkloadResult) void {
     std.debug.print("cold_uploads={d}\n", .{result.cold_uploads});
     std.debug.print("warm_median_ms={d:.3}\n", .{warm_median_ms});
     std.debug.print("warm_p95_ms={d:.3}\n", .{warm_p95_ms});
-    std.debug.print("warm_median_direct_normal_us={d}\n", .{result.warm_median_direct_normal_us});
-    std.debug.print("warm_median_direct_normal_scan_us={d}\n", .{result.warm_median_direct_normal_scan_us});
-    std.debug.print("warm_median_direct_normal_backgrounds_us={d}\n", .{result.warm_median_direct_normal_backgrounds_us});
-    std.debug.print("warm_median_direct_normal_clears_us={d}\n", .{result.warm_median_direct_normal_clears_us});
-    std.debug.print("warm_median_direct_normal_decorations_us={d}\n", .{result.warm_median_direct_normal_decorations_us});
-    std.debug.print("warm_median_direct_normal_cursor_us={d}\n", .{result.warm_median_direct_normal_cursor_us});
-    std.debug.print("warm_median_direct_normal_raster_us={d}\n", .{result.warm_median_direct_normal_raster_us});
-    std.debug.print("warm_median_resolve_us={d}\n", .{result.warm_median_resolve_us});
-    std.debug.print("warm_median_shape_us={d}\n", .{result.warm_median_shape_us});
-    std.debug.print("warm_median_group_us={d}\n", .{result.warm_median_group_us});
-    std.debug.print("warm_median_scene_us={d}\n", .{result.warm_median_scene_us});
     std.debug.print("dirty_cells_per_second={d:.0}\n", .{result.dirtyCellsPerSecond()});
     std.debug.print("warm_median_alloc_count={d}\n", .{result.warm_median_alloc_count});
     std.debug.print("warm_median_alloc_bytes={d}\n", .{result.warm_median_alloc_bytes});
@@ -1195,48 +1038,24 @@ fn printNdjsonResult(result: WorkloadResult) void {
         result.grid_cols,
         result.grid_rows,
     });
-    std.debug.print("\"runs\":{d},\"dirty_cells_per_run\":{d},\"cold_ns\":{d},\"cold_direct_normal_us\":{d},\"cold_direct_normal_scan_us\":{d},\"cold_direct_normal_backgrounds_us\":{d},\"cold_direct_normal_clears_us\":{d},\"cold_direct_normal_decorations_us\":{d},", .{
+    std.debug.print("\"runs\":{d},\"dirty_cells_per_run\":{d},\"cold_ns\":{d},", .{
         result.runs,
         result.dirty_cells_per_run,
         result.cold_ns,
-        result.cold_direct_normal_us,
-        result.cold_direct_normal_scan_us,
-        result.cold_direct_normal_backgrounds_us,
-        result.cold_direct_normal_clears_us,
-        result.cold_direct_normal_decorations_us,
     });
-    std.debug.print("\"cold_direct_normal_cursor_us\":{d},\"cold_direct_normal_raster_us\":{d},\"cold_resolve_us\":{d},\"cold_shape_us\":{d},\"cold_group_us\":{d},\"cold_scene_us\":{d},\"cold_alloc_count\":{d},\"cold_alloc_bytes\":{d},", .{
-        result.cold_direct_normal_cursor_us,
-        result.cold_direct_normal_raster_us,
-        result.cold_resolve_us,
-        result.cold_shape_us,
-        result.cold_group_us,
-        result.cold_scene_us,
+    std.debug.print("\"cold_alloc_count\":{d},\"cold_alloc_bytes\":{d},", .{
         result.cold_alloc_count,
         result.cold_alloc_bytes,
     });
-    std.debug.print("\"cold_peak_live_bytes\":{d},\"cold_fills\":{d},\"cold_glyphs\":{d},\"cold_uploads\":{d},\"warm_median_ns\":{d},\"warm_p95_ns\":{d},\"warm_median_direct_normal_us\":{d},\"warm_median_direct_normal_scan_us\":{d},", .{
+    std.debug.print("\"cold_peak_live_bytes\":{d},\"cold_fills\":{d},\"cold_glyphs\":{d},\"cold_uploads\":{d},\"warm_median_ns\":{d},\"warm_p95_ns\":{d},", .{
         result.cold_peak_live_bytes,
         result.cold_fills,
         result.cold_glyphs,
         result.cold_uploads,
         result.warm_median_ns,
         result.warm_p95_ns,
-        result.warm_median_direct_normal_us,
-        result.warm_median_direct_normal_scan_us,
     });
-    std.debug.print("\"warm_median_direct_normal_backgrounds_us\":{d},\"warm_median_direct_normal_clears_us\":{d},\"warm_median_direct_normal_decorations_us\":{d},\"warm_median_direct_normal_cursor_us\":{d},\"warm_median_direct_normal_raster_us\":{d},\"warm_median_resolve_us\":{d},", .{
-        result.warm_median_direct_normal_backgrounds_us,
-        result.warm_median_direct_normal_clears_us,
-        result.warm_median_direct_normal_decorations_us,
-        result.warm_median_direct_normal_cursor_us,
-        result.warm_median_direct_normal_raster_us,
-        result.warm_median_resolve_us,
-    });
-    std.debug.print("\"warm_median_shape_us\":{d},\"warm_median_group_us\":{d},\"warm_median_scene_us\":{d},\"dirty_cells_per_second\":{d:.0},\"warm_median_alloc_count\":{d},\"warm_median_alloc_bytes\":{d},\"warm_median_peak_live_bytes\":{d},", .{
-        result.warm_median_shape_us,
-        result.warm_median_group_us,
-        result.warm_median_scene_us,
+    std.debug.print("\"dirty_cells_per_second\":{d:.0},\"warm_median_alloc_count\":{d},\"warm_median_alloc_bytes\":{d},\"warm_median_peak_live_bytes\":{d},", .{
         result.dirtyCellsPerSecond(),
         result.warm_median_alloc_count,
         result.warm_median_alloc_bytes,
