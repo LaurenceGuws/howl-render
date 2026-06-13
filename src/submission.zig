@@ -34,11 +34,23 @@ pub fn submit(
     execution_in: ?*const c.HowlRenderSubmitExecution,
     result_out: ?*c.HowlRenderSubmitResult,
 ) callconv(.c) c_int {
-    if (result_out) |out| out.* = failedSubmitResult();
-    const owner = handle_owner.textSessionOwner(text_session_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
-    const prepared = prepared_handle.PreparedHandle.fromHandle(rdr_sfc_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
-    const execution = execution_in orelse return c.HOWL_RENDER_SUBMIT_FAILED;
-    const prepared_token = preparedSurfaceTokenIn(prepared_token_in) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
+    if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_FAILED);
+    const owner = handle_owner.textSessionOwner(text_session_handle) orelse {
+        if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_MISSING_HANDLE);
+        return c.HOWL_RENDER_SUBMIT_FAILED;
+    };
+    const prepared = prepared_handle.PreparedHandle.fromHandle(rdr_sfc_handle) orelse {
+        if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
+        return c.HOWL_RENDER_SUBMIT_FAILED;
+    };
+    const execution = execution_in orelse {
+        if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
+        return c.HOWL_RENDER_SUBMIT_FAILED;
+    };
+    const prepared_token = preparedSurfaceTokenIn(prepared_token_in) orelse {
+        if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
+        return c.HOWL_RENDER_SUBMIT_FAILED;
+    };
     return switch (owner.submitPrepared(prepared, prepared_token, submitExecutionIn(execution.*))) {
         .rendered => |submitted| blk: {
             if (result_out) |out| out.* = submitResultOut(submitted);
@@ -105,10 +117,19 @@ pub fn submitHandle(
     execution_in: ?*const c.HowlRenderSubmitExecution,
     result_out: ?*c.HowlRenderSubmitResult,
 ) callconv(.c) c_int {
-    if (result_out) |out| out.* = failedSubmitResult();
-    const owner = handle_owner.textSessionOwner(text_session_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
-    const execution = execution_in orelse return c.HOWL_RENDER_SUBMIT_FAILED;
-    const prepared = prepared_handle.PreparedHandle.fromHandle(rdr_sfc_handle) orelse return c.HOWL_RENDER_SUBMIT_FAILED;
+    if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_FAILED);
+    const owner = handle_owner.textSessionOwner(text_session_handle) orelse {
+        if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_MISSING_HANDLE);
+        return c.HOWL_RENDER_SUBMIT_FAILED;
+    };
+    const execution = execution_in orelse {
+        if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
+        return c.HOWL_RENDER_SUBMIT_FAILED;
+    };
+    const prepared = prepared_handle.PreparedHandle.fromHandle(rdr_sfc_handle) orelse {
+        if (result_out) |out| out.* = failedSubmitResult(c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
+        return c.HOWL_RENDER_SUBMIT_FAILED;
+    };
     return switch (owner.submitPreparedHandle(prepared, submitExecutionIn(execution.*))) {
         .rendered => |result| blk: {
             if (result_out) |out| out.* = submitResultOut(result);
@@ -131,9 +152,9 @@ fn submitResultOut(value: render_session.SubmitResult) c.HowlRenderSubmitResult 
     };
 }
 
-fn failedSubmitResult() c.HowlRenderSubmitResult {
+fn failedSubmitResult(status: c_int) c.HowlRenderSubmitResult {
     return .{
-        .status = c.HOWL_RENDER_CALL_FAILED,
+        .status = status,
         .damage_kind = 0,
         .host_surface = .{ .host_surface_id = 0, .width = 0, .height = 0 },
     };

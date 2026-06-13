@@ -19,6 +19,29 @@ test "render ffi submit seams reject invalid prepared tokens" {
     try support.expectInvalidPreparedSurfaceTokenRejected(handle, prepared_handle, zero_snapshot);
 }
 
+test "render ffi submit failure outputs preserve precise ABI status" {
+    var result = std.mem.zeroes(c.HowlRenderSubmitResult);
+    const execution = support.validExecutionInput();
+
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, support.submit.submit(null, null, support.validFullPreparedSurfaceToken(), &execution, &result));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, result.status);
+
+    const handle = try support.createTestTextSessionHandle();
+    defer support.text.deinit(handle);
+
+    result = std.mem.zeroes(c.HowlRenderSubmitResult);
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, support.submit.submit(handle, null, support.validFullPreparedSurfaceToken(), &execution, &result));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, result.status);
+
+    result = std.mem.zeroes(c.HowlRenderSubmitResult);
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, support.submit.submitHandle(null, null, &execution, &result));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, result.status);
+
+    result = std.mem.zeroes(c.HowlRenderSubmitResult);
+    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, support.submit.submitHandle(handle, null, &execution, &result));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, result.status);
+}
+
 test "render ffi prepared handle publish and direct submit lifecycle stays bounded" {
     const handle = try support.createTestTextSessionHandle();
     defer support.text.deinit(handle);

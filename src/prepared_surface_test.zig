@@ -42,6 +42,23 @@ test "render ffi prepared render-surface maps every owner emission failure" {
     }
 }
 
+test "render ffi prepared surface missing handle and invalid argument statuses stay stable" {
+    var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, support.prepared.describe(null, &info));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_MISSING_HANDLE, info.status);
+
+    var surface: ?*const c.HowlRenderSurface = undefined;
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_HANDLE, support.prepared.renderSurface(null, &surface));
+    try std.testing.expect(surface == null);
+
+    const handle = try support.createTestTextSessionHandle();
+    defer support.text.deinit(handle);
+    const prepared_handle = try support.createPreparedHandle(handle);
+    defer support.prepared.release(prepared_handle);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, support.prepared.describe(prepared_handle, null));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT, support.prepared.renderSurface(prepared_handle, null));
+}
+
 test "render ffi prepared info layout excludes render-surface retrieval status" {
     try std.testing.expectEqual(@as(usize, 0), @offsetOf(c.HowlRenderPreparedSurfaceInfo, "status"));
     try std.testing.expectEqual(@as(usize, 8), @offsetOf(c.HowlRenderPreparedSurfaceInfo, "snapshot_seq"));

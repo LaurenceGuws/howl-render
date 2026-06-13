@@ -16,6 +16,7 @@ test "render ffi text-session invalid arguments report shipped contract" {
     try std.testing.expect(handle != null);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, support.text.setFontSize(handle, 0));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, support.text.setFontPath(handle, null, 1));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, support.text.setFallbackFontPaths(handle, null, 1));
 }
 
 test "render ffi text-session invalid font path stays bounded" {

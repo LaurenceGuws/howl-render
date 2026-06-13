@@ -10,6 +10,13 @@ test "render abi prepare request requires vt source" {
     try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, support.prepare.takePrepareRequest(handle, null, &request));
 }
 
+test "render abi prepare request missing handle leaves output zeroed" {
+    var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
+    const status = support.prepare.takePrepareRequest(null, null, &request);
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_FAILED, status);
+    try std.testing.expectEqual(std.mem.zeroes(c.HowlRenderPrepareRequest), request);
+}
+
 test "render ffi invalid prepare requests fail and leave output handle null" {
     const handle = support.text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
     defer support.text.deinit(handle);
