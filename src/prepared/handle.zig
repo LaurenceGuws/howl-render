@@ -3,7 +3,7 @@ const tokens = @import("../geometry/tokens.zig");
 const geometry_contract = @import("../geometry/geometry_contract.zig");
 const prepared_surface = @import("surface.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
-const text_session = @import("../session/text.zig");
+const render_session = @import("../render_session.zig");
 
 pub const PreparedSurfaceHandle = ?*anyopaque;
 
@@ -63,13 +63,13 @@ pub const PreparedHandle = struct {
     pub const State = enum { prepared, submit_ready, released, consumed };
     const RenderSurfacePayload = render_surface_emitter.Emitter(.{});
 
-    session_owner: *text_session.TextSessionOwner,
+    session_owner: *render_session.TextSessionOwner,
     prepared: prepared_surface.PreparedSurface,
     render_surface_payload: ?*RenderSurfacePayload = null,
     state: State = .prepared,
     registered: bool = false,
 
-    pub fn create(session_owner: *text_session.TextSessionOwner, value: *prepared_surface.PreparedSurface) !*PreparedHandle {
+    pub fn create(session_owner: *render_session.TextSessionOwner, value: *prepared_surface.PreparedSurface) !*PreparedHandle {
         const alloc_start_ns = monotonicNs();
         var prepared_handle = try session_owner.allocator.create(PreparedHandle);
         const alloc_ns = monotonicNs() -| alloc_start_ns;
@@ -149,7 +149,7 @@ pub const PreparedHandle = struct {
         return self.prepared.preparedSurfaceToken();
     }
 
-    pub fn belongsToSession(self: *const PreparedHandle, session_owner: *text_session.TextSessionOwner) bool {
+    pub fn belongsToSession(self: *const PreparedHandle, session_owner: *render_session.TextSessionOwner) bool {
         return self.session_owner == session_owner;
     }
 
@@ -238,7 +238,7 @@ fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedS
 }
 
 pub const testing = struct {
-    pub fn executionMatchesPrepared(render_px: geometry_contract.PixelSize, execution: text_session.TextSession.SubmitExecution) bool {
+    pub fn executionMatchesPrepared(render_px: geometry_contract.PixelSize, execution: render_session.TextSession.SubmitExecution) bool {
         return execution.host_surface.width == render_px.width and execution.host_surface.height == render_px.height;
     }
 };

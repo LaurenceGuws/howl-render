@@ -5,7 +5,7 @@ const prepared_handle = @import("handle.zig");
 const prepared_surface = @import("surface.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
 const render_surface_realizer = @import("../geometry/render_surface_realizer.zig");
-const text_session = @import("../session/text.zig");
+const render_session = @import("../render_session.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const contract = @import("../text/contract.zig");
 const test_support = @import("../test_support.zig");
@@ -14,7 +14,7 @@ const PreparedHandle = prepared_handle.PreparedHandle;
 const RenderSurfaceEmissionFailure = render_surface_emitter.RenderSurfaceEmissionFailure;
 
 test "create reports missing-sprite diagnostic without double free" {
-    const session_owner = text_session.TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = render_session.TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     var sprite_draws = [_]contract.TextSpriteDraw{.{
@@ -126,7 +126,7 @@ test "prepared handle testing validates realized uploads and host surface dimens
 
 test "render surface prepared owner surface equals kitty dim rgba oracle" {
     const allocator = std.testing.allocator;
-    const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     var sprite_bytes = [_]u8{ 255, 255 };
@@ -160,7 +160,7 @@ test "render surface prepared owner surface equals kitty dim rgba oracle" {
 
 test "prepared handle fresh alpha atlas sprite emits zero uploads on second create" {
     const allocator = std.testing.allocator;
-    const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     var sprite_bytes = [_]u8{ 255, 128 };
@@ -182,7 +182,7 @@ test "prepared handle fresh alpha atlas sprite emits zero uploads on second crea
 
 test "prepared handle fresh persistent color sprite emits zero uploads on second create" {
     const allocator = std.testing.allocator;
-    const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     var sprite_bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
@@ -205,7 +205,7 @@ test "prepared handle fresh persistent color sprite emits zero uploads on second
 
 test "render surface prepared owner partial surface equals explicit base rgba oracle" {
     const allocator = std.testing.allocator;
-    const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     const base = [_]u8{ 1, 2, 3, 255, 4, 5, 6, 255 };
@@ -228,7 +228,7 @@ test "render surface prepared owner partial surface equals explicit base rgba or
 
 test "prepared handle releases render_surface payload with handle" {
     const allocator = std.testing.allocator;
-    const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
@@ -244,7 +244,7 @@ test "prepared handle releases render_surface payload with handle" {
 
 test "prepared handle reports missing surface when render_surface emission overflows" {
     const allocator = std.testing.allocator;
-    const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     const draws_len: usize = @intCast((render_surface_emitter.Limits{}).commands_max + 1);
@@ -262,7 +262,7 @@ test "prepared handle reports missing surface when render_surface emission overf
 
 test "prepared handle overflow still consumes prepare surface once" {
     const allocator = std.testing.allocator;
-    const session_owner = text_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
     var prepared = try ownedCommandOverflowPreparedSurface(allocator);
@@ -277,7 +277,7 @@ test "prepared handle overflow still consumes prepare surface once" {
 test "prepared handle allocation failure is reported in info" {
     var probe_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     {
-        var session_owner = text_session.TextSessionOwner.create(probe_allocator_state.allocator(), .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+        var session_owner = render_session.TextSessionOwner.create(probe_allocator_state.allocator(), .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
         defer session_owner.destroy();
         const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
         var prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
@@ -288,7 +288,7 @@ test "prepared handle allocation failure is reported in info" {
     var fail_index: usize = 0;
     while (fail_index < probe_allocator_state.alloc_index) : (fail_index += 1) {
         var failing_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
-        var session_owner = text_session.TextSessionOwner.create(failing_allocator_state.allocator(), .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse continue;
+        var session_owner = render_session.TextSessionOwner.create(failing_allocator_state.allocator(), .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse continue;
         defer session_owner.destroy();
         const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
         var prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });

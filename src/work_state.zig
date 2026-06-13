@@ -1,6 +1,6 @@
 const c = @import("howl_render_c");
 const handle_owner = @import("handle.zig");
-const session_text = @import("session/text.zig");
+const render_session = @import("render_session.zig");
 
 pub fn workState(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderSessionWorkState) callconv(.c) c_int {
     const session_work_state_out = out;
@@ -13,7 +13,7 @@ pub fn workState(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderSessio
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn sessionWorkStateOut(value: session_text.SessionWorkState) c.HowlRenderSessionWorkState {
+pub fn sessionWorkStateOut(value: render_session.SessionWorkState) c.HowlRenderSessionWorkState {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .source_pending = @intFromBool(value.source_pending),

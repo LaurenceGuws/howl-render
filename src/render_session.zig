@@ -1,32 +1,33 @@
 const std = @import("std");
-const geometry_mod = @import("../geometry/grid_geometry.zig");
-const renderable_content = @import("../renderable_content/content.zig");
-const renderable_color = @import("../renderable_content/color.zig");
-const renderable_cursor = @import("../renderable_content/cursor.zig");
-const tokens = @import("../geometry/tokens.zig");
-const prepared_handle = @import("../prepared/handle.zig");
-const render_geometry = @import("../geometry/geometry.zig");
-const geometry_contract = @import("../geometry/geometry_contract.zig");
-const source_publication = @import("../vt_publication/publication.zig");
-const source_slot = @import("../storage/publication_storage.zig");
-const source_prepare = @import("../prepare/queue.zig");
-const publication_damage = @import("../damage/publication_damage.zig");
-const prepared_surface = @import("../prepared/surface.zig");
-const session_submitted = @import("submitted.zig");
-const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
-const contract = @import("../text/contract.zig");
-const font_resolve = @import("../text/resolve.zig");
-const text_paths = @import("../text/paths.zig");
-const surface_preparer = @import("../text/surface_preparer.zig");
-const font_session = @import("../text/session.zig");
-const ft_hb_provider = @import("../text/ft_hb/provider.zig");
-const provider = @import("../text/provider.zig");
-const atlas_cache = @import("../text/raster/atlas.zig");
-const rasterizer = @import("../text/raster/rasterizer.zig");
-const shape_run = @import("../text/shape/run.zig");
-const text_support = @import("../text/ft_hb/support.zig");
-const text_glyph_raster = @import("../text/ft_hb/glyph_raster.zig");
-const text_raster_operation = @import("../text/raster/operation.zig");
+const geometry_mod = @import("geometry/grid_geometry.zig");
+const renderable_content = @import("renderable_content/content.zig");
+const renderable_color = @import("renderable_content/color.zig");
+const renderable_cursor = @import("renderable_content/cursor.zig");
+const tokens = @import("geometry/tokens.zig");
+const prepared_handle = @import("prepared/handle.zig");
+const render_geometry = @import("geometry/geometry.zig");
+const geometry_contract = @import("geometry/geometry_contract.zig");
+const source_publication = @import("vt_publication/publication.zig");
+const source_slot = @import("storage/publication_storage.zig");
+const source_prepare = @import("prepare/queue.zig");
+const publication_damage = @import("damage/publication_damage.zig");
+const prepared_surface = @import("prepared/surface.zig");
+const submitted_surface = @import("submitted_surface.zig");
+const sprite_resource_store = @import("prepared/sprite_resource_store.zig");
+const source_abi = @import("vt_publication/abi.zig");
+const contract = @import("text/contract.zig");
+const font_resolve = @import("text/resolve.zig");
+const text_paths = @import("text/paths.zig");
+const surface_preparer = @import("text/surface_preparer.zig");
+const font_session = @import("text/session.zig");
+const ft_hb_provider = @import("text/ft_hb/provider.zig");
+const provider = @import("text/provider.zig");
+const atlas_cache = @import("text/raster/atlas.zig");
+const rasterizer = @import("text/raster/rasterizer.zig");
+const shape_run = @import("text/shape/run.zig");
+const text_support = @import("text/ft_hb/support.zig");
+const text_glyph_raster = @import("text/ft_hb/glyph_raster.zig");
+const text_raster_operation = @import("text/raster/operation.zig");
 
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
 const ft_hb_face_text_cache_entry_cap: u32 = 4096;
@@ -129,14 +130,19 @@ comptime {
 
 const ThreadMutex = struct {
     state: std.Io.Mutex = .init,
+    locked: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
     fn unlock(self: *ThreadMutex) void {
+        std.debug.assert(self.locked.load(.acquire));
+        self.locked.store(false, .release);
         std.Io.Threaded.mutexUnlock(&self.state);
     }
 };
 
 fn lockMutex(mutex: *ThreadMutex) void {
     std.Io.Threaded.mutexLock(&mutex.state);
+    const was_locked = mutex.locked.cmpxchgWeak(false, true, .acq_rel, .acquire);
+    std.debug.assert(was_locked == null);
 }
 
 pub const TextSessionConfig = struct {
@@ -212,6 +218,10 @@ pub const TextSession = struct {
         var context = TextContext{ .session = self, .session_config = config };
         const cell_px = text_support.deriveCellSize(&context);
         const layout = geometry_contract.SurfaceLayout{ .cell_px = cell_px, .grid = geometry_mod.deriveGridSize(grid_px, cell_px) };
+        std.debug.assert(layout.cell_px.width != 0);
+        std.debug.assert(layout.cell_px.height != 0);
+        std.debug.assert(layout.grid.cols != 0);
+        std.debug.assert(layout.grid.rows != 0);
         return .{ .cell_px = layout.cell_px, .grid = layout.grid };
     }
 
@@ -261,9 +271,11 @@ pub const TextSession = struct {
             return owned_direct;
         }
         try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
+        const cell_input_scratch = self.cell_input_scratch[0..prepare.state.cells.len];
+        std.debug.assert(cell_input_scratch.len == prepare.state.cells.len);
         const input_start_ns = monotonicNs();
         const text_input = renderable_content.publicationSourceToTextSceneInputBorrowedWithTheme(
-            self.cell_input_scratch,
+            cell_input_scratch,
             prepare.state,
             prepare.request.token.damage_kind == .full,
             theme,
@@ -381,6 +393,7 @@ pub const TextSession = struct {
     fn fontSession(context: *TextContext, faces: []font_session.FontFaceRecord, active_resolve: ?*font_resolve.ResolveObservability) font_session.FontSession {
         context.session.text_state.active_resolve = active_resolve;
         var len: text_support.FallbackFontCount = 0;
+        std.debug.assert(context.session.text_state.fallback_font_paths_len <= text_support.max_fallback_fonts);
         if (count32(faces) > text_support.fallbackFontLen(len)) {
             faces[@intCast(text_support.fallbackFontLen(len))] = .{ .id = .{ .value = text_support.primary_face_id }, .role = .primary, .coverage = .all };
             len += 1;
@@ -453,7 +466,7 @@ pub const TextSessionOwner = struct {
     geometry: render_geometry.GeometryOwner,
     source_slot: source_slot.SourceSlot,
     prepare_requests: source_prepare.PrepareRequests,
-    submitted: session_submitted.Submitted,
+    submitted: submitted_surface.SubmittedSurface,
     source_dirty_epoch: u64 = 0,
     cursor_blink_visible: bool = true,
     config: TextSessionConfig,
@@ -547,6 +560,7 @@ pub const TextSessionOwner = struct {
         const prepare_timings = prepared.text_surface.timings;
         errdefer prepared.deinit();
         const owner_create_start_ns = monotonicNs();
+        std.debug.assert(!self.session.mutex.locked.load(.acquire));
         const owner = prepared_handle.PreparedHandle.create(self, &prepared) catch |err| return err;
         self.rdr_sfc_handle = @ptrCast(owner);
         debug_prepare_timing.record(prepare_timings, prepare_surface_ns, monotonicNs() -| owner_create_start_ns);
@@ -619,7 +633,7 @@ pub const TextSessionOwner = struct {
     pub fn prepare(self: *TextSessionOwner) ?tokens.RenderRequest {
         const submitted_token = self.submittedToken();
         const request = self.prepare_requests.takePrepareRequest(self.geometry.geometry_epoch) orelse return null;
-        const effective_token = session_submitted.Submitted.prepareTokenForRetainedState(
+        const effective_token = submitted_surface.SubmittedSurface.prepareTokenForRetainedState(
             request.token,
             submitted_token,
         );
@@ -650,7 +664,7 @@ pub const TextSessionOwner = struct {
         const validation = self.submitted.validatePrepared(prepared_token);
         if (validation != .valid) {
             self.rdr_sfc_handle = null;
-            _ = self.prepare_requests.requestFullPrepare(session_submitted.Submitted.forceFull);
+            _ = self.prepare_requests.requestFullPrepare(submitted_surface.SubmittedSurface.forceFull);
             return .needs_full_prepare;
         }
         prepared.state = .submit_ready;
@@ -685,7 +699,7 @@ pub const TextSessionOwner = struct {
 
     pub fn acceptSubmitted(self: *TextSessionOwner, submitted: tokens.SubmittedSurfaceToken) void {
         if (submitted.token.geometry_epoch != self.geometry.geometry_epoch) {
-            _ = self.prepare_requests.requestFullPrepare(session_submitted.Submitted.forceFull);
+            _ = self.prepare_requests.requestFullPrepare(submitted_surface.SubmittedSurface.forceFull);
             return;
         }
         self.submitted.acceptSubmitted(submitted);
@@ -744,3 +758,181 @@ pub const testing = struct {
         return TextSession.ftHbCapacity(@constCast(&context));
     }
 };
+
+test "ft hb retained capacities separate cache slots from run scratch" {
+    var session = TextSession.init(std.testing.allocator);
+    defer session.deinit();
+
+    const capacity = testing.ftHbCapacity(&session, .{
+        .surface_px = .{ .width = 80, .height = 32 },
+        .font_size_px = 16,
+    });
+    try std.testing.expectEqual(@as(u32, 20), capacity.face_text_cache_entries);
+    try std.testing.expectEqual(@as(u32, 20), capacity.glyph_cell_cache_entries);
+    try std.testing.expectEqual(@as(u32, 20), capacity.shape_run_cache_entries);
+    try std.testing.expectEqual(@as(u32, 160), capacity.max_shape_input_codepoints);
+    try std.testing.expectEqual(@as(u32, 512), capacity.max_glyphs_per_run);
+}
+
+test "render session owner keeps source and submitted owners separate" {
+    const owner = TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    try std.testing.expect(owner.source_slot.reserved == null);
+    try std.testing.expect(owner.prepare_requests.active_source == null);
+    try std.testing.expect(owner.submitted.submitted_token == null);
+}
+
+test "render session owner invalidation clears sprite resource store" {
+    const owner = TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    const sprite = sprite_resource_store.PreparedSprite{
+        .key = .{ .value = 1 },
+        .pixels = &[_]u8{255},
+        .width_px = 1,
+        .height_px = 1,
+        .stride_bytes = 1,
+        .color_mode = .alpha,
+        .visual_bounds = .{},
+    };
+    _ = try owner.render_surface_sprite_resources.atlasRegionFor(sprite, 1, 1, &[_]u8{255});
+    try std.testing.expectEqual(@as(u32, 1), owner.render_surface_sprite_resources.atlas_count);
+    const next_value = owner.render_surface_sprite_resources.value_next;
+
+    owner.invalidateTextState();
+    try std.testing.expectEqual(@as(u32, 0), owner.render_surface_sprite_resources.atlas_count);
+    try std.testing.expectEqual(@as(u32, 0), owner.render_surface_sprite_resources.count);
+    try std.testing.expectEqual(next_value, owner.render_surface_sprite_resources.value_next);
+}
+
+test "render session owner rejects prepared work after resize publication" {
+    const owner = TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    const initial_geometry = try owner.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+    try std.testing.expect(initial_geometry.changed);
+    try std.testing.expectEqual(@as(u64, 1), initial_geometry.geometry_epoch);
+
+    const first_source = try testSource(std.testing.allocator, 1, 'A');
+    const first_admission = owner.prepare_requests.admitSource(first_source, owner.submittedToken(), owner.geometry.geometry_epoch);
+    try std.testing.expect(first_admission.admitted);
+    try std.testing.expectEqual(@as(u64, 1), first_admission.geometry_epoch);
+
+    const old_request = owner.prepare() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 1), old_request.token.snapshot_seq);
+    try std.testing.expectEqual(@as(u64, 1), old_request.token.geometry_epoch);
+    const old_rdr_sfc_handle = try owner.prepareHandle(old_request.token);
+    defer old_rdr_sfc_handle.release();
+    try std.testing.expect(owner.workState().submit_pending);
+
+    const resized_geometry = try owner.syncGeometry(.{
+        .render_px = .{ .width = 16, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+    try std.testing.expect(resized_geometry.changed);
+    try std.testing.expect(resized_geometry.geometry_epoch > old_request.token.geometry_epoch);
+
+    const resized_source = try testSource(std.testing.allocator, 2, 'A');
+    const resized_admission = owner.prepare_requests.admitSource(resized_source, owner.submittedToken(), resized_geometry.geometry_epoch);
+    try std.testing.expect(resized_admission.admitted);
+    try std.testing.expectEqual(tokens.DamageKind.full, resized_admission.damage_kind);
+    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_admission.geometry_epoch);
+
+    const decision = owner.takeSubmitHandle();
+    switch (decision) {
+        .stale => {},
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expect(!owner.workState().submit_pending);
+
+    const resized_request = owner.prepare() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 2), resized_request.token.snapshot_seq);
+    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_request.token.geometry_epoch);
+    try std.testing.expectEqual(tokens.DamageKind.full, resized_request.token.damage_kind);
+    try std.testing.expectEqual(@as(u64, 0), resized_request.token.damage_base_seq);
+    try std.testing.expect(!resized_request.allow_retained_reuse);
+}
+
+fn testCell(codepoint: u21) source_abi.SourceCell {
+    var cell = std.mem.zeroes(source_abi.SourceCell);
+    cell.codepoint = codepoint;
+    return cell;
+}
+
+fn testSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !source_publication.PublicationSource {
+    _ = testCell(codepoint);
+    return source_publication.ownedTestSource(allocator, snapshot_seq, codepoint);
+}
+
+test "render session owner rejects partial rdr_sfc handle with wrong submitted base" {
+    const owner = TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    owner.submitted.acceptSubmitted(.{
+        .token = .{ .snapshot_seq = 9, .dirty_epoch = 9, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+    });
+    var prepared_value = @import("test_support.zig").preparedSurface(.{ .width_px = 8, .height_px = 16, .full_redraw = false });
+    prepared_value.request.token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial };
+    const rdr_sfc_handle = try prepared_handle.PreparedHandle.create(owner, &prepared_value);
+    defer rdr_sfc_handle.release();
+    owner.rdr_sfc_handle = @ptrCast(rdr_sfc_handle);
+
+    switch (owner.takeSubmitHandle()) {
+        .needs_full_prepare => {},
+        else => return error.TestUnexpectedResult,
+    }
+    try std.testing.expect(owner.rdr_sfc_handle == null);
+}
+
+test "ft hb retained capacities cap shape run cache slots" {
+    var session = TextSession.init(std.testing.allocator);
+    defer session.deinit();
+
+    const capacity = testing.ftHbCapacity(&session, .{
+        .surface_px = .{ .width = 4096, .height = 4096 },
+        .font_size_px = 16,
+    });
+    try std.testing.expectEqual(@as(u32, 64), capacity.shape_run_cache_entries);
+    try std.testing.expectEqual(@as(u32, 4096), capacity.face_text_cache_entries);
+    try std.testing.expectEqual(@as(u32, 4096), capacity.glyph_cell_cache_entries);
+}
+
+test "render session retains translated cell scratch across prepares" {
+    var session = TextSession.init(std.testing.allocator);
+    defer session.deinit();
+
+    try testing.ensureCellInputScratchCapacity(&session, 4);
+    const first_ptr = @intFromPtr(session.cell_input_scratch.ptr);
+    try testing.ensureCellInputScratchCapacity(&session, 4);
+    try std.testing.expectEqual(first_ptr, @intFromPtr(session.cell_input_scratch.ptr));
+    try std.testing.expectEqual(@as(usize, 4), session.cell_input_scratch[0..4].len);
+
+    try testing.ensureCellInputScratchCapacity(&session, 8);
+    try std.testing.expectEqual(@as(usize, 8), session.cell_input_scratch[0..8].len);
+}
+
+test "render session derive layout rejects zero dimensions" {
+    var session = TextSession.init(std.testing.allocator);
+    defer session.deinit();
+
+    try std.testing.expectError(error.InvalidSurfaceSize, session.deriveLayout(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }, .{ .width = 0, .height = 16 }, .{ .width = 16, .height = 16 }));
+    try std.testing.expectError(error.InvalidGridSize, session.deriveLayout(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }, .{ .width = 16, .height = 16 }, .{ .width = 0, .height = 16 }));
+}

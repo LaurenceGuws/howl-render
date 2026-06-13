@@ -8,7 +8,7 @@ const prepared_surface = @import("surface.zig");
 const realize = @import("../geometry/render_surface_realizer.zig");
 const sprite_resource_store = @import("sprite_resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
-const text_session = @import("../session/text.zig");
+const text_session = @import("../render_session.zig");
 
 const ResourceId = c.HowlRenderResourceId;
 const Rect = c.HowlRenderSurfaceRect;

@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const contract = @import("../contract.zig");
-const text_session = @import("../../session/text.zig");
+const render_session = @import("../../render_session.zig");
 const provider = @import("../provider.zig");
 const shape_run = @import("../shape/run.zig");
 const font_resolve = @import("../resolve.zig");
@@ -104,7 +104,7 @@ fn textState(self: anytype) *FtHbSupport {
     @compileError("text state owner missing text_state field");
 }
 
-fn configView(self: anytype) text_session.TextSessionConfig {
+fn configView(self: anytype) render_session.TextSessionConfig {
     const T = @TypeOf(self.*);
     if (@hasField(T, "config")) return self.config;
     if (@hasField(T, "session_config")) return self.session_config;

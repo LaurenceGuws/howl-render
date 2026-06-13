@@ -8,7 +8,7 @@ const realize = @import("../geometry/render_surface_realizer.zig");
 const render_surface_emitter = @import("render_surface_emitter.zig");
 const sprite_resource_store = @import("sprite_resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
-const text_session = @import("../session/text.zig");
+const text_session = @import("../render_session.zig");
 const test_support = @import("../test_support.zig");
 
 const GlyphRef = c.HowlRenderGlyphRef;

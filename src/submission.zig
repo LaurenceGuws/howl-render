@@ -1,7 +1,7 @@
 const c = @import("howl_render_c");
 const handle_owner = @import("handle.zig");
 const prepared_handle = @import("prepared/handle.zig");
-const text_session = @import("session/text.zig");
+const render_session = @import("render_session.zig");
 const tokens = @import("geometry/tokens.zig");
 
 pub fn takeSubmitHandle(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderRdrSfcHandle) callconv(.c) c_int {
@@ -119,7 +119,7 @@ pub fn submitHandle(
     };
 }
 
-fn submitResultOut(value: text_session.SubmitResult) c.HowlRenderSubmitResult {
+fn submitResultOut(value: render_session.SubmitResult) c.HowlRenderSubmitResult {
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .damage_kind = @intFromEnum(value.damage_kind),
@@ -139,7 +139,7 @@ fn failedSubmitResult() c.HowlRenderSubmitResult {
     };
 }
 
-fn submitExecutionIn(value: c.HowlRenderSubmitExecution) text_session.TextSession.SubmitExecution {
+fn submitExecutionIn(value: c.HowlRenderSubmitExecution) render_session.TextSession.SubmitExecution {
     return .{
         .host_surface = .{
             .host_surface_id = value.host_surface.host_surface_id,

@@ -14,7 +14,7 @@ const render_surface_emitter_model = @import("prepared/render_surface_emitter.zi
 const render_surface_realizer = @import("geometry/render_surface_realizer.zig");
 const text_contract = @import("text/contract.zig");
 const rasterizer = @import("text/raster/rasterizer.zig");
-const text_session_model = @import("session/text.zig");
+const text_session_model = @import("render_session.zig");
 const source_abi = @import("vt_publication/abi.zig");
 
 pub const prepare = prepare_request;
@@ -110,7 +110,7 @@ pub fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, s
 }
 
 pub fn createTestTextSessionHandle() !c.HowlRenderTextSessionHandle {
-    const owner = @import("session/text.zig").TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
+    const owner = @import("render_session.zig").TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
     return @ptrCast(owner);
 }
 

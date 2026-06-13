@@ -1,5 +1,5 @@
 const std = @import("std");
-const tokens = @import("../geometry/tokens.zig");
+const tokens = @import("geometry/tokens.zig");
 
 pub const ThreadMutex = struct {
     state: std.Io.Mutex = .init,
@@ -24,12 +24,12 @@ pub const SubmittedWorkState = struct {
     submit_pending: bool,
 };
 
-pub const Submitted = struct {
+pub const SubmittedSurface = struct {
     mutex: ThreadMutex = .{},
     submitted_token: ?tokens.SubmittedSurfaceToken = null,
 
-    pub fn validatePrepared(self: *const Submitted, prepared: tokens.PreparedSurfaceToken) tokens.SubmitValidation {
-        const submitted_owner: *Submitted = @constCast(self);
+    pub fn validatePrepared(self: *const SubmittedSurface, prepared: tokens.PreparedSurfaceToken) tokens.SubmitValidation {
+        const submitted_owner: *SubmittedSurface = @constCast(self);
         lockMutex(&submitted_owner.mutex);
         defer submitted_owner.mutex.unlock();
         const submitted = self.submitted_token orelse {
@@ -38,21 +38,22 @@ pub const Submitted = struct {
         return tokens.validatePreparedSurfaceToken(prepared, submitted);
     }
 
-    pub fn acceptSubmitted(self: *Submitted, submitted: tokens.SubmittedSurfaceToken) void {
+    pub fn acceptSubmitted(self: *SubmittedSurface, submitted: tokens.SubmittedSurfaceToken) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         std.debug.assert(submitted.token.snapshot_seq != 0);
+        if (self.submitted_token) |prior| std.debug.assert(!prior.token.isNewerThan(submitted.token));
         self.submitted_token = submitted;
     }
 
-    pub fn workState(self: *const Submitted) SubmittedWorkState {
-        const submitted_owner: *Submitted = @constCast(self);
+    pub fn workState(self: *const SubmittedSurface) SubmittedWorkState {
+        const submitted_owner: *SubmittedSurface = @constCast(self);
         lockMutex(&submitted_owner.mutex);
         defer submitted_owner.mutex.unlock();
         return .{ .submit_pending = false };
     }
 
-    pub fn submittedToken(self: *Submitted) ?tokens.SnapshotToken {
+    pub fn submittedToken(self: *SubmittedSurface) ?tokens.SnapshotToken {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         return if (self.submitted_token) |submitted| submitted.token else null;
@@ -85,7 +86,7 @@ pub const Submitted = struct {
         };
     }
 
-    pub fn isStalePrepared(self: *const Submitted, latest_token: ?tokens.SnapshotToken, token: tokens.SnapshotToken) bool {
+    pub fn isStalePrepared(self: *const SubmittedSurface, latest_token: ?tokens.SnapshotToken, token: tokens.SnapshotToken) bool {
         _ = self;
         const latest = latest_token orelse return false;
         return latest.isNewerThan(token);
@@ -93,7 +94,7 @@ pub const Submitted = struct {
 };
 
 test "submitted owner validates retained base before GPU mutation" {
-    var submitted = Submitted{};
+    var submitted = SubmittedSurface{};
     submitted.acceptSubmitted(.{
         .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     });
@@ -106,7 +107,7 @@ test "submitted owner validates retained base before GPU mutation" {
 }
 
 test "submitted owner keeps submitted identity as retained base only" {
-    var submitted = Submitted{};
+    var submitted = SubmittedSurface{};
     const token = tokens.SubmittedSurfaceToken{
         .token = .{ .snapshot_seq = 7, .dirty_epoch = 9, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
         .atlas_epoch = 11,
@@ -124,7 +125,7 @@ test "submitted owner keeps submitted identity as retained base only" {
 }
 
 test "submitted owner reports stale submit when newer snapshot already won" {
-    var submitted = Submitted{};
+    var submitted = SubmittedSurface{};
     const stale = submitted.isStalePrepared(
         .{ .snapshot_seq = 3, .dirty_epoch = 3, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
         .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
@@ -133,7 +134,20 @@ test "submitted owner reports stale submit when newer snapshot already won" {
 }
 
 test "submitted owner has no source publication state" {
-    var submitted = Submitted{};
+    var submitted = SubmittedSurface{};
     try std.testing.expect(submitted.submittedToken() == null);
     try std.testing.expect(!submitted.workState().submit_pending);
+}
+
+test "submitted surface token monotonicity keeps latest submission" {
+    var submitted = SubmittedSurface{};
+    submitted.acceptSubmitted(.{
+        .token = .{ .snapshot_seq = 4, .dirty_epoch = 4, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+    });
+    submitted.acceptSubmitted(.{
+        .token = .{ .snapshot_seq = 5, .dirty_epoch = 5, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+    });
+
+    try std.testing.expect(submitted.submittedToken() != null);
+    try std.testing.expectEqual(@as(u64, 5), submitted.submittedToken().?.snapshot_seq);
 }

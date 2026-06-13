@@ -1,8 +1,8 @@
 const c = @import("howl_render_c");
 const prepared_handle = @import("prepared/handle.zig");
-const text_session = @import("session/text.zig");
+const render_session = @import("render_session.zig");
 
-pub fn textSessionOwner(handle: c.HowlRenderTextSessionHandle) ?*text_session.TextSessionOwner {
+pub fn textSessionOwner(handle: c.HowlRenderTextSessionHandle) ?*render_session.TextSessionOwner {
     const owned = handle orelse return null;
     return @ptrCast(@alignCast(owned));
 }

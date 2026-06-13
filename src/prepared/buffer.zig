@@ -1,6 +1,6 @@
 const std = @import("std");
 const prepared_surface = @import("surface.zig");
-const text_session = @import("../session/text.zig");
+const text_session = @import("../render_session.zig");
 const contract = @import("../text/contract.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 

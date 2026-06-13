@@ -2,7 +2,7 @@ const std = @import("std");
 
 const test_font_options = @import("test_font_options");
 const contract = @import("../contract.zig");
-const text_session = @import("../../session/text.zig");
+const render_session = @import("../../render_session.zig");
 const support = @import("support.zig");
 
 const InjectedTestFontPaths = struct {
@@ -25,7 +25,7 @@ test "provider loads fallback face for symbol glyph with primary present" {
     const symbol_path = try std.Io.Dir.cwd().realPathFileAlloc(io, font_paths.symbol_path, std.testing.allocator);
     defer std.testing.allocator.free(symbol_path);
 
-    const owner = text_session.TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
+    const owner = render_session.TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
 
     owner.setOwnedFontPath(try std.heap.c_allocator.dupeZ(u8, primary_path));
@@ -34,8 +34,8 @@ test "provider loads fallback face for symbol glyph with primary present" {
     owner.adoptFallbackFontPaths(&fallbacks);
 
     const Context = struct {
-        session: *text_session.TextSession,
-        session_config: text_session.TextSessionConfig,
+        session: *render_session.TextSession,
+        session_config: render_session.TextSessionConfig,
     };
     var context = Context{ .session = &owner.session, .session_config = owner.config };
 
