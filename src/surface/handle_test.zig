@@ -1,5 +1,5 @@
 const std = @import("std");
-const geometry_contract = @import("../geometry/geometry_contract.zig");
+const geometry_contract = @import("../geometry_contract.zig");
 const prepared_buffer = @import("compositor.zig");
 const prepared_handle = @import("handle.zig");
 const prepared_surface = @import("prepared_surface.zig");

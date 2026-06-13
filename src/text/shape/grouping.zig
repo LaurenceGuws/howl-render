@@ -3,7 +3,7 @@ const contract = @import("../contract.zig");
 const font_resolver = @import("../resolver.zig");
 const shape_run = @import("run.zig");
 const sprite_key = @import("../raster/key.zig");
-const symbol_map = @import("../classify/symbol_map.zig");
+const symbol_map = @import("../symbol_map.zig");
 
 pub const OwnedGlyphGroups = struct {
     allocator: std.mem.Allocator,

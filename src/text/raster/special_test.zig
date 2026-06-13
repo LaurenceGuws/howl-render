@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const contract = @import("../contract.zig");
-const special_glyphs = @import("../classify/special_glyphs.zig");
+const special_glyphs = @import("../special_glyphs.zig");
 const special = @import("special.zig");
 
 const Range = struct { start: u16, end: u16 };

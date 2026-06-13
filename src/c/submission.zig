@@ -3,7 +3,7 @@ const c = @import("howl_render_c");
 const handle_owner = @import("text_session_handle.zig");
 const prepared_handle = @import("../surface/handle.zig");
 const render_session = @import("../render_session.zig");
-const tokens = @import("../geometry/tokens.zig");
+const tokens = @import("../tokens.zig");
 
 pub fn takeSubmitHandle(value: c.HowlRenderTextSessionHandle, out: ?*c.HowlRenderRdrSfcHandle) callconv(.c) c_int {
     const rdr_sfc_out = out orelse return c.HOWL_RENDER_SUBMIT_DECISION_FAILED;

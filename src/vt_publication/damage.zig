@@ -1,5 +1,5 @@
 const std = @import("std");
-const tokens = @import("../geometry/tokens.zig");
+const tokens = @import("../tokens.zig");
 const source_publication = @import("publication.zig");
 
 pub fn validateDirtySource(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) !void {

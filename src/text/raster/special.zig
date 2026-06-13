@@ -1,6 +1,6 @@
 const std = @import("std");
 const contract = @import("../contract.zig");
-const special_glyphs = @import("../classify/special_glyphs.zig");
+const special_glyphs = @import("../special_glyphs.zig");
 
 pub fn requestForUndercurl(key: contract.SpriteKey, width_px: u16, height_px: u16, decoration: contract.DecorationSpriteRaster) contract.SpriteRasterRequest {
     std.debug.assert(width_px > 0);

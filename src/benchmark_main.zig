@@ -1,5 +1,5 @@
 const std = @import("std");
-const geometry_contract = @import("geometry/geometry_contract.zig");
+const geometry_contract = @import("geometry_contract.zig");
 const source_abi = @import("vt_publication/abi.zig");
 const source_text_input = @import("vt_publication/text_input.zig");
 const source_publication = @import("vt_publication/publication.zig");

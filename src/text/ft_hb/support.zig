@@ -6,7 +6,7 @@ const provider = @import("../provider.zig");
 const shape_run = @import("../shape/run.zig");
 const font_resolve = @import("../resolve.zig");
 const text_paths = @import("../paths.zig");
-const geometry_contract = @import("../../geometry/geometry_contract.zig");
+const geometry_contract = @import("../../geometry_contract.zig");
 const text_cache = @import("cache.zig");
 const c_api = @import("c_api.zig");
 
