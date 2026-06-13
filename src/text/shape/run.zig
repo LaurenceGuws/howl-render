@@ -1,5 +1,6 @@
 const std = @import("std");
 const contract = @import("../contract.zig");
+const cluster_shape = @import("./cluster.zig");
 
 pub const ShapeRunRequest = struct {
     run: contract.ResolvedRun,
@@ -60,8 +61,74 @@ pub const OwnedShapedRuns = struct {
     }
 };
 
+pub const OwnedProvisionalRuns = struct {
+    allocator: std.mem.Allocator,
+    runs: []contract.ResolvedRun,
+
+    pub fn deinit(self: *OwnedProvisionalRuns) void {
+        self.allocator.free(self.runs);
+        self.* = undefined;
+    }
+};
+
+pub const RetainedProvisionalRunScratch = struct {
+    runs: []contract.ResolvedRun = &.{},
+    max_runs: u32 = 0,
+
+    pub fn deinit(self: *RetainedProvisionalRunScratch, allocator: std.mem.Allocator) void {
+        if (self.runs.len > 0) allocator.free(self.runs);
+        self.* = undefined;
+    }
+
+    pub fn configure(self: *RetainedProvisionalRunScratch, allocator: std.mem.Allocator, max_runs: u32) !void {
+        if (max_runs <= self.max_runs) return;
+        const runs = try allocator.alloc(contract.ResolvedRun, @intCast(max_runs));
+        if (self.runs.len > 0) allocator.free(self.runs);
+        self.runs = runs;
+        self.max_runs = max_runs;
+    }
+
+    fn require(self: RetainedProvisionalRunScratch, run_count: u32) !void {
+        if (run_count > self.max_runs) return error.ClusterScratchOverflow;
+    }
+};
+
 pub fn emptyResult() ShapeRunResult {
     return .{ .glyphs = &.{} };
+}
+
+pub fn buildProvisionalRuns(allocator: std.mem.Allocator, clusters: []const contract.CellCluster, face_id: contract.FontFaceId) !OwnedProvisionalRuns {
+    if (clusters.len == 0) {
+        return .{ .allocator = allocator, .runs = try allocator.alloc(contract.ResolvedRun, 0) };
+    }
+
+    var scratch = RetainedProvisionalRunScratch{};
+    defer scratch.deinit(allocator);
+    try scratch.configure(allocator, count32(clusters));
+    return buildProvisionalRunsScratch(allocator, &scratch, clusters, face_id);
+}
+
+pub fn buildProvisionalRunsScratch(allocator: std.mem.Allocator, scratch: *RetainedProvisionalRunScratch, clusters: []const contract.CellCluster, face_id: contract.FontFaceId) !OwnedProvisionalRuns {
+    if (clusters.len == 0) {
+        return .{ .allocator = allocator, .runs = try allocator.alloc(contract.ResolvedRun, 0) };
+    }
+    try scratch.require(count32(clusters));
+
+    var prev = clusters[0];
+    var start: u32 = 0;
+    var run_count: u32 = 0;
+    for (clusters[1..], 1..) |current_cluster, idx| {
+        if (current_cluster.style != prev.style or current_cluster.presentation != prev.presentation) {
+            scratch.runs[@intCast(run_count)] = resolvedRun(start, @intCast(idx - start), face_id, prev.style, prev.presentation);
+            run_count += 1;
+            start = @intCast(idx);
+        }
+        prev = current_cluster;
+    }
+    scratch.runs[@intCast(run_count)] = resolvedRun(start, @intCast(clusters.len - start), face_id, prev.style, prev.presentation);
+    run_count += 1;
+
+    return .{ .allocator = allocator, .runs = try allocator.dupe(contract.ResolvedRun, scratch.runs[0..@intCast(run_count)]) };
 }
 
 pub fn shapeResolvedRunsWithShaper(
@@ -135,6 +202,18 @@ fn textForCluster(text_cache: contract.LineTextCache, cluster: contract.CellClus
     return text_cache.texts[@intCast(idx)];
 }
 
+fn resolvedRun(cluster_start: u32, cluster_count: u32, face_id: contract.FontFaceId, style: contract.FontStyle, presentation: contract.TextPresentation) contract.ResolvedRun {
+    return .{ .run = .{
+        .cluster_start = cluster_start,
+        .cluster_count = cluster_count,
+        .font = .{
+            .face_id = face_id,
+            .style = style,
+            .presentation = presentation,
+        },
+    } };
+}
+
 const RunClusterWindow = struct {
     start: u32,
     end: u32,
@@ -179,6 +258,81 @@ test "stub shaper emits one glyph per cluster with run face" {
     try std.testing.expectEqual(@as(u32, 2), count32(shaped.glyphs));
     try std.testing.expectEqual(@as(u32, 9), shaped.glyphs[0].face_id.value);
     try std.testing.expectEqual(@as(u32, 'b'), shaped.glyphs[1].glyph_id);
+}
+
+test "cell inputs build text cache renderable cells clusters and runs" {
+    const allocator = std.testing.allocator;
+    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]contract.CellInput{
+        .{ .codepoint = 'A', .fg = white, .bg = black },
+        .{ .codepoint = 'B', .fg = white, .bg = black },
+        .{ .codepoint = 'C', .fg = white, .bg = black, .continuation = true },
+    };
+
+    var cache = try cluster_shape.buildLineTextCacheFromCells(allocator, &cells);
+    defer cache.deinit();
+    var renderable = try cluster_shape.buildRenderableCellsFromCells(allocator, &cells, cache.view());
+    defer renderable.deinit();
+    var clusters = try cluster_shape.extractClusters(allocator, renderable.cells, cache.view());
+    defer clusters.deinit();
+    var runs = try buildProvisionalRuns(allocator, clusters.clusters, .{ .value = 1 });
+    defer runs.deinit();
+
+    try std.testing.expectEqual(@as(u32, 3), count32(cache.texts));
+    try std.testing.expectEqual(@as(u32, 2), count32(clusters.clusters));
+    try std.testing.expectEqual(@as(u32, 1), count32(runs.runs));
+    try std.testing.expectEqual(@as(u32, 2), runs.runs[0].run.cluster_count);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, renderable.cells[0].semantic_fg.kind);
+    try std.testing.expectEqual(contract.SemanticColorKind.default, renderable.cells[0].semantic_bg.kind);
+}
+
+test "cell inputs preserve style and presentation into renderables clusters and runs" {
+    const allocator = std.testing.allocator;
+    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]contract.CellInput{
+        .{ .codepoint = 'A', .style = .bold, .presentation = .text, .fg = white, .bg = black },
+        .{ .codepoint = 'B', .style = .italic, .presentation = .emoji, .fg = white, .bg = black },
+    };
+
+    var cache = try cluster_shape.buildLineTextCacheFromCells(allocator, &cells);
+    defer cache.deinit();
+    var renderable = try cluster_shape.buildRenderableCellsFromCells(allocator, &cells, cache.view());
+    defer renderable.deinit();
+    var clusters = try cluster_shape.extractClusters(allocator, renderable.cells, cache.view());
+    defer clusters.deinit();
+    var runs = try buildProvisionalRuns(allocator, clusters.clusters, .{ .value = 9 });
+    defer runs.deinit();
+
+    try std.testing.expectEqual(contract.FontStyle.bold, renderable.cells[0].style);
+    try std.testing.expectEqual(contract.TextPresentation.text, renderable.cells[0].presentation);
+    try std.testing.expectEqual(contract.FontStyle.italic, renderable.cells[1].style);
+    try std.testing.expectEqual(contract.TextPresentation.emoji, renderable.cells[1].presentation);
+
+    try std.testing.expectEqual(contract.FontStyle.bold, clusters.clusters[0].style);
+    try std.testing.expectEqual(contract.TextPresentation.text, clusters.clusters[0].presentation);
+    try std.testing.expectEqual(contract.FontStyle.italic, clusters.clusters[1].style);
+    try std.testing.expectEqual(contract.TextPresentation.emoji, clusters.clusters[1].presentation);
+
+    try std.testing.expectEqual(@as(usize, 2), runs.runs.len);
+    try std.testing.expectEqual(contract.FontStyle.bold, runs.runs[0].run.font.style);
+    try std.testing.expectEqual(contract.TextPresentation.text, runs.runs[0].run.font.presentation);
+    try std.testing.expectEqual(contract.FontStyle.italic, runs.runs[1].run.font.style);
+    try std.testing.expectEqual(contract.TextPresentation.emoji, runs.runs[1].run.font.presentation);
+}
+
+test "retained provisional run scratch bounds run planning" {
+    const allocator = std.testing.allocator;
+    var scratch = RetainedProvisionalRunScratch{};
+    defer scratch.deinit(allocator);
+    try scratch.configure(allocator, 1);
+    const clusters = [_]contract.CellCluster{
+        .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'A', .style = .bold, .presentation = .text },
+        .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'B', .style = .italic, .presentation = .emoji },
+    };
+
+    try std.testing.expectError(error.ClusterScratchOverflow, buildProvisionalRunsScratch(allocator, &scratch, &clusters, .{ .value = 1 }));
 }
 
 test "stub shaper advances wide clusters by their terminal span" {

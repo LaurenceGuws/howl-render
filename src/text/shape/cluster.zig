@@ -69,16 +69,6 @@ pub const OwnedClusters = struct {
     }
 };
 
-pub const OwnedRuns = struct {
-    allocator: std.mem.Allocator,
-    runs: []contract.ResolvedRun,
-
-    pub fn deinit(self: *OwnedRuns) void {
-        self.allocator.free(self.runs);
-        self.* = undefined;
-    }
-};
-
 pub const ComplexSelection = struct {
     allocator: std.mem.Allocator,
     cells: []contract.RenderableCell,
@@ -111,7 +101,6 @@ pub const RenderableText = struct {
 pub const RetainedScratch = struct {
     renderable: []contract.RenderableCell = &.{},
     clusters: []contract.CellCluster = &.{},
-    runs: []contract.ResolvedRun = &.{},
     texts: []contract.CellText = &.{},
     codepoints: []u32 = &.{},
     max_items: u32 = 0,
@@ -120,7 +109,6 @@ pub const RetainedScratch = struct {
     pub fn deinit(self: *RetainedScratch, allocator: std.mem.Allocator) void {
         if (self.codepoints.len > 0) allocator.free(self.codepoints);
         if (self.texts.len > 0) allocator.free(self.texts);
-        if (self.runs.len > 0) allocator.free(self.runs);
         if (self.clusters.len > 0) allocator.free(self.clusters);
         if (self.renderable.len > 0) allocator.free(self.renderable);
         self.* = undefined;
@@ -138,19 +126,15 @@ pub const RetainedScratch = struct {
         errdefer allocator.free(renderable);
         const clusters = try allocator.alloc(contract.CellCluster, capacity);
         errdefer allocator.free(clusters);
-        const runs = try allocator.alloc(contract.ResolvedRun, capacity);
-        errdefer allocator.free(runs);
         const texts = try allocator.alloc(contract.CellText, capacity);
         errdefer allocator.free(texts);
 
         if (self.renderable.len > 0) allocator.free(self.renderable);
         if (self.clusters.len > 0) allocator.free(self.clusters);
-        if (self.runs.len > 0) allocator.free(self.runs);
         if (self.texts.len > 0) allocator.free(self.texts);
 
         self.renderable = renderable;
         self.clusters = clusters;
-        self.runs = runs;
         self.texts = texts;
         self.max_items = max_items;
     }
@@ -757,52 +741,6 @@ fn inferredRenderableCellSpan(cells: []const contract.RenderableCell, idx: u32) 
     return @intCast(@min(span, std.math.maxInt(u8)));
 }
 
-pub fn buildProvisionalRuns(allocator: std.mem.Allocator, clusters: []const contract.CellCluster, face_id: contract.FontFaceId) !OwnedRuns {
-    if (clusters.len == 0) {
-        return .{ .allocator = allocator, .runs = try allocator.alloc(contract.ResolvedRun, 0) };
-    }
-
-    var scratch = RetainedScratch{};
-    defer scratch.deinit(allocator);
-    try scratch.configure(allocator, count32(clusters), 0);
-    return buildProvisionalRunsScratch(allocator, &scratch, clusters, face_id);
-}
-
-pub fn buildProvisionalRunsScratch(allocator: std.mem.Allocator, scratch: *RetainedScratch, clusters: []const contract.CellCluster, face_id: contract.FontFaceId) !OwnedRuns {
-    if (clusters.len == 0) {
-        return .{ .allocator = allocator, .runs = try allocator.alloc(contract.ResolvedRun, 0) };
-    }
-    try scratch.require(count32(clusters), 0);
-
-    var prev = clusters[0];
-    var start: u32 = 0;
-    var run_count: u32 = 0;
-    for (clusters[1..], 1..) |cluster, idx| {
-        if (cluster.style != prev.style or cluster.presentation != prev.presentation) {
-            scratch.runs[@intCast(run_count)] = resolvedRun(start, @intCast(idx - start), face_id, prev.style, prev.presentation);
-            run_count += 1;
-            start = @intCast(idx);
-        }
-        prev = cluster;
-    }
-    scratch.runs[@intCast(run_count)] = resolvedRun(start, @intCast(clusters.len - start), face_id, prev.style, prev.presentation);
-    run_count += 1;
-
-    return .{ .allocator = allocator, .runs = try allocator.dupe(contract.ResolvedRun, scratch.runs[0..@intCast(run_count)]) };
-}
-
-fn resolvedRun(cluster_start: u32, cluster_count: u32, face_id: contract.FontFaceId, style: contract.FontStyle, presentation: contract.TextPresentation) contract.ResolvedRun {
-    return .{ .run = .{
-        .cluster_start = cluster_start,
-        .cluster_count = cluster_count,
-        .font = .{
-            .face_id = face_id,
-            .style = style,
-            .presentation = presentation,
-        },
-    } };
-}
-
 fn count32(items: anytype) u32 {
     std.debug.assert(items.len <= std.math.maxInt(u32));
     return @intCast(items.len);
@@ -864,7 +802,7 @@ test "single codepoint text preserves first codepoint" {
     try @import("std").testing.expectEqual(@as(u32, 'A'), text.first_cp);
 }
 
-test "cell inputs build text cache renderable cells clusters and runs" {
+test "cell inputs build text cache renderable cells and clusters" {
     const allocator = std.testing.allocator;
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -880,13 +818,9 @@ test "cell inputs build text cache renderable cells clusters and runs" {
     defer renderable.deinit();
     var clusters = try extractClusters(allocator, renderable.cells, cache.view());
     defer clusters.deinit();
-    var runs = try buildProvisionalRuns(allocator, clusters.clusters, .{ .value = 1 });
-    defer runs.deinit();
 
     try std.testing.expectEqual(@as(u32, 3), count32(cache.texts));
     try std.testing.expectEqual(@as(u32, 2), count32(clusters.clusters));
-    try std.testing.expectEqual(@as(u32, 1), count32(runs.runs));
-    try std.testing.expectEqual(@as(u32, 2), runs.runs[0].run.cluster_count);
     try std.testing.expectEqual(contract.SemanticColorKind.default, renderable.cells[0].semantic_fg.kind);
     try std.testing.expectEqual(contract.SemanticColorKind.default, renderable.cells[0].semantic_bg.kind);
 }
@@ -910,7 +844,7 @@ test "cell inputs retain combining sequences in text cache" {
     try std.testing.expectEqualSlices(u32, &.{ 'i', 0x0332 }, cache.texts[0].codepoints);
 }
 
-test "cell inputs preserve style and presentation into renderables clusters and runs" {
+test "cell inputs preserve style and presentation into renderables and clusters" {
     const allocator = std.testing.allocator;
     const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
@@ -925,8 +859,6 @@ test "cell inputs preserve style and presentation into renderables clusters and 
     defer renderable.deinit();
     var clusters = try extractClusters(allocator, renderable.cells, cache.view());
     defer clusters.deinit();
-    var runs = try buildProvisionalRuns(allocator, clusters.clusters, .{ .value = 9 });
-    defer runs.deinit();
 
     try std.testing.expectEqual(contract.FontStyle.bold, renderable.cells[0].style);
     try std.testing.expectEqual(contract.TextPresentation.text, renderable.cells[0].presentation);
@@ -937,12 +869,6 @@ test "cell inputs preserve style and presentation into renderables clusters and 
     try std.testing.expectEqual(contract.TextPresentation.text, clusters.clusters[0].presentation);
     try std.testing.expectEqual(contract.FontStyle.italic, clusters.clusters[1].style);
     try std.testing.expectEqual(contract.TextPresentation.emoji, clusters.clusters[1].presentation);
-
-    try std.testing.expectEqual(@as(usize, 2), runs.runs.len);
-    try std.testing.expectEqual(contract.FontStyle.bold, runs.runs[0].run.font.style);
-    try std.testing.expectEqual(contract.TextPresentation.text, runs.runs[0].run.font.presentation);
-    try std.testing.expectEqual(contract.FontStyle.italic, runs.runs[1].run.font.style);
-    try std.testing.expectEqual(contract.TextPresentation.emoji, runs.runs[1].run.font.presentation);
 }
 
 test "blank cells do not produce text clusters" {
