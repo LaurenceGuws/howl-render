@@ -2,8 +2,9 @@ const std = @import("std");
 const contract = @import("../contract.zig");
 const scene = @import("../scene.zig");
 const lane = @import("../classify/lane.zig");
-const publication_cell_map = @import("../../tv_surface/publication_cell_map.zig");
-const source_vt = @import("../../tv_surface/vt.zig");
+const renderable_content = @import("../../renderable_content/content.zig");
+const renderable_color = @import("../../renderable_content/color.zig");
+const source_vt = @import("../../vt_publication/publication.zig");
 
 const VS15: u32 = 0xfe0e;
 const VS16: u32 = 0xfe0f;
@@ -329,7 +330,7 @@ pub fn buildSparsePublicationCellsWithDamageScratch(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
     cells: []const source_vt.SourceCell,
-    theme: publication_cell_map.SurfaceTheme,
+    theme: renderable_color.SurfaceTheme,
     grid_metrics: contract.GridMetrics,
     damage: scene.DamageInput,
 ) !SparseCells {
@@ -350,7 +351,7 @@ pub fn buildSparsePublicationCellsWithDamageScratch(
         cell_idx += 1;
         const source_cell_value = cells[@intCast(idx)];
         if (source_cell_value.flags.continuation != 0) continue;
-        const mapped = publication_cell_map.mapPublicationCellInput(source_cell_value, theme);
+        const mapped = renderable_content.mapPublicationCellInput(source_cell_value, theme);
         const first_cell = idx;
         const span = inferredPublicationCellSpan(cells, first_cell);
         if (!damage_filter.includeSpan(first_cell, span)) continue;
@@ -546,10 +547,10 @@ pub fn sourceRenderableTextFromCells(cells: []const contract.CellInput, idx: u32
     return initRenderableTextFromCellInput(renderableFromCellInput(.{ .value = 0 }, idx, cell_span, cell, false), cell);
 }
 
-pub fn sourceRenderableTextFromPublication(cells: []const source_vt.SourceCell, theme: publication_cell_map.SurfaceTheme, idx: u32) ?RenderableText {
+pub fn sourceRenderableTextFromPublication(cells: []const source_vt.SourceCell, theme: renderable_color.SurfaceTheme, idx: u32) ?RenderableText {
     const cell = cells[idx];
     if (cell.flags.continuation != 0) return null;
-    const mapped = publication_cell_map.mapPublicationCellInput(cell, theme);
+    const mapped = renderable_content.mapPublicationCellInput(cell, theme);
     const cell_span = inferredPublicationCellSpan(cells, idx);
     return initRenderableTextFromCellInput(renderableFromCellInput(.{ .value = 0 }, idx, cell_span, mapped, false), mapped);
 }

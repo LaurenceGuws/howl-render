@@ -1,7 +1,7 @@
 const std = @import("std");
 const geometry_contract = @import("geometry/geometry_contract.zig");
 const source_cell = @import("tv_surface/cell.zig");
-const source_text_input = @import("tv_surface/text_input.zig");
+const source_text_input = @import("renderable_content/content.zig");
 const source_publication = @import("vt_publication/publication.zig");
 const source_vt = source_publication;
 const contract = @import("text/contract.zig");
@@ -879,7 +879,7 @@ fn prepareWorkloadSurface(preparer: *surface_preparer.TextSurfacePreparer, workl
                 mapped.cells,
                 mapped.grid,
                 context.session,
-                mapped.options,
+                .{ .scene = mapped.options.scene },
             );
             prepared.timings.input_us += elapsedUs(input_start_ns);
             break :blk prepared;

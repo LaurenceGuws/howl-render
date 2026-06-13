@@ -1,7 +1,8 @@
 const std = @import("std");
 const geometry_mod = @import("../geometry/grid_geometry.zig");
-const input = @import("../tv_surface/text_input.zig");
-const publication_cell_map = @import("../tv_surface/publication_cell_map.zig");
+const renderable_content = @import("../renderable_content/content.zig");
+const renderable_color = @import("../renderable_content/color.zig");
+const renderable_cursor = @import("../renderable_content/cursor.zig");
 const tokens = @import("../geometry/tokens.zig");
 const prepared_handle = @import("../prepared/handle.zig");
 const render_geometry = @import("../geometry/geometry.zig");
@@ -10,6 +11,7 @@ const source_cell = @import("../tv_surface/cell.zig");
 const source_publication = @import("../vt_publication/publication.zig");
 const source_slot = @import("../storage/publication_storage.zig");
 const source_prepare = @import("../tv_surface/prepare_request.zig");
+const publication_damage = @import("../damage/publication_damage.zig");
 const prepared_surface = @import("../prepared/surface.zig");
 const session_submitted = @import("submitted.zig");
 const sprite_resource_store = @import("../prepared/sprite_resource_store.zig");
@@ -232,10 +234,10 @@ pub const TextSession = struct {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         var resolve: font_resolve.ResolveObservability = .{};
-        const theme = publication_cell_map.themeFromPublicationColors(prepare.state.colors);
+        const theme = renderable_color.themeFromPublicationColors(prepare.state.colors);
         const dirty_rows: []const bool = @ptrCast(prepare.state.dirty_rows);
         const options: surface_preparer.PrepareOptions = .{ .scene = .{
-            .cursor = publication_cell_map.mapPublicationCursor(prepare.state, theme),
+            .cursor = renderable_cursor.mapPublicationCursor(prepare.state, theme),
             .damage = .{
                 .full = prepare.request.token.damage_kind == .full,
                 .dirty_rows = dirty_rows,
@@ -261,7 +263,7 @@ pub const TextSession = struct {
         }
         try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
         const input_start_ns = monotonicNs();
-        const text_input = input.publicationSourceToTextSceneInputBorrowedWithTheme(
+        const text_input = renderable_content.publicationSourceToTextSceneInputBorrowedWithTheme(
             self.cell_input_scratch,
             prepare.state,
             prepare.request.token.damage_kind == .full,
@@ -269,7 +271,7 @@ pub const TextSession = struct {
         );
         const input_us = (monotonicNs() -| input_start_ns) / std.time.ns_per_us;
         const prepare_cells_start_ns = monotonicNs();
-        var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), text_input.options);
+        var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), .{ .scene = text_input.options.scene });
         prepared.timings.input_us += input_us;
         prepared.timings.session_preparer_us += session_preparer_us;
         prepared.timings.session_prepare_cells_us += (monotonicNs() -| prepare_cells_start_ns) / std.time.ns_per_us;
@@ -608,7 +610,7 @@ pub const TextSessionOwner = struct {
         self.cursor_blink_visible = visible;
         var changed = false;
         if (self.source_slot.reservedSource()) |source| {
-            changed = @import("../tv_surface/damage.zig").setSourceCursorBlinkVisible(source, visible) or changed;
+            changed = publication_damage.setSourceCursorBlinkVisible(source, visible) or changed;
         }
         changed = self.prepare_requests.setCursorBlinkVisible(visible) or changed;
         if (changed) self.prepare_requests.requestBlinkRefresh();
@@ -622,7 +624,7 @@ pub const TextSessionOwner = struct {
             request.token,
             submitted_token,
         );
-        if (!@import("../tv_surface/damage.zig").sameSnapshotToken(effective_token, request.token)) {
+        if (!publication_damage.sameSnapshotToken(effective_token, request.token)) {
             self.prepare_requests.active_request = .{
                 .token = effective_token,
                 .allow_retained_reuse = request.allow_retained_reuse,
