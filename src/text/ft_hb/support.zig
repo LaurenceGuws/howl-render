@@ -9,6 +9,7 @@ const text_paths = @import("../paths.zig");
 const geometry_contract = @import("../../geometry_contract.zig");
 const text_cache = @import("cache.zig");
 const c_api = @import("c_api.zig");
+const loaded_faces = @import("loaded_faces.zig");
 
 pub const c = c_api.c;
 pub const FtLibrary = c_api.FtLibrary;
@@ -19,6 +20,8 @@ pub const FallbackFontCount = text_paths.FallbackFontCount;
 pub const max_fallback_fonts: FallbackFontCount = text_paths.max_fallback_fonts;
 pub const fallbackFontCount = text_paths.fallbackFontCount;
 pub const fallbackFontLen = text_paths.fallbackFontLen;
+pub const ShapingFace = loaded_faces.ShapingFace;
+pub const LoadedFaces = loaded_faces.LoadedFaces;
 
 const ThreadMutex = struct {
     state: std.Io.Mutex = .init,
@@ -34,13 +37,9 @@ const ThreadMutex = struct {
 
 pub const FtHbSupport = struct {
     allocator: std.mem.Allocator,
-    ft_lib: ?FtLibrary = null,
-    ft_face: ?FtFace = null,
-    hb_font: ?HbFont = null,
+    loaded_faces: LoadedFaces = .{},
     ft_mutex: ThreadMutex = .{},
     font_analysis_mutex: ThreadMutex = .{},
-    fallback_faces: [max_fallback_fonts]?FtFace = [_]?FtFace{null} ** max_fallback_fonts,
-    fallback_hb_fonts: [max_fallback_fonts]?HbFont = [_]?HbFont{null} ** max_fallback_fonts,
     resolve_counters: font_resolve.ResolveCounters = .{},
     resolve_stage: font_resolve.ResolveStage = .style_policy,
     active_resolve: ?*font_resolve.ResolveObservability = null,
@@ -80,6 +79,7 @@ pub const FtHbSupport = struct {
     }
 
     pub fn deinit(self: *FtHbSupport) void {
+        self.loaded_faces.resetLocked();
         if (self.shape_input_cluster_map.len > 0) self.allocator.free(self.shape_input_cluster_map);
         if (self.shape_input_codepoints.len > 0) self.allocator.free(self.shape_input_codepoints);
         self.shape_run_cache.deinit();
@@ -380,28 +380,10 @@ fn glyphCellValue(result: provider.LookupGlyphResult) text_cache.GlyphCellValue 
 }
 
 pub fn ensurePrimaryFont(self: anytype) bool {
-    const state = textState(self);
     lockFt(self);
     defer unlockFt(self);
-    if (state.ft_face != null) return true;
-    if (!ensureFreeTypeLibraryLocked(self)) return false;
     const config = configView(self);
-    if (config.font_path == null) return false;
-    var face: FtFace = undefined;
-    const lib = state.ft_lib.?;
-    const font_path = config.font_path.?;
-    if (c.FT_New_Face(lib, font_path, 0, &face) != 0) return false;
-    if (!selectUnicodeCharmap(face)) {
-        _ = c.FT_Done_Face(face);
-        return false;
-    }
-    if (!setFacePixelHeight(self, face)) {
-        _ = c.FT_Done_Face(face);
-        return false;
-    }
-    state.ft_face = face;
-    state.hb_font = c_api.createHbFont(face);
-    return true;
+    return textState(self).loaded_faces.ensurePrimaryFontLocked(config.font_path, config.font_size_px);
 }
 
 pub fn ensureFont(self: anytype) bool {
@@ -434,17 +416,7 @@ pub fn resetLoadedFace(self: anytype) void {
     lockFt(self);
     defer unlockFt(self);
     state.cached_cell_metrics_valid = false;
-    resetFallbackFaces(self);
-    if (state.ft_face != null) {
-        c_api.destroyHbFont(state.hb_font);
-        state.hb_font = null;
-        _ = c.FT_Done_Face(state.ft_face.?);
-        state.ft_face = null;
-    }
-    if (state.ft_lib != null) {
-        _ = c.FT_Done_FreeType(state.ft_lib.?);
-        state.ft_lib = null;
-    }
+    state.loaded_faces.resetLocked();
 }
 
 pub fn resizeLoadedFaces(self: anytype) void {
@@ -452,34 +424,19 @@ pub fn resizeLoadedFaces(self: anytype) void {
     lockFt(self);
     defer unlockFt(self);
     state.cached_cell_metrics_valid = false;
-    if (state.ft_face) |face| _ = setFacePixelHeight(self, face);
-    for (state.fallback_faces) |face_opt| {
-        if (face_opt) |face| _ = setFacePixelHeight(self, face);
-    }
+    state.loaded_faces.resizeLocked(configView(self).font_size_px);
 }
 
 pub fn ensureFallbackFace(self: anytype, fallback_index: FallbackFontCount) ?FtFace {
     const state = textState(self);
     lockFt(self);
     defer unlockFt(self);
-    const slot = fallbackSlot(self, fallback_index) orelse return null;
-    if (state.fallback_faces[slot]) |face| return face;
-    if (!ensureFreeTypeLibraryLocked(self)) return null;
-    const font_path = state.fallback_font_paths[slot] orelse return null;
-    const lib = state.ft_lib orelse return null;
-    var face: FtFace = undefined;
-    if (c.FT_New_Face(lib, font_path.ptr, 0, &face) != 0) return null;
-    if (!selectUnicodeCharmap(face)) {
-        _ = c.FT_Done_Face(face);
-        return null;
-    }
-    if (!setFacePixelHeight(self, face)) {
-        _ = c.FT_Done_Face(face);
-        return null;
-    }
-    state.fallback_faces[slot] = face;
-    state.fallback_hb_fonts[slot] = c_api.createHbFont(face);
-    return face;
+    return state.loaded_faces.ensureFallbackFaceLocked(
+        fallback_index,
+        &state.fallback_font_paths,
+        state.fallback_font_paths_len,
+        configView(self).font_size_px,
+    );
 }
 
 pub fn deriveCellMetrics(self: anytype) contract.CellMetrics {
@@ -492,12 +449,12 @@ pub fn deriveCellMetrics(self: anytype) contract.CellMetrics {
         if (ensurePrimaryFont(self)) {
             lockFt(self);
             defer unlockFt(self);
-            break :blk cellMetricsFromFace(state.ft_face.?, font_size_px);
+            break :blk cellMetricsFromFace(state.loaded_faces.ft_face.?, font_size_px);
         }
         lockFt(self);
         defer unlockFt(self);
-        if (ensureFreeTypeLibraryLocked(self)) {
-            const lib = state.ft_lib.?;
+        if (state.loaded_faces.ensureFreeTypeLibraryLocked()) {
+            const lib = state.loaded_faces.ft_lib.?;
             var i: FallbackFontCount = 0;
             while (i < state.fallback_font_paths_len) : (i += 1) {
                 const font_path = state.fallback_font_paths[i] orelse continue;
@@ -529,49 +486,27 @@ pub fn computeBaselineFromFace(face: FtFace, cell_h: u16) i32 {
     return baselineFromFaceMetrics(faceMetricsInput(face, 1), cell_h);
 }
 
-pub const ShapingFace = struct {
-    face: FtFace,
-    hb_font: ?HbFont,
-    owns_face: bool,
-};
-
 pub fn acquireShapingFaceLocked(self: anytype, face_id: contract.FontFaceId) ?ShapingFace {
     const state = textState(self);
-    if (face_id.value == primary_face_id) {
-        const face = state.ft_face orelse return null;
-        return .{ .face = face, .hb_font = state.hb_font, .owns_face = false };
-    }
-    const fallback_index = if (face_id.value >= 2)
-        fallbackFontCount(face_id.value - 2) orelse return null
-    else
-        return null;
-    const slot = fallbackSlot(self, fallback_index) orelse return null;
-    const face = state.fallback_faces[slot] orelse return null;
-    return .{ .face = face, .hb_font = state.fallback_hb_fonts[slot], .owns_face = false };
+    return state.loaded_faces.acquireShapingFaceLocked(face_id, state.fallback_font_paths_len);
 }
 
 pub fn shapeGlyphId(hb_font: ?HbFont, face: FtFace, codepoint: u21) c_uint {
     return c_api.shapeGlyphId(hb_font, face, codepoint);
 }
 
-fn ensureFreeTypeLibraryLocked(self: anytype) bool {
-    const state = textState(self);
-    if (state.ft_lib != null) return true;
-    var lib: FtLibrary = undefined;
-    if (c.FT_Init_FreeType(&lib) != 0) return false;
-    state.ft_lib = lib;
-    return true;
-}
-
-fn selectUnicodeCharmap(face: FtFace) bool {
-    return c.FT_Select_Charmap(face, c.FT_ENCODING_UNICODE) == 0;
-}
-
 fn ensureFaceForId(self: anytype, face_id: contract.FontFaceId) bool {
-    if (face_id.value == primary_face_id) return ensurePrimaryFont(self);
-    if (face_id.value < 2) return false;
-    const fallback_index = fallbackFontCount(face_id.value - 2) orelse return false;
-    return ensureFallbackFace(self, fallback_index) != null;
+    const state = textState(self);
+    const config = configView(self);
+    lockFt(self);
+    defer unlockFt(self);
+    return state.loaded_faces.ensureFaceForIdLocked(
+        face_id,
+        config.font_path,
+        config.font_size_px,
+        &state.fallback_font_paths,
+        state.fallback_font_paths_len,
+    );
 }
 
 fn glyphAcceptedLocked(face: FtFace, glyph_id: u32, codepoint: u32) bool {
@@ -687,18 +622,6 @@ fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
     return if (max_advance > 0) max_advance else fallback_advance;
 }
 
-fn resetFallbackFaces(self: anytype) void {
-    const state = textState(self);
-    for (state.fallback_faces, 0..) |face_opt, i| {
-        c_api.destroyHbFont(state.fallback_hb_fonts[i]);
-        state.fallback_hb_fonts[i] = null;
-        if (face_opt != null) {
-            _ = c.FT_Done_Face(face_opt.?);
-            state.fallback_faces[i] = null;
-        }
-    }
-}
-
 fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window: ClusterWindow) !ShapeRunInput {
     const required = shapeRunInputCodepointCount(text_cache_view, clusters, window);
     if (required > state.max_shape_input_codepoints) return error.ShapeRunInputOverflow;
@@ -761,13 +684,6 @@ fn buildProviderShapedRun(
         };
     }
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
-}
-
-// Fallback indexes stay typed until the final fixed-array lookup seam here.
-fn fallbackSlot(self: anytype, fallback_index: FallbackFontCount) ?FallbackFontCount {
-    const state = textState(self);
-    if (fallback_index >= state.fallback_font_paths_len) return null;
-    return fallback_index;
 }
 
 fn useDeterministicTestTextFallback(self: anytype) bool {
