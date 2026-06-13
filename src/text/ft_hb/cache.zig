@@ -292,3 +292,20 @@ test "shape run cache keeps retained bounded storage" {
         cache.putRun(.{ .face_id = 7, .run_hash = 4, .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .allocator = std.testing.allocator, .run = run_a, .glyphs = glyphs_c }),
     );
 }
+
+test "ft hb caches report capacity errors" {
+    var face_cache = FaceTextCache.init(std.testing.allocator);
+    defer face_cache.deinit();
+    try face_cache.configure(1);
+    try face_cache.put(.{ .face_id = 1, .text_hash = 11 }, true);
+    try std.testing.expectError(error.CacheFull, face_cache.put(.{ .face_id = 2, .text_hash = 22 }, false));
+
+    var glyph_cache = GlyphCellCache.init(std.testing.allocator);
+    defer glyph_cache.deinit();
+    try glyph_cache.configure(1);
+    try glyph_cache.put(.{ .face_id = 1, .codepoint = 'a', .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .glyph_id = 33, .advance_px = 8 });
+    try std.testing.expectError(
+        error.CacheFull,
+        glyph_cache.put(.{ .face_id = 2, .codepoint = 'b', .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .glyph_id = 34, .advance_px = 8 }),
+    );
+}

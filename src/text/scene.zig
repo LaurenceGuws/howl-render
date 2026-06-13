@@ -1,6 +1,6 @@
 const std = @import("std");
 const contract = @import("contract.zig");
-const atlas_cache = @import("raster/cache.zig");
+const atlas_cache = @import("raster/atlas.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const sprite_key = @import("raster/key.zig");
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const atlas_cache = @import("raster/cache.zig");
+const atlas_cache = @import("raster/atlas.zig");
 const cluster = @import("shape/cluster.zig");
 const contract = @import("contract.zig");
 const direct_scene = @import("direct_scene.zig");
