@@ -97,28 +97,6 @@ pub const FtHbCapacity = struct {
     max_glyphs_per_run: u32,
 };
 
-fn textState(self: anytype) *FtHbSupport {
-    const T = @TypeOf(self.*);
-    if (@hasField(T, "text_state")) return &self.text_state;
-    if (@hasField(T, "session")) return &self.session.text_state;
-    @compileError("text state owner missing text_state field");
-}
-
-fn configView(self: anytype) render_session.TextSessionConfig {
-    const T = @TypeOf(self.*);
-    if (@hasField(T, "config")) return self.config;
-    if (@hasField(T, "session_config")) return self.session_config;
-    @compileError("text config owner missing session config");
-}
-
-fn lockFt(self: anytype) void {
-    textState(self).ft_mutex.lock();
-}
-
-fn unlockFt(self: anytype) void {
-    textState(self).ft_mutex.unlock();
-}
-
 const ClusterWindow = struct {
     start: u32,
     end: u32,
@@ -147,23 +125,20 @@ const ShapeRunInput = struct {
     cluster_map: []u32,
 };
 
-pub fn providerHasCodepoint(comptime ContextType: type, ctx: *anyopaque, face_id: contract.FontFaceId, codepoint: u32) bool {
-    const context: *ContextType = @ptrCast(@alignCast(ctx));
-    if (useDeterministicTestTextFallback(context)) return codepoint != 0;
-    if (!ensureFaceForId(context, face_id)) return false;
-    lockFt(context);
-    defer unlockFt(context);
-    const shaped_face = acquireShapingFaceLocked(context, face_id) orelse return false;
+pub fn providerHasCodepointWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, codepoint: u32) bool {
+    if (useDeterministicTestTextFallback(state, config)) return codepoint != 0;
+    if (!ensureFaceForId(state, config, face_id)) return false;
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
+    const shaped_face = acquireShapingFaceFromStateLocked(state, face_id) orelse return false;
     const glyph_id = c.FT_Get_Char_Index(shaped_face.face, codepoint);
     return glyphAcceptedLocked(shaped_face.face, glyph_id, codepoint);
 }
 
-pub fn providerHasCellText(comptime ContextType: type, ctx: *anyopaque, face_id: contract.FontFaceId, text: contract.CellText) bool {
-    const context: *ContextType = @ptrCast(@alignCast(ctx));
+pub fn providerHasCellTextWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, text: contract.CellText) bool {
     if (face_id.value == primary_face_id and isPlainAsciiText(text)) {
-        return ensurePrimaryFont(context);
+        return ensurePrimaryFontWithConfig(state, config);
     }
-    const state = textState(context);
     const key = text_cache.FaceTextKey{ .face_id = face_id.value, .text_hash = text_cache.hashCellText(text) };
     if (state.face_text_cache.map.get(key)) |cached| {
         state.resolve_counters.face_cache_hits += 1;
@@ -172,15 +147,15 @@ pub fn providerHasCellText(comptime ContextType: type, ctx: *anyopaque, face_id:
     }
     state.resolve_counters.face_checks += 1;
     if (state.active_resolve) |obs| obs.counters.face_checks += 1;
-    const result = uncachedProviderHasCellText(ContextType, ctx, face_id, text);
+    const result = uncachedProviderHasCellText(state, config, face_id, text);
     state.face_text_cache.put(key, result) catch {};
     return result;
 }
 
-fn uncachedProviderHasCellText(comptime ContextType: type, ctx: *anyopaque, face_id: contract.FontFaceId, text: contract.CellText) bool {
+fn uncachedProviderHasCellText(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, text: contract.CellText) bool {
     for (text.codepoints) |cp| {
         if (cp == 0xfe0e or cp == 0xfe0f) continue;
-        if (!providerHasCodepoint(ContextType, ctx, face_id, cp)) return false;
+        if (!providerHasCodepointWithConfig(state, config, face_id, cp)) return false;
     }
     return true;
 }
@@ -194,17 +169,15 @@ fn isPlainAsciiText(text: contract.CellText) bool {
     return true;
 }
 
-pub fn providerShapeRun(
-    comptime ContextType: type,
-    ctx: *anyopaque,
+pub fn providerShapeRunWithConfig(
+    state: *FtHbSupport,
+    config: render_session.TextSessionConfig,
     allocator: std.mem.Allocator,
     run: contract.ResolvedRun,
     text_cache_view: contract.LineTextCache,
     clusters: []const contract.CellCluster,
     cell_metrics: contract.CellMetrics,
 ) anyerror!shape_run.OwnedShapedRun {
-    const context: *ContextType = @ptrCast(@alignCast(ctx));
-    const state = textState(context);
     const window = ClusterWindow.init(run, @intCast(clusters.len));
     if (window.empty()) return .{ .allocator = allocator, .run = run, .glyphs = try allocator.alloc(contract.GlyphInstance, 0) };
     state.resolve_counters.shape_requests += 1;
@@ -221,10 +194,10 @@ pub fn providerShapeRun(
         if (state.active_resolve) |obs| obs.counters.shape_cache_hits += 1;
         return cached;
     }
-    var shaped = if (try shapePlainAsciiRun(context, allocator, run, text_cache_view, clusters, cell_metrics, window)) |ascii|
+    var shaped = if (try shapePlainAsciiRun(state, config, allocator, run, text_cache_view, clusters, cell_metrics, window)) |ascii|
         ascii
     else
-        try shapeRunViaProviderOrFallback(context, allocator, run, text_cache_view, clusters, cell_metrics, window);
+        try shapeRunViaProviderOrFallback(state, config, allocator, run, text_cache_view, clusters, cell_metrics, window);
     errdefer shaped.deinit();
     state.shape_run_cache.putRun(shape_key, shaped) catch |err| switch (err) {
         error.CacheFull, error.CachedRunTooLarge => {},
@@ -234,7 +207,8 @@ pub fn providerShapeRun(
 }
 
 fn shapeRunViaProviderOrFallback(
-    context: anytype,
+    state: *FtHbSupport,
+    config: render_session.TextSessionConfig,
     allocator: std.mem.Allocator,
     run: contract.ResolvedRun,
     text_cache_view: contract.LineTextCache,
@@ -242,27 +216,27 @@ fn shapeRunViaProviderOrFallback(
     cell_metrics: contract.CellMetrics,
     window: ClusterWindow,
 ) anyerror!shape_run.OwnedShapedRun {
-    const input = try gatherShapeRunInput(textState(context), text_cache_view, clusters, window);
-    if (input.codepoints.len == 0) return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
-    const buffer = c.hb_buffer_create() orelse return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
+    const input = try gatherShapeRunInput(state, text_cache_view, clusters, window);
+    if (input.codepoints.len == 0) return fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_metrics, window);
+    const buffer = c.hb_buffer_create() orelse return fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_metrics, window);
     defer c.hb_buffer_destroy(buffer);
     c.hb_buffer_set_cluster_level(buffer, c.HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS);
     c.hb_buffer_add_utf32(buffer, input.codepoints.ptr, @intCast(input.codepoints.len), 0, @intCast(input.codepoints.len));
     c.hb_buffer_guess_segment_properties(buffer);
-    if (!ensureFaceForId(context, run.run.font.face_id)) return fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
+    if (!ensureFaceForId(state, config, run.run.font.face_id)) return fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_metrics, window);
     return try shapeRunViaProvider(
-        context,
+        state,
         allocator,
         run,
         clusters,
         cell_metrics,
         buffer,
         input.cluster_map,
-    ) orelse fallbackProviderShapeRun(context, allocator, run, clusters, cell_metrics, window);
+    ) orelse fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_metrics, window);
 }
 
 fn shapeRunViaProvider(
-    context: anytype,
+    state: *FtHbSupport,
     allocator: std.mem.Allocator,
     run: contract.ResolvedRun,
     clusters: []const contract.CellCluster,
@@ -270,9 +244,9 @@ fn shapeRunViaProvider(
     buffer: ?*c.hb_buffer_t,
     cluster_map: []const u32,
 ) anyerror!?shape_run.OwnedShapedRun {
-    lockFt(context);
-    defer unlockFt(context);
-    const shaped_face = acquireShapingFaceLocked(context, run.run.font.face_id) orelse return null;
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
+    const shaped_face = acquireShapingFaceFromStateLocked(state, run.run.font.face_id) orelse return null;
     const hb_font = shaped_face.hb_font orelse return null;
     c.hb_shape(hb_font, buffer, null, 0);
     var glyph_count: c_uint = 0;
@@ -283,7 +257,8 @@ fn shapeRunViaProvider(
 }
 
 fn shapePlainAsciiRun(
-    context: anytype,
+    state: *FtHbSupport,
+    config: render_session.TextSessionConfig,
     allocator: std.mem.Allocator,
     run: contract.ResolvedRun,
     text_cache_view: contract.LineTextCache,
@@ -301,13 +276,13 @@ fn shapePlainAsciiRun(
         if (text.codepoints[0] != cluster.first_cp) return null;
         if (!isPlainAsciiCodepoint(cluster.first_cp)) return null;
     }
-    if (!ensureFaceForId(context, run.run.font.face_id)) return null;
+    if (!ensureFaceForId(state, config, run.run.font.face_id)) return null;
     const glyphs = try allocator.alloc(contract.GlyphInstance, window.len());
     var keep_glyphs = false;
     defer if (!keep_glyphs) allocator.free(glyphs);
-    lockFt(context);
-    defer unlockFt(context);
-    const shaped_face = acquireShapingFaceLocked(context, run.run.font.face_id) orelse return null;
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
+    const shaped_face = acquireShapingFaceFromStateLocked(state, run.run.font.face_id) orelse return null;
     const face = shaped_face.face;
     for (window.slice(clusters), 0..) |cluster, idx| {
         const glyph_id = c.FT_Get_Char_Index(face, cluster.first_cp);
@@ -318,43 +293,41 @@ fn shapePlainAsciiRun(
             .cluster_index = window.start + @as(u32, @intCast(idx)),
             .x_offset_px = 0,
             .y_offset_px = 0,
-            .x_advance_px = glyphAdvanceFromFace(context, face, glyph_id, cell_metrics),
+            .x_advance_px = glyphAdvanceFromFace(config, face, glyph_id, cell_metrics),
         };
     }
     keep_glyphs = true;
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-pub fn providerGlyphId(self: anytype, face_id: contract.FontFaceId, codepoint: u32) u32 {
-    if (useDeterministicTestTextFallback(self)) return codepoint;
-    if (!ensureFaceForId(self, face_id)) return 0;
-    lockFt(self);
-    defer unlockFt(self);
-    const shaped_face = acquireShapingFaceLocked(self, face_id) orelse return 0;
+pub fn providerGlyphIdWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, codepoint: u32) u32 {
+    if (useDeterministicTestTextFallback(state, config)) return codepoint;
+    if (!ensureFaceForId(state, config, face_id)) return 0;
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
+    const shaped_face = acquireShapingFaceFromStateLocked(state, face_id) orelse return 0;
     const glyph_id = shapeGlyphId(shaped_face.hb_font, shaped_face.face, @intCast(codepoint));
     if (!glyphAcceptedLocked(shaped_face.face, glyph_id, codepoint)) return 0;
     return glyph_id;
 }
 
-pub fn providerGlyphAdvance(self: anytype, face_id: contract.FontFaceId, glyph_id: u32, cell_metrics: contract.CellMetrics) f32 {
+pub fn providerGlyphAdvanceWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, glyph_id: u32, cell_metrics: contract.CellMetrics) f32 {
     const fallback: f32 = @floatFromInt(cell_metrics.cell_w_px);
     if (glyph_id == 0) return fallback;
-    if (!ensureFaceForId(self, face_id)) return fallback;
-    lockFt(self);
-    defer unlockFt(self);
-    const shaped_face = acquireShapingFaceLocked(self, face_id) orelse return fallback;
-    return glyphAdvanceFromFace(self, shaped_face.face, glyph_id, cell_metrics);
+    if (!ensureFaceForId(state, config, face_id)) return fallback;
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
+    const shaped_face = acquireShapingFaceFromStateLocked(state, face_id) orelse return fallback;
+    return glyphAdvanceFromFace(config, shaped_face.face, glyph_id, cell_metrics);
 }
 
-pub fn providerLookupGlyph(
-    comptime ContextType: type,
-    ctx: *anyopaque,
+pub fn providerLookupGlyphWithConfig(
+    state: *FtHbSupport,
+    config: render_session.TextSessionConfig,
     face_id: contract.FontFaceId,
     codepoint: u32,
     cell_metrics: contract.CellMetrics,
 ) provider.LookupGlyphResult {
-    const context: *ContextType = @ptrCast(@alignCast(ctx));
-    const state = textState(context);
     const key = text_cache.GlyphCellKey{
         .face_id = face_id.value,
         .codepoint = codepoint,
@@ -365,30 +338,28 @@ pub fn providerLookupGlyph(
     if (state.glyph_cell_cache.map.get(key)) |cached| {
         return .{ .glyph_id = cached.glyph_id, .advance_px = cached.advance_px };
     }
-    const result = uncachedProviderLookupGlyph(context, face_id, codepoint, cell_metrics);
+    const result = uncachedProviderLookupGlyph(state, config, face_id, codepoint, cell_metrics);
     state.glyph_cell_cache.put(key, glyphCellValue(result)) catch {};
     return result;
 }
 
-fn uncachedProviderLookupGlyph(context: anytype, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) provider.LookupGlyphResult {
-    const glyph_id = providerGlyphId(context, face_id, codepoint);
-    return .{ .glyph_id = glyph_id, .advance_px = providerGlyphAdvance(context, face_id, glyph_id, cell_metrics) };
+fn uncachedProviderLookupGlyph(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) provider.LookupGlyphResult {
+    const glyph_id = providerGlyphIdWithConfig(state, config, face_id, codepoint);
+    return .{ .glyph_id = glyph_id, .advance_px = providerGlyphAdvanceWithConfig(state, config, face_id, glyph_id, cell_metrics) };
 }
 
 fn glyphCellValue(result: provider.LookupGlyphResult) text_cache.GlyphCellValue {
     return .{ .glyph_id = result.glyph_id, .advance_px = result.advance_px };
 }
 
-pub fn ensurePrimaryFont(self: anytype) bool {
-    lockFt(self);
-    defer unlockFt(self);
-    const config = configView(self);
-    return textState(self).loaded_faces.ensurePrimaryFontLocked(config.font_path, config.font_size_px);
+pub fn ensurePrimaryFontWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig) bool {
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
+    return state.loaded_faces.ensurePrimaryFontLocked(config.font_path, config.font_size_px);
 }
 
-pub fn ensureFont(self: anytype) bool {
-    const state = textState(self);
-    if (ensurePrimaryFont(self)) {
+pub fn ensureFontWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig) bool {
+    if (ensurePrimaryFontWithConfig(state, config)) {
         state.resolve_stage = .loaded_exact_match;
         if (state.active_resolve) |obs| obs.stage = .loaded_exact_match;
         return true;
@@ -396,7 +367,7 @@ pub fn ensureFont(self: anytype) bool {
     var i: FallbackFontCount = 0;
     while (i < state.fallback_font_paths_len) : (i += 1) {
         if (state.fallback_font_paths[i] == null) continue;
-        if (ensureFallbackFace(self, i)) |_| {
+        if (ensureFallbackFaceWithConfig(state, config, i)) |_| {
             state.resolve_stage = .configured_fallback;
             if (state.active_resolve) |obs| obs.stage = .configured_fallback;
             return true;
@@ -411,48 +382,44 @@ pub fn ensureFont(self: anytype) bool {
     return false;
 }
 
-pub fn resetLoadedFace(self: anytype) void {
-    const state = textState(self);
-    lockFt(self);
-    defer unlockFt(self);
+pub fn resetLoadedFace(state: *FtHbSupport) void {
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
     state.cached_cell_metrics_valid = false;
     state.loaded_faces.resetLocked();
 }
 
-pub fn resizeLoadedFaces(self: anytype) void {
-    const state = textState(self);
-    lockFt(self);
-    defer unlockFt(self);
+pub fn resizeLoadedFacesWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig) void {
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
     state.cached_cell_metrics_valid = false;
-    state.loaded_faces.resizeLocked(configView(self).font_size_px);
+    state.loaded_faces.resizeLocked(config.font_size_px);
 }
 
-pub fn ensureFallbackFace(self: anytype, fallback_index: FallbackFontCount) ?FtFace {
-    const state = textState(self);
-    lockFt(self);
-    defer unlockFt(self);
+pub fn ensureFallbackFaceWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, fallback_index: FallbackFontCount) ?FtFace {
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
     return state.loaded_faces.ensureFallbackFaceLocked(
         fallback_index,
         &state.fallback_font_paths,
         state.fallback_font_paths_len,
-        configView(self).font_size_px,
+        config.font_size_px,
     );
 }
 
-pub fn deriveCellMetrics(self: anytype) contract.CellMetrics {
-    const state = textState(self);
-    const font_size_px = configView(self).font_size_px;
+pub fn deriveCellMetricsWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig) contract.CellMetrics {
+    const font_size_px = config.font_size_px;
     if (state.cached_cell_metrics_valid and state.cached_cell_metrics_font_px == font_size_px) {
         return state.cached_cell_metrics;
     }
     const metrics = blk: {
-        if (ensurePrimaryFont(self)) {
-            lockFt(self);
-            defer unlockFt(self);
+        if (ensurePrimaryFontWithConfig(state, config)) {
+            state.ft_mutex.lock();
+            defer state.ft_mutex.unlock();
             break :blk cellMetricsFromFace(state.loaded_faces.ft_face.?, font_size_px);
         }
-        lockFt(self);
-        defer unlockFt(self);
+        state.ft_mutex.lock();
+        defer state.ft_mutex.unlock();
         if (state.loaded_faces.ensureFreeTypeLibraryLocked()) {
             const lib = state.loaded_faces.ft_lib.?;
             var i: FallbackFontCount = 0;
@@ -461,7 +428,7 @@ pub fn deriveCellMetrics(self: anytype) contract.CellMetrics {
                 var face: FtFace = undefined;
                 if (c.FT_New_Face(lib, font_path.ptr, 0, &face) != 0) continue;
                 defer _ = c.FT_Done_Face(face);
-                if (!setFacePixelHeight(self, face)) continue;
+                if (!setFacePixelHeight(config, face)) continue;
                 break :blk cellMetricsFromFace(face, font_size_px);
             }
         }
@@ -473,12 +440,12 @@ pub fn deriveCellMetrics(self: anytype) contract.CellMetrics {
     return metrics;
 }
 
-pub fn configuredCellMetrics(self: anytype) contract.CellMetrics {
-    return deriveCellMetrics(self);
+pub fn configuredCellMetrics(state: *FtHbSupport, config: render_session.TextSessionConfig) contract.CellMetrics {
+    return deriveCellMetricsWithConfig(state, config);
 }
 
-pub fn deriveCellSize(self: anytype) geometry_contract.CellSize {
-    const cell = deriveCellMetrics(self);
+pub fn deriveCellSize(state: *FtHbSupport, config: render_session.TextSessionConfig) geometry_contract.CellSize {
+    const cell = deriveCellMetricsWithConfig(state, config);
     return .{ .width = cell.cell_w_px, .height = cell.cell_h_px };
 }
 
@@ -486,8 +453,7 @@ pub fn computeBaselineFromFace(face: FtFace, cell_h: u16) i32 {
     return baselineFromFaceMetrics(faceMetricsInput(face, 1), cell_h);
 }
 
-pub fn acquireShapingFaceLocked(self: anytype, face_id: contract.FontFaceId) ?ShapingFace {
-    const state = textState(self);
+pub fn acquireShapingFaceFromStateLocked(state: *FtHbSupport, face_id: contract.FontFaceId) ?ShapingFace {
     return state.loaded_faces.acquireShapingFaceLocked(face_id, state.fallback_font_paths_len);
 }
 
@@ -495,11 +461,9 @@ pub fn shapeGlyphId(hb_font: ?HbFont, face: FtFace, codepoint: u21) c_uint {
     return c_api.shapeGlyphId(hb_font, face, codepoint);
 }
 
-fn ensureFaceForId(self: anytype, face_id: contract.FontFaceId) bool {
-    const state = textState(self);
-    const config = configView(self);
-    lockFt(self);
-    defer unlockFt(self);
+fn ensureFaceForId(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId) bool {
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
     return state.loaded_faces.ensureFaceForIdLocked(
         face_id,
         config.font_path,
@@ -522,7 +486,8 @@ fn glyphAcceptedLocked(face: FtFace, glyph_id: u32, codepoint: u32) bool {
 }
 
 fn fallbackProviderShapeRun(
-    context: anytype,
+    state: *FtHbSupport,
+    config: render_session.TextSessionConfig,
     allocator: std.mem.Allocator,
     run: contract.ResolvedRun,
     clusters: []const contract.CellCluster,
@@ -532,9 +497,9 @@ fn fallbackProviderShapeRun(
     const glyphs = try allocator.alloc(contract.GlyphInstance, window.len());
     errdefer allocator.free(glyphs);
     for (window.slice(clusters), 0..) |cluster, idx| {
-        const glyph_id = providerGlyphId(context, run.run.font.face_id, cluster.first_cp);
-        const shaped_advance = providerGlyphAdvance(context, run.run.font.face_id, glyph_id, cell_metrics);
-        const advance_px = if (isIconCodepoint(cluster.first_cp)) @max(shaped_advance, providerGlyphVisualWidth(context, run.run.font.face_id, glyph_id)) else shaped_advance;
+        const glyph_id = providerGlyphIdWithConfig(state, config, run.run.font.face_id, cluster.first_cp);
+        const shaped_advance = providerGlyphAdvanceWithConfig(state, config, run.run.font.face_id, glyph_id, cell_metrics);
+        const advance_px = if (isIconCodepoint(cluster.first_cp)) @max(shaped_advance, providerGlyphVisualWidth(state, config, run.run.font.face_id, glyph_id)) else shaped_advance;
         glyphs[idx] = .{ .face_id = run.run.font.face_id, .glyph_id = glyph_id, .cluster_index = window.start + @as(
             u32,
             @intCast(idx),
@@ -543,12 +508,12 @@ fn fallbackProviderShapeRun(
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-fn providerGlyphVisualWidth(self: anytype, face_id: contract.FontFaceId, glyph_id: u32) f32 {
+fn providerGlyphVisualWidth(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, glyph_id: u32) f32 {
     if (glyph_id == 0) return 0;
-    if (!ensureFaceForId(self, face_id)) return 0;
-    lockFt(self);
-    defer unlockFt(self);
-    const shaped_face = acquireShapingFaceLocked(self, face_id) orelse return 0;
+    if (!ensureFaceForId(state, config, face_id)) return 0;
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
+    const shaped_face = acquireShapingFaceFromStateLocked(state, face_id) orelse return 0;
     return glyphVisualWidthPxLocked(shaped_face.face, glyph_id);
 }
 
@@ -583,15 +548,15 @@ fn isPlainAsciiCodepoint(cp: u32) bool {
     return cp >= 0x20 and cp < 0x7f;
 }
 
-fn glyphAdvanceFromFace(self: anytype, face: FtFace, glyph_id: u32, cell_metrics: contract.CellMetrics) f32 {
-    if (!setFacePixelHeight(self, face)) return @floatFromInt(cell_metrics.cell_w_px);
+fn glyphAdvanceFromFace(config: render_session.TextSessionConfig, face: FtFace, glyph_id: u32, cell_metrics: contract.CellMetrics) f32 {
+    if (!setFacePixelHeight(config, face)) return @floatFromInt(cell_metrics.cell_w_px);
     if (c.FT_Load_Glyph(face, glyph_id, c.FT_LOAD_DEFAULT) != 0) return @floatFromInt(cell_metrics.cell_w_px);
     if (face.*.glyph == null) return @floatFromInt(cell_metrics.cell_w_px);
     return advancePx(@intCast(face.*.glyph.*.advance.x), cell_metrics.cell_w_px);
 }
 
-fn setFacePixelHeight(self: anytype, face: FtFace) bool {
-    return c.FT_Set_Pixel_Sizes(face, 0, @max(configView(self).font_size_px, 1)) == 0;
+fn setFacePixelHeight(config: render_session.TextSessionConfig, face: FtFace) bool {
+    return c.FT_Set_Pixel_Sizes(face, 0, @max(config.font_size_px, 1)) == 0;
 }
 
 fn cellMetricsFromFace(face: FtFace, font_size_px: u16) contract.CellMetrics {
@@ -686,8 +651,8 @@ fn buildProviderShapedRun(
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-fn useDeterministicTestTextFallback(self: anytype) bool {
-    return builtin.is_test and configView(self).font_path == null and textState(self).fallback_font_paths_len == 0;
+fn useDeterministicTestTextFallback(state: *FtHbSupport, config: render_session.TextSessionConfig) bool {
+    return builtin.is_test and config.font_path == null and state.fallback_font_paths_len == 0;
 }
 
 fn defaultCellMetrics(font_px: u16) contract.CellMetrics {

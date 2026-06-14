@@ -11,57 +11,25 @@ const c = c_api.c;
 const FtFace = c_api.FtFace;
 const HbFont = c_api.HbFont;
 
-fn lockFt(self: anytype) void {
-    const T = @TypeOf(self.*);
-    if (@hasField(T, "text_state")) {
-        self.text_state.ft_mutex.lock();
-        return;
-    }
-    if (@hasField(T, "session")) {
-        self.session.text_state.ft_mutex.lock();
-        return;
-    }
-    @compileError("text state owner missing text_state field");
-}
-fn unlockFt(self: anytype) void {
-    const T = @TypeOf(self.*);
-    if (@hasField(T, "text_state")) {
-        self.text_state.ft_mutex.unlock();
-        return;
-    }
-    if (@hasField(T, "session")) {
-        self.session.text_state.ft_mutex.unlock();
-        return;
-    }
-    @compileError("text state owner missing text_state field");
-}
-
-fn configView(self: anytype) text_session.TextSessionConfig {
-    const T = @TypeOf(self.*);
-    if (@hasField(T, "config")) return self.config;
-    if (@hasField(T, "session_config")) return self.session_config;
-    @compileError("text config owner missing session config");
-}
-
-pub fn providerRasterizeSprite(comptime ContextType: type, ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
-    const context: *ContextType = @ptrCast(@alignCast(ctx));
+pub fn providerRasterizeSpriteWithConfig(state: *provider_mod.FtHbSupport, config: text_session.TextSessionConfig, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
     const width = @max(req.width_px, 1);
     const height = @max(req.height_px, 1);
     const pixels = try allocator.alloc(u8, @intCast(rasterPixelCount(width, height)));
     errdefer allocator.free(pixels);
     @memset(pixels, 0);
-    if (tryRasterizeProviderSpecialCase(context, pixels, width, height, req)) return providerSpriteOutput(allocator, req, width, height, pixels);
+    if (tryRasterizeProviderSpecialCase(state, config, pixels, width, height, req)) return providerSpriteOutput(allocator, req, width, height, pixels);
     var pen_x: f32 = 0;
     for (req.group.glyphs, 0..) |glyph, glyph_idx| {
         const x_px = @as(i32, @intFromFloat(std.math.floor(pen_x + glyph.x_offset_px)));
         const y_px = @as(i32, @intFromFloat(std.math.floor(glyph.y_offset_px)));
-        _ = rasterizeProviderGlyph(context, pixels, width, height, req.baseline_px, glyph.face_id, glyph.glyph_id, x_px, y_px, @intCast(glyph_idx));
+        _ = rasterizeProviderGlyphWithConfig(state, config, pixels, width, height, req.baseline_px, glyph.face_id, glyph.glyph_id, x_px, y_px, @intCast(glyph_idx));
         pen_x += glyph.x_advance_px;
     }
     return providerSpriteOutput(allocator, req, width, height, pixels);
 }
-pub fn rasterizeProviderGlyph(
-    self: anytype,
+pub fn rasterizeProviderGlyphWithConfig(
+    state: *provider_mod.FtHbSupport,
+    config: text_session.TextSessionConfig,
     dst: []u8,
     width: u16,
     height: u16,
@@ -72,20 +40,20 @@ pub fn rasterizeProviderGlyph(
     y_origin_px: i32,
     glyph_index: u32,
 ) bool {
-    if (useDeterministicTestTextFallback(self)) {
+    if (useDeterministicTestTextFallback(state, config)) {
         fallback.rasterAsciiOrPlaceholder(dst, width, @intCast(glyph_id), width, height);
         return true;
     }
-    if (!provider_mod.ensureFont(self)) return false;
-    lockFt(self);
-    defer unlockFt(self);
-    const shaped_face = provider_mod.acquireShapingFaceLocked(self, face_id) orelse return false;
-    return rasterizeProviderGlyphFromFace(self, dst, width, height, baseline_px, shaped_face.face, glyph_id, x_origin_px, y_origin_px, glyph_index);
+    if (!provider_mod.ensureFontWithConfig(state, config)) return false;
+    state.ft_mutex.lock();
+    defer state.ft_mutex.unlock();
+    const shaped_face = provider_mod.acquireShapingFaceFromStateLocked(state, face_id) orelse return false;
+    return rasterizeProviderGlyphFromFace(dst, width, height, baseline_px, shaped_face.face, glyph_id, x_origin_px, y_origin_px, glyph_index);
 }
 fn fallbackFaceId(index: u32) u32 {
     return index + 2;
 }
-fn rasterizeProviderGlyphFromFace(_: anytype, dst: []u8, width: u16, height: u16, baseline_px: i16, face: FtFace, glyph_id: u32, x_origin_px: i32, y_origin_px: i32, glyph_index: u32) bool {
+fn rasterizeProviderGlyphFromFace(dst: []u8, width: u16, height: u16, baseline_px: i16, face: FtFace, glyph_id: u32, x_origin_px: i32, y_origin_px: i32, glyph_index: u32) bool {
     if (glyph_id == 0) return false;
     if (c.FT_Load_Glyph(face, glyph_id, c.FT_LOAD_RENDER) != 0) return false;
     const glyph = face.*.glyph;
@@ -123,8 +91,8 @@ fn rasterizeProviderGlyphFromFace(_: anytype, dst: []u8, width: u16, height: u16
     }
     return true;
 }
-fn setFacePixelHeight(self: anytype, face: FtFace) bool {
-    return c.FT_Set_Pixel_Sizes(face, 0, @max(configView(self).font_size_px, 1)) == 0;
+fn setFacePixelHeight(config: text_session.TextSessionConfig, face: FtFace) bool {
+    return c.FT_Set_Pixel_Sizes(face, 0, @max(config.font_size_px, 1)) == 0;
 }
 fn faceMetricsInput(face: FtFace, font_size_px: u16) contract.FaceMetrics26Dot6 {
     const metrics = face.*.size.*.metrics;
@@ -148,7 +116,7 @@ fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
     }
     return if (max_advance > 0) max_advance else fallback_advance;
 }
-fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, height: u16, req: contract.SpriteRasterRequest) bool {
+fn tryRasterizeProviderSpecialCase(state: *provider_mod.FtHbSupport, config: text_session.TextSessionConfig, pixels: []u8, width: u16, height: u16, req: contract.SpriteRasterRequest) bool {
     if (req.kind == .undercurl) {
         rasterizer.rasterizeUndercurlAlpha(pixels, width, height, req.decoration);
         return true;
@@ -157,7 +125,7 @@ fn tryRasterizeProviderSpecialCase(context: anytype, pixels: []u8, width: u16, h
         _ = rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing);
         return true;
     }
-    if (!useDeterministicTestTextFallback(context)) return false;
+    if (!useDeterministicTestTextFallback(state, config)) return false;
     fallback.rasterAsciiOrPlaceholder(pixels, width, @intCast(req.group.first_cp), width, height);
     return true;
 }
@@ -255,7 +223,7 @@ test "provider box fallback draws routed generated special families" {
             .height_px = 16,
             .box_drawing = .{ .light_stroke_px = 2, .heavy_stroke_px = 4 },
         };
-        try std.testing.expect(tryRasterizeProviderSpecialCase(&context, &pixels, 16, 16, req));
+        try std.testing.expect(tryRasterizeProviderSpecialCase(&context.text_state, context.config, &pixels, 16, 16, req));
         try std.testing.expect(countLit(&pixels) > 0);
     }
 }
@@ -278,12 +246,8 @@ fn cellBitmapOrigin(cell_width: u16, baseline: i32, bitmap_left: i32, bitmap_top
     const y_px = if (yoff > 0 and yoff > baseline) 0 else baseline - yoff;
     return .{ .x_px = x_px, .y_px = y_px };
 }
-fn useDeterministicTestTextFallback(context: anytype) bool {
-    return builtin.is_test and configView(context).font_path == null and blk: {
-        const T = @TypeOf(context.*);
-        if (@hasField(T, "text_state")) break :blk context.text_state.fallback_font_paths_len == 0;
-        break :blk context.session.text_state.fallback_font_paths_len == 0;
-    };
+fn useDeterministicTestTextFallback(state: *provider_mod.FtHbSupport, config: text_session.TextSessionConfig) bool {
+    return builtin.is_test and config.font_path == null and state.fallback_font_paths_len == 0;
 }
 
 const DeterministicFallbackContext = struct {
@@ -311,7 +275,7 @@ test "provider deterministic fallback matches fallback raster for glyph and spri
     var context = DeterministicFallbackContext.init(std.testing.allocator);
     defer context.deinit();
 
-    try std.testing.expect(useDeterministicTestTextFallback(&context));
+    try std.testing.expect(useDeterministicTestTextFallback(&context.text_state, context.config));
 
     const codepoint: u21 = 0x263a;
     const width: u16 = 6;
@@ -321,7 +285,7 @@ test "provider deterministic fallback matches fallback raster for glyph and spri
     fallback.rasterAsciiOrPlaceholder(&expected_glyph, width, codepoint, width, height);
 
     var glyph_pixels: [width * height]u8 = .{0} ** (width * height);
-    try std.testing.expect(rasterizeProviderGlyph(&context, &glyph_pixels, width, height, 0, .{ .value = 1 }, codepoint, 0, 0, 0));
+    try std.testing.expect(rasterizeProviderGlyphWithConfig(&context.text_state, context.config, &glyph_pixels, width, height, 0, .{ .value = 1 }, codepoint, 0, 0, 0));
     try std.testing.expectEqualSlices(u8, &expected_glyph, &glyph_pixels);
 
     const sprite_group = contract.GlyphGroup{
@@ -342,7 +306,7 @@ test "provider deterministic fallback matches fallback raster for glyph and spri
     var expected_sprite: [width * height]u8 = .{0} ** (width * height);
     fallback.rasterAsciiOrPlaceholder(&expected_sprite, width, codepoint, width, height);
 
-    var sprite_output = try providerRasterizeSprite(DeterministicFallbackContext, @ptrCast(&context), std.testing.allocator, sprite_request);
+    var sprite_output = try providerRasterizeSpriteWithConfig(&context.text_state, context.config, std.testing.allocator, sprite_request);
     defer sprite_output.deinit();
     try std.testing.expectEqualSlices(u8, &expected_sprite, sprite_output.pixels);
 }

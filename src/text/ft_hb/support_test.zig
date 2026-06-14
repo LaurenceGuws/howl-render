@@ -33,18 +33,12 @@ test "provider loads fallback face for symbol glyph with primary present" {
     fallbacks.append(std.heap.c_allocator, try std.heap.c_allocator.dupeZ(u8, symbol_path)) catch return error.OutOfMemory;
     owner.adoptFallbackFontPaths(&fallbacks);
 
-    const Context = struct {
-        session: *render_session.TextSession,
-        session_config: render_session.TextSessionConfig,
-    };
-    var context = Context{ .session = &owner.session, .session_config = owner.config };
-
-    try std.testing.expect(!support.providerHasCodepoint(Context, &context, .{ .value = support.primary_face_id }, 0xebfc));
-    try std.testing.expect(support.providerHasCodepoint(Context, &context, .{ .value = 2 }, 0xebfc));
-    try std.testing.expect(support.providerGlyphId(&context, .{ .value = 2 }, 0xebfc) != 0);
-    try std.testing.expect(!support.providerHasCodepoint(Context, &context, .{ .value = support.primary_face_id }, 0xf117));
-    try std.testing.expect(support.providerHasCodepoint(Context, &context, .{ .value = 2 }, 0xf117));
-    try std.testing.expect(support.providerGlyphId(&context, .{ .value = 2 }, 0xf117) != 0);
+    try std.testing.expect(!support.providerHasCodepointWithConfig(&owner.session.text_state, owner.config, .{ .value = support.primary_face_id }, 0xebfc));
+    try std.testing.expect(support.providerHasCodepointWithConfig(&owner.session.text_state, owner.config, .{ .value = 2 }, 0xebfc));
+    try std.testing.expect(support.providerGlyphIdWithConfig(&owner.session.text_state, owner.config, .{ .value = 2 }, 0xebfc) != 0);
+    try std.testing.expect(!support.providerHasCodepointWithConfig(&owner.session.text_state, owner.config, .{ .value = support.primary_face_id }, 0xf117));
+    try std.testing.expect(support.providerHasCodepointWithConfig(&owner.session.text_state, owner.config, .{ .value = 2 }, 0xf117));
+    try std.testing.expect(support.providerGlyphIdWithConfig(&owner.session.text_state, owner.config, .{ .value = 2 }, 0xf117) != 0);
 }
 
 test "ft hb state configures explicit retained cache and input capacities" {

@@ -139,8 +139,7 @@ pub const TextSession = struct {
         defer self.mutex.unlock();
         if (render_px.width == 0 or render_px.height == 0) return error.InvalidSurfaceSize;
         if (grid_px.width == 0 or grid_px.height == 0) return error.InvalidGridSize;
-        var context = TextContext{ .session = self, .session_config = config };
-        const cell_px = text_support.deriveCellSize(&context);
+        const cell_px = text_support.deriveCellSize(&self.text_state, config);
         const layout = geometry_contract.SurfaceLayout{ .cell_px = cell_px, .grid = geometry_mod.deriveGridSize(grid_px, cell_px) };
         std.debug.assert(layout.cell_px.width != 0);
         std.debug.assert(layout.cell_px.height != 0);
@@ -152,11 +151,10 @@ pub const TextSession = struct {
     pub fn isValidFont(self: *TextSession, config: TextSessionConfig) bool {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        var context = TextContext{ .session = self, .session_config = config };
-        if (text_support.ensurePrimaryFont(&context)) return true;
+        if (text_support.ensurePrimaryFontWithConfig(&self.text_state, config)) return true;
         var i: text_support.FallbackFontCount = 0;
         while (i < self.text_state.fallback_font_paths_len) : (i += 1) {
-            if (text_support.ensureFallbackFace(&context, i) != null) return true;
+            if (text_support.ensureFallbackFaceWithConfig(&self.text_state, config, i) != null) return true;
         }
         return false;
     }
@@ -267,13 +265,13 @@ pub const TextSession = struct {
     }
 
     fn maxResolveClusters(context: *TextContext) u32 {
-        const cell_px = text_support.deriveCellSize(context);
+        const cell_px = text_support.deriveCellSize(&context.session.text_state, context.session_config);
         const grid = geometry_mod.deriveGridSize(context.session_config.surface_px, cell_px);
         return @as(u32, @max(grid.cols, 1)) * @as(u32, @max(grid.rows, 1));
     }
 
     fn ftHbCapacity(context: *TextContext) text_support.FtHbCapacity {
-        const cell_px = text_support.deriveCellSize(context);
+        const cell_px = text_support.deriveCellSize(&context.session.text_state, context.session_config);
         const grid = geometry_mod.deriveGridSize(context.session_config.surface_px, cell_px);
         const cols = @as(u32, @max(grid.cols, 1));
         const visible_cells = cols * @as(u32, @max(grid.rows, 1));
@@ -322,16 +320,18 @@ pub const TextSession = struct {
             .primary_face = .{ .value = text_support.primary_face_id },
             .faces = faces[0..@intCast(text_support.fallbackFontLen(len))],
             .provider = .{ .ctx = context, .has_cell_text = providerHasCellTextThunk },
-            .metrics = text_support.deriveCellMetrics(context),
+            .metrics = text_support.deriveCellMetricsWithConfig(&context.session.text_state, context.session_config),
         };
     }
 
     fn providerHasCodepointThunk(ctx: *anyopaque, face_id: contract.FontFaceId, codepoint: u32) bool {
-        return text_support.providerHasCodepoint(TextContext, ctx, face_id, codepoint);
+        const context: *TextContext = @ptrCast(@alignCast(ctx));
+        return text_support.providerHasCodepointWithConfig(&context.session.text_state, context.session_config, face_id, codepoint);
     }
 
     fn providerHasCellTextThunk(ctx: *anyopaque, face_id: contract.FontFaceId, text_value: contract.CellText) bool {
-        return text_support.providerHasCellText(TextContext, ctx, face_id, text_value);
+        const context: *TextContext = @ptrCast(@alignCast(ctx));
+        return text_support.providerHasCellTextWithConfig(&context.session.text_state, context.session_config, face_id, text_value);
     }
 
     fn providerShapeRunThunk(
@@ -342,15 +342,18 @@ pub const TextSession = struct {
         clusters: []const contract.CellCluster,
         cell_metrics: contract.CellMetrics,
     ) anyerror!shape_run.OwnedShapedRun {
-        return text_support.providerShapeRun(TextContext, ctx, allocator, run, text_cache_view, clusters, cell_metrics);
+        const context: *TextContext = @ptrCast(@alignCast(ctx));
+        return text_support.providerShapeRunWithConfig(&context.session.text_state, context.session_config, allocator, run, text_cache_view, clusters, cell_metrics);
     }
 
     fn providerRasterizeSpriteThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
-        return text_glyph_raster.providerRasterizeSprite(TextContext, ctx, allocator, req);
+        const context: *TextContext = @ptrCast(@alignCast(ctx));
+        return text_glyph_raster.providerRasterizeSpriteWithConfig(&context.session.text_state, context.session_config, allocator, req);
     }
 
     fn providerLookupGlyphThunk(ctx: *anyopaque, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) provider.LookupGlyphResult {
-        return text_support.providerLookupGlyph(TextContext, ctx, face_id, codepoint, cell_metrics);
+        const context: *TextContext = @ptrCast(@alignCast(ctx));
+        return text_support.providerLookupGlyphWithConfig(&context.session.text_state, context.session_config, face_id, codepoint, cell_metrics);
     }
 
     fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: text_raster_operation.RasterizeRequest) anyerror!text_raster_operation.RasterizeOutput {
@@ -361,14 +364,14 @@ pub const TextSession = struct {
         const alpha = try allocator.alloc(u8, @intCast(alpha_len));
         errdefer allocator.free(alpha);
         @memset(alpha, 0);
-        _ = text_glyph_raster.rasterizeProviderGlyph(context, alpha, width, height, req.cell_metrics.baseline_px, .{ .value = req.face_id }, req.glyph_id, 0, 0, 0);
+        _ = text_glyph_raster.rasterizeProviderGlyphWithConfig(&context.session.text_state, context.session_config, alpha, width, height, req.cell_metrics.baseline_px, .{ .value = req.face_id }, req.glyph_id, 0, 0, 0);
         return .{
             .allocator = allocator,
             .width_px = width,
             .height_px = height,
             .bearing_x_px = 0,
             .bearing_y_px = 0,
-            .advance_px = text_support.providerGlyphAdvance(context, .{ .value = req.face_id }, req.glyph_id, req.cell_metrics),
+            .advance_px = text_support.providerGlyphAdvanceWithConfig(&context.session.text_state, context.session_config, .{ .value = req.face_id }, req.glyph_id, req.cell_metrics),
             .alpha_mask = alpha,
         };
     }
@@ -486,7 +489,7 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn invalidateTextState(self: *TextSessionOwner) void {
-        text_support.resetLoadedFace(&self.session);
+        text_support.resetLoadedFace(&self.session.text_state);
         self.session.text_state.face_text_cache.clear();
         self.session.text_state.shape_run_cache.clear();
         self.session.text_state.glyph_cell_cache.clear();
