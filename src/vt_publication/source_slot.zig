@@ -116,7 +116,11 @@ pub const SourceSlot = struct {
             .dirty_epoch = dirty_epoch,
             .is_alternate_screen = surface.is_alternate_screen != 0,
             .cells = slot.cells,
-            .cursor = vtCursorIn(surface.cursor),
+            .cursor = vtCursorIn(surface.cursor, surface.cursor_color, surface.cursor_text_color),
+            .extra_cursor_count = surface.extra_cursor_count,
+            .extra_cursors = extraCursorsIn(surface.extra_cursors, surface.extra_cursor_count),
+            .cursor_trail_count = 0,
+            .cursor_trail_rects = [_]source_abi.SourceCursorTrailRect{.{}} ** source_abi.max_cursor_trail_rects,
             .colors = surface.colors,
             .selection = surface.selection,
             .cursor_phase_visible = cursor_phase_visible,
@@ -202,6 +206,10 @@ pub const SourceSlot = struct {
         const dirty_epoch = source.dirty_epoch;
         const is_alternate_screen = source.is_alternate_screen;
         const cursor = source.cursor;
+        const extra_cursor_count = source.extra_cursor_count;
+        const extra_cursors = source.extra_cursors;
+        const cursor_trail_count = source.cursor_trail_count;
+        const cursor_trail_rects = source.cursor_trail_rects;
         const colors = source.colors;
         const selection = source.selection;
         const cursor_phase_visible = source.cursor_phase_visible;
@@ -213,6 +221,10 @@ pub const SourceSlot = struct {
         source.dirty_epoch = dirty_epoch;
         source.is_alternate_screen = is_alternate_screen;
         source.cursor = cursor;
+        source.extra_cursor_count = extra_cursor_count;
+        source.extra_cursors = extra_cursors;
+        source.cursor_trail_count = cursor_trail_count;
+        source.cursor_trail_rects = cursor_trail_rects;
         source.colors = colors;
         source.selection = selection;
         source.cursor_phase_visible = cursor_phase_visible;
@@ -239,6 +251,10 @@ pub const SourceSlot = struct {
             .is_alternate_screen = false,
             .cells = slot.cells,
             .cursor = std.mem.zeroes(source_abi.SourceCursor),
+            .extra_cursor_count = 0,
+            .extra_cursors = [_]source_abi.SourceExtraCursor{.{}} ** source_abi.max_extra_cursors,
+            .cursor_trail_count = 0,
+            .cursor_trail_rects = [_]source_abi.SourceCursorTrailRect{.{}} ** source_abi.max_cursor_trail_rects,
             .colors = std.mem.zeroes(source_abi.SourceColors),
             .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
             .cursor_phase_visible = true,
@@ -266,6 +282,10 @@ pub const SourceSlot = struct {
         const dirty_epoch = source.dirty_epoch;
         const is_alternate_screen = source.is_alternate_screen;
         const cursor = source.cursor;
+        const extra_cursor_count = source.extra_cursor_count;
+        const extra_cursors = source.extra_cursors;
+        const cursor_trail_count = source.cursor_trail_count;
+        const cursor_trail_rects = source.cursor_trail_rects;
         const colors = source.colors;
         const selection = source.selection;
         const cursor_phase_visible = source.cursor_phase_visible;
@@ -276,13 +296,17 @@ pub const SourceSlot = struct {
         source.dirty_epoch = dirty_epoch;
         source.is_alternate_screen = is_alternate_screen;
         source.cursor = cursor;
+        source.extra_cursor_count = extra_cursor_count;
+        source.extra_cursors = extra_cursors;
+        source.cursor_trail_count = cursor_trail_count;
+        source.cursor_trail_rects = cursor_trail_rects;
         source.colors = colors;
         source.selection = selection;
         source.cursor_phase_visible = cursor_phase_visible;
     }
 };
 
-fn vtCursorIn(value: anytype) source_abi.SourceCursor {
+fn vtCursorIn(value: anytype, cursor_color: anytype, cursor_text_color: anytype) source_abi.SourceCursor {
     const shape = switch (value.shape) {
         1 => source_abi.SourceCursorShape.underline,
         2 => .beam,
@@ -295,7 +319,35 @@ fn vtCursorIn(value: anytype) source_abi.SourceCursor {
         .visible = value.visible != 0,
         .shape = shape,
         .blink = value.blink != 0,
+        .position_changed_by_client_at_ms = value.position_changed_by_client_at_ms,
+        .cell_cols = value.cell_cols,
+        .cell_rows = value.cell_rows,
+        .cursor_color = cursor_color,
+        .cursor_text_color = cursor_text_color,
+        .cursor_opacity = 255,
+        .text_blink_opacity = 255,
+        .focused = true,
+        .effective_shape = shape,
     };
+}
+
+fn extraCursorsIn(value: anytype, count: u16) [source_abi.max_extra_cursors]source_abi.SourceExtraCursor {
+    var out = [_]source_abi.SourceExtraCursor{.{}} ** source_abi.max_extra_cursors;
+    for (out[0..count], value[0..count]) |*target, source| {
+        target.* = .{
+            .row = source.row,
+            .col = source.col,
+            .rows = source.rows,
+            .cols = source.cols,
+            .shape = @enumFromInt(source.shape),
+            .mode = @enumFromInt(source.mode),
+            .shape_follows_main = source.shape_follows_main != 0,
+            .color_follows_main = source.color_follows_main != 0,
+            .cursor_color = source.cursor_color,
+            .text_color = source.text_color,
+        };
+    }
+    return out;
 }
 
 pub fn slotCellCount(cols: u16, rows: u16) usize {
@@ -443,12 +495,49 @@ test "source slot copy in preserves snapshot and dirty metadata" {
     try std.testing.expectEqual(@as(u64, 5), source.scroll_row);
     try std.testing.expect(source.is_alternate_screen);
     try std.testing.expect(!source.cursor_phase_visible);
+    try std.testing.expectEqual(@as(u16, 0), source.extra_cursor_count);
+    try std.testing.expectEqual(@as(u16, 0), source.cursor_trail_count);
     try std.testing.expectEqual(@as(usize, 2), source.cells.len);
     try std.testing.expectEqual(@as(u32, 'A'), source.cells[0].codepoint);
     try std.testing.expectEqual(@as(u32, 'B'), source.cells[1].codepoint);
     try std.testing.expectEqualSlices(u8, dirty_rows[0..], source.dirty_rows);
     try std.testing.expectEqualSlices(u16, dirty_cols_start[0..], source.dirty_cols_start);
     try std.testing.expectEqualSlices(u16, dirty_cols_end[0..], source.dirty_cols_end);
+}
+
+test "source slot promote preserves widened empty cursor aggregates and primary cursor truth" {
+    var slot_owner = SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
+
+    var cells = [_]source_abi.SourceCell{ testCell('A'), testCell('B') };
+    const result = source_publication.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{1});
+    var source = try slot_owner.copyPublishedSource(result, 22, false);
+    defer source.deinit(std.testing.allocator);
+
+    try slot_owner.promoteStagedSource(&source);
+
+    try std.testing.expectEqual(@as(u64, 17), source.cursor.position_changed_by_client_at_ms);
+    try std.testing.expectEqual(@as(u16, 0), source.extra_cursor_count);
+    try std.testing.expectEqual(@as(u16, 0), source.cursor_trail_count);
+    try std.testing.expectEqual(@as(u32, 0x010203), source.cursor.cursor_color.value);
+    try std.testing.expectEqual(@as(u32, 7), source.cursor.cursor_text_color.value);
+}
+
+test "source slot copy ignores inactive extra cursor tail when count is zero" {
+    var slot_owner = SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
+
+    var cells = [_]source_abi.SourceCell{ testCell('A'), testCell('B') };
+    var result = source_publication.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{1});
+    result.source.extra_cursors[0].shape = 255;
+    result.source.extra_cursors[0].mode = 255;
+    result.source.extra_cursor_count = 0;
+
+    var source = try slot_owner.copyPublishedSource(result, 22, false);
+    defer source.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(u16, 0), source.extra_cursor_count);
+    try std.testing.expectEqual(std.mem.zeroes(source_abi.SourceExtraCursor), source.extra_cursors[0]);
 }
 
 test "source slot refresh preserves snapshot and dirty metadata" {

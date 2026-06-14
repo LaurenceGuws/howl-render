@@ -9,11 +9,28 @@ pub const SourceCellAttrs = c.HowlVtSurfaceCellAttrs;
 pub const SourceCell = c.HowlVtSurfaceCell;
 pub const SourceSelectionPoint = c.HowlVtSelectionPos;
 pub const SourceSelection = c.HowlVtSelection;
+
+pub const max_extra_cursors = 256;
+pub const max_cursor_trail_rects = 16;
+
 pub const SourceCursorShape = enum {
     block,
     underline,
     beam,
     hollow_block,
+};
+
+pub const SourceExtraCursorShape = enum(u8) {
+    none = 0,
+    block = 1,
+    beam = 2,
+    underline = 3,
+    hollow = 4,
+};
+
+pub const SourceExtraCursorMode = enum(u8) {
+    point = 0,
+    rectangle = 1,
 };
 
 pub const SourceCursor = struct {
@@ -22,6 +39,39 @@ pub const SourceCursor = struct {
     visible: bool = true,
     shape: SourceCursorShape = .block,
     blink: bool = false,
+    position_changed_by_client_at_ms: u64 = 0,
+    cell_cols: u16 = 1,
+    cell_rows: u16 = 1,
+    cursor_color: SourceColor = .{ .kind = 0, .value = 0 },
+    cursor_text_color: SourceColor = .{ .kind = 0, .value = 0 },
+    cursor_opacity: u8 = 255,
+    text_blink_opacity: u8 = 255,
+    focused: bool = true,
+    effective_shape: SourceCursorShape = .block,
+};
+
+pub const SourceExtraCursor = struct {
+    row: u16 = 0,
+    col: u16 = 0,
+    rows: u16 = 0,
+    cols: u16 = 0,
+    shape: SourceExtraCursorShape = .none,
+    mode: SourceExtraCursorMode = .point,
+    shape_follows_main: bool = false,
+    color_follows_main: bool = false,
+    cursor_color: SourceColor = .{ .kind = 0, .value = 0 },
+    text_color: SourceColor = .{ .kind = 0, .value = 0 },
+};
+
+pub const SourceCursorTrailRect = struct {
+    row: u16 = 0,
+    col: u16 = 0,
+    rows: u16 = 0,
+    cols: u16 = 0,
+    opacity: u8 = 0,
+    reserved0: u8 = 0,
+    reserved1: u16 = 0,
+    color: SourceRgb = .{ .r = 0, .g = 0, .b = 0 },
 };
 
 pub fn validateSourceCell(cell: SourceCell) !void {
@@ -69,6 +119,18 @@ pub fn validatePublicationSurfaceResult(result: anytype) !void {
     if (surface.dirty_cols_start.ptr == null or surface.dirty_cols_start.len != surface.rows) return error.InvalidSurfaceSource;
     if (surface.dirty_cols_end.ptr == null or surface.dirty_cols_end.len != surface.rows) return error.InvalidSurfaceSource;
     if (surface.cursor.shape > 3) return error.InvalidSurfaceSource;
+    if (!sourceColorValid(surface.cursor_color)) return error.InvalidSurfaceSource;
+    if (!sourceColorValid(surface.cursor_text_color)) return error.InvalidSurfaceSource;
+    if (surface.cursor.cell_cols == 0) return error.InvalidSurfaceSource;
+    if (surface.cursor.cell_rows == 0) return error.InvalidSurfaceSource;
+    if (surface.extra_cursor_count > max_extra_cursors) return error.InvalidSurfaceSource;
+
+    for (surface.extra_cursors[0..surface.extra_cursor_count]) |cursor| {
+        if (cursor.shape > @intFromEnum(SourceExtraCursorShape.hollow)) return error.InvalidSurfaceSource;
+        if (cursor.mode > @intFromEnum(SourceExtraCursorMode.rectangle)) return error.InvalidSurfaceSource;
+        if (!sourceColorValid(cursor.cursor_color)) return error.InvalidSurfaceSource;
+        if (!sourceColorValid(cursor.text_color)) return error.InvalidSurfaceSource;
+    }
 
     const dirty_rows = surface.dirty_rows.ptr[0..surface.dirty_rows.len];
     const dirty_cols_start = surface.dirty_cols_start.ptr[0..surface.dirty_cols_start.len];
@@ -110,4 +172,28 @@ fn validateDirtySource(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_
         if (end_col >= cols) return error.InvalidSurfaceSource;
         if (end_col < start_col) return error.InvalidSurfaceSource;
     }
+}
+
+test "source abi rejects widened vt cursor and extra cursor enum violations" {
+    var cells = [_]SourceCell{std.mem.zeroes(SourceCell)};
+    const dirty_rows = [_]u8{1};
+    const dirty_cols_start = [_]u16{0};
+    const dirty_cols_end = [_]u16{0};
+    var result = @import("publication.zig").validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+
+    result.source.cursor.cell_cols = 0;
+    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSurfaceResult(result));
+
+    result = @import("publication.zig").validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.cursor_color.kind = 3;
+    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSurfaceResult(result));
+
+    result = @import("publication.zig").validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.extra_cursor_count = max_extra_cursors + 1;
+    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSurfaceResult(result));
+
+    result = @import("publication.zig").validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.extra_cursor_count = 1;
+    result.source.extra_cursors[0].shape = 5;
+    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSurfaceResult(result));
 }

@@ -25,8 +25,13 @@ pub const PublicationSource = struct {
     is_alternate_screen: bool,
     cells: []abi.SourceCell,
     cursor: abi.SourceCursor,
+    extra_cursor_count: u16 = 0,
+    extra_cursors: [abi.max_extra_cursors]abi.SourceExtraCursor = [_]abi.SourceExtraCursor{.{}} ** abi.max_extra_cursors,
+    cursor_trail_count: u16 = 0,
+    cursor_trail_rects: [abi.max_cursor_trail_rects]abi.SourceCursorTrailRect = [_]abi.SourceCursorTrailRect{.{}} ** abi.max_cursor_trail_rects,
     colors: abi.SourceColors,
     selection: abi.SourceSelection,
+    // Compatibility field for later-slice consumers still reading blink visibility directly.
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
     dirty_cols_start: []u16 = &.{},
@@ -62,6 +67,10 @@ pub const PublicationSource = struct {
             .is_alternate_screen = self.is_alternate_screen,
             .cells = cells,
             .cursor = self.cursor,
+            .extra_cursor_count = self.extra_cursor_count,
+            .extra_cursors = self.extra_cursors,
+            .cursor_trail_count = self.cursor_trail_count,
+            .cursor_trail_rects = self.cursor_trail_rects,
             .colors = self.colors,
             .selection = self.selection,
             .cursor_phase_visible = self.cursor_phase_visible,
@@ -93,7 +102,23 @@ pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
     if (source.rows == 0) return error.InvalidSurfaceSource;
     const cell_count = cellCountChecked(source.cols, source.rows) catch return error.InvalidSurfaceSource;
     if (source.cells.len != cell_count) return error.InvalidSurfaceSource;
+    if (source.cursor.cell_cols == 0) return error.InvalidSurfaceSource;
+    if (source.cursor.cell_rows == 0) return error.InvalidSurfaceSource;
+    if (!abi.sourceColorValid(source.cursor.cursor_color)) return error.InvalidSurfaceSource;
+    if (!abi.sourceColorValid(source.cursor.cursor_text_color)) return error.InvalidSurfaceSource;
     try abi.validateSourceCells(source.cells);
+    if (source.extra_cursor_count > abi.max_extra_cursors) return error.InvalidSurfaceSource;
+    if (source.cursor_trail_count > abi.max_cursor_trail_rects) return error.InvalidSurfaceSource;
+    for (source.extra_cursors[0..source.extra_cursor_count]) |cursor| {
+        if (cursor.rows == 0) return error.InvalidSurfaceSource;
+        if (cursor.cols == 0) return error.InvalidSurfaceSource;
+        if (!abi.sourceColorValid(cursor.cursor_color)) return error.InvalidSurfaceSource;
+        if (!abi.sourceColorValid(cursor.text_color)) return error.InvalidSurfaceSource;
+    }
+    for (source.cursor_trail_rects[0..source.cursor_trail_count]) |rect| {
+        if (rect.rows == 0) return error.InvalidSurfaceSource;
+        if (rect.cols == 0) return error.InvalidSurfaceSource;
+    }
     try validateDirtySource(
         source.rows,
         source.cols,
@@ -134,7 +159,11 @@ pub fn ownedSourceFromSurfaceResult(allocator: std.mem.Allocator, result: anytyp
         .dirty_epoch = result.dirty_generation,
         .is_alternate_screen = surface.is_alternate_screen != 0,
         .cells = cells,
-        .cursor = vtCursorIn(surface.cursor),
+        .cursor = vtCursorIn(surface.cursor, surface.cursor_color, surface.cursor_text_color),
+        .extra_cursor_count = surface.extra_cursor_count,
+        .extra_cursors = extraCursorsIn(surface.extra_cursors, surface.extra_cursor_count),
+        .cursor_trail_count = 0,
+        .cursor_trail_rects = [_]abi.SourceCursorTrailRect{.{}} ** abi.max_cursor_trail_rects,
         .colors = surface.colors,
         .selection = surface.selection,
         .cursor_phase_visible = cursor_phase_visible,
@@ -171,6 +200,10 @@ pub fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot
         .is_alternate_screen = snapshot.is_alternate_screen,
         .cells = cells,
         .cursor = std.mem.zeroes(abi.SourceCursor),
+        .extra_cursor_count = 0,
+        .extra_cursors = [_]abi.SourceExtraCursor{.{}} ** abi.max_extra_cursors,
+        .cursor_trail_count = 0,
+        .cursor_trail_rects = [_]abi.SourceCursorTrailRect{.{}} ** abi.max_cursor_trail_rects,
         .colors = std.mem.zeroes(abi.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
@@ -201,6 +234,10 @@ pub fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoin
         .is_alternate_screen = false,
         .cells = cells,
         .cursor = std.mem.zeroes(abi.SourceCursor),
+        .extra_cursor_count = 0,
+        .extra_cursors = [_]abi.SourceExtraCursor{.{}} ** abi.max_extra_cursors,
+        .cursor_trail_count = 0,
+        .cursor_trail_rects = [_]abi.SourceCursorTrailRect{.{}} ** abi.max_cursor_trail_rects,
         .colors = std.mem.zeroes(abi.SourceColors),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
@@ -233,7 +270,7 @@ fn validateDirtySource(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_
     }
 }
 
-fn vtCursorIn(value: c.HowlVtCursor) abi.SourceCursor {
+fn vtCursorIn(value: c.HowlVtCursor, cursor_color: c.HowlVtColor, cursor_text_color: c.HowlVtColor) abi.SourceCursor {
     const shape = switch (value.shape) {
         1 => abi.SourceCursorShape.underline,
         2 => .beam,
@@ -246,7 +283,35 @@ fn vtCursorIn(value: c.HowlVtCursor) abi.SourceCursor {
         .visible = value.visible != 0,
         .shape = shape,
         .blink = value.blink != 0,
+        .position_changed_by_client_at_ms = value.position_changed_by_client_at_ms,
+        .cell_cols = value.cell_cols,
+        .cell_rows = value.cell_rows,
+        .cursor_color = cursor_color,
+        .cursor_text_color = cursor_text_color,
+        .cursor_opacity = 255,
+        .text_blink_opacity = 255,
+        .focused = true,
+        .effective_shape = shape,
     };
+}
+
+fn extraCursorsIn(value: anytype, count: u16) [abi.max_extra_cursors]abi.SourceExtraCursor {
+    var out = [_]abi.SourceExtraCursor{.{}} ** abi.max_extra_cursors;
+    for (out[0..count], value[0..count]) |*target, source| {
+        target.* = .{
+            .row = source.row,
+            .col = source.col,
+            .rows = source.rows,
+            .cols = source.cols,
+            .shape = @enumFromInt(source.shape),
+            .mode = @enumFromInt(source.mode),
+            .shape_follows_main = source.shape_follows_main != 0,
+            .color_follows_main = source.color_follows_main != 0,
+            .cursor_color = source.cursor_color,
+            .text_color = source.text_color,
+        };
+    }
+    return out;
 }
 
 fn validTestCell() abi.SourceCell {
@@ -273,7 +338,11 @@ pub fn validSurfaceResult(cells: []const abi.SourceCell, dirty_rows: []const u8,
             .dirty_rows = .{ .ptr = dirty_rows.ptr, .len = dirty_rows.len },
             .dirty_cols_start = .{ .ptr = dirty_cols_start.ptr, .len = dirty_cols_start.len },
             .dirty_cols_end = .{ .ptr = dirty_cols_end.ptr, .len = dirty_cols_end.len },
-            .cursor = .{ .row = 0, .col = 1, .visible = 1, .shape = 2, .blink = 1 },
+            .cursor = .{ .row = 0, .col = 1, .visible = 1, .shape = 2, .blink = 1, .reserved0 = 0, .position_changed_by_client_at_ms = 17, .cell_cols = 1, .cell_rows = 1 },
+            .cursor_color = .{ .kind = 2, .value = 0x010203 },
+            .cursor_text_color = .{ .kind = 1, .value = 7 },
+            .extra_cursor_count = 0,
+            .extra_cursors = [_]c.HowlVtExtraCursor{.{}} ** abi.max_extra_cursors,
             .colors = std.mem.zeroes(c.HowlVtRenderColorState),
             .selection = .{ .active = 1, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 1 } },
         },
@@ -365,9 +434,63 @@ test "source publication copy in preserves snapshot and dirty metadata" {
     try std.testing.expectEqual(@as(u64, 13), source.dirty_epoch);
     try std.testing.expect(source.is_alternate_screen);
     try std.testing.expect(!source.cursor_phase_visible);
+    try std.testing.expectEqual(@as(u64, 17), source.cursor.position_changed_by_client_at_ms);
+    try std.testing.expectEqual(@as(u32, 0x010203), source.cursor.cursor_color.value);
+    try std.testing.expectEqual(@as(u32, 7), source.cursor.cursor_text_color.value);
+    try std.testing.expectEqual(@as(u16, 0), source.extra_cursor_count);
+    try std.testing.expectEqual(@as(u16, 0), source.cursor_trail_count);
     try std.testing.expectEqualSlices(u8, dirty_rows[0..], source.dirty_rows);
     try std.testing.expectEqualSlices(u16, dirty_cols_start[0..], source.dirty_cols_start);
     try std.testing.expectEqualSlices(u16, dirty_cols_end[0..], source.dirty_cols_end);
     try std.testing.expectEqual(@as(u32, 'A'), source.cells[0].codepoint);
     try std.testing.expectEqual(@as(u32, 'A'), source.cells[1].codepoint);
+}
+
+test "source publication boundary rejects widened invalid cursor aggregates" {
+    var source = try testSourceFromSnapshot(std.testing.allocator, .{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 17,
+        .dirty_epoch = 17,
+        .is_alternate_screen = false,
+        .dirty_rows = &[_]u8{1},
+        .dirty_cols_start = &[_]u16{0},
+        .dirty_cols_end = &[_]u16{0},
+    });
+    defer source.deinit(std.testing.allocator);
+
+    source.cursor.cell_cols = 0;
+    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSourceBoundary(source));
+
+    source.cursor.cell_cols = 1;
+    source.extra_cursor_count = abi.max_extra_cursors + 1;
+    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSourceBoundary(source));
+
+    source.extra_cursor_count = 0;
+    source.cursor_trail_count = abi.max_cursor_trail_rects + 1;
+    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSourceBoundary(source));
+}
+
+test "source publication ignores inactive extra cursor tail when count is zero" {
+    const cells = [_]abi.SourceCell{ validTestCell(), validTestCell() };
+    const dirty_rows = [_]u8{1};
+    const dirty_cols_start = [_]u16{0};
+    const dirty_cols_end = [_]u16{1};
+    var result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+
+    result.source.extra_cursors[0].shape = 255;
+    result.source.extra_cursors[0].mode = 255;
+    result.source.extra_cursors[0].shape_follows_main = 255;
+    result.source.extra_cursors[0].color_follows_main = 255;
+    result.source.extra_cursors[0].cursor_color = .{ .kind = 3, .value = 0xffffffff };
+    result.source.extra_cursors[0].text_color = .{ .kind = 3, .value = 0xffffffff };
+    result.source.extra_cursor_count = 0;
+
+    var source = try ownedSourceFromSurfaceResult(std.testing.allocator, result, false);
+    defer source.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(u16, 0), source.extra_cursor_count);
+    try std.testing.expectEqual(std.mem.zeroes(abi.SourceExtraCursor), source.extra_cursors[0]);
 }

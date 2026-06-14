@@ -44,7 +44,19 @@ pub fn cursorPresentationChanged(prior: source_publication.PublicationSource, cu
     if (prior.cursor.row != current.cursor.row or prior.cursor.col != current.cursor.col) return true;
     if (prior.cursor.shape != current.cursor.shape) return true;
     if (prior.cursor.blink != current.cursor.blink) return true;
-    if ((prior.cursor.blink or current.cursor.blink) and prior.cursor_phase_visible != current.cursor_phase_visible) return true;
+    if (prior.cursor.position_changed_by_client_at_ms != current.cursor.position_changed_by_client_at_ms) return true;
+    if (prior.cursor.cell_cols != current.cursor.cell_cols) return true;
+    if (prior.cursor.cell_rows != current.cursor.cell_rows) return true;
+    if (!std.mem.eql(u8, std.mem.asBytes(&prior.cursor.cursor_color), std.mem.asBytes(&current.cursor.cursor_color))) return true;
+    if (!std.mem.eql(u8, std.mem.asBytes(&prior.cursor.cursor_text_color), std.mem.asBytes(&current.cursor.cursor_text_color))) return true;
+    if (prior.cursor.cursor_opacity != current.cursor.cursor_opacity) return true;
+    if (prior.cursor.text_blink_opacity != current.cursor.text_blink_opacity) return true;
+    if (prior.cursor.focused != current.cursor.focused) return true;
+    if (prior.cursor.effective_shape != current.cursor.effective_shape) return true;
+    if (prior.extra_cursor_count != current.extra_cursor_count) return true;
+    if (!std.mem.eql(u8, std.mem.sliceAsBytes(prior.extra_cursors[0..prior.extra_cursor_count]), std.mem.sliceAsBytes(current.extra_cursors[0..current.extra_cursor_count]))) return true;
+    if (prior.cursor_trail_count != current.cursor_trail_count) return true;
+    if (!std.mem.eql(u8, std.mem.sliceAsBytes(prior.cursor_trail_rects[0..prior.cursor_trail_count]), std.mem.sliceAsBytes(current.cursor_trail_rects[0..current.cursor_trail_count]))) return true;
     return false;
 }
 
@@ -53,7 +65,11 @@ pub fn colorPresentationChanged(prior: source_publication.PublicationSource, cur
 }
 
 pub fn setSourceCursorBlinkVisible(source: *source_publication.PublicationSource, visible: bool) bool {
-    if (!source.cursor.blink or source.cursor_phase_visible == visible) return false;
+    if (!source.cursor.blink) return false;
+    const opacity: u8 = if (visible) 255 else 0;
+    if (source.cursor.cursor_opacity == opacity) return false;
+    source.cursor.cursor_opacity = opacity;
+    source.cursor.text_blink_opacity = opacity;
     source.cursor_phase_visible = visible;
     return true;
 }
@@ -70,12 +86,24 @@ pub fn samePublicationSource(a: source_publication.PublicationSource, b: source_
         a.snapshot_seq == b.snapshot_seq and
         a.is_alternate_screen == b.is_alternate_screen and
         std.mem.eql(u8, std.mem.asBytes(&a.selection), std.mem.asBytes(&b.selection)) and
-        a.cursor_phase_visible == b.cursor_phase_visible and
         a.cursor.row == b.cursor.row and
         a.cursor.col == b.cursor.col and
         a.cursor.visible == b.cursor.visible and
         a.cursor.shape == b.cursor.shape and
         a.cursor.blink == b.cursor.blink and
+        a.cursor.position_changed_by_client_at_ms == b.cursor.position_changed_by_client_at_ms and
+        a.cursor.cell_cols == b.cursor.cell_cols and
+        a.cursor.cell_rows == b.cursor.cell_rows and
+        std.mem.eql(u8, std.mem.asBytes(&a.cursor.cursor_color), std.mem.asBytes(&b.cursor.cursor_color)) and
+        std.mem.eql(u8, std.mem.asBytes(&a.cursor.cursor_text_color), std.mem.asBytes(&b.cursor.cursor_text_color)) and
+        a.cursor.cursor_opacity == b.cursor.cursor_opacity and
+        a.cursor.text_blink_opacity == b.cursor.text_blink_opacity and
+        a.cursor.focused == b.cursor.focused and
+        a.cursor.effective_shape == b.cursor.effective_shape and
+        a.extra_cursor_count == b.extra_cursor_count and
+        std.mem.eql(u8, std.mem.sliceAsBytes(a.extra_cursors[0..a.extra_cursor_count]), std.mem.sliceAsBytes(b.extra_cursors[0..b.extra_cursor_count])) and
+        a.cursor_trail_count == b.cursor_trail_count and
+        std.mem.eql(u8, std.mem.sliceAsBytes(a.cursor_trail_rects[0..a.cursor_trail_count]), std.mem.sliceAsBytes(b.cursor_trail_rects[0..b.cursor_trail_count])) and
         std.mem.eql(u8, std.mem.asBytes(&a.colors), std.mem.asBytes(&b.colors)) and
         std.mem.eql(u8, std.mem.sliceAsBytes(a.cells), std.mem.sliceAsBytes(b.cells)) and
         std.mem.eql(u8, a.dirty_rows, b.dirty_rows) and
@@ -172,4 +200,37 @@ test "publication damage classifies full damage when rows and cols are fully cov
 test "publication damage keeps partial classification for partial row coverage" {
     const damage_kind = classifyDirty(testSnapshot(2, 3, 0, 1, &[_]u8{ 1, 1 }, &[_]u16{ 0, 1 }, &[_]u16{ 2, 2 }));
     try std.testing.expectEqual(tokens.DamageKind.partial, damage_kind);
+}
+
+test "publication damage treats widened cursor truth as cursor damage not terminal content" {
+    var prior = try source_publication.ownedTestSource(std.testing.allocator, 1, 'a');
+    defer prior.deinit(std.testing.allocator);
+    var current = try source_publication.ownedTestSource(std.testing.allocator, 1, 'a');
+    defer current.deinit(std.testing.allocator);
+
+    current.cursor.position_changed_by_client_at_ms = 9;
+    try std.testing.expect(cursorPresentationChanged(prior, current));
+    try std.testing.expect(!colorPresentationChanged(prior, current));
+}
+
+test "publication damage detects widened empty aggregate changes as cursor damage" {
+    var prior = try source_publication.ownedTestSource(std.testing.allocator, 1, 'a');
+    defer prior.deinit(std.testing.allocator);
+    var current = try source_publication.ownedTestSource(std.testing.allocator, 1, 'a');
+    defer current.deinit(std.testing.allocator);
+
+    current.cursor.cursor_color = .{ .kind = 2, .value = 0x010203 };
+    try std.testing.expect(cursorPresentationChanged(prior, current));
+
+    current.cursor.cursor_color = .{ .kind = 0, .value = 0 };
+    current.extra_cursor_count = 1;
+    current.extra_cursors[0].rows = 1;
+    current.extra_cursors[0].cols = 1;
+    try std.testing.expect(cursorPresentationChanged(prior, current));
+
+    current.extra_cursor_count = 0;
+    current.cursor_trail_count = 1;
+    current.cursor_trail_rects[0].rows = 1;
+    current.cursor_trail_rects[0].cols = 1;
+    try std.testing.expect(cursorPresentationChanged(prior, current));
 }
