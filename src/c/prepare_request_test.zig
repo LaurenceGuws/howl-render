@@ -1,6 +1,7 @@
 const std = @import("std");
 const support = @import("test_support.zig");
 const c = support.c;
+const handle_owner = @import("text_session_handle.zig");
 
 test "render abi prepare request requires vt source" {
     const handle = support.text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
@@ -42,4 +43,33 @@ test "render ffi invalid prepare requests fail and leave output handle null" {
     var partial_zero_damage_base = support.validPartialPrepareRequest();
     partial_zero_damage_base.damage_base_seq = 0;
     try support.expectPrepareHandleFailedWithNullOutput(handle, partial_zero_damage_base);
+}
+
+test "render abi take prepare request keeps retained-backed active source" {
+    const handle = try support.createTestTextSessionHandle();
+    defer support.text.deinit(handle);
+
+    const geometry = support.geometry.syncGeometry(handle, .{
+        .render_px = .{ .width = 16, .height = 16 },
+        .grid_px = .{ .width = 16, .height = 16 },
+    });
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, geometry.status);
+    try std.testing.expect(geometry.changed != 0);
+
+    var cells = [_]support.VtSurfaceCell{support.testCell()};
+    cells[0].codepoint = 'A';
+    const dirty_rows = [_]u8{1};
+    const dirty_cols_start = [_]u16{0};
+    const dirty_cols_end = [_]u16{0};
+    const visible = support.validVtSurfaceResult(1, 1, 1, cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+
+    var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, support.prepare.takePrepareRequest(handle, &visible, &request));
+    try std.testing.expectEqual(@as(u64, 1), request.snapshot_seq);
+    try std.testing.expectEqual(@as(u64, 1), request.geometry_epoch);
+
+    const owner = handle_owner.textSessionOwner(handle) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(owner.prepare_requests.active_source != null);
+    try std.testing.expect(owner.prepare_requests.active_source.?.retained_storage);
+    try std.testing.expectEqual(owner.source_slot.active_slot.cells.ptr, owner.prepare_requests.active_source.?.cells.ptr);
 }

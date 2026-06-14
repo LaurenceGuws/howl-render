@@ -45,6 +45,28 @@ const SteppedUnderlineCadence = struct {
     step_px: u16,
 };
 
+pub const RectDecorationLayout = struct {
+    grid_metrics: contract.GridMetrics,
+    geometry: contract.DecorationGeometry,
+    cols: u32,
+    cell_w_px: u16,
+    cell_h_px: u16,
+
+    pub fn init(cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics) RectDecorationLayout {
+        return .{
+            .grid_metrics = grid_metrics,
+            .geometry = decorationGeometryForCellMetrics(cell_metrics),
+            .cols = @max(@as(u32, grid_metrics.cols), 1),
+            .cell_w_px = cell_metrics.cell_w_px,
+            .cell_h_px = cell_metrics.cell_h_px,
+        };
+    }
+};
+
+pub fn rectDecorationLayout(cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics) RectDecorationLayout {
+    return .init(cell_metrics, grid_metrics);
+}
+
 pub fn countClearDraws(grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
     if (damage.full) return 0;
     const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
@@ -161,6 +183,48 @@ pub fn appendBackgroundDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.Text
     }
 }
 
+pub fn appendBackgroundDrawCellUnmanaged(out: *std.ArrayListUnmanaged(contract.TextBackgroundDraw), merge_live: *bool, merge_end_cell: *u32, cell: contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+    const lead = classifyBackgroundLead(damage, grid_metrics, cell);
+    if (lead == .skip) {
+        merge_live.* = false;
+        return;
+    }
+    if (lead == .transparent) {
+        merge_live.* = false;
+        return;
+    }
+
+    const span = @max(cell.cell_span, 1);
+    if (merge_live.* and out.items.len != 0) {
+        const last = &out.items[out.items.len - 1];
+        const cols = @max(@as(u32, grid_metrics.cols), 1);
+        const last_row: u16 = @intCast(last.first_cell / cols);
+        const cell_row: u16 = @intCast(cell.first_cell / cols);
+        if (sameRgba8(last.color, cell.bg) and last_row == cell_row and cell.first_cell == merge_end_cell.*) {
+            last.width_px = @intCast(@as(u32, last.width_px) + @as(u32, span) * @as(u32, cell_metrics.cell_w_px));
+            const merged_span = @as(u32, last.cell_span) + @as(u32, span);
+            last.cell_span = @intCast(@min(merged_span, @as(u32, std.math.maxInt(u8))));
+            merge_end_cell.* += span;
+            return;
+        }
+    }
+
+    const cols = @max(@as(u32, grid_metrics.cols), 1);
+    const col: u16 = @intCast(cell.first_cell % cols);
+    const row: u16 = @intCast(cell.first_cell / cols);
+    out.appendAssumeCapacity(.{
+        .x_px = @as(i32, @intCast(col)) * @as(i32, @intCast(cell_metrics.cell_w_px)),
+        .y_px = @as(i32, @intCast(row)) * @as(i32, @intCast(cell_metrics.cell_h_px)),
+        .width_px = @intCast(@as(u32, span) * @as(u32, cell_metrics.cell_w_px)),
+        .height_px = cell_metrics.cell_h_px,
+        .color = cell.bg,
+        .first_cell = cell.first_cell,
+        .cell_span = cell.cell_span,
+    });
+    merge_live.* = true;
+    merge_end_cell.* = cell.first_cell + span;
+}
+
 pub fn appendClearDraws(allocator: std.mem.Allocator, out: *std.ArrayList(contract.TextClearDraw), cells: []const contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) !void {
     if (damage.full) return;
     const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
@@ -197,6 +261,43 @@ pub fn appendClearDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.TextClear
             .width_px = @intCast(span_cells * @as(u32, cell_metrics.cell_w_px)),
             .height_px = cell_metrics.cell_h_px,
             .color = clearColorForSpan(cells, grid_metrics, dirty),
+            .first_cell = first_cell,
+            .cell_span = cell_span,
+        });
+    }
+}
+
+pub fn noteClearColorCell(clear_row_colors: []contract.Rgba8, clear_row_matches: []bool, cell: contract.RenderableCell, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+    if (damage.full) return;
+    if (cell.continuation) return;
+    if (cell.bg.a != 0) return;
+
+    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        if (clear_row_matches[row]) continue;
+        const dirty = scene_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+        if (!scene_damage.dirtySpanOverlapsCellSpan(grid_metrics, dirty, cell)) continue;
+        clear_row_colors[row] = .{ .r = cell.bg.r, .g = cell.bg.g, .b = cell.bg.b, .a = 255 };
+        clear_row_matches[row] = true;
+    }
+}
+
+pub fn appendClearRowDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.TextClearDraw), clear_row_colors: []const contract.Rgba8, clear_row_matches: []const bool, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+    if (damage.full) return;
+    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
+    var row: u16 = 0;
+    while (row < rows) : (row += 1) {
+        const dirty = scene_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+        const first_cell = dirty.firstCell(grid_metrics);
+        const cell_span = dirty.cellSpan();
+        const span_cells = @as(u32, @max(cell_span, 1));
+        out.appendAssumeCapacity(.{
+            .x_px = @as(i32, @intCast(dirty.start_col)) * @as(i32, @intCast(cell_metrics.cell_w_px)),
+            .y_px = @as(i32, @intCast(row)) * @as(i32, @intCast(cell_metrics.cell_h_px)),
+            .width_px = @intCast(span_cells * @as(u32, cell_metrics.cell_w_px)),
+            .height_px = cell_metrics.cell_h_px,
+            .color = if (clear_row_matches[row]) clear_row_colors[row] else .{ .r = 0, .g = 0, .b = 0, .a = 255 },
             .first_cell = first_cell,
             .cell_span = cell_span,
         });
@@ -261,6 +362,22 @@ pub fn appendRectDecorationDrawsUnmanaged(comptime underline_color_fn: fn (contr
         if (cell.underline and cell.underline_style != .curly) appendUnderlineDrawsUnmanaged(out, cell, base_x, base_y, width_px, deco, underline_color_fn(cell));
         if (cell.strikethrough) appendDecorationUnmanaged(out, .{ .kind = .strikethrough, .x_px = base_x, .y_px = base_y + deco.strikethrough_y_px, .width_px = width_px, .height_px = deco.strikethrough_h_px, .color = text_color_fn(cell), .first_cell = cell.first_cell, .cell_span = cell.cell_span });
     }
+}
+
+pub fn appendRectDecorationCellDrawsUnmanaged(comptime underline_color_fn: fn (contract.RenderableCell) contract.Rgba8, comptime text_color_fn: fn (contract.RenderableCell) contract.Rgba8, out: *std.ArrayListUnmanaged(contract.TextDecorationDraw), cell: contract.RenderableCell, cell_metrics: contract.CellMetrics, grid_metrics: contract.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+    const layout = rectDecorationLayout(cell_metrics, grid_metrics);
+    appendRectDecorationCellDrawsWithLayoutUnmanaged(underline_color_fn, text_color_fn, out, cell, layout, damage);
+}
+
+pub fn appendRectDecorationCellDrawsWithLayoutUnmanaged(comptime underline_color_fn: fn (contract.RenderableCell) contract.Rgba8, comptime text_color_fn: fn (contract.RenderableCell) contract.Rgba8, out: *std.ArrayListUnmanaged(contract.TextDecorationDraw), cell: contract.RenderableCell, layout: RectDecorationLayout, damage: scene_damage.NormalizedDamage) void {
+    if (classifyDecorationLead(damage, layout.grid_metrics, cell) != .draw) return;
+    const col = cell.first_cell % layout.cols;
+    const row = cell.first_cell / layout.cols;
+    const base_x = @as(i32, @intCast(col)) * @as(i32, @intCast(layout.cell_w_px));
+    const base_y = @as(i32, @intCast(row)) * @as(i32, @intCast(layout.cell_h_px));
+    const width_px: u16 = @intCast(@as(u32, @max(cell.cell_span, 1)) * @as(u32, layout.cell_w_px));
+    if (cell.underline and cell.underline_style != .curly) appendUnderlineDrawsUnmanaged(out, cell, base_x, base_y, width_px, layout.geometry, underline_color_fn(cell));
+    if (cell.strikethrough) appendDecorationUnmanaged(out, .{ .kind = .strikethrough, .x_px = base_x, .y_px = base_y + layout.geometry.strikethrough_y_px, .width_px = width_px, .height_px = layout.geometry.strikethrough_h_px, .color = text_color_fn(cell), .first_cell = cell.first_cell, .cell_span = cell.cell_span });
 }
 
 fn classifyCursorLead(damage: scene_damage.NormalizedDamage, cursor: anytype) CursorLead {

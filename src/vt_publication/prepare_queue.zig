@@ -3,6 +3,7 @@ const geometry_contract = @import("../geometry_contract.zig");
 const tokens = @import("../tokens.zig");
 const publication_damage = @import("damage.zig");
 const publication_storage = @import("source_slot.zig");
+const source_abi = @import("abi.zig");
 const vt_publication = @import("publication.zig");
 
 pub const PrepareConsume = struct {
@@ -34,18 +35,18 @@ pub const PrepareRequests = struct {
         self.blink_refresh_pending = false;
     }
 
-    pub fn admitSource(self: *PrepareRequests, source: vt_publication.PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) AdmissionResult {
-        var owned = source;
-        publication_damage.canonicalizeDirtyMetadata(owned.rows, owned.dirty_rows, owned.dirty_cols_start, owned.dirty_cols_end);
-        const snapshot = owned.snapshot();
-        const damage_kind = self.classify(owned, submitted_token, geometry_epoch);
+    pub fn admitSource(self: *PrepareRequests, slot_owner: *publication_storage.SourceSlot, source: vt_publication.PublicationSource, submitted_token: ?tokens.SnapshotToken, geometry_epoch: u64) AdmissionResult {
+        var admitted_source = source;
+        publication_damage.canonicalizeDirtyMetadata(admitted_source.rows, admitted_source.dirty_rows, admitted_source.dirty_cols_start, admitted_source.dirty_cols_end);
+        const snapshot = admitted_source.snapshot();
+        const damage_kind = self.classify(admitted_source, submitted_token, geometry_epoch);
         const admitted = damage_kind != .none;
         if (!admitted) {
-            owned.deinit(self.allocator);
+            admitted_source.deinit(self.allocator);
         } else {
             const allow_retained_reuse = !self.geometryChanged(geometry_epoch);
-            const active_source = takeOwnedActiveSource(self.allocator, &owned) catch {
-                owned.deinit(self.allocator);
+            if (admitted_source.retained_storage) slot_owner.promoteStagedSource(&admitted_source) catch {
+                admitted_source.deinit(self.allocator);
                 return .{
                     .admitted = false,
                     .damage_kind = .none,
@@ -53,6 +54,8 @@ pub const PrepareRequests = struct {
                     .geometry_epoch = geometry_epoch,
                 };
             };
+            std.debug.assert(!admitted_source.retained_storage or admitted_source.cells.ptr == slot_owner.active_slot.cells.ptr);
+            const active_source = takeOwnedActiveSource(&admitted_source);
             const token = tokens.SnapshotToken{
                 .snapshot_seq = active_source.snapshot_seq,
                 .dirty_epoch = active_source.dirty_epoch,
@@ -146,7 +149,7 @@ pub const PrepareRequests = struct {
 
     pub fn refreshRetainedSlotViews(self: *PrepareRequests, slot_owner: *publication_storage.SourceSlot) void {
         if (self.active_source) |*source| {
-            if (source.retained_storage) slot_owner.refreshRetainedSource(source);
+            if (source.retained_storage) slot_owner.refreshActiveSource(source);
         }
     }
 
@@ -205,12 +208,8 @@ pub const PrepareRequests = struct {
     }
 };
 
-fn takeOwnedActiveSource(allocator: std.mem.Allocator, source: *vt_publication.PublicationSource) !vt_publication.PublicationSource {
-    if (!source.retained_storage) return source.*;
-    const cloned = try source.clone(allocator);
-    std.debug.assert(!cloned.retained_storage);
-    source.deinit(allocator);
-    return cloned;
+fn takeOwnedActiveSource(source: *vt_publication.PublicationSource) vt_publication.PublicationSource {
+    return source.*;
 }
 
 test "prepare requests keep no staged source" {
@@ -223,11 +222,13 @@ test "prepare requests keep no staged source" {
 test "prepare requests ignore duplicate admitted source" {
     var requests = PrepareRequests.init(std.testing.allocator);
     defer requests.deinit();
+    var slot_owner = publication_storage.SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
 
-    const first = requests.admitSource(try vt_publication.ownedTestSource(std.testing.allocator, 1, 'A'), null, 1);
+    const first = requests.admitSource(&slot_owner, try vt_publication.ownedTestSource(std.testing.allocator, 1, 'A'), null, 1);
     try std.testing.expect(first.admitted);
 
-    const duplicate = requests.admitSource(try vt_publication.ownedTestSource(std.testing.allocator, 1, 'A'), null, 1);
+    const duplicate = requests.admitSource(&slot_owner, try vt_publication.ownedTestSource(std.testing.allocator, 1, 'A'), null, 1);
     try std.testing.expect(!duplicate.admitted);
     try std.testing.expectEqual(tokens.DamageKind.none, duplicate.damage_kind);
     try std.testing.expectEqual(@as(u64, 1), requests.active_request.token.snapshot_seq);
@@ -236,14 +237,16 @@ test "prepare requests ignore duplicate admitted source" {
 test "prepare requests admit full retained-safe source when geometry changes" {
     var requests = PrepareRequests.init(std.testing.allocator);
     defer requests.deinit();
+    var slot_owner = publication_storage.SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
 
-    const first_admission = requests.admitSource(try vt_publication.ownedTestSource(std.testing.allocator, 1, 'A'), null, 1);
+    const first_admission = requests.admitSource(&slot_owner, try vt_publication.ownedTestSource(std.testing.allocator, 1, 'A'), null, 1);
     try std.testing.expect(first_admission.admitted);
 
     const submitted_request = requests.takePrepareRequest(1) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), submitted_request.token.geometry_epoch);
 
-    const resize_admission = requests.admitSource(try vt_publication.ownedTestSource(std.testing.allocator, 1, 'A'), submitted_request.token, 2);
+    const resize_admission = requests.admitSource(&slot_owner, try vt_publication.ownedTestSource(std.testing.allocator, 1, 'A'), submitted_request.token, 2);
     try std.testing.expect(resize_admission.admitted);
     try std.testing.expectEqual(tokens.DamageKind.full, resize_admission.damage_kind);
 
@@ -257,8 +260,10 @@ test "prepare requests admit full retained-safe source when geometry changes" {
 test "prepare requests force full when partial source has stale submitted base" {
     var requests = PrepareRequests.init(std.testing.allocator);
     defer requests.deinit();
+    var slot_owner = publication_storage.SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
 
-    const first = requests.admitSource(try vt_publication.ownedTestSource(std.testing.allocator, 2, 'A'), null, 1);
+    const first = requests.admitSource(&slot_owner, try vt_publication.ownedTestSource(std.testing.allocator, 2, 'A'), null, 1);
     try std.testing.expect(first.admitted);
 
     var source = try vt_publication.testSourceFromSnapshot(std.testing.allocator, .{
@@ -275,7 +280,7 @@ test "prepare requests force full when partial source has stale submitted base" 
     });
     source.cells[0].codepoint = 'A';
     source.cells[1].codepoint = 'B';
-    const admission = requests.admitSource(source, .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, 1);
+    const admission = requests.admitSource(&slot_owner, source, .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, 1);
     try std.testing.expect(admission.admitted);
     try std.testing.expectEqual(tokens.DamageKind.full, admission.damage_kind);
 }
@@ -283,10 +288,12 @@ test "prepare requests force full when partial source has stale submitted base" 
 test "prepare requests schedule blink refresh after taken prepare" {
     var requests = PrepareRequests.init(std.testing.allocator);
     defer requests.deinit();
+    var slot_owner = publication_storage.SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
 
     var source = try vt_publication.ownedTestSource(std.testing.allocator, 1, 'A');
     source.cursor.blink = true;
-    const admission = requests.admitSource(source, null, 1);
+    const admission = requests.admitSource(&slot_owner, source, null, 1);
     try std.testing.expect(admission.admitted);
     _ = requests.takePrepareRequest(1) orelse return error.TestUnexpectedResult;
 
@@ -300,8 +307,10 @@ test "prepare requests schedule blink refresh after taken prepare" {
 test "prepare requests reject retry token mismatch for taken prepare" {
     var requests = PrepareRequests.init(std.testing.allocator);
     defer requests.deinit();
+    var slot_owner = publication_storage.SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
 
-    const admission = requests.admitSource(try vt_publication.ownedTestSource(std.testing.allocator, 3, 'A'), null, 1);
+    const admission = requests.admitSource(&slot_owner, try vt_publication.ownedTestSource(std.testing.allocator, 3, 'A'), null, 1);
     try std.testing.expect(admission.admitted);
     const request = requests.takePrepareRequest(1) orelse return error.TestUnexpectedResult;
     const wrong = tokens.SnapshotToken{
@@ -318,8 +327,10 @@ test "prepare requests reject retry token mismatch for taken prepare" {
 test "prepare requests retire active source at or before submitted token" {
     var requests = PrepareRequests.init(std.testing.allocator);
     defer requests.deinit();
+    var slot_owner = publication_storage.SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
 
-    const admission = requests.admitSource(try vt_publication.ownedTestSource(std.testing.allocator, 5, 'A'), null, 1);
+    const admission = requests.admitSource(&slot_owner, try vt_publication.ownedTestSource(std.testing.allocator, 5, 'A'), null, 1);
     try std.testing.expect(admission.admitted);
 
     requests.retireAtOrBefore(.{ .snapshot_seq = 4, .dirty_epoch = 4, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full });
@@ -327,4 +338,71 @@ test "prepare requests retire active source at or before submitted token" {
 
     requests.retireAtOrBefore(.{ .snapshot_seq = 5, .dirty_epoch = 5, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full });
     try std.testing.expect(requests.active_source == null);
+}
+
+test "prepare requests retained admission stays retained-backed" {
+    var requests = PrepareRequests.init(std.testing.allocator);
+    defer requests.deinit();
+    var slot_owner = publication_storage.SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
+
+    var cells = [_]source_abi.SourceCell{ std.mem.zeroes(source_abi.SourceCell), std.mem.zeroes(source_abi.SourceCell) };
+    cells[0].codepoint = 'A';
+    cells[1].codepoint = 'B';
+    const retained_source = try slot_owner.copyPublishedSource(vt_publication.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{1}), 10, true);
+
+    const admission = requests.admitSource(&slot_owner, retained_source, null, 1);
+    try std.testing.expect(admission.admitted);
+    try std.testing.expect(requests.active_source != null);
+    try std.testing.expect(requests.active_source.?.retained_storage);
+    try std.testing.expectEqual(slot_owner.active_slot.cells.ptr, requests.active_source.?.cells.ptr);
+    try std.testing.expectEqual(slot_owner.active_slot.dirty_rows.ptr, requests.active_source.?.dirty_rows.ptr);
+}
+
+test "prepare requests second retained admission classifies against stable prior contents" {
+    var requests = PrepareRequests.init(std.testing.allocator);
+    defer requests.deinit();
+    var slot_owner = publication_storage.SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
+
+    var first_cells = [_]source_abi.SourceCell{ std.mem.zeroes(source_abi.SourceCell), std.mem.zeroes(source_abi.SourceCell) };
+    first_cells[0].codepoint = 'A';
+    first_cells[1].codepoint = 'B';
+    const first_source = try slot_owner.copyPublishedSource(vt_publication.validSurfaceResult(first_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{1}), 1, true);
+    const first = requests.admitSource(&slot_owner, first_source, null, 1);
+    try std.testing.expect(first.admitted);
+    try std.testing.expectEqual(@as(u32, 'A'), slot_owner.active_slot.cells[0].codepoint);
+
+    var second_cells = [_]source_abi.SourceCell{ std.mem.zeroes(source_abi.SourceCell), std.mem.zeroes(source_abi.SourceCell) };
+    second_cells[0].codepoint = 'A';
+    second_cells[1].codepoint = 'C';
+    const second_source = try slot_owner.copyPublishedSource(vt_publication.validSurfaceResult(second_cells[0..], &[_]u8{1}, &[_]u16{1}, &[_]u16{1}), 2, true);
+    try std.testing.expectEqual(@as(u32, 'A'), slot_owner.active_slot.cells[0].codepoint);
+    const second = requests.admitSource(&slot_owner, second_source, .{ .snapshot_seq = 11, .dirty_epoch = 10, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, 1);
+    try std.testing.expect(second.admitted);
+    try std.testing.expectEqual(tokens.DamageKind.partial, second.damage_kind);
+}
+
+test "prepare requests duplicate staged source does not disturb active slot" {
+    var requests = PrepareRequests.init(std.testing.allocator);
+    defer requests.deinit();
+    var slot_owner = publication_storage.SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
+
+    var first_cells = [_]source_abi.SourceCell{ std.mem.zeroes(source_abi.SourceCell), std.mem.zeroes(source_abi.SourceCell) };
+    first_cells[0].codepoint = 'A';
+    first_cells[1].codepoint = 'B';
+    const first_source = try slot_owner.copyPublishedSource(vt_publication.validSurfaceResult(first_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{1}), 1, true);
+    const first = requests.admitSource(&slot_owner, first_source, null, 1);
+    try std.testing.expect(first.admitted);
+
+    var duplicate_cells = [_]source_abi.SourceCell{ std.mem.zeroes(source_abi.SourceCell), std.mem.zeroes(source_abi.SourceCell) };
+    duplicate_cells[0].codepoint = 'A';
+    duplicate_cells[1].codepoint = 'B';
+    const duplicate_source = try slot_owner.copyPublishedSource(vt_publication.validSurfaceResult(duplicate_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{1}), 2, true);
+    const duplicate = requests.admitSource(&slot_owner, duplicate_source, .{ .snapshot_seq = 11, .dirty_epoch = 10, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, 1);
+    try std.testing.expect(!duplicate.admitted);
+    try std.testing.expectEqual(@as(u32, 'A'), slot_owner.active_slot.cells[0].codepoint);
+    try std.testing.expectEqual(@as(u32, 'B'), slot_owner.active_slot.cells[1].codepoint);
+    try std.testing.expectEqual(slot_owner.active_slot.cells.ptr, requests.active_source.?.cells.ptr);
 }

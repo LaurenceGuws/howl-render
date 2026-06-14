@@ -67,7 +67,8 @@ pub const RetainedSlot = struct {
 
 pub const SourceSlot = struct {
     allocator: std.mem.Allocator,
-    retained_slot: RetainedSlot = .{},
+    staged_slot: RetainedSlot = .{},
+    active_slot: RetainedSlot = .{},
     reserved: ?source_publication.PublicationSource = null,
 
     pub fn init(allocator: std.mem.Allocator) SourceSlot {
@@ -77,14 +78,16 @@ pub const SourceSlot = struct {
     pub fn deinit(self: *SourceSlot) void {
         if (self.reserved) |*source| source.deinit(self.allocator);
         self.reserved = null;
-        self.retained_slot.deinit(self.allocator);
+        self.active_slot.deinit(self.allocator);
+        self.staged_slot.deinit(self.allocator);
     }
 
     pub fn syncReservedSlotCapacity(self: *SourceSlot, cols: u16, rows: u16) !void {
         std.debug.assert(cols > 0);
         std.debug.assert(rows > 0);
-        try self.retained_slot.ensureCapacity(self.allocator, cols, rows);
-        self.refreshRetainedSlotViews();
+        try self.staged_slot.ensureCapacity(self.allocator, cols, rows);
+        try self.active_slot.ensureCapacity(self.allocator, cols, rows);
+        self.refreshStagedSlotView();
     }
 
     pub fn copyPublishedSource(self: *SourceSlot, source_result: anytype, dirty_epoch: u64, cursor_phase_visible: bool) !source_publication.PublicationSource {
@@ -96,8 +99,8 @@ pub const SourceSlot = struct {
         std.debug.assert(surface.dirty_cols_start.len == surface.rows);
         std.debug.assert(surface.dirty_cols_end.len == surface.rows);
 
-        try self.retained_slot.ensureCapacity(self.allocator, surface.cols, surface.rows);
-        const slot = self.retained_slot.vtSurfaceSlot(surface.cols, surface.rows);
+        try self.staged_slot.ensureCapacity(self.allocator, surface.cols, surface.rows);
+        const slot = self.staged_slot.vtSurfaceSlot(surface.cols, surface.rows);
         std.debug.assert(slot.cells.len == cell_count);
         @memcpy(slot.cells, surface.surface_cells.ptr[0..surface.surface_cells.len]);
         @memcpy(slot.dirty_rows, surface.dirty_rows.ptr[0..surface.dirty_rows.len]);
@@ -132,10 +135,10 @@ pub const SourceSlot = struct {
         std.debug.assert(cols > 0);
         std.debug.assert(rows > 0);
         if (self.reserved != null) return error.VtSurfaceSlotBusy;
-        if (!self.retained_slot.canHold(cols, rows)) return error.VtSurfaceSlotOutOfRange;
+        if (!self.staged_slot.canHold(cols, rows)) return error.VtSurfaceSlotOutOfRange;
 
-        self.reserved = self.retainedSource(cols, rows);
-        return self.retained_slot.vtSurfaceSlot(cols, rows);
+        self.reserved = self.retainedSource(&self.staged_slot, cols, rows);
+        return self.staged_slot.vtSurfaceSlot(cols, rows);
     }
 
     pub fn cancelReservedSource(self: *SourceSlot) void {
@@ -177,12 +180,55 @@ pub const SourceSlot = struct {
         return null;
     }
 
+    pub fn promoteStagedSource(self: *SourceSlot, source: *source_publication.PublicationSource) !void {
+        std.debug.assert(source.retained_storage);
+        std.debug.assert(source.cells.ptr == self.staged_slot.cells.ptr);
+        std.debug.assert(source.dirty_rows.ptr == self.staged_slot.dirty_rows.ptr);
+        std.debug.assert(source.dirty_cols_start.ptr == self.staged_slot.dirty_cols_start.ptr);
+        std.debug.assert(source.dirty_cols_end.ptr == self.staged_slot.dirty_cols_end.ptr);
+
+        try self.active_slot.ensureCapacity(self.allocator, source.cols, source.rows);
+        const cell_count = try slotCellCountChecked(source.cols, source.rows);
+        const slot = self.active_slot.vtSurfaceSlot(source.cols, source.rows);
+        std.debug.assert(slot.cells.len == cell_count);
+        @memcpy(slot.cells, source.cells);
+        @memcpy(slot.dirty_rows, source.dirty_rows);
+        @memcpy(slot.dirty_cols_start, source.dirty_cols_start);
+        @memcpy(slot.dirty_cols_end, source.dirty_cols_end);
+
+        const history_count = source.history_count;
+        const scroll_row = source.scroll_row;
+        const snapshot_seq = source.snapshot_seq;
+        const dirty_epoch = source.dirty_epoch;
+        const is_alternate_screen = source.is_alternate_screen;
+        const cursor = source.cursor;
+        const colors = source.colors;
+        const selection = source.selection;
+        const cursor_phase_visible = source.cursor_phase_visible;
+
+        source.* = self.retainedSource(&self.active_slot, source.cols, source.rows);
+        source.history_count = history_count;
+        source.scroll_row = scroll_row;
+        source.snapshot_seq = snapshot_seq;
+        source.dirty_epoch = dirty_epoch;
+        source.is_alternate_screen = is_alternate_screen;
+        source.cursor = cursor;
+        source.colors = colors;
+        source.selection = selection;
+        source.cursor_phase_visible = cursor_phase_visible;
+
+        std.debug.assert(source.snapshot_seq != 0);
+        std.debug.assert(source.dirty_epoch != 0);
+        try source_abi.validateSourceCells(source.cells);
+        try source_damage.validateDirtySource(source.rows, source.cols, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
+    }
+
     pub fn sourcePending(self: *const SourceSlot) bool {
         return self.reserved != null;
     }
 
-    fn retainedSource(self: *const SourceSlot, cols: u16, rows: u16) source_publication.PublicationSource {
-        const slot = self.retained_slot.vtSurfaceSlot(cols, rows);
+    fn retainedSource(_: *const SourceSlot, slot_owner: *const RetainedSlot, cols: u16, rows: u16) source_publication.PublicationSource {
+        const slot = slot_owner.vtSurfaceSlot(cols, rows);
         return .{
             .cols = cols,
             .rows = rows,
@@ -203,13 +249,17 @@ pub const SourceSlot = struct {
         };
     }
 
-    fn refreshRetainedSlotViews(self: *SourceSlot) void {
+    fn refreshStagedSlotView(self: *SourceSlot) void {
         if (self.reserved) |*source| {
-            if (source.retained_storage) self.refreshRetainedSource(source);
+            if (source.retained_storage) self.refreshSourceForSlot(source, &self.staged_slot);
         }
     }
 
-    pub fn refreshRetainedSource(self: *SourceSlot, source: *source_publication.PublicationSource) void {
+    pub fn refreshActiveSource(self: *SourceSlot, source: *source_publication.PublicationSource) void {
+        self.refreshSourceForSlot(source, &self.active_slot);
+    }
+
+    fn refreshSourceForSlot(self: *SourceSlot, source: *source_publication.PublicationSource, slot_owner: *const RetainedSlot) void {
         const scroll_row = source.scroll_row;
         const history_count = source.history_count;
         const snapshot_seq = source.snapshot_seq;
@@ -219,7 +269,7 @@ pub const SourceSlot = struct {
         const colors = source.colors;
         const selection = source.selection;
         const cursor_phase_visible = source.cursor_phase_visible;
-        source.* = self.retainedSource(source.cols, source.rows);
+        source.* = self.retainedSource(slot_owner, source.cols, source.rows);
         source.history_count = history_count;
         source.scroll_row = scroll_row;
         source.snapshot_seq = snapshot_seq;
@@ -281,7 +331,7 @@ test "source slot exposes retained source cell storage for publication" {
     try slot_owner.syncReservedSlotCapacity(2, 1);
 
     const slot = try slot_owner.reserveSourceSlot(2, 1);
-    try std.testing.expectEqual(slot_owner.retained_slot.cells.ptr, slot.cells.ptr);
+    try std.testing.expectEqual(slot_owner.staged_slot.cells.ptr, slot.cells.ptr);
     try std.testing.expectEqual(@as(usize, 2), slot.cells.len);
     slot_owner.cancelReservedSource();
 }
@@ -359,13 +409,13 @@ test "source slot retained source deinit does not free retained storage" {
         .colors = std.mem.zeroes(source_abi.SourceColors),
         .selection = std.mem.zeroes(source_abi.SourceSelection),
     }, 1);
-    const retained_cells = slot_owner.retained_slot.cells.ptr;
-    const retained_dirty_rows = slot_owner.retained_slot.dirty_rows.ptr;
+    const retained_cells = slot_owner.staged_slot.cells.ptr;
+    const retained_dirty_rows = slot_owner.staged_slot.dirty_rows.ptr;
 
     source.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(retained_cells, slot_owner.retained_slot.cells.ptr);
-    try std.testing.expectEqual(retained_dirty_rows, slot_owner.retained_slot.dirty_rows.ptr);
+    try std.testing.expectEqual(retained_cells, slot_owner.staged_slot.cells.ptr);
+    try std.testing.expectEqual(retained_dirty_rows, slot_owner.staged_slot.dirty_rows.ptr);
     const next = try slot_owner.reserveSourceSlot(1, 1);
     try std.testing.expectEqual(retained_cells, next.cells.ptr);
     slot_owner.cancelReservedSource();
@@ -415,7 +465,7 @@ test "source slot refresh preserves snapshot and dirty metadata" {
     slot.dirty_cols_start[0] = 0;
     slot.dirty_cols_end[0] = 1;
 
-    const source = try slot_owner.commitReservedSource(.{
+    var source = try slot_owner.commitReservedSource(.{
         .history_count = 4,
         .scroll_row = 3,
         .snapshot_seq = 8,
@@ -425,13 +475,64 @@ test "source slot refresh preserves snapshot and dirty metadata" {
         .selection = std.mem.zeroes(source_abi.SourceSelection),
     }, 9);
 
+    try slot_owner.promoteStagedSource(&source);
+
+    const old_staged_cells = slot_owner.staged_slot.cells.ptr;
+    const old_active_cells = slot_owner.active_slot.cells.ptr;
+    const old_active_dirty_rows = slot_owner.active_slot.dirty_rows.ptr;
+
     try slot_owner.syncReservedSlotCapacity(3, 2);
+    slot_owner.refreshActiveSource(&source);
 
     try std.testing.expect(source.retained_storage);
+    try std.testing.expect(old_staged_cells != slot_owner.staged_slot.cells.ptr);
+    try std.testing.expect(old_active_cells != slot_owner.active_slot.cells.ptr);
+    try std.testing.expect(old_active_dirty_rows != slot_owner.active_slot.dirty_rows.ptr);
     try std.testing.expectEqual(@as(u64, 4), source.history_count);
     try std.testing.expectEqual(@as(u64, 3), source.scroll_row);
     try std.testing.expectEqual(@as(u64, 8), source.snapshot_seq);
     try std.testing.expectEqual(@as(u64, 9), source.dirty_epoch);
     try std.testing.expect(source.is_alternate_screen);
     try std.testing.expectEqual(@as(usize, 1), source.dirty_rows.len);
+    try std.testing.expectEqual(slot_owner.active_slot.cells.ptr, source.cells.ptr);
+    try std.testing.expectEqual(slot_owner.active_slot.dirty_rows.ptr, source.dirty_rows.ptr);
+
+    const refreshed_slot = try slot_owner.reserveSourceSlot(3, 2);
+    defer slot_owner.cancelReservedSource();
+    try std.testing.expectEqual(slot_owner.staged_slot.cells.ptr, refreshed_slot.cells.ptr);
+    try std.testing.expectEqual(slot_owner.staged_slot.dirty_rows.ptr, refreshed_slot.dirty_rows.ptr);
+    const refreshed_source = slot_owner.reservedSource() orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(slot_owner.staged_slot.cells.ptr, refreshed_source.cells.ptr);
+    try std.testing.expectEqual(slot_owner.staged_slot.dirty_rows.ptr, refreshed_source.dirty_rows.ptr);
+}
+
+test "source slot staged and active publications stay separate" {
+    var slot_owner = SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
+
+    var first_cells = [_]source_abi.SourceCell{ testCell('A'), testCell('B') };
+    const first_result = source_publication.validSurfaceResult(first_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{1});
+    var active_source = try slot_owner.copyPublishedSource(first_result, 21, true);
+    try slot_owner.promoteStagedSource(&active_source);
+
+    var second_cells = [_]source_abi.SourceCell{ testCell('C'), testCell('D') };
+    const second_result = source_publication.validSurfaceResult(second_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{1});
+    const staged_source = try slot_owner.copyPublishedSource(second_result, 22, false);
+
+    try std.testing.expectEqual(@as(u32, 'A'), active_source.cells[0].codepoint);
+    try std.testing.expectEqual(@as(u32, 'B'), active_source.cells[1].codepoint);
+    try std.testing.expectEqual(@as(u32, 'C'), staged_source.cells[0].codepoint);
+    try std.testing.expectEqual(@as(u32, 'D'), staged_source.cells[1].codepoint);
+    try std.testing.expectEqual(slot_owner.active_slot.cells.ptr, active_source.cells.ptr);
+    try std.testing.expectEqual(slot_owner.staged_slot.cells.ptr, staged_source.cells.ptr);
+    try std.testing.expect(active_source.cells.ptr != staged_source.cells.ptr);
+    try std.testing.expect(active_source.dirty_rows.ptr != staged_source.dirty_rows.ptr);
+    try std.testing.expect(active_source.dirty_cols_start.ptr != staged_source.dirty_cols_start.ptr);
+    try std.testing.expect(active_source.dirty_cols_end.ptr != staged_source.dirty_cols_end.ptr);
+}
+
+fn testCell(codepoint: u21) source_abi.SourceCell {
+    var cell = std.mem.zeroes(source_abi.SourceCell);
+    cell.codepoint = codepoint;
+    return cell;
 }

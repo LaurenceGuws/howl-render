@@ -2,15 +2,16 @@ const std = @import("std");
 const c = @import("howl_render_c");
 const handle_owner = @import("text_session_handle.zig");
 const tokens = @import("../tokens.zig");
-const source_publication = @import("../vt_publication/publication.zig");
 
 pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, vt_surface: ?*const c.HowlVtSurfaceResult, out: ?*c.HowlRenderPrepareRequest) callconv(.c) c_int {
     const prepare_out = out orelse return c.HOWL_RENDER_PREPARE_FAILED;
     prepare_out.* = std.mem.zeroes(c.HowlRenderPrepareRequest);
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const visible = vt_surface orelse return c.HOWL_RENDER_PREPARE_FAILED;
-    const source = source_publication.ownedSourceFromSurfaceResult(owner.allocator, visible.*, owner.cursor_blink_visible) catch return c.HOWL_RENDER_PREPARE_FAILED;
-    _ = owner.prepare_requests.admitSource(source, owner.submittedToken(), owner.geometry.geometry_epoch);
+    const source = owner.source_slot.copyPublishedSource(visible.*, owner.nextSourceDirtyEpoch(), owner.cursor_blink_visible) catch return c.HOWL_RENDER_PREPARE_FAILED;
+    std.debug.assert(source.snapshot_seq != 0);
+    std.debug.assert(source.dirty_epoch != 0);
+    _ = owner.prepare_requests.admitSource(&owner.source_slot, source, owner.submittedToken(), owner.geometry.geometry_epoch);
     const request = owner.prepare() orelse return c.HOWL_RENDER_PREPARE_IDLE;
     prepare_out.* = prepareRequestOut(request);
     return c.HOWL_RENDER_PREPARE_READY;

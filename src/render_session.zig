@@ -740,7 +740,7 @@ test "render session owner rejects prepared work after resize publication" {
     try std.testing.expectEqual(@as(u64, 1), initial_geometry.geometry_epoch);
 
     const first_source = try testSource(std.testing.allocator, 1, 'A');
-    const first_admission = owner.prepare_requests.admitSource(first_source, owner.submittedToken(), owner.geometry.geometry_epoch);
+    const first_admission = owner.prepare_requests.admitSource(&owner.source_slot, first_source, owner.submittedToken(), owner.geometry.geometry_epoch);
     try std.testing.expect(first_admission.admitted);
     try std.testing.expectEqual(@as(u64, 1), first_admission.geometry_epoch);
 
@@ -760,7 +760,7 @@ test "render session owner rejects prepared work after resize publication" {
     try std.testing.expect(resized_geometry.geometry_epoch > old_request.token.geometry_epoch);
 
     const resized_source = try testSource(std.testing.allocator, 2, 'A');
-    const resized_admission = owner.prepare_requests.admitSource(resized_source, owner.submittedToken(), resized_geometry.geometry_epoch);
+    const resized_admission = owner.prepare_requests.admitSource(&owner.source_slot, resized_source, owner.submittedToken(), resized_geometry.geometry_epoch);
     try std.testing.expect(resized_admission.admitted);
     try std.testing.expectEqual(tokens.DamageKind.full, resized_admission.damage_kind);
     try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_admission.geometry_epoch);

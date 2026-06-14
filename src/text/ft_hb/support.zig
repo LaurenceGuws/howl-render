@@ -194,8 +194,9 @@ pub fn providerShapeRunWithConfig(
         if (state.active_resolve) |obs| obs.counters.shape_cache_hits += 1;
         return cached;
     }
-    var shaped = if (try shapePlainAsciiRun(state, config, allocator, run, text_cache_view, clusters, cell_metrics, window)) |ascii|
-        ascii
+    const ascii = try shapePlainAsciiRun(state, config, allocator, run, text_cache_view, clusters, cell_metrics, window);
+    var shaped = if (ascii) |ascii_run|
+        ascii_run
     else
         try shapeRunViaProviderOrFallback(state, config, allocator, run, text_cache_view, clusters, cell_metrics, window);
     errdefer shaped.deinit();
