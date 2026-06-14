@@ -4,6 +4,14 @@ const generated_special = @import("generated_special.zig");
 const PointF = generated_special.PointF;
 const Range = generated_special.Range;
 
+pub fn rasterHasPositiveSize(width: u16, height: u16) bool {
+    return width > 0 and height > 0;
+}
+
+fn assertPositiveRasterSize(width: u16, height: u16) void {
+    std.debug.assert(rasterHasPositiveSize(width, height));
+}
+
 pub fn rasterizeGeneratedEightBarAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32) void {
     if (codepoint <= 0x1fb75) {
         rasterizeEightBarAlpha(pixels, width, height, @intCast(codepoint - 0x1fb6f), false);
@@ -83,6 +91,7 @@ pub fn smoothMosaicPoints(shape: u8) [2]PointF {
 }
 
 pub fn drawSmoothMosaic(pixels: []u8, width: u16, height: u16, lower: bool, a: PointF, b: PointF) void {
+    assertPositiveRasterSize(width, height);
     const wx = @as(f64, @floatFromInt(width - 1));
     const hy = @as(f64, @floatFromInt(height - 1));
     const x0 = a.x * wx;
@@ -118,6 +127,7 @@ pub fn rasterizeGeneratedHalfTriangleAlpha(pixels: []u8, width: u16, height: u16
 }
 
 pub fn drawHalfTriangle(pixels: []u8, width: u16, height: u16, edge: SpriteEdge, inverted: bool) void {
+    assertPositiveRasterSize(width, height);
     const wf = @as(f64, @floatFromInt(width - 1));
     const hf = @as(f64, @floatFromInt(height - 1));
     const mx = wf / 2.0;
@@ -166,22 +176,20 @@ pub fn rasterizeGeneratedEightBarCompositeAlpha(pixels: []u8, width: u16, height
     }
 }
 
-pub const SpriteShade = struct { light: bool = false, invert: bool = false, fill_blank: bool = false, half: ?SpriteEdge = null, xnum: u16, ynum: u16 = 0 };
-
 pub fn rasterizeGeneratedShadeCornerCrossAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32) void {
     switch (codepoint) {
-        0x1fb8c => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .light = true }),
-        0x1fb8d => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .light = true, .invert = true }),
-        0x1fb8e => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .light = true, .half = .left }),
-        0x1fb8f => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .light = true, .half = .right }),
-        0x1fb90 => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .light = true, .half = .top }),
-        0x1fb91 => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .light = true, .fill_blank = true, .half = .bottom }),
-        0x1fb92 => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .light = true, .fill_blank = true, .half = .top }),
-        0x1fb93 => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .invert = true, .fill_blank = true, .half = .left }),
-        0x1fb94 => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .invert = true, .fill_blank = true, .half = .right }),
-        0x1fb95 => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .invert = true, .fill_blank = true, .half = .top }),
-        0x1fb96 => drawCheckerShade(pixels, width, height, .{ .xnum = 12, .invert = true, .fill_blank = true, .half = .bottom }),
-        0x1fb97 => drawCheckerShade(pixels, width, height, .{ .xnum = 4, .ynum = 4 }),
+        0x1fb8c => drawCheckerShade(pixels, width, height, true, false, false, null, 12, 0),
+        0x1fb8d => drawCheckerShade(pixels, width, height, true, true, false, null, 12, 0),
+        0x1fb8e => drawCheckerShade(pixels, width, height, true, false, false, .left, 12, 0),
+        0x1fb8f => drawCheckerShade(pixels, width, height, true, false, false, .right, 12, 0),
+        0x1fb90 => drawCheckerShade(pixels, width, height, true, false, false, .top, 12, 0),
+        0x1fb91 => drawCheckerShade(pixels, width, height, true, false, true, .bottom, 12, 0),
+        0x1fb92 => drawCheckerShade(pixels, width, height, true, false, true, .top, 12, 0),
+        0x1fb93 => drawCheckerShade(pixels, width, height, false, true, true, .left, 12, 0),
+        0x1fb94 => drawCheckerShade(pixels, width, height, false, true, true, .right, 12, 0),
+        0x1fb95 => drawCheckerShade(pixels, width, height, false, true, true, .top, 12, 0),
+        0x1fb96 => drawCheckerShade(pixels, width, height, false, true, true, .bottom, 12, 0),
+        0x1fb97 => drawCheckerShade(pixels, width, height, false, false, false, null, 4, 4),
         0x1fb98 => drawCrossShade(pixels, width, height, false),
         0x1fb99 => drawCrossShade(pixels, width, height, true),
         0x1fb9a => {
@@ -193,33 +201,34 @@ pub fn rasterizeGeneratedShadeCornerCrossAlpha(pixels: []u8, width: u16, height:
             drawHalfTriangle(pixels, width, height, .right, false);
         },
         0x1fb9c => {
-            drawCheckerShade(pixels, width, height, .{ .xnum = 12 });
+            drawCheckerShade(pixels, width, height, false, false, false, null, 12, 0);
             applyCornerMask(pixels, width, height, .top_left);
         },
         0x1fb9d => {
-            drawCheckerShade(pixels, width, height, .{ .xnum = 12 });
+            drawCheckerShade(pixels, width, height, false, false, false, null, 12, 0);
             applyCornerMask(pixels, width, height, .top_right);
         },
         0x1fb9e => {
-            drawCheckerShade(pixels, width, height, .{ .xnum = 12 });
+            drawCheckerShade(pixels, width, height, false, false, false, null, 12, 0);
             applyCornerMask(pixels, width, height, .bottom_right);
         },
         0x1fb9f => {
-            drawCheckerShade(pixels, width, height, .{ .xnum = 12 });
+            drawCheckerShade(pixels, width, height, false, false, false, null, 12, 0);
             applyCornerMask(pixels, width, height, .bottom_left);
         },
         else => unreachable,
     }
 }
 
-pub fn drawCheckerShade(pixels: []u8, width: u16, height: u16, shade: SpriteShade) void {
-    const square_width = @max(@as(u16, 1), width / shade.xnum);
-    const square_height = @max(@as(u16, 1), if (shade.ynum != 0) height / shade.ynum else square_width);
+pub fn drawCheckerShade(pixels: []u8, width: u16, height: u16, light: bool, invert: bool, fill_blank: bool, half: ?SpriteEdge, xnum: u16, ynum: u16) void {
+    std.debug.assert(xnum > 0);
+    const square_width = @max(@as(u16, 1), width / xnum);
+    const square_height = @max(@as(u16, 1), if (ynum != 0) height / ynum else square_width);
     var number_of_rows = height / square_height;
     var number_of_cols = width / square_width;
 
-    if (number_of_cols > 1 and ((number_of_cols & 1) != 0) != ((shade.xnum & 1) != 0)) number_of_cols -= 1;
-    if (number_of_rows > 1 and ((number_of_rows & 1) != 0) != ((shade.ynum & 1) != 0)) number_of_rows -= 1;
+    if (number_of_cols > 1 and ((number_of_cols & 1) != 0) != ((xnum & 1) != 0)) number_of_cols -= 1;
+    if (number_of_rows > 1 and ((number_of_rows & 1) != 0) != ((ynum & 1) != 0)) number_of_rows -= 1;
 
     const excess_cols = width -| (square_width * number_of_cols);
     const excess_rows = height -| (square_height * number_of_rows);
@@ -230,7 +239,7 @@ pub fn drawCheckerShade(pixels: []u8, width: u16, height: u16, shade: SpriteShad
     var rows_end: u16 = number_of_rows;
     var cols_start: u16 = 0;
     var cols_end: u16 = number_of_cols;
-    if (shade.half) |half| switch (half) {
+    if (half) |part| switch (part) {
         .top => {
             rows_end /= 2;
             square_height_extension *= 2.0;
@@ -276,9 +285,9 @@ pub fn drawCheckerShade(pixels: []u8, width: u16, height: u16, shade: SpriteShad
                 while (xc < square_width) : (xc += 1) {
                     const x = col * square_width + xc + ex;
                     if (x >= width or y >= height) continue;
-                    pixels[@intCast(offset + x)] = if (shade.light) blk: {
-                        break :blk if (shade.invert) (if ((col & 1) != 0) 255 else 70) else (if ((col & 1) != 0) 0 else 70);
-                    } else if (((col & 1) != 0) == shade.invert) 120 else 30;
+                    pixels[@intCast(offset + x)] = if (light) blk: {
+                        break :blk if (invert) (if ((col & 1) != 0) 255 else 70) else (if ((col & 1) != 0) 0 else 70);
+                    } else if (((col & 1) != 0) == invert) 120 else 30;
                 }
             }
             if (extra_col) {
@@ -288,9 +297,9 @@ pub fn drawCheckerShade(pixels: []u8, width: u16, height: u16, shade: SpriteShad
                     const y = row * square_height + yr + ey;
                     if (x >= width or y >= height) continue;
                     const offset = @as(u32, y) * @as(u32, width);
-                    pixels[@intCast(offset + x)] = if (shade.light) blk: {
-                        break :blk if (shade.invert) (if ((row & 1) != 0) 255 else 70) else (if ((row & 1) != 0) 0 else 70);
-                    } else if (((row & 1) != 0) == shade.invert) 120 else 30;
+                    pixels[@intCast(offset + x)] = if (light) blk: {
+                        break :blk if (invert) (if ((row & 1) != 0) 255 else 70) else (if ((row & 1) != 0) 0 else 70);
+                    } else if (((row & 1) != 0) == invert) 120 else 30;
                 }
             }
             if (extra_row and extra_col) {
@@ -299,7 +308,7 @@ pub fn drawCheckerShade(pixels: []u8, width: u16, height: u16, shade: SpriteShad
                 if (x < width and y < height) pixels[@intCast(@as(u32, y) * @as(u32, width) + @as(u32, x))] = 50;
             }
 
-            const blank = shade.invert ^ ((((row & 1) != 0) != ((col & 1) != 0)) or (shade.light and ((row & 1) != 0)));
+            const blank = invert ^ ((((row & 1) != 0) != ((col & 1) != 0)) or (light and ((row & 1) != 0)));
             if (!blank) {
                 var yr: u16 = 0;
                 while (yr < square_height) : (yr += 1) {
@@ -317,12 +326,12 @@ pub fn drawCheckerShade(pixels: []u8, width: u16, height: u16, shade: SpriteShad
         }
     }
 
-    if (!shade.fill_blank) return;
+    if (!fill_blank) return;
     var rs: u16 = 0;
     var re: u16 = height;
     var cs: u16 = 0;
     var ce: u16 = width;
-    if (shade.half) |half| switch (half) {
+    if (half) |part| switch (part) {
         .bottom => re = height / 2,
         .top => rs = generated_special.saturatingSubU16(height / 2, 1),
         .right => ce = width / 2,
@@ -350,6 +359,7 @@ pub fn drawCrossShade(pixels: []u8, width: u16, height: u16, rotate: bool) void 
 }
 
 pub fn applyCornerMask(pixels: []u8, width: u16, height: u16, corner: AlphaCorner) void {
+    assertPositiveRasterSize(width, height);
     const wf: f64 = @floatFromInt(width - 1);
     const hf: f64 = @floatFromInt(height - 1);
     const vertices = switch (corner) {
@@ -375,6 +385,7 @@ pub fn rasterizeGeneratedMidLineAlpha(pixels: []u8, width: u16, height: u16, cod
 }
 
 pub fn drawMidLine(pixels: []u8, width: u16, height: u16, corner: AlphaCorner) void {
+    assertPositiveRasterSize(width, height);
     const line_width = @max(1.0, @as(f64, @floatFromInt(@max(1, @min(width, height) / 8))));
     const cx = @as(f64, @floatFromInt(width - 1)) / 2.0;
     const cy = @as(f64, @floatFromInt(height - 1)) / 2.0;
@@ -489,46 +500,45 @@ pub fn rasterizeGeneratedBranchAlpha(pixels: []u8, width: u16, height: u16, code
             drawBranchArc(pixels, width, height, .top_right);
             drawBranchArc(pixels, width, height, .bottom_left);
         },
-        0xf5ee => drawBranchNode(pixels, width, height, .{ .filled = true }),
-        0xf5ef => drawBranchNode(pixels, width, height, .{}),
-        0xf5f0 => drawBranchNode(pixels, width, height, .{ .right = true, .filled = true }),
-        0xf5f1 => drawBranchNode(pixels, width, height, .{ .right = true }),
-        0xf5f2 => drawBranchNode(pixels, width, height, .{ .left = true, .filled = true }),
-        0xf5f3 => drawBranchNode(pixels, width, height, .{ .left = true }),
-        0xf5f4 => drawBranchNode(pixels, width, height, .{ .left = true, .right = true, .filled = true }),
-        0xf5f5 => drawBranchNode(pixels, width, height, .{ .left = true, .right = true }),
-        0xf5f6 => drawBranchNode(pixels, width, height, .{ .down = true, .filled = true }),
-        0xf5f7 => drawBranchNode(pixels, width, height, .{ .down = true }),
-        0xf5f8 => drawBranchNode(pixels, width, height, .{ .up = true, .filled = true }),
-        0xf5f9 => drawBranchNode(pixels, width, height, .{ .up = true }),
-        0xf5fa => drawBranchNode(pixels, width, height, .{ .up = true, .down = true, .filled = true }),
-        0xf5fb => drawBranchNode(pixels, width, height, .{ .up = true, .down = true }),
-        0xf5fc => drawBranchNode(pixels, width, height, .{ .right = true, .down = true, .filled = true }),
-        0xf5fd => drawBranchNode(pixels, width, height, .{ .right = true, .down = true }),
-        0xf5fe => drawBranchNode(pixels, width, height, .{ .left = true, .down = true, .filled = true }),
-        0xf5ff => drawBranchNode(pixels, width, height, .{ .left = true, .down = true }),
-        0xf600 => drawBranchNode(pixels, width, height, .{ .up = true, .right = true, .filled = true }),
-        0xf601 => drawBranchNode(pixels, width, height, .{ .up = true, .right = true }),
-        0xf602 => drawBranchNode(pixels, width, height, .{ .up = true, .left = true, .filled = true }),
-        0xf603 => drawBranchNode(pixels, width, height, .{ .up = true, .left = true }),
-        0xf604 => drawBranchNode(pixels, width, height, .{ .up = true, .down = true, .right = true, .filled = true }),
-        0xf605 => drawBranchNode(pixels, width, height, .{ .up = true, .down = true, .right = true }),
-        0xf606 => drawBranchNode(pixels, width, height, .{ .up = true, .down = true, .left = true, .filled = true }),
-        0xf607 => drawBranchNode(pixels, width, height, .{ .up = true, .down = true, .left = true }),
-        0xf608 => drawBranchNode(pixels, width, height, .{ .down = true, .left = true, .right = true, .filled = true }),
-        0xf609 => drawBranchNode(pixels, width, height, .{ .down = true, .left = true, .right = true }),
-        0xf60a => drawBranchNode(pixels, width, height, .{ .up = true, .left = true, .right = true, .filled = true }),
-        0xf60b => drawBranchNode(pixels, width, height, .{ .up = true, .left = true, .right = true }),
-        0xf60c => drawBranchNode(pixels, width, height, .{ .up = true, .down = true, .left = true, .right = true, .filled = true }),
-        0xf60d => drawBranchNode(pixels, width, height, .{ .up = true, .down = true, .left = true, .right = true }),
+        0xf5ee => drawBranchNode(pixels, width, height, false, false, false, false, true),
+        0xf5ef => drawBranchNode(pixels, width, height, false, false, false, false, false),
+        0xf5f0 => drawBranchNode(pixels, width, height, false, true, false, false, true),
+        0xf5f1 => drawBranchNode(pixels, width, height, false, true, false, false, false),
+        0xf5f2 => drawBranchNode(pixels, width, height, false, false, false, true, true),
+        0xf5f3 => drawBranchNode(pixels, width, height, false, false, false, true, false),
+        0xf5f4 => drawBranchNode(pixels, width, height, false, true, false, true, true),
+        0xf5f5 => drawBranchNode(pixels, width, height, false, true, false, true, false),
+        0xf5f6 => drawBranchNode(pixels, width, height, false, false, true, false, true),
+        0xf5f7 => drawBranchNode(pixels, width, height, false, false, true, false, false),
+        0xf5f8 => drawBranchNode(pixels, width, height, true, false, false, false, true),
+        0xf5f9 => drawBranchNode(pixels, width, height, true, false, false, false, false),
+        0xf5fa => drawBranchNode(pixels, width, height, true, false, true, false, true),
+        0xf5fb => drawBranchNode(pixels, width, height, true, false, true, false, false),
+        0xf5fc => drawBranchNode(pixels, width, height, false, true, true, false, true),
+        0xf5fd => drawBranchNode(pixels, width, height, false, true, true, false, false),
+        0xf5fe => drawBranchNode(pixels, width, height, false, false, true, true, true),
+        0xf5ff => drawBranchNode(pixels, width, height, false, false, true, true, false),
+        0xf600 => drawBranchNode(pixels, width, height, true, true, false, false, true),
+        0xf601 => drawBranchNode(pixels, width, height, true, true, false, false, false),
+        0xf602 => drawBranchNode(pixels, width, height, true, false, false, true, true),
+        0xf603 => drawBranchNode(pixels, width, height, true, false, false, true, false),
+        0xf604 => drawBranchNode(pixels, width, height, true, true, true, false, true),
+        0xf605 => drawBranchNode(pixels, width, height, true, true, true, false, false),
+        0xf606 => drawBranchNode(pixels, width, height, true, false, true, true, true),
+        0xf607 => drawBranchNode(pixels, width, height, true, false, true, true, false),
+        0xf608 => drawBranchNode(pixels, width, height, false, true, true, true, true),
+        0xf609 => drawBranchNode(pixels, width, height, false, true, true, true, false),
+        0xf60a => drawBranchNode(pixels, width, height, true, true, false, true, true),
+        0xf60b => drawBranchNode(pixels, width, height, true, true, false, true, false),
+        0xf60c => drawBranchNode(pixels, width, height, true, true, true, true, true),
+        0xf60d => drawBranchNode(pixels, width, height, true, true, true, true, false),
         else => unreachable,
     }
 }
 
-pub const BranchNode = struct { up: bool = false, right: bool = false, down: bool = false, left: bool = false, filled: bool = false };
 pub const BranchEdge = enum { hline, vline, fade_left, fade_right, fade_top, fade_bottom };
 
-pub fn drawBranchNode(pixels: []u8, width: u16, height: u16, node: BranchNode) void {
+pub fn drawBranchNode(pixels: []u8, width: u16, height: u16, up: bool, right: bool, down: bool, left: bool, filled: bool) void {
     const thick_px: u16 = @max(1, @min(width, height) / 8);
     const float_width = @as(f64, @floatFromInt(width));
     const float_height = @as(f64, @floatFromInt(height));
@@ -539,13 +549,13 @@ pub fn drawBranchNode(pixels: []u8, width: u16, height: u16, node: BranchNode) v
     const cy = @as(f64, @floatFromInt(h_top)) + float_thick / 2.0;
     const r = @min(@min(cx, cy), @min(float_width - cx, float_height - cy));
 
-    if (node.up) generated_special.fillRectAlpha(pixels, width, v_left, 0, thick_px, @intFromFloat(@ceil(cy - r + float_thick / 2.0)), 255);
-    if (node.right) generated_special.fillRectAlpha(pixels, width, @intFromFloat(@floor(cx + r - float_thick / 2.0)), h_top, width - @as(u16, @intFromFloat(@floor(cx + r - float_thick / 2.0))), thick_px, 255);
-    if (node.down) generated_special.fillRectAlpha(pixels, width, v_left, @intFromFloat(@floor(cy + r - float_thick / 2.0)), thick_px, height - @as(u16, @intFromFloat(@floor(cy + r - float_thick / 2.0))), 255);
-    if (node.left) generated_special.fillRectAlpha(pixels, width, 0, h_top, @intFromFloat(@ceil(cx - r + float_thick / 2.0)), thick_px, 255);
+    if (up) generated_special.fillRectAlpha(pixels, width, v_left, 0, thick_px, @intFromFloat(@ceil(cy - r + float_thick / 2.0)), 255);
+    if (right) generated_special.fillRectAlpha(pixels, width, @intFromFloat(@floor(cx + r - float_thick / 2.0)), h_top, width - @as(u16, @intFromFloat(@floor(cx + r - float_thick / 2.0))), thick_px, 255);
+    if (down) generated_special.fillRectAlpha(pixels, width, v_left, @intFromFloat(@floor(cy + r - float_thick / 2.0)), thick_px, height - @as(u16, @intFromFloat(@floor(cy + r - float_thick / 2.0))), 255);
+    if (left) generated_special.fillRectAlpha(pixels, width, 0, h_top, @intFromFloat(@ceil(cx - r + float_thick / 2.0)), thick_px, 255);
 
     drawCircleArcAlpha(pixels, width, height, float_thick, 0.0, 360.0);
-    if (node.filled) fillCircleAlpha(pixels, width, height, cx, cy, r, 255);
+    if (filled) fillCircleAlpha(pixels, width, height, cx, cy, r, 255);
 }
 
 pub fn drawBranchLine(pixels: []u8, width: u16, height: u16, edge: BranchEdge) void {

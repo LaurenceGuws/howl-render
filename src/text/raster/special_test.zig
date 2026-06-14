@@ -3,6 +3,7 @@ const std = @import("std");
 const contract = @import("../contract.zig");
 const special_glyphs = @import("../special_glyphs.zig");
 const special = @import("special.zig");
+const special_legacy_computing = @import("special_legacy_computing.zig");
 
 const Range = struct { start: u16, end: u16 };
 const RoundedCorner = enum { top_left, top_right, bottom_left, bottom_right };
@@ -676,6 +677,13 @@ test "generated branch nodes preserve filled and unfilled variants" {
     const center = pixelOffset(width, width / 2, height / 2);
     try std.testing.expectEqual(@as(u8, 255), filled[center]);
     try std.testing.expectEqual(@as(u8, 0), outline[center]);
+}
+
+test "generated legacy computing raster guards degenerate size bounds" {
+    try std.testing.expect(!special_legacy_computing.rasterHasPositiveSize(0, 0));
+    try std.testing.expect(!special_legacy_computing.rasterHasPositiveSize(0, 1));
+    try std.testing.expect(!special_legacy_computing.rasterHasPositiveSize(1, 0));
+    try std.testing.expect(special_legacy_computing.rasterHasPositiveSize(1, 1));
 }
 
 fn centeredRange(size: u16, center: u16, thickness: u16) Range {
