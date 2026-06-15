@@ -13,12 +13,12 @@ pub const SourceSelection = c.HowlVtSelection;
 pub const max_extra_cursors = 256;
 pub const max_cursor_trail_rects = 16;
 
-pub const SourceCursorShape = enum {
-    block,
-    underline,
-    beam,
-    hollow_block,
-    none,
+pub const SourceCursorShape = enum(u8) {
+    block = 0,
+    underline = 1,
+    beam = 2,
+    none = 3,
+    hollow_block = 4,
 };
 
 pub const SourceExtraCursorShape = enum(u8) {
@@ -176,10 +176,10 @@ fn validateDirtySource(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_
 }
 
 test "source abi rejects widened vt cursor and extra cursor enum violations" {
-    var cells = [_]SourceCell{std.mem.zeroes(SourceCell)};
+    var cells = [_]SourceCell{ std.mem.zeroes(SourceCell), std.mem.zeroes(SourceCell) };
     const dirty_rows = [_]u8{1};
     const dirty_cols_start = [_]u16{0};
-    const dirty_cols_end = [_]u16{0};
+    const dirty_cols_end = [_]u16{1};
     var result = @import("publication.zig").validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
 
     result.source.cursor.cell_cols = 0;
@@ -191,6 +191,14 @@ test "source abi rejects widened vt cursor and extra cursor enum violations" {
 
     result = @import("publication.zig").validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
     result.source.extra_cursor_count = max_extra_cursors + 1;
+    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSurfaceResult(result));
+
+    result = @import("publication.zig").validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.cursor.shape = 3;
+    try validatePublicationSurfaceResult(result);
+
+    result = @import("publication.zig").validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.cursor.shape = 4;
     try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSurfaceResult(result));
 
     result = @import("publication.zig").validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);

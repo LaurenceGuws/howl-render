@@ -440,6 +440,25 @@ test "source slot commit returns source without prepare or submit state" {
     source.deinit(std.testing.allocator);
 }
 
+test "source slot copies vt no-shape without reinterpretation" {
+    var slot_owner = SourceSlot.init(std.testing.allocator);
+    defer slot_owner.deinit();
+
+    var cells = [_]source_abi.SourceCell{std.mem.zeroes(source_abi.SourceCell)};
+    const dirty_rows = [_]u8{1};
+    const dirty_cols_start = [_]u16{0};
+    const dirty_cols_end = [_]u16{0};
+    var result = source_publication.validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.cols = 1;
+    result.source.cursor.shape = 3;
+
+    var source = try slot_owner.copyPublishedSource(result, result.dirty_generation, true);
+    defer source.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(source_abi.SourceCursorShape.none, source.cursor.shape);
+    try std.testing.expectEqual(source_abi.SourceCursorShape.none, source.cursor.effective_shape);
+}
+
 test "source slot retained source deinit does not free retained storage" {
     var slot_owner = SourceSlot.init(std.testing.allocator);
     defer slot_owner.deinit();

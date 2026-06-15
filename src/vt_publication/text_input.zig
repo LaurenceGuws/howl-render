@@ -349,6 +349,34 @@ test "renderable content publication mapping preserves combining truth" {
     try std.testing.expectEqual(@as(u32, 0x0300), mapped.cells[0].combining[0]);
 }
 
+test "renderable content publication mapping threads explicit no-shape cursor truth" {
+    var cells = [_]source_abi.SourceCell{std.mem.zeroes(source_abi.SourceCell)};
+    var storage: [1]contract.CellInput = undefined;
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .none, .effective_shape = .none },
+        .colors = std.mem.zeroes(source_abi.SourceColors),
+        .selection = std.mem.zeroes(source_abi.SourceSelection),
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false);
+    try std.testing.expect(mapped.options.scene.cursor != null);
+    try std.testing.expectEqual(cursor.CursorShape.none, mapped.options.scene.cursor.?.shape);
+    try std.testing.expect(mapped.options.scene.cursor.?.visible);
+}
+
 test "renderable content publication mapping threads partial damage" {
     const cells = [_]source_abi.SourceCell{ .{}, .{} };
     const dirty_rows = [_]bool{ false, true };

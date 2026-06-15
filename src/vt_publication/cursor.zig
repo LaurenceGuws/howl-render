@@ -312,3 +312,35 @@ test "renderable content cursor presentation maps widened publication truth" {
     try std.testing.expectEqual(@as(u16, 1), visible.trail.count);
     try std.testing.expectEqual(@as(u8, 10), visible.trail.rects[0].opacity);
 }
+
+test "renderable content cursor presentation keeps explicit no-shape" {
+    const theme = color.default_theme;
+    var cells = [_]source_abi.SourceCell{std.mem.zeroes(source_abi.SourceCell)};
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const visible = mapPublicationCursor(.{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .none, .blink = true, .position_changed_by_client_at_ms = 0, .cell_cols = 1, .cell_rows = 1, .cursor_color = .{ .kind = 0, .value = 0 }, .cursor_text_color = .{ .kind = 0, .value = 0 }, .cursor_opacity = 255, .text_blink_opacity = 255, .focused = true, .effective_shape = .none },
+        .extra_cursor_count = 0,
+        .extra_cursors = [_]source_abi.SourceExtraCursor{.{}} ** max_extra_cursors,
+        .cursor_trail_count = 0,
+        .cursor_trail_rects = [_]source_abi.SourceCursorTrailRect{.{}} ** max_cursor_trail_rects,
+        .colors = std.mem.zeroes(source_abi.SourceColors),
+        .selection = std.mem.zeroes(source_abi.SourceSelection),
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, theme);
+
+    try std.testing.expectEqual(CursorShape.none, visible.shape);
+    try std.testing.expect(visible.visible);
+}

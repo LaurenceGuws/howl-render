@@ -446,6 +446,22 @@ test "source publication copy in preserves snapshot and dirty metadata" {
     try std.testing.expectEqual(@as(u32, 'A'), source.cells[1].codepoint);
 }
 
+test "source publication copy in preserves vt no-shape without reinterpretation" {
+    const cells = [_]abi.SourceCell{ validTestCell(), validTestCell() };
+    const dirty_rows = [_]u8{1};
+    const dirty_cols_start = [_]u16{0};
+    const dirty_cols_end = [_]u16{1};
+    var result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.cursor.shape = 3;
+
+    var source = try ownedSourceFromSurfaceResult(std.testing.allocator, result, true);
+    defer source.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(abi.SourceCursorShape.none, source.cursor.shape);
+    try std.testing.expectEqual(abi.SourceCursorShape.none, source.cursor.effective_shape);
+    try std.testing.expect(source.cursor_phase_visible);
+}
+
 test "source publication boundary rejects widened invalid cursor aggregates" {
     var source = try testSourceFromSnapshot(std.testing.allocator, .{
         .cols = 1,
