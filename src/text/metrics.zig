@@ -43,6 +43,19 @@ pub const GridMetrics = struct {
     rows: u16 = 1,
 };
 
+pub fn cursorGeometry(cell_metrics: CellMetrics, beam_thickness: f32, underline_thickness: f32) CursorGeometry {
+    return .{
+        .beam_w_px = configuredThicknessPx(cell_metrics.cell_w_px, beam_thickness),
+        .underline_h_px = configuredThicknessPx(cell_metrics.cell_h_px, underline_thickness),
+        .hollow_stroke_px = 2,
+    };
+}
+
+fn configuredThicknessPx(cell_px: u16, thickness: f32) u16 {
+    const scaled = @max((@as(f32, @floatFromInt(@max(cell_px, 1))) * thickness) / 16.0, 1.0);
+    return @intFromFloat(@round(scaled));
+}
+
 test "metrics fixtures are nonzero where required" {
     const font = FontMetrics{
         .ascent_px = 12,
@@ -67,4 +80,13 @@ test "metrics fixtures are nonzero where required" {
     try std.testing.expect(cell.cell_h_px > 0);
     try std.testing.expect(grid.cols > 0);
     try std.testing.expect(grid.rows > 0);
+}
+
+test "cursor geometry uses configured beam and underline thickness" {
+    const cell = CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    const thin = cursorGeometry(cell, 1.5, 2.0);
+    const thick = cursorGeometry(cell, 3.5, 4.0);
+
+    try std.testing.expect(thick.beam_w_px > thin.beam_w_px);
+    try std.testing.expect(thick.underline_h_px > thin.underline_h_px);
 }

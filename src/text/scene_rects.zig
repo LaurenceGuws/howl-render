@@ -1,5 +1,6 @@
 const std = @import("std");
 const contract = @import("contract.zig");
+const metrics = @import("metrics.zig");
 const scene_damage = @import("scene_damage.zig");
 
 const CursorDrawCount = u3;
@@ -358,26 +359,29 @@ pub fn appendCursorPrimitives(
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
 
     try appendCursorDraws(allocator, cursor_draws, cursor_value, damage, cell_metrics);
-    try appendCursorFillRects(allocator, cursor_fill_rects, grid_metrics, cursor_value, cell_metrics);
+    try appendCursorFillRects(allocator, cursor_fill_rects, cells, grid_metrics, cursor_value, cell_metrics);
     try appendCursorTextRecolorSpans(allocator, cursor_text_recolor_spans, cells, grid_metrics, cursor_value);
 }
 
-fn appendCursorFillRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("scene.zig").CursorFillRect), grid_metrics: contract.GridMetrics, cursor: anytype, cell_metrics: contract.CellMetrics) !void {
+fn appendCursorFillRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("scene.zig").CursorFillRect), cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, cursor: anytype, cell_metrics: contract.CellMetrics) !void {
     const first_cell: u32 = @as(u32, cursor.primary_extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, cursor.primary_extent.col);
     const cell_span: u8 = @intCast(@min(@as(u32, cursor.primary_extent.cols) * @as(u32, cursor.primary_extent.rows), @as(u32, std.math.maxInt(u8))));
-    const fill_color = cursorColor(cursor);
     const base_x: i32 = @as(i32, @intCast(cursor.primary_extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
     const base_y: i32 = @as(i32, @intCast(cursor.primary_extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
     const width_px: u16 = @intCast(@as(u32, cursor.primary_extent.cols) * @as(u32, cell_metrics.cell_w_px));
     const height_px: u16 = @intCast(@as(u32, cursor.primary_extent.rows) * @as(u32, cell_metrics.cell_h_px));
-    const geom = cursorGeometry(cell_metrics);
+    const geom = cursorGeometry(cursor, cell_metrics);
     switch (cursor.shape) {
         .none => {},
-        .block => try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = width_px, .height_px = height_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span }),
-        .beam => try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = height_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span }),
-        .underline => try out.append(allocator, .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(height_px - geom.underline_h_px)), .width_px = width_px, .height_px = geom.underline_h_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span }),
+        .block => {
+            const fill_color = resolveCursorFillColor(cursor, cells, first_cell);
+            try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = width_px, .height_px = height_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span });
+        },
+        .beam => try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = height_px, .color = cursorColor(cursor), .first_cell = first_cell, .cell_span = cell_span }),
+        .underline => try out.append(allocator, .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(height_px - geom.underline_h_px)), .width_px = width_px, .height_px = geom.underline_h_px, .color = cursorColor(cursor), .first_cell = first_cell, .cell_span = cell_span }),
         .hollow => {
             const stroke = geom.hollow_stroke_px;
+            const fill_color = cursorColor(cursor);
             try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = width_px, .height_px = stroke, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span });
             try out.append(allocator, .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(height_px - stroke)), .width_px = width_px, .height_px = stroke, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span });
             try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = stroke, .height_px = height_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span });
@@ -401,13 +405,14 @@ fn appendCursorTextRecolorSpans(allocator: std.mem.Allocator, out: *std.ArrayLis
 fn appendCursorTrailRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("scene.zig").CursorTrailRect), grid_metrics: contract.GridMetrics, cursor: anytype, cell_metrics: contract.CellMetrics) !void {
     for (cursor.trail.rects[0..cursor.trail.count]) |rect| {
         const first_cell: u32 = @as(u32, rect.extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, rect.extent.col);
+        const color_value = resolveCursorTrailColor(cursor, rect);
         try out.append(allocator, .{
             .x_px = @as(i32, @intCast(rect.extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px)),
             .y_px = @as(i32, @intCast(rect.extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px)),
             .width_px = @intCast(@as(u32, rect.extent.cols) * @as(u32, cell_metrics.cell_w_px)),
             .height_px = @intCast(@as(u32, rect.extent.rows) * @as(u32, cell_metrics.cell_h_px)),
             .opacity = rect.opacity,
-            .color = .{ .r = rect.color.r, .g = rect.color.g, .b = rect.color.b, .a = rect.opacity },
+            .color = .{ .r = color_value.r, .g = color_value.g, .b = color_value.b, .a = rect.opacity },
             .first_cell = first_cell,
             .cell_span = @intCast(@min(@as(u32, rect.extent.cols) * @as(u32, rect.extent.rows), @as(u32, std.math.maxInt(u8)))),
         });
@@ -641,7 +646,7 @@ fn cursorDrawRects(out: []contract.TextCursorDraw, cursor: anytype, cell_metrics
 
     const base_x: i32 = @as(i32, @intCast(cursor.primary_extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
     const base_y: i32 = @as(i32, @intCast(cursor.primary_extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
-    const geom = cursorGeometry(cell_metrics);
+    const geom = cursorGeometry(cursor, cell_metrics);
     const cursor_color = cursorColor(cursor);
 
     switch (cursor.shape) {
@@ -770,11 +775,24 @@ fn decorationGeometry(cell_metrics: contract.CellMetrics, font_metrics: contract
     };
 }
 
-fn cursorGeometry(cell_metrics: contract.CellMetrics) contract.CursorGeometry {
-    return .{
-        .beam_w_px = @max(cell_metrics.cell_w_px / 8, 1),
-        .underline_h_px = scaledDecorationThickness(cell_metrics.cell_h_px),
-        .hollow_stroke_px = 2,
+fn cursorGeometry(cursor: anytype, cell_metrics: contract.CellMetrics) contract.CursorGeometry {
+    return metrics.cursorGeometry(cell_metrics, cursor.beam_thickness, cursor.underline_thickness);
+}
+
+fn resolveCursorFillColor(cursor: anytype, cells: []const contract.RenderableCell, first_cell: u32) contract.Rgba8 {
+    const cell = findCellByFirstCell(cells, first_cell) orelse return cursorColor(cursor);
+    const colors = resolveBlockCursorColors(cursor, rgbFromRgba(cell.fg), rgbFromRgba(cell.bg));
+    return .{ .r = colors.cursor_bg.r, .g = colors.cursor_bg.g, .b = colors.cursor_bg.b, .a = cursor.cursor_opacity };
+}
+
+fn resolveCursorTrailColor(cursor: anytype, rect: anytype) contract.Rgb8 {
+    return switch (cursor.cursor_trail_color.kind) {
+        .default => if (rect.color.r != 0 or rect.color.g != 0 or rect.color.b != 0)
+            .{ .r = rect.color.r, .g = rect.color.g, .b = rect.color.b }
+        else
+            rgbFromRgba(cursorColor(cursor)),
+        .rgb => cursorColorRgb(cursor.cursor_trail_color, cursor.default_foreground),
+        .indexed => cursorColorRgb(cursor.cursor_trail_color, cursor.default_foreground),
     };
 }
 
@@ -789,4 +807,58 @@ fn sameRgba8(a: contract.Rgba8, b: contract.Rgba8) bool {
 fn count32(items: anytype) u32 {
     std.debug.assert(items.len <= std.math.maxInt(u32));
     return @intCast(items.len);
+}
+
+fn testCursorPresentation() contract.CursorPresentation {
+    return .{
+        .focused = true,
+        .visible = true,
+        .blink = false,
+        .shape = .beam,
+        .beam_thickness = 1.5,
+        .underline_thickness = 2.0,
+        .cursor_opacity = 255,
+        .text_blink_opacity = 255,
+        .cursor_color = .{ .kind = .rgb, .value = 0x102030 },
+        .cursor_text_color = .{ .kind = .rgb, .value = 0x405060 },
+        .cursor_trail_color = .{ .kind = .default, .value = 0 },
+        .default_foreground = .{ .r = 0x10, .g = 0x20, .b = 0x30 },
+        .default_background = .{ .r = 0x40, .g = 0x50, .b = 0x60 },
+        .primary_extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 },
+        .extra_cursors = [_]contract.ExtraCursorPresentation{undefined} ** @import("../vt_publication/cursor.zig").max_extra_cursors,
+        .extra_cursor_count = 0,
+        .trail = .{ .rects = [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 128, .color = .{ .r = 0, .g = 0, .b = 0 } }} ++ [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } }} ** (@import("../vt_publication/cursor.zig").max_cursor_trail_rects - 1), .count = 1 },
+    };
+}
+
+test "configured beam and underline thickness affect cursor geometry" {
+    const damage = scene_damage.normalizeDamage(.{ .full = true }, 1);
+    const cell_metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+
+    var beam = testCursorPresentation();
+    beam.shape = .beam;
+    beam.beam_thickness = 3.5;
+    const beam_draws = try cursorDraws(std.testing.allocator, beam, cell_metrics);
+    defer std.testing.allocator.free(beam_draws);
+    try std.testing.expect(beam_draws[0].width_px > 1);
+
+    var underline = testCursorPresentation();
+    underline.shape = .underline;
+    underline.underline_thickness = 4.0;
+    var list = std.ArrayList(@import("scene.zig").CursorFillRect).empty;
+    defer list.deinit(std.testing.allocator);
+    try appendCursorFillRects(std.testing.allocator, &list, &.{}, .{ .cols = 1, .rows = 1 }, underline, cell_metrics);
+    try std.testing.expectEqual(@as(usize, 1), list.items.len);
+    try std.testing.expect(list.items[0].height_px > 1);
+    _ = damage;
+}
+
+test "configured trail color overrides empty trail rect color" {
+    var cursor = testCursorPresentation();
+    cursor.cursor_trail_color = .{ .kind = .rgb, .value = 0x708090 };
+    var list = std.ArrayList(@import("scene.zig").CursorTrailRect).empty;
+    defer list.deinit(std.testing.allocator);
+    try appendCursorTrailRects(std.testing.allocator, &list, .{ .cols = 1, .rows = 1 }, cursor, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
+    try std.testing.expectEqual(@as(usize, 1), list.items.len);
+    try std.testing.expectEqual(@as(u8, 0x70), list.items[0].color.r);
 }

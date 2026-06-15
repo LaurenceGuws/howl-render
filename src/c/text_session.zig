@@ -82,6 +82,11 @@ pub const HostCursorCadence = extern struct {
     cursor_opacity: u8,
     text_blink_opacity: u8,
     effective_shape: u8,
+    cursor_color: c.HowlVtColor,
+    cursor_text_color: c.HowlVtColor,
+    cursor_trail_color: c.HowlVtColor,
+    cursor_beam_thickness: f32,
+    cursor_underline_thickness: f32,
     cursor_trail_count: u16,
     reserved0: u16 = 0,
     cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect,
@@ -91,6 +96,10 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const host_cadence = cadence orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (host_cadence.effective_shape > 3) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!source_abi.sourceColorValid(host_cadence.cursor_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!source_abi.sourceColorValid(host_cadence.cursor_text_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!source_abi.sourceColorValid(host_cadence.cursor_trail_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!(host_cadence.cursor_beam_thickness > 0) or !(host_cadence.cursor_underline_thickness > 0)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (host_cadence.cursor_trail_count > source_abi.max_cursor_trail_rects) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     var trail_rects = [_]render_session.TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(render_session.TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
     for (0..host_cadence.cursor_trail_count) |index| {
@@ -110,6 +119,11 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
         .cursor_opacity = host_cadence.cursor_opacity,
         .text_blink_opacity = host_cadence.text_blink_opacity,
         .effective_shape = @enumFromInt(host_cadence.effective_shape),
+        .cursor_color = host_cadence.cursor_color,
+        .cursor_text_color = host_cadence.cursor_text_color,
+        .cursor_trail_color = host_cadence.cursor_trail_color,
+        .cursor_beam_thickness = host_cadence.cursor_beam_thickness,
+        .cursor_underline_thickness = host_cadence.cursor_underline_thickness,
         .cursor_trail_count = host_cadence.cursor_trail_count,
         .cursor_trail_rects = trail_rects,
     });

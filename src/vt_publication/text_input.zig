@@ -451,6 +451,42 @@ test "renderable content uses VT-owned color state and selection styling" {
     try std.testing.expectEqual(@as(u32, 0x070809), mapped.options.scene.cursor.?.cursor_color.value);
 }
 
+test "renderable content threads configured cursor defaults into publication cursor" {
+    var storage: [1]contract.CellInput = undefined;
+    const colors = std.mem.zeroes(source_abi.SourceColors);
+    var cells = [_]source_abi.SourceCell{std.mem.zeroes(source_abi.SourceCell)};
+    const dirty_rows = [_]u8{1};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const theme = color.themeFromPublicationColorsWithCursorConfig(colors, .{
+        .cursor_color = .{ .kind = 2, .value = 0x102030 },
+        .cursor_text_color = .{ .kind = 2, .value = 0x405060 },
+        .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },
+        .cursor_beam_thickness = 2.5,
+        .cursor_underline_thickness = 3.5,
+    });
+    const mapped = publicationSourceToTextSceneInputBorrowedWithTheme(storage[0..], .{
+        .cols = 1,
+        .rows = 1,
+        .history_count = 0,
+        .scroll_row = 0,
+        .snapshot_seq = 1,
+        .dirty_epoch = 1,
+        .is_alternate_screen = false,
+        .cells = cells[0..],
+        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .block, .cursor_color = .{ .kind = 0, .value = 0 }, .cursor_text_color = .{ .kind = 0, .value = 0 } },
+        .colors = colors,
+        .selection = std.mem.zeroes(source_abi.SourceSelection),
+        .cursor_phase_visible = true,
+        .dirty_rows = @constCast(&dirty_rows),
+        .dirty_cols_start = @constCast(&dirty_starts),
+        .dirty_cols_end = @constCast(&dirty_ends),
+    }, false, theme);
+    try std.testing.expectEqual(@as(u32, 0x102030), mapped.options.scene.cursor.?.cursor_color.value);
+    try std.testing.expectEqual(@as(u32, 0x405060), mapped.options.scene.cursor.?.cursor_text_color.value);
+    try std.testing.expectEqual(@as(u32, 0x708090), mapped.options.scene.cursor.?.cursor_trail_color.value);
+}
+
 fn rgbValue(value: contract.Rgba8) u32 {
     return (@as(u32, value.r) << 16) | (@as(u32, value.g) << 8) | value.b;
 }

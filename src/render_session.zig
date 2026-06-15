@@ -108,6 +108,7 @@ pub const TextSession = struct {
         request: tokens.RenderRequest,
         layout: geometry_contract.PrepareLayout,
         state: source_publication.PublicationSource,
+        cursor_theme: source_theme.CursorThemeConfig = .{},
     };
 
     pub fn init(allocator: std.mem.Allocator) TextSession {
@@ -165,7 +166,7 @@ pub const TextSession = struct {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         var resolve: font_resolve.ResolveObservability = .{};
-        const theme = source_theme.themeFromPublicationColors(prepare.state.colors);
+        const theme = source_theme.themeFromPublicationColorsWithCursorConfig(prepare.state.colors, prepare.cursor_theme);
         const dirty_rows: []const bool = @ptrCast(prepare.state.dirty_rows);
         const options: surface_preparer.PrepareOptions = .{ .scene = .{
             .cursor = source_cursor.mapPublicationCursor(prepare.state, theme),
@@ -384,6 +385,11 @@ pub const TextSessionOwner = struct {
         cursor_opacity: u8,
         text_blink_opacity: u8,
         effective_shape: source_abi.SourceCursorShape,
+        cursor_color: source_abi.SourceColor,
+        cursor_text_color: source_abi.SourceColor,
+        cursor_trail_color: source_abi.SourceColor,
+        cursor_beam_thickness: f32,
+        cursor_underline_thickness: f32,
         cursor_trail_count: u16,
         cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect,
     };
@@ -400,6 +406,11 @@ pub const TextSessionOwner = struct {
     cursor_opacity: u8 = 255,
     text_blink_opacity: u8 = 255,
     cursor_effective_shape: source_abi.SourceCursorShape = .block,
+    cursor_color: source_abi.SourceColor = .{ .kind = 2, .value = 0xCCCCCC },
+    cursor_text_color: source_abi.SourceColor = .{ .kind = 2, .value = 0x111111 },
+    cursor_trail_color: source_abi.SourceColor = .{ .kind = 0, .value = 0 },
+    cursor_beam_thickness: f32 = 1.5,
+    cursor_underline_thickness: f32 = 2.0,
     cursor_trail_count: u16 = 0,
     cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
     config: TextSessionConfig,
@@ -485,6 +496,13 @@ pub const TextSessionOwner = struct {
             .request = consume.request,
             .layout = consume.layout,
             .state = consume.state,
+            .cursor_theme = .{
+                .cursor_color = self.cursor_color,
+                .cursor_text_color = self.cursor_text_color,
+                .cursor_trail_color = self.cursor_trail_color,
+                .cursor_beam_thickness = self.cursor_beam_thickness,
+                .cursor_underline_thickness = self.cursor_underline_thickness,
+            },
         }) catch |err| {
             return err;
         };
@@ -547,6 +565,12 @@ pub const TextSessionOwner = struct {
         return true;
     }
 
+    fn updateF32(target: *f32, next: f32) bool {
+        if (target.* == next) return false;
+        target.* = next;
+        return true;
+    }
+
     pub fn syncGeometry(self: *TextSessionOwner, layout: geometry_contract.Geometry) !geometry_contract.GeometryResponse {
         const response = self.geometry.sync(layout);
         if (response.changed) {
@@ -575,6 +599,20 @@ pub const TextSessionOwner = struct {
         changed = updateBool(&self.cursor_focused, cadence.focused) or changed;
         changed = updateByte(&self.cursor_opacity, cadence.cursor_opacity) or changed;
         changed = updateByte(&self.text_blink_opacity, cadence.text_blink_opacity) or changed;
+        if (!std.mem.eql(u8, std.mem.asBytes(&self.cursor_color), std.mem.asBytes(&cadence.cursor_color))) {
+            self.cursor_color = cadence.cursor_color;
+            changed = true;
+        }
+        if (!std.mem.eql(u8, std.mem.asBytes(&self.cursor_text_color), std.mem.asBytes(&cadence.cursor_text_color))) {
+            self.cursor_text_color = cadence.cursor_text_color;
+            changed = true;
+        }
+        if (!std.mem.eql(u8, std.mem.asBytes(&self.cursor_trail_color), std.mem.asBytes(&cadence.cursor_trail_color))) {
+            self.cursor_trail_color = cadence.cursor_trail_color;
+            changed = true;
+        }
+        changed = updateF32(&self.cursor_beam_thickness, cadence.cursor_beam_thickness) or changed;
+        changed = updateF32(&self.cursor_underline_thickness, cadence.cursor_underline_thickness) or changed;
         if (self.cursor_effective_shape != cadence.effective_shape) {
             self.cursor_effective_shape = cadence.effective_shape;
             changed = true;
@@ -811,6 +849,34 @@ test "render session owner invalidation clears sprite resource store" {
     try std.testing.expectEqual(@as(u32, 0), owner.render_surface_sprite_resources.atlas_count);
     try std.testing.expectEqual(@as(u32, 0), owner.render_surface_sprite_resources.count);
     try std.testing.expectEqual(next_value, owner.render_surface_sprite_resources.value_next);
+}
+
+test "render session owner stores configured cursor theme inputs" {
+    const owner = TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    _ = owner.setHostCursorCadence(.{
+        .focused = true,
+        .cursor_opacity = 255,
+        .text_blink_opacity = 255,
+        .effective_shape = .beam,
+        .cursor_color = .{ .kind = 2, .value = 0x102030 },
+        .cursor_text_color = .{ .kind = 2, .value = 0x405060 },
+        .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },
+        .cursor_beam_thickness = 2.5,
+        .cursor_underline_thickness = 3.5,
+        .cursor_trail_count = 0,
+        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
+    });
+
+    try std.testing.expectEqual(@as(u32, 0x102030), owner.cursor_color.value);
+    try std.testing.expectEqual(@as(u32, 0x405060), owner.cursor_text_color.value);
+    try std.testing.expectEqual(@as(u32, 0x708090), owner.cursor_trail_color.value);
+    try std.testing.expectEqual(@as(f32, 2.5), owner.cursor_beam_thickness);
+    try std.testing.expectEqual(@as(f32, 3.5), owner.cursor_underline_thickness);
 }
 
 test "render session owner rejects prepared work after resize publication" {

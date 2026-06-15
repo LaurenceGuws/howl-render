@@ -69,10 +69,13 @@ pub const CursorPresentation = struct {
     visible: bool,
     blink: bool,
     shape: CursorShape,
+    beam_thickness: f32 = 1.5,
+    underline_thickness: f32 = 2.0,
     cursor_opacity: u8,
     text_blink_opacity: u8,
     cursor_color: CursorColor,
     cursor_text_color: CursorColor,
+    cursor_trail_color: CursorColor = .{ .kind = .default, .value = 0 },
     default_foreground: Rgb8,
     default_background: Rgb8,
     primary_extent: CellExtent,
@@ -90,10 +93,13 @@ pub fn mapPublicationCursor(source: source_publication.PublicationSource, theme:
         .visible = source.cursor.visible,
         .blink = source.cursor.blink,
         .shape = mapCursorShape(source.cursor.effective_shape),
+        .beam_thickness = theme.cursor_beam_thickness,
+        .underline_thickness = theme.cursor_underline_thickness,
         .cursor_opacity = source.cursor.cursor_opacity,
         .text_blink_opacity = source.cursor.text_blink_opacity,
-        .cursor_color = mapCursorColor(source.cursor.cursor_color),
-        .cursor_text_color = mapCursorColor(source.cursor.cursor_text_color),
+        .cursor_color = if (source.cursor.cursor_color.kind == 0) mapCursorColor(theme.cursor_default_color) else mapCursorColor(source.cursor.cursor_color),
+        .cursor_text_color = if (source.cursor.cursor_text_color.kind == 0) mapCursorColor(theme.cursor_text_color) else mapCursorColor(source.cursor.cursor_text_color),
+        .cursor_trail_color = mapCursorColor(theme.cursor_trail_color),
         .default_foreground = mapRgb8(theme.default_fg),
         .default_background = mapRgb8(theme.default_bg),
         .primary_extent = .{
@@ -117,10 +123,13 @@ pub fn mapStateCursor(state: anytype, theme: color.SurfaceTheme) CursorPresentat
         .visible = state.cursor.visible,
         .blink = blink,
         .shape = mapLegacyStateCursorShape(state.cursor.shape),
+        .beam_thickness = theme.cursor_beam_thickness,
+        .underline_thickness = theme.cursor_underline_thickness,
         .cursor_opacity = if (state.cursor.visible) 255 else 0,
         .text_blink_opacity = 255,
-        .cursor_color = .{ .kind = .rgb, .value = rgbToValue(theme.cursor_color) },
-        .cursor_text_color = .{ .kind = .default, .value = 0 },
+        .cursor_color = mapCursorColor(theme.cursor_default_color),
+        .cursor_text_color = mapCursorColor(theme.cursor_text_color),
+        .cursor_trail_color = mapCursorColor(theme.cursor_trail_color),
         .default_foreground = mapRgb8(theme.default_fg),
         .default_background = mapRgb8(theme.default_bg),
         .primary_extent = .{ .row = state.cursor.row, .col = state.cursor.col, .rows = 1, .cols = 1 },
@@ -287,6 +296,8 @@ test "renderable content cursor presentation maps widened publication truth" {
     try std.testing.expect(visible.visible);
     try std.testing.expect(visible.blink);
     try std.testing.expectEqual(CursorShape.beam, visible.shape);
+    try std.testing.expectEqual(@as(f32, 1.5), visible.beam_thickness);
+    try std.testing.expectEqual(@as(f32, 2.0), visible.underline_thickness);
     try std.testing.expectEqual(@as(u8, 120), visible.cursor_opacity);
     try std.testing.expectEqual(@as(u8, 45), visible.text_blink_opacity);
     try std.testing.expectEqual(@as(u32, 0x010203), visible.cursor_color.value);
