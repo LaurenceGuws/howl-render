@@ -145,6 +145,7 @@ fn mapCursorShape(shape: source_abi.SourceCursorShape) CursorShape {
         .underline => .underline,
         .beam => .beam,
         .hollow_block => .hollow,
+        .none => .none,
     };
 }
 

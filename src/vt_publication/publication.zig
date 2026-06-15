@@ -274,7 +274,7 @@ fn vtCursorIn(value: c.HowlVtCursor, cursor_color: c.HowlVtColor, cursor_text_co
     const shape = switch (value.shape) {
         1 => abi.SourceCursorShape.underline,
         2 => .beam,
-        3 => .hollow_block,
+        3 => .none,
         else => .block,
     };
     return .{

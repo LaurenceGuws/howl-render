@@ -18,6 +18,7 @@ pub const SourceCursorShape = enum {
     underline,
     beam,
     hollow_block,
+    none,
 };
 
 pub const SourceExtraCursorShape = enum(u8) {

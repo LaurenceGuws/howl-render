@@ -310,7 +310,7 @@ fn vtCursorIn(value: anytype, cursor_color: anytype, cursor_text_color: anytype)
     const shape = switch (value.shape) {
         1 => source_abi.SourceCursorShape.underline,
         2 => .beam,
-        3 => .hollow_block,
+        3 => .none,
         else => .block,
     };
     return .{
