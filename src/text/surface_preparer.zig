@@ -89,7 +89,7 @@ pub const TextSurfacePreparer = struct {
     ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
         if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report, null)) |direct| {
-            return self.finishNormalOnlySurface(direct, lane_report);
+            return self.finishNormalOnlySurface(direct, lane_report, options.scene.cursor);
         }
         const cell_count = count32(cells);
         try self.ensureClusterScratchCapacity(cell_count, countCellInputCodepoints(cells));
@@ -107,7 +107,7 @@ pub const TextSurfacePreparer = struct {
     ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
         if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report, null)) |direct| {
-            return self.finishNormalOnlySurface(direct, lane_report);
+            return self.finishNormalOnlySurface(direct, lane_report, options.scene.cursor);
         }
         const input_count = count32(inputs);
         var input_codepoints: u32 = 0;
@@ -131,7 +131,7 @@ pub const TextSurfacePreparer = struct {
         var lane_report = lane.LaneReport{};
         var publication_complex_cells: u64 = 0;
         if (try self.prepareDirectNormal(.{ .publication = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &publication_complex_cells)) |direct| {
-            return self.finishNormalOnlySurface(direct, lane_report);
+            return self.finishNormalOnlySurface(direct, lane_report, options.scene.cursor);
         }
         const cell_count = count32(source.cells);
         try self.ensureClusterScratchCapacity(cell_count, countPublicationCodepoints(source.cells));
@@ -196,7 +196,7 @@ pub const TextSurfacePreparer = struct {
             owned_text_cache.deinit();
             clusters.deinit();
             owned_renderable.deinit();
-            return self.finishNormalOnlySurface(direct, final_lane_report);
+            return self.finishNormalOnlySurface(direct, final_lane_report, options.scene.cursor);
         }
 
         if (expected_complex_cells != null) std.debug.assert(final_lane_report.complex_cells != 0);
@@ -330,7 +330,7 @@ pub const TextSurfacePreparer = struct {
         cells: []const contract.RenderableCell,
         grid_metrics: contract.GridMetrics,
         cell_metrics: contract.CellMetrics,
-        cursor: ?scene.CursorInput,
+        cursor: ?contract.CursorPresentation,
         text_scene: *scene.BorrowedTextScene,
         raster_plan: *rasterizer.OwnedRasterPlan,
     ) !PreparedSceneMerge {
@@ -367,19 +367,24 @@ pub const TextSurfacePreparer = struct {
                 .raster_requests = text_scene.scene.raster_requests,
                 .missing = merged_missing,
             },
+            .cursor_presentation = cursor,
         };
         text_scene.scene.raster_requests = &.{};
         text_scene.scene.missing = &.{};
         return .{ .scene = merged_scene, .raster_plan = merged_raster_plan };
     }
 
-    fn finishNormalOnlySurface(self: *TextSurfacePreparer, direct: direct_normal.Product, lane_report: lane.LaneReport) OwnedPreparedTextSurface {
+    fn finishNormalOnlySurface(self: *TextSurfacePreparer, direct: direct_normal.Product, lane_report: lane.LaneReport, cursor: ?contract.CursorPresentation) OwnedPreparedTextSurface {
         var final_lane_report = lane_report;
         final_lane_report.assertValid();
         const counters = direct_normal.counters(&self.direct_normal, final_lane_report, direct);
         applyCounters(&self.counters, counters);
         return .{
-            .scene = direct_scene.borrowScene(self.allocator, direct.damage, &self.direct_normal),
+            .scene = blk: {
+                var owned = direct_scene.borrowScene(self.allocator, direct.damage, &self.direct_normal);
+                owned.cursor_presentation = cursor;
+                break :blk owned;
+            },
             .raster_plan = .{ .allocator = self.allocator, .outputs = direct.outputs, .owned = direct.outputs_owned },
         };
     }
@@ -600,7 +605,7 @@ fn buildClearDraws(
     return draws.toOwnedSlice(allocator);
 }
 
-fn buildCursorDraws(allocator: std.mem.Allocator, cursor: ?scene.CursorInput, cell_metrics: contract.CellMetrics, damage: scene_damage.NormalizedDamage) ![]contract.TextCursorDraw {
+fn buildCursorDraws(allocator: std.mem.Allocator, cursor: ?contract.CursorPresentation, cell_metrics: contract.CellMetrics, damage: scene_damage.NormalizedDamage) ![]contract.TextCursorDraw {
     var draws: std.ArrayListUnmanaged(contract.TextCursorDraw) = .empty;
     defer draws.deinit(allocator);
     try draws.ensureTotalCapacity(allocator, 4);
@@ -880,11 +885,27 @@ test "text preparation options produce scene cursor draws" {
         .primary_face = .{ .value = 1 },
         .metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
     }, .{
-        .scene = .{ .cursor = .{ .cell_col = 0, .cell_row = 0, .shape = .block, .color = white } },
+        .scene = .{ .cursor = .{
+            .focused = true,
+            .visible = true,
+            .blink = false,
+            .shape = .block,
+            .cursor_opacity = 255,
+            .text_blink_opacity = 255,
+            .cursor_color = .{ .kind = .rgb, .value = 0xffffff },
+            .cursor_text_color = .{ .kind = .default, .value = 0 },
+            .default_foreground = .{ .r = 255, .g = 255, .b = 255 },
+            .default_background = .{ .r = 0, .g = 0, .b = 0 },
+            .primary_extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 },
+            .extra_cursors = [_]contract.ExtraCursorPresentation{undefined} ** 256,
+            .extra_cursor_count = 0,
+            .trail = .{ .rects = [_]contract.CursorTrailRect{undefined} ** 16, .count = 0 },
+        } },
     });
     defer analysis.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.cursor_draws));
     try std.testing.expectEqual(@as(u16, 8), analysis.scene.scene.cursor_draws[0].width_px);
+    try std.testing.expect(analysis.scene.cursor_presentation != null);
 }
 
 test "text preparation partial damage clears use empty default background truth" {

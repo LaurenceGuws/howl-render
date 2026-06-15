@@ -163,12 +163,13 @@ pub fn vtStateToSurfaceTextInputWithTheme(allocator: std.mem.Allocator, state: a
         for (state.grid.cells, cell_inputs) |src, *dst| dst.* = mapCellInput(src, theme);
     }
 
+    const cursor_presentation = cursor.mapStateCursor(state, theme);
     return .{
         .allocator = allocator,
         .cells = cell_inputs,
         .grid = .{ .cols = state.grid.cols, .rows = state.grid.rows },
         .options = .{ .scene = .{
-            .cursor = cursor.mapStateCursor(state, theme),
+            .cursor = cursor_presentation,
             .damage = .{
                 .full = state.damage.full,
                 .dirty_rows = state.damage.dirty_rows,
@@ -228,10 +229,11 @@ pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contrac
         for (source.cells, mapped_cells) |src, *dst| dst.* = mapPublicationCellInput(src, theme);
     }
 
+    const cursor_presentation = cursor.mapPublicationCursor(source, theme);
     return .{
         .cells = mapped_cells,
         .grid = .{ .cols = source.cols, .rows = source.rows },
-        .options = .{ .scene = .{ .cursor = cursor.mapPublicationCursor(source, theme), .damage = damage } },
+        .options = .{ .scene = .{ .cursor = cursor_presentation, .damage = damage } },
     };
 }
 
@@ -255,6 +257,7 @@ test "renderable content converts VT source to text scene input" {
     try std.testing.expectEqual(default_theme.default_bg.r, input.cells[0].bg.r);
     try std.testing.expect(!input.cells[0].empty);
     try std.testing.expect(input.options.scene.cursor != null);
+    try std.testing.expectEqual(cursor.CursorShape.beam, input.options.scene.cursor.?.shape);
 }
 
 test "renderable content maps inverse VT source colors" {
@@ -435,7 +438,7 @@ test "renderable content uses VT-owned color state and selection styling" {
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .block, .blink = false },
+        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .block, .blink = false, .cursor_color = .{ .kind = 2, .value = 0x070809 }, .cursor_text_color = .{ .kind = 1, .value = 1 } },
         .colors = colors,
         .selection = std.mem.zeroes(source_abi.SourceSelection),
         .cursor_phase_visible = true,
@@ -445,7 +448,11 @@ test "renderable content uses VT-owned color state and selection styling" {
     }, false);
     try std.testing.expectEqual(colors.background.r, mapped.cells[0].fg.r);
     try std.testing.expectEqual(colors.foreground.r, mapped.cells[0].bg.r);
-    try std.testing.expectEqual(@as(u8, 7), mapped.options.scene.cursor.?.color.r);
+    try std.testing.expectEqual(@as(u32, 0x070809), mapped.options.scene.cursor.?.cursor_color.value);
+}
+
+fn rgbValue(value: contract.Rgba8) u32 {
+    return (@as(u32, value.r) << 16) | (@as(u32, value.g) << 8) | value.b;
 }
 
 test "renderable content semantic empty truth does not treat invisible or continuation cells as empty" {

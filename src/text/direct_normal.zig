@@ -123,7 +123,7 @@ pub fn prepare(
     grid_metrics: contract.GridMetrics,
     session: font_session.FontSession,
     damage_input: scene_damage.DamageInput,
-    cursor: ?scene.CursorInput,
+    cursor: ?contract.CursorPresentation,
     lane_report: *lane.LaneReport,
     rejected_complex_cells_out: ?*u64,
 ) !?Product {

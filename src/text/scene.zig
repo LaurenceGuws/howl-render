@@ -5,6 +5,7 @@ const scene_rects = @import("scene_rects.zig");
 const atlas_cache = @import("raster/atlas.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const sprite_key = @import("raster/key.zig");
+const cursor_presentation = @import("../vt_publication/cursor.zig");
 
 pub const TextScene = contract.TextScene;
 pub const TextSpriteDraw = contract.TextSpriteDraw;
@@ -13,33 +14,18 @@ pub fn empty() TextScene {
     return .{ .clear_draws = &.{}, .background_draws = &.{}, .sprite_draws = &.{}, .decoration_draws = &.{}, .cursor_draws = &.{}, .missing = &.{} };
 }
 
-pub const CursorShape = enum {
-    block,
-    underline,
-    beam,
-    hollow_block,
-};
-
 const kitty_dim_opacity_numerator: u16 = 2;
 const kitty_dim_opacity_denominator: u16 = 5;
 
-pub const CursorInput = struct {
-    cell_col: u16,
-    cell_row: u16,
-    shape: CursorShape,
-    color: contract.Rgba8,
-    // Render uses this as surface truth only; host cadence decides blink presentation.
-    blink: bool = false,
-};
-
 pub const BuildOptions = struct {
-    cursor: ?CursorInput = null,
+    cursor: ?contract.CursorPresentation = null,
     damage: scene_damage.DamageInput = .{},
 };
 
 pub const OwnedTextScene = struct {
     allocator: std.mem.Allocator,
     scene: contract.TextScene,
+    cursor_presentation: ?contract.CursorPresentation = null,
     owned: bool = true,
 
     pub fn deinit(self: *OwnedTextScene) void {
@@ -59,6 +45,7 @@ pub const OwnedTextScene = struct {
 pub const BorrowedTextScene = struct {
     allocator: std.mem.Allocator,
     scene: contract.TextScene,
+    cursor_presentation: ?contract.CursorPresentation = null,
 
     pub fn deinit(self: *BorrowedTextScene) void {
         self.allocator.free(self.scene.raster_requests);
@@ -123,6 +110,7 @@ pub fn buildSceneWithAtlasCacheOptions(
 ) !OwnedTextScene {
     const damage = scene_damage.normalizeDamage(options.damage, grid_metrics.rows);
     var assembly = SceneAssembly{ .allocator = allocator };
+    assembly.cursor_presentation = options.cursor;
     errdefer assembly.deinit();
     try appendSceneAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
     return assembly.toOwnedScene(damage);
@@ -144,6 +132,7 @@ pub fn buildBorrowedSceneWithAtlasCacheOptions(
     try scratch.reset(allocator, capacities);
 
     var assembly = SceneAssembly{ .allocator = allocator };
+    assembly.cursor_presentation = options.cursor;
     assembly.adoptRetainedScratch(scratch);
     errdefer assembly.deinit();
     try appendSceneAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
@@ -159,7 +148,7 @@ fn appendSceneAssemblyPopulation(
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
     damage: scene_damage.NormalizedDamage,
-    cursor: ?CursorInput,
+    cursor: ?contract.CursorPresentation,
 ) !void {
     try assembly.missing.appendSlice(assembly.allocator, missing);
 
@@ -182,6 +171,7 @@ const DrawCapacities = struct {
 const SceneAssembly = struct {
     allocator: std.mem.Allocator,
     retained_scratch: ?*RetainedScratch = null,
+    cursor_presentation: ?contract.CursorPresentation = null,
     sprite_draws: std.ArrayList(contract.TextSpriteDraw) = .empty,
     background_draws: std.ArrayList(contract.TextBackgroundDraw) = .empty,
     clear_draws: std.ArrayList(contract.TextClearDraw) = .empty,
@@ -234,7 +224,7 @@ const SceneAssembly = struct {
             .cursor_draws = try self.cursor_draws.toOwnedSlice(self.allocator),
             .raster_requests = try self.raster_requests.toOwnedSlice(self.allocator),
             .missing = try self.missing.toOwnedSlice(self.allocator),
-        } };
+        }, .cursor_presentation = self.cursor_presentation };
     }
 
     fn toBorrowedScene(self: *SceneAssembly, damage: scene_damage.NormalizedDamage) !BorrowedTextScene {
@@ -252,7 +242,7 @@ const SceneAssembly = struct {
             .cursor_draws = self.cursor_draws.items,
             .raster_requests = raster_requests,
             .missing = missing,
-        } };
+        }, .cursor_presentation = self.cursor_presentation };
     }
 
     fn appendRasterizedSpriteDraw(self: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, req: contract.SpriteRasterRequest, draw: SpriteDrawInput) !void {
@@ -318,7 +308,7 @@ fn drawCapacities(
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
     damage: scene_damage.NormalizedDamage,
-    cursor: ?CursorInput,
+    cursor: ?contract.CursorPresentation,
 ) DrawCapacities {
     return .{
         .sprite_draws = countGroupSpriteDraws(groups, grid_metrics, damage) + countCurlyUnderlineSprites(cells, grid_metrics, damage),
@@ -326,6 +316,41 @@ fn drawCapacities(
         .clear_draws = scene_rects.countClearDraws(grid_metrics, damage),
         .decoration_draws = scene_rects.countRectDecorationDraws(cells, cell_metrics, grid_metrics, damage),
         .cursor_draws = scene_rects.countCursorDraws(cursor, damage),
+    };
+}
+
+fn emptyExtraCursorPresentation() contract.ExtraCursorPresentation {
+    return .{
+        .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 },
+        .shape = .none,
+        .mode = .point,
+        .shape_follows_main = false,
+        .color_follows_main = false,
+        .cursor_color = .{ .kind = .default, .value = 0 },
+        .text_color = .{ .kind = .default, .value = 0 },
+    };
+}
+
+fn emptyCursorTrailRect() contract.CursorTrailRect {
+    return .{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } };
+}
+
+fn testCursorPresentation(shape: contract.CursorShape, col: u16, row: u16, rgb: contract.Rgba8) contract.CursorPresentation {
+    return .{
+        .focused = true,
+        .visible = true,
+        .blink = false,
+        .shape = shape,
+        .cursor_opacity = 255,
+        .text_blink_opacity = 255,
+        .cursor_color = .{ .kind = .rgb, .value = (@as(u32, rgb.r) << 16) | (@as(u32, rgb.g) << 8) | rgb.b },
+        .cursor_text_color = .{ .kind = .default, .value = 0 },
+        .default_foreground = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b },
+        .default_background = .{ .r = 0, .g = 0, .b = 0 },
+        .primary_extent = .{ .row = row, .col = col, .rows = 1, .cols = 1 },
+        .extra_cursors = [_]contract.ExtraCursorPresentation{emptyExtraCursorPresentation()} ** cursor_presentation.max_extra_cursors,
+        .extra_cursor_count = 0,
+        .trail = .{ .rects = [_]contract.CursorTrailRect{emptyCursorTrailRect()} ** cursor_presentation.max_cursor_trail_rects, .count = 0 },
     };
 }
 
@@ -641,7 +666,7 @@ test "scene emits explicit clears for transparent default backgrounds on partial
 test "scene cursor draws emit shared cursor geometry" {
     const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cell_metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
-    const underline_cursor: CursorInput = .{ .cell_col = 2, .cell_row = 1, .shape = .underline, .color = color };
+    const underline_cursor = testCursorPresentation(.underline, 2, 1, color);
     const underline = try scene_rects.cursorDraws(std.testing.allocator, underline_cursor, cell_metrics);
     defer std.testing.allocator.free(underline);
     try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.underline))), count32(underline));
@@ -649,22 +674,39 @@ test "scene cursor draws emit shared cursor geometry" {
     try std.testing.expectEqual(@as(u16, 8), underline[0].width_px);
     try std.testing.expectEqual(color.r, underline[0].color.r);
 
-    const hollow_cursor: CursorInput = .{ .cell_col = 0, .cell_row = 0, .shape = .hollow_block, .color = color };
+    const hollow_cursor = testCursorPresentation(.hollow, 0, 0, color);
     const hollow = try scene_rects.cursorDraws(std.testing.allocator, hollow_cursor, cell_metrics);
     defer std.testing.allocator.free(hollow);
-    try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.hollow_block))), count32(hollow));
+    try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.hollow))), count32(hollow));
 }
 
 test "scene build options include cursor draws" {
     const color = contract.Rgba8{ .r = 7, .g = 8, .b = 9, .a = 255 };
     var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4 }, .{
-        .cursor = .{ .cell_col = 3, .cell_row = 2, .shape = .beam, .color = color },
+        .cursor = testCursorPresentation(.beam, 3, 2, color),
     });
     defer owned.deinit();
     try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.beam))), count32(owned.scene.cursor_draws));
     try std.testing.expectEqual(@as(i32, 24), owned.scene.cursor_draws[0].x_px);
     try std.testing.expectEqual(@as(i32, 32), owned.scene.cursor_draws[0].y_px);
     try std.testing.expectEqual(color.g, owned.scene.cursor_draws[0].color.g);
+}
+
+test "scene stores cursor presentation owner" {
+    var presentation = testCursorPresentation(.beam, 3, 2, .{ .r = 4, .g = 5, .b = 6, .a = 255 });
+    presentation.blink = true;
+    presentation.cursor_opacity = 200;
+    presentation.text_blink_opacity = 150;
+    presentation.cursor_color = .{ .kind = .rgb, .value = 0x010203 };
+    presentation.cursor_text_color = .{ .kind = .indexed, .value = 7 };
+    presentation.default_background = .{ .r = 7, .g = 8, .b = 9 };
+    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4 }, .{
+        .cursor = presentation,
+    });
+    defer owned.deinit();
+    try std.testing.expect(owned.cursor_presentation != null);
+    try std.testing.expectEqual(@as(u16, 3), owned.cursor_presentation.?.primary_extent.col);
+    try std.testing.expectEqual(@as(u8, 200), owned.cursor_presentation.?.cursor_opacity);
 }
 
 test "scene damage filters clean rows" {
@@ -987,7 +1029,7 @@ test "borrowed scene reuses retained draw list storage" {
         .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
         .{ .cols = 2, .rows = 1 },
         &cache,
-        .{ .cursor = .{ .cell_col = 0, .cell_row = 0, .shape = .beam, .color = fg } },
+        .{ .cursor = testCursorPresentation(.beam, 0, 0, fg) },
     );
     defer first.deinit();
 
@@ -1005,7 +1047,7 @@ test "borrowed scene reuses retained draw list storage" {
         .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
         .{ .cols = 2, .rows = 1 },
         &cache,
-        .{ .cursor = .{ .cell_col = 0, .cell_row = 0, .shape = .beam, .color = fg } },
+        .{ .cursor = testCursorPresentation(.beam, 0, 0, fg) },
     );
     defer second.deinit();
 

@@ -381,7 +381,7 @@ pub fn appendRectDecorationCellDrawsWithLayoutUnmanaged(comptime underline_color
 }
 
 fn classifyCursorLead(damage: scene_damage.NormalizedDamage, cursor: anytype) CursorLead {
-    if (!damage.full and !scene_damage.rowDirty(damage, cursor.cell_row)) return .skip;
+    if (!damage.full and !scene_damage.rowDirty(damage, cursor.primary_extent.row)) return .skip;
     return .draw;
 }
 
@@ -536,28 +536,42 @@ fn cursorDrawRects(out: []contract.TextCursorDraw, cursor: anytype, cell_metrics
     const count = cursorDrawCountExact(cursor.shape);
     std.debug.assert(out.len >= count);
 
-    const base_x: i32 = @as(i32, @intCast(cursor.cell_col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
-    const base_y: i32 = @as(i32, @intCast(cursor.cell_row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
+    const base_x: i32 = @as(i32, @intCast(cursor.primary_extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
+    const base_y: i32 = @as(i32, @intCast(cursor.primary_extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
     const geom = cursorGeometry(cell_metrics);
+    const cursor_color = cursorColor(cursor);
 
     switch (cursor.shape) {
-        .block => out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
-        .beam => out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor.color },
-        .underline => out[0] = .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - geom.underline_h_px)), .width_px = cell_metrics.cell_w_px, .height_px = geom.underline_h_px, .color = cursor.color },
-        .hollow_block => {
+        .block => out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor_color },
+        .beam => out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = cell_metrics.cell_h_px, .color = cursor_color },
+        .underline => out[0] = .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - geom.underline_h_px)), .width_px = cell_metrics.cell_w_px, .height_px = geom.underline_h_px, .color = cursor_color },
+        .hollow => {
             const stroke = geom.hollow_stroke_px;
-            out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor.color };
-            out[1] = .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - stroke)), .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor.color };
-            out[2] = .{ .x_px = base_x, .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor.color };
-            out[3] = .{ .x_px = base_x + @as(i32, @intCast(cell_metrics.cell_w_px - stroke)), .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor.color };
+            out[0] = .{ .x_px = base_x, .y_px = base_y, .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor_color };
+            out[1] = .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(cell_metrics.cell_h_px - stroke)), .width_px = cell_metrics.cell_w_px, .height_px = stroke, .color = cursor_color };
+            out[2] = .{ .x_px = base_x, .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor_color };
+            out[3] = .{ .x_px = base_x + @as(i32, @intCast(cell_metrics.cell_w_px - stroke)), .y_px = base_y, .width_px = stroke, .height_px = cell_metrics.cell_h_px, .color = cursor_color };
         },
+        .none => unreachable,
     }
 
     return out[0..count];
 }
 
 fn cursorDrawCountExact(shape: anytype) CursorDrawCount {
-    return if (shape == .hollow_block) 4 else 1;
+    return if (shape == .hollow) 4 else 1;
+}
+
+fn cursorColor(cursor: anytype) contract.Rgba8 {
+    const rgb: @TypeOf(cursor.default_foreground) = switch (cursor.cursor_color.kind) {
+        .rgb => .{
+            .r = @as(u8, @intCast((cursor.cursor_color.value >> 16) & 0xff)),
+            .g = @as(u8, @intCast((cursor.cursor_color.value >> 8) & 0xff)),
+            .b = @as(u8, @intCast(cursor.cursor_color.value & 0xff)),
+        },
+        .default, .indexed => cursor.default_foreground,
+    };
+    return .{ .r = rgb.r, .g = rgb.g, .b = rgb.b, .a = cursor.cursor_opacity };
 }
 
 fn assertCursorDrawCount(draw_count: usize, shape: anytype) void {

@@ -5,6 +5,7 @@ const color = @import("color.zig");
 const effects = @import("effects.zig");
 const metrics = @import("metrics.zig");
 const scene_contract = @import("scene_contract.zig");
+const cursor_presentation = @import("../vt_publication/cursor.zig");
 
 pub const Rgba8 = color.Rgba8;
 pub const SemanticColorKind = color.SemanticColorKind;
@@ -24,6 +25,15 @@ pub const CellMetrics = metrics.CellMetrics;
 pub const GridMetrics = metrics.GridMetrics;
 
 pub const CellInput = cell_input.CellInput;
+pub const CursorColor = cursor_presentation.CursorColor;
+pub const Rgb8 = cursor_presentation.Rgb8;
+pub const CellExtent = cursor_presentation.CellExtent;
+pub const CursorShape = cursor_presentation.CursorShape;
+pub const ExtraCursorMode = cursor_presentation.ExtraCursorMode;
+pub const ExtraCursorPresentation = cursor_presentation.ExtraCursorPresentation;
+pub const CursorTrailRect = cursor_presentation.CursorTrailRect;
+pub const CursorTrailSource = cursor_presentation.CursorTrailSource;
+pub const CursorPresentation = cursor_presentation.CursorPresentation;
 
 pub const FontFaceId = scene_contract.FontFaceId;
 pub const CellTextId = scene_contract.CellTextId;

@@ -57,7 +57,7 @@ pub fn appendClears(
     scene_rects.appendClearRowDrawsUnmanaged(out, clear_row_colors, clear_row_matches, cell_metrics, grid_metrics, toSceneDamage(damage));
 }
 
-pub fn appendCursor(out: *std.ArrayListUnmanaged(contract.TextCursorDraw), cursor: ?scene.CursorInput, cell_metrics: contract.CellMetrics, damage: Damage) void {
+pub fn appendCursor(out: *std.ArrayListUnmanaged(contract.TextCursorDraw), cursor: ?contract.CursorPresentation, cell_metrics: contract.CellMetrics, damage: Damage) void {
     scene_rects.appendCursorDrawsUnmanaged(out, cursor, toSceneDamage(damage), cell_metrics);
 }
 
