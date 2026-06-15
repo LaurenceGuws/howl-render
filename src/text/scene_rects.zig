@@ -335,6 +335,7 @@ pub fn appendCursorDraws(allocator: std.mem.Allocator, out: *std.ArrayList(contr
     const cursor_value = cursor orelse return;
     if (!cursor_value.visible) return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
+    if (cursor_value.shape == .none) return;
     const count_before = out.items.len;
     var draws: [4]contract.TextCursorDraw = undefined;
     try out.appendSlice(allocator, cursorDrawRects(draws[0..], cursor_value, cell_metrics));
@@ -423,6 +424,7 @@ pub fn appendCursorDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.TextCurs
     const cursor_value = cursor orelse return;
     if (!cursor_value.visible) return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
+    if (cursor_value.shape == .none) return;
     const count_before = out.items.len;
     var draws: [4]contract.TextCursorDraw = undefined;
     out.appendSliceAssumeCapacity(cursorDrawRects(draws[0..], cursor_value, cell_metrics));
@@ -432,6 +434,7 @@ pub fn appendCursorDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.TextCurs
 pub fn cursorDraws(allocator: std.mem.Allocator, cursor: anytype, cell_metrics: contract.CellMetrics) ![]contract.TextCursorDraw {
     if (!cursor.visible) return allocator.alloc(contract.TextCursorDraw, 0);
     const count = cursorDrawCountExact(cursor.shape);
+    if (count == 0) return allocator.alloc(contract.TextCursorDraw, 0);
     const draws = try allocator.alloc(contract.TextCursorDraw, @intCast(count));
     errdefer allocator.free(draws);
     _ = cursorDrawRects(draws, cursor, cell_metrics);
@@ -667,7 +670,11 @@ fn cursorDrawRects(out: []contract.TextCursorDraw, cursor: anytype, cell_metrics
 }
 
 fn cursorDrawCountExact(shape: anytype) CursorDrawCount {
-    return if (shape == .hollow) 4 else 1;
+    return switch (shape) {
+        .none => 0,
+        .hollow => 4,
+        else => 1,
+    };
 }
 
 pub fn resolveBlockCursorColors(presentation: anytype, cell_fg: contract.Rgb8, cell_bg: contract.Rgb8) struct { cursor_fg: contract.Rgb8, cursor_bg: contract.Rgb8 } {
@@ -861,4 +868,33 @@ test "configured trail color overrides empty trail rect color" {
     try appendCursorTrailRects(std.testing.allocator, &list, .{ .cols = 1, .rows = 1 }, cursor, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     try std.testing.expectEqual(@as(usize, 1), list.items.len);
     try std.testing.expectEqual(@as(u8, 0x70), list.items[0].color.r);
+}
+
+test "visible no-shape produces no cursor draws fill or recolor" {
+    const damage = scene_damage.normalizeDamage(.{ .full = true }, 1);
+    const cell_metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    var cursor = testCursorPresentation();
+    cursor.shape = .none;
+
+    try std.testing.expectEqual(@as(usize, 0), countCursorDraws(@as(?@TypeOf(cursor), cursor), damage));
+    try std.testing.expectEqual(@as(usize, 0), countCursorFillRects(@as(?@TypeOf(cursor), cursor), damage));
+    try std.testing.expectEqual(@as(usize, 0), countCursorTextRecolorSpans(@as(?@TypeOf(cursor), cursor), damage));
+
+    const draws = try cursorDraws(std.testing.allocator, cursor, cell_metrics);
+    defer std.testing.allocator.free(draws);
+    try std.testing.expectEqual(@as(usize, 0), draws.len);
+
+    var draw_list = std.ArrayList(contract.TextCursorDraw).empty;
+    defer draw_list.deinit(std.testing.allocator);
+    var fill_list = std.ArrayList(@import("scene.zig").CursorFillRect).empty;
+    defer fill_list.deinit(std.testing.allocator);
+    var recolor_list = std.ArrayList(@import("scene.zig").CursorTextRecolorSpan).empty;
+    defer recolor_list.deinit(std.testing.allocator);
+    var trail_list = std.ArrayList(@import("scene.zig").CursorTrailRect).empty;
+    defer trail_list.deinit(std.testing.allocator);
+    try appendCursorPrimitives(std.testing.allocator, &draw_list, &fill_list, &recolor_list, &trail_list, &.{}, .{ .cols = 1, .rows = 1 }, cursor, damage, cell_metrics);
+    try std.testing.expectEqual(@as(usize, 0), draw_list.items.len);
+    try std.testing.expectEqual(@as(usize, 0), fill_list.items.len);
+    try std.testing.expectEqual(@as(usize, 0), recolor_list.items.len);
+    try std.testing.expectEqual(@as(usize, 1), trail_list.items.len);
 }

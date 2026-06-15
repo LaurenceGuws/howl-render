@@ -95,7 +95,7 @@ pub const HostCursorCadence = extern struct {
 pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const HostCursorCadence) callconv(.c) c_int {
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const host_cadence = cadence orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (host_cadence.effective_shape > 3) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (host_cadence.effective_shape > 4) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!source_abi.sourceColorValid(host_cadence.cursor_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!source_abi.sourceColorValid(host_cadence.cursor_text_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!source_abi.sourceColorValid(host_cadence.cursor_trail_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
@@ -128,4 +128,23 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
         .cursor_trail_rects = trail_rects,
     });
     return c.HOWL_RENDER_CALL_OK;
+}
+
+test "text session cadence accepts hollow host shape and rejects out-of-range shape" {
+    const handle = init(.{ .surface_px = .{ .width = 64, .height = 32 }, .font_size_px = 12 });
+    defer deinit(handle);
+    try std.testing.expect(handle != null);
+
+    var cadence = std.mem.zeroes(HostCursorCadence);
+    cadence.focused = 1;
+    cadence.cursor_opacity = 255;
+    cadence.text_blink_opacity = 255;
+    cadence.effective_shape = 4;
+    cadence.cursor_beam_thickness = 1.5;
+    cadence.cursor_underline_thickness = 2.0;
+
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, setCursorCadence(handle, &cadence));
+
+    cadence.effective_shape = 5;
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, setCursorCadence(handle, &cadence));
 }
