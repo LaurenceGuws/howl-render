@@ -378,6 +378,16 @@ pub const TextSession = struct {
 };
 
 pub const TextSessionOwner = struct {
+    pub const HostCursorCadenceRect = source_abi.SourceCursorTrailRect;
+    pub const HostCursorCadence = struct {
+        focused: bool,
+        cursor_opacity: u8,
+        text_blink_opacity: u8,
+        effective_shape: source_abi.SourceCursorShape,
+        cursor_trail_count: u16,
+        cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect,
+    };
+
     allocator: std.mem.Allocator,
     session: TextSession,
     geometry: render_geometry.GeometryOwner,
@@ -386,6 +396,12 @@ pub const TextSessionOwner = struct {
     submitted: submitted_surface.SubmittedSurface,
     source_dirty_epoch: u64 = 0,
     cursor_blink_visible: bool = true,
+    cursor_focused: bool = true,
+    cursor_opacity: u8 = 255,
+    text_blink_opacity: u8 = 255,
+    cursor_effective_shape: source_abi.SourceCursorShape = .block,
+    cursor_trail_count: u16 = 0,
+    cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
     config: TextSessionConfig,
     rdr_sfc_handle: RdrSfcHandle = null,
     prepared_handles: std.ArrayList(*prepared_handle.PreparedHandle) = .empty,
@@ -519,6 +535,18 @@ pub const TextSessionOwner = struct {
         return self.submitted.submittedToken();
     }
 
+    fn updateBool(target: *bool, next: bool) bool {
+        if (target.* == next) return false;
+        target.* = next;
+        return true;
+    }
+
+    fn updateByte(target: *u8, next: u8) bool {
+        if (target.* == next) return false;
+        target.* = next;
+        return true;
+    }
+
     pub fn syncGeometry(self: *TextSessionOwner, layout: geometry_contract.Geometry) !geometry_contract.GeometryResponse {
         const response = self.geometry.sync(layout);
         if (response.changed) {
@@ -540,6 +568,67 @@ pub const TextSessionOwner = struct {
         changed = self.prepare_requests.setCursorBlinkVisible(visible) or changed;
         if (changed) self.prepare_requests.requestBlinkRefresh();
         return true;
+    }
+
+    pub fn setHostCursorCadence(self: *TextSessionOwner, cadence: HostCursorCadence) bool {
+        var changed = false;
+        changed = updateBool(&self.cursor_focused, cadence.focused) or changed;
+        changed = updateByte(&self.cursor_opacity, cadence.cursor_opacity) or changed;
+        changed = updateByte(&self.text_blink_opacity, cadence.text_blink_opacity) or changed;
+        if (self.cursor_effective_shape != cadence.effective_shape) {
+            self.cursor_effective_shape = cadence.effective_shape;
+            changed = true;
+        }
+        if (self.cursor_trail_count != cadence.cursor_trail_count) {
+            self.cursor_trail_count = cadence.cursor_trail_count;
+            changed = true;
+        }
+        if (!std.mem.eql(u8, std.mem.asBytes(&self.cursor_trail_rects), std.mem.asBytes(&cadence.cursor_trail_rects))) {
+            self.cursor_trail_rects = cadence.cursor_trail_rects;
+            changed = true;
+        }
+
+        if (self.source_slot.reservedSource()) |source| {
+            changed = self.applyHostCursorCadenceToSource(source) or changed;
+        }
+        if (self.prepare_requests.active_source) |*source| {
+            changed = self.applyHostCursorCadenceToSource(source) or changed;
+            if (changed and self.prepare_requests.active_taken) self.prepare_requests.requestBlinkRefresh();
+        }
+        return changed;
+    }
+
+    pub fn applyHostCursorCadenceToSource(self: *TextSessionOwner, source: *source_publication.PublicationSource) bool {
+        var changed = false;
+        if (source.cursor.focused != self.cursor_focused) {
+            source.cursor.focused = self.cursor_focused;
+            changed = true;
+        }
+        if (source.cursor.cursor_opacity != self.cursor_opacity) {
+            source.cursor.cursor_opacity = self.cursor_opacity;
+            changed = true;
+        }
+        if (source.cursor.text_blink_opacity != self.text_blink_opacity) {
+            source.cursor.text_blink_opacity = self.text_blink_opacity;
+            changed = true;
+        }
+        if (source.cursor.effective_shape != self.cursor_effective_shape) {
+            source.cursor.effective_shape = self.cursor_effective_shape;
+            changed = true;
+        }
+        if (source.cursor_phase_visible != (self.cursor_opacity != 0)) {
+            source.cursor_phase_visible = self.cursor_opacity != 0;
+            changed = true;
+        }
+        if (source.cursor_trail_count != self.cursor_trail_count) {
+            source.cursor_trail_count = self.cursor_trail_count;
+            changed = true;
+        }
+        if (!std.mem.eql(u8, std.mem.asBytes(&source.cursor_trail_rects), std.mem.asBytes(&self.cursor_trail_rects))) {
+            source.cursor_trail_rects = self.cursor_trail_rects;
+            changed = true;
+        }
+        return changed;
     }
 
     pub fn prepare(self: *TextSessionOwner) ?tokens.RenderRequest {

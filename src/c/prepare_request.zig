@@ -8,7 +8,8 @@ pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, vt_surface: ?*co
     prepare_out.* = std.mem.zeroes(c.HowlRenderPrepareRequest);
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const visible = vt_surface orelse return c.HOWL_RENDER_PREPARE_FAILED;
-    const source = owner.source_slot.copyPublishedSource(visible.*, owner.nextSourceDirtyEpoch(), owner.cursor_blink_visible) catch return c.HOWL_RENDER_PREPARE_FAILED;
+    var source = owner.source_slot.copyPublishedSource(visible.*, owner.nextSourceDirtyEpoch(), owner.cursor_blink_visible) catch return c.HOWL_RENDER_PREPARE_FAILED;
+    _ = owner.applyHostCursorCadenceToSource(&source);
     std.debug.assert(source.snapshot_seq != 0);
     std.debug.assert(source.dirty_epoch != 0);
     _ = owner.prepare_requests.admitSource(&owner.source_slot, source, owner.submittedToken(), owner.geometry.geometry_epoch);

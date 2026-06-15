@@ -4,6 +4,7 @@ const handle_owner = @import("text_session_handle.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const render_session = @import("../render_session.zig");
 const text_support = @import("../text/ft_hb/support.zig");
+const source_abi = @import("../vt_publication/abi.zig");
 
 pub fn init(config: c.HowlRenderTextConfig) callconv(.c) c.HowlRenderTextSessionHandle {
     if (config.surface_px.width == 0 or config.surface_px.height == 0) return null;
@@ -62,5 +63,55 @@ pub fn setFallbackFontPaths(value: c.HowlRenderTextSessionHandle, ptrs: ?[*]cons
 pub fn setCursorBlinkVisible(value: c.HowlRenderTextSessionHandle, visible: u8) callconv(.c) c_int {
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     _ = owner.setCursorBlinkVisible(visible != 0);
+    return c.HOWL_RENDER_CALL_OK;
+}
+
+pub const HostCursorCadenceRect = extern struct {
+    row: u16,
+    col: u16,
+    rows: u16,
+    cols: u16,
+    opacity: u8,
+    reserved0: u8,
+    reserved1: u16,
+    color: c.HowlVtRgb8,
+};
+
+pub const HostCursorCadence = extern struct {
+    focused: u8,
+    cursor_opacity: u8,
+    text_blink_opacity: u8,
+    effective_shape: u8,
+    cursor_trail_count: u16,
+    reserved0: u16 = 0,
+    cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect,
+};
+
+pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const HostCursorCadence) callconv(.c) c_int {
+    const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
+    const host_cadence = cadence orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (host_cadence.effective_shape > 3) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (host_cadence.cursor_trail_count > source_abi.max_cursor_trail_rects) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    var trail_rects = [_]render_session.TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(render_session.TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
+    for (0..host_cadence.cursor_trail_count) |index| {
+        trail_rects[index] = .{
+            .row = host_cadence.cursor_trail_rects[index].row,
+            .col = host_cadence.cursor_trail_rects[index].col,
+            .rows = host_cadence.cursor_trail_rects[index].rows,
+            .cols = host_cadence.cursor_trail_rects[index].cols,
+            .opacity = host_cadence.cursor_trail_rects[index].opacity,
+            .reserved0 = host_cadence.cursor_trail_rects[index].reserved0,
+            .reserved1 = host_cadence.cursor_trail_rects[index].reserved1,
+            .color = host_cadence.cursor_trail_rects[index].color,
+        };
+    }
+    _ = owner.setHostCursorCadence(.{
+        .focused = host_cadence.focused != 0,
+        .cursor_opacity = host_cadence.cursor_opacity,
+        .text_blink_opacity = host_cadence.text_blink_opacity,
+        .effective_shape = @enumFromInt(host_cadence.effective_shape),
+        .cursor_trail_count = host_cadence.cursor_trail_count,
+        .cursor_trail_rects = trail_rects,
+    });
     return c.HOWL_RENDER_CALL_OK;
 }

@@ -12,6 +12,7 @@ comptime {
     @export(&text_session.setFontPath, .{ .name = "howl_render_text_session_set_font_path" });
     @export(&text_session.setFallbackFontPaths, .{ .name = "howl_render_text_session_set_fallback_font_paths" });
     @export(&text_session.setCursorBlinkVisible, .{ .name = "howl_render_text_session_set_cursor_blink_visible" });
+    @export(&text_session.setCursorCadence, .{ .name = "howl_render_text_session_set_cursor_cadence" });
     @export(&text_session.isValidFont, .{ .name = "howl_render_text_session_is_valid_font" });
     @export(&surface_geometry.deriveLayout, .{ .name = "howl_render_text_session_derive_layout" });
     @export(&surface_geometry.syncGeometry, .{ .name = "howl_render_text_session_sync_geometry" });
