@@ -608,10 +608,7 @@ pub const TextSessionOwner = struct {
             changed = true;
         }
 
-        if (self.latest_source) |*source| {
-            changed = self.applyHostCursorCadenceToSource(source) or changed;
-            if (changed) self.recomputePrepareRequest();
-        }
+        if (changed) self.recomputePrepareRequest();
         return changed;
     }
 
@@ -1024,6 +1021,50 @@ test "render session owner drops duplicate copied source without mutating latest
     try std.testing.expectEqual(@as(u64, 1), owner.latest_source.?.snapshot_seq);
     try std.testing.expect(owner.prepare_request != null);
     try std.testing.expectEqual(@as(u64, 1), owner.prepare_request.?.token.snapshot_seq);
+}
+
+test "render session owner cadence change does not hide duplicate source damage" {
+    const owner = TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    _ = try owner.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var cells = [_]source_abi.SourceCell{testCell('A')};
+    var source = source_publication.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
+    source.source.cols = 1;
+    source.source.cursor.col = 0;
+    source.snapshot_seq = 1;
+    source.dirty_generation = 1;
+
+    _ = try owner.ingestPublishedSource(source) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u8, 255), owner.latest_source.?.cursor.cursor_opacity);
+
+    _ = owner.setHostCursorCadence(.{
+        .focused = true,
+        .cursor_opacity = 0,
+        .text_blink_opacity = 255,
+        .effective_shape = .beam,
+        .cursor_color = .{ .kind = 0, .value = 0 },
+        .cursor_text_color = .{ .kind = 0, .value = 0 },
+        .cursor_trail_color = .{ .kind = 0, .value = 0 },
+        .cursor_beam_thickness = 1.5,
+        .cursor_underline_thickness = 2.0,
+        .cursor_trail_count = 0,
+        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
+    });
+    try std.testing.expectEqual(@as(u8, 255), owner.latest_source.?.cursor.cursor_opacity);
+
+    const cursor_request = try owner.ingestPublishedSource(source) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 1), cursor_request.token.snapshot_seq);
+    try std.testing.expectEqual(tokens.DamageKind.full, cursor_request.token.damage_kind);
+    try std.testing.expectEqual(@as(u8, 0), owner.latest_source.?.cursor.cursor_opacity);
 }
 
 fn testCell(codepoint: u21) source_abi.SourceCell {
