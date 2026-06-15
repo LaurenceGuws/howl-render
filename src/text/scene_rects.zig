@@ -3,6 +3,7 @@ const contract = @import("contract.zig");
 const scene_damage = @import("scene_damage.zig");
 
 const CursorDrawCount = u3;
+const block_contrast_threshold: f32 = 2.5;
 
 const BackgroundLead = enum(u2) {
     skip,
@@ -81,8 +82,33 @@ pub fn countClearDraws(grid_metrics: contract.GridMetrics, damage: scene_damage.
 
 pub fn countCursorDraws(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
     const cursor_value = cursor orelse return 0;
+    if (!cursor_value.visible) return 0;
     if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
     return cursorDrawCount(cursor_value.shape);
+}
+
+pub fn countCursorFillRects(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
+    const cursor_value = cursor orelse return 0;
+    if (!cursor_value.visible) return 0;
+    if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
+    return switch (cursor_value.shape) {
+        .none => 0,
+        .hollow => 4,
+        .block, .beam, .underline => 1,
+    };
+}
+
+pub fn countCursorTextRecolorSpans(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
+    const cursor_value = cursor orelse return 0;
+    if (!cursor_value.visible) return 0;
+    if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
+    return if (cursor_value.shape == .block) 1 else 0;
+}
+
+pub fn countCursorTrailRects(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
+    const cursor_value = cursor orelse return 0;
+    if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
+    return cursor_value.trail.count;
 }
 
 pub fn cursorDrawCount(shape: anytype) usize {
@@ -304,8 +330,9 @@ pub fn appendClearRowDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.TextCl
     }
 }
 
-pub fn appendCursorDraws(allocator: std.mem.Allocator, out: *std.ArrayList(contract.TextCursorDraw), cursor: anytype, damage: scene_damage.NormalizedDamage, cell_metrics: contract.CellMetrics) !void {
+pub fn appendCursorDraws(allocator: std.mem.Allocator, out: *std.ArrayList(contract.TextCursorDraw), cursor: ?contract.CursorPresentation, damage: scene_damage.NormalizedDamage, cell_metrics: contract.CellMetrics) !void {
     const cursor_value = cursor orelse return;
+    if (!cursor_value.visible) return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
     const count_before = out.items.len;
     var draws: [4]contract.TextCursorDraw = undefined;
@@ -313,8 +340,83 @@ pub fn appendCursorDraws(allocator: std.mem.Allocator, out: *std.ArrayList(contr
     assertCursorDrawCount(out.items.len - count_before, cursor_value.shape);
 }
 
+pub fn appendCursorPrimitives(
+    allocator: std.mem.Allocator,
+    cursor_draws: *std.ArrayList(contract.TextCursorDraw),
+    cursor_fill_rects: *std.ArrayList(@import("scene.zig").CursorFillRect),
+    cursor_text_recolor_spans: *std.ArrayList(@import("scene.zig").CursorTextRecolorSpan),
+    cursor_trail_rects: *std.ArrayList(@import("scene.zig").CursorTrailRect),
+    cells: []const contract.RenderableCell,
+    grid_metrics: contract.GridMetrics,
+    cursor: ?contract.CursorPresentation,
+    damage: scene_damage.NormalizedDamage,
+    cell_metrics: contract.CellMetrics,
+) !void {
+    const cursor_value = cursor orelse return;
+    try appendCursorTrailRects(allocator, cursor_trail_rects, grid_metrics, cursor_value, cell_metrics);
+    if (!cursor_value.visible) return;
+    if (classifyCursorLead(damage, cursor_value) != .draw) return;
+
+    try appendCursorDraws(allocator, cursor_draws, cursor_value, damage, cell_metrics);
+    try appendCursorFillRects(allocator, cursor_fill_rects, grid_metrics, cursor_value, cell_metrics);
+    try appendCursorTextRecolorSpans(allocator, cursor_text_recolor_spans, cells, grid_metrics, cursor_value);
+}
+
+fn appendCursorFillRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("scene.zig").CursorFillRect), grid_metrics: contract.GridMetrics, cursor: anytype, cell_metrics: contract.CellMetrics) !void {
+    const first_cell: u32 = @as(u32, cursor.primary_extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, cursor.primary_extent.col);
+    const cell_span: u8 = @intCast(@min(@as(u32, cursor.primary_extent.cols) * @as(u32, cursor.primary_extent.rows), @as(u32, std.math.maxInt(u8))));
+    const fill_color = cursorColor(cursor);
+    const base_x: i32 = @as(i32, @intCast(cursor.primary_extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
+    const base_y: i32 = @as(i32, @intCast(cursor.primary_extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
+    const width_px: u16 = @intCast(@as(u32, cursor.primary_extent.cols) * @as(u32, cell_metrics.cell_w_px));
+    const height_px: u16 = @intCast(@as(u32, cursor.primary_extent.rows) * @as(u32, cell_metrics.cell_h_px));
+    const geom = cursorGeometry(cell_metrics);
+    switch (cursor.shape) {
+        .none => {},
+        .block => try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = width_px, .height_px = height_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span }),
+        .beam => try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = geom.beam_w_px, .height_px = height_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span }),
+        .underline => try out.append(allocator, .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(height_px - geom.underline_h_px)), .width_px = width_px, .height_px = geom.underline_h_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span }),
+        .hollow => {
+            const stroke = geom.hollow_stroke_px;
+            try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = width_px, .height_px = stroke, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span });
+            try out.append(allocator, .{ .x_px = base_x, .y_px = base_y + @as(i32, @intCast(height_px - stroke)), .width_px = width_px, .height_px = stroke, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span });
+            try out.append(allocator, .{ .x_px = base_x, .y_px = base_y, .width_px = stroke, .height_px = height_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span });
+            try out.append(allocator, .{ .x_px = base_x + @as(i32, @intCast(width_px - stroke)), .y_px = base_y, .width_px = stroke, .height_px = height_px, .color = fill_color, .first_cell = first_cell, .cell_span = cell_span });
+        },
+    }
+}
+
+fn appendCursorTextRecolorSpans(allocator: std.mem.Allocator, out: *std.ArrayList(@import("scene.zig").CursorTextRecolorSpan), cells: []const contract.RenderableCell, grid_metrics: contract.GridMetrics, cursor: anytype) !void {
+    if (cursor.shape != .block) return;
+    const first_cell: u32 = @as(u32, cursor.primary_extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, cursor.primary_extent.col);
+    const cell = findCellByFirstCell(cells, first_cell) orelse return;
+    const colors = resolveBlockCursorColors(cursor, rgbFromRgba(cell.fg), rgbFromRgba(cell.bg));
+    try out.append(allocator, .{
+        .first_cell = first_cell,
+        .cell_span = @intCast(@min(@as(u32, cursor.primary_extent.cols) * @as(u32, cursor.primary_extent.rows), @as(u32, std.math.maxInt(u8)))),
+        .color = .{ .r = colors.cursor_fg.r, .g = colors.cursor_fg.g, .b = colors.cursor_fg.b, .a = cursor.cursor_opacity },
+    });
+}
+
+fn appendCursorTrailRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("scene.zig").CursorTrailRect), grid_metrics: contract.GridMetrics, cursor: anytype, cell_metrics: contract.CellMetrics) !void {
+    for (cursor.trail.rects[0..cursor.trail.count]) |rect| {
+        const first_cell: u32 = @as(u32, rect.extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, rect.extent.col);
+        try out.append(allocator, .{
+            .x_px = @as(i32, @intCast(rect.extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px)),
+            .y_px = @as(i32, @intCast(rect.extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px)),
+            .width_px = @intCast(@as(u32, rect.extent.cols) * @as(u32, cell_metrics.cell_w_px)),
+            .height_px = @intCast(@as(u32, rect.extent.rows) * @as(u32, cell_metrics.cell_h_px)),
+            .opacity = rect.opacity,
+            .color = .{ .r = rect.color.r, .g = rect.color.g, .b = rect.color.b, .a = rect.opacity },
+            .first_cell = first_cell,
+            .cell_span = @intCast(@min(@as(u32, rect.extent.cols) * @as(u32, rect.extent.rows), @as(u32, std.math.maxInt(u8)))),
+        });
+    }
+}
+
 pub fn appendCursorDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.TextCursorDraw), cursor: anytype, damage: scene_damage.NormalizedDamage, cell_metrics: contract.CellMetrics) void {
     const cursor_value = cursor orelse return;
+    if (!cursor_value.visible) return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
     const count_before = out.items.len;
     var draws: [4]contract.TextCursorDraw = undefined;
@@ -323,6 +425,7 @@ pub fn appendCursorDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.TextCurs
 }
 
 pub fn cursorDraws(allocator: std.mem.Allocator, cursor: anytype, cell_metrics: contract.CellMetrics) ![]contract.TextCursorDraw {
+    if (!cursor.visible) return allocator.alloc(contract.TextCursorDraw, 0);
     const count = cursorDrawCountExact(cursor.shape);
     const draws = try allocator.alloc(contract.TextCursorDraw, @intCast(count));
     errdefer allocator.free(draws);
@@ -562,6 +665,33 @@ fn cursorDrawCountExact(shape: anytype) CursorDrawCount {
     return if (shape == .hollow) 4 else 1;
 }
 
+pub fn resolveBlockCursorColors(presentation: anytype, cell_fg: contract.Rgb8, cell_bg: contract.Rgb8) struct { cursor_fg: contract.Rgb8, cursor_bg: contract.Rgb8 } {
+    const cell_contrast = rgbContrast(cell_fg, cell_bg);
+    const default_contrast = rgbContrast(presentation.default_foreground, presentation.default_background);
+    var cursor_fg: contract.Rgb8 = if (cell_contrast < block_contrast_threshold and default_contrast > cell_contrast) presentation.default_background else cell_bg;
+    var cursor_bg: contract.Rgb8 = if (cell_contrast < block_contrast_threshold and default_contrast > cell_contrast) presentation.default_foreground else cell_fg;
+
+    switch (presentation.cursor_color.kind) {
+        .default => {
+            if (cell_bg.r == cell_fg.r and cell_bg.g == cell_fg.g and cell_bg.b == cell_fg.b) {
+                cursor_fg = presentation.default_background;
+                cursor_bg = presentation.default_foreground;
+            } else {
+                cursor_fg = cell_bg;
+                cursor_bg = cell_fg;
+            }
+        },
+        .indexed, .rgb => {
+            cursor_bg = cursorColorRgb(presentation.cursor_color, presentation.default_foreground);
+            cursor_fg = switch (presentation.cursor_text_color.kind) {
+                .default => cell_bg,
+                .indexed, .rgb => cursorColorRgb(presentation.cursor_text_color, presentation.default_foreground),
+            };
+        },
+    }
+    return .{ .cursor_fg = cursor_fg, .cursor_bg = cursor_bg };
+}
+
 fn cursorColor(cursor: anytype) contract.Rgba8 {
     const rgb: @TypeOf(cursor.default_foreground) = switch (cursor.cursor_color.kind) {
         .rgb => .{
@@ -572,6 +702,45 @@ fn cursorColor(cursor: anytype) contract.Rgba8 {
         .default, .indexed => cursor.default_foreground,
     };
     return .{ .r = rgb.r, .g = rgb.g, .b = rgb.b, .a = cursor.cursor_opacity };
+}
+
+fn cursorColorRgb(color_value: anytype, default_rgb: anytype) @TypeOf(default_rgb) {
+    return switch (color_value.kind) {
+        .rgb => .{
+            .r = @as(u8, @intCast((color_value.value >> 16) & 0xff)),
+            .g = @as(u8, @intCast((color_value.value >> 8) & 0xff)),
+            .b = @as(u8, @intCast(color_value.value & 0xff)),
+        },
+        .default, .indexed => default_rgb,
+    };
+}
+
+fn rgbFromRgba(value: contract.Rgba8) contract.Rgb8 {
+    return .{ .r = value.r, .g = value.g, .b = value.b };
+}
+
+fn findCellByFirstCell(cells: []const contract.RenderableCell, first_cell: u32) ?contract.RenderableCell {
+    for (cells) |cell| {
+        if (cell.first_cell == first_cell) return cell;
+    }
+    return null;
+}
+
+fn rgbContrast(a: anytype, b: anytype) f32 {
+    const a_luma = relativeLuminance(a);
+    const b_luma = relativeLuminance(b);
+    const high = @max(a_luma, b_luma);
+    const low = @min(a_luma, b_luma);
+    return (high + 0.05) / (low + 0.05);
+}
+
+fn relativeLuminance(rgb: anytype) f32 {
+    return 0.2126 * channelLuminance(rgb.r) + 0.7152 * channelLuminance(rgb.g) + 0.0722 * channelLuminance(rgb.b);
+}
+
+fn channelLuminance(channel: u8) f32 {
+    const scaled = @as(f32, @floatFromInt(channel)) / 255.0;
+    return if (scaled <= 0.04045) scaled / 12.92 else std.math.pow(f32, (scaled + 0.055) / 1.055, 2.4);
 }
 
 fn assertCursorDrawCount(draw_count: usize, shape: anytype) void {

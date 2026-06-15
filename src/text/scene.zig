@@ -10,6 +10,33 @@ const cursor_presentation = @import("../vt_publication/cursor.zig");
 pub const TextScene = contract.TextScene;
 pub const TextSpriteDraw = contract.TextSpriteDraw;
 
+pub const CursorFillRect = struct {
+    x_px: i32,
+    y_px: i32,
+    width_px: u16,
+    height_px: u16,
+    color: contract.Rgba8,
+    first_cell: u32,
+    cell_span: u8,
+};
+
+pub const CursorTextRecolorSpan = struct {
+    first_cell: u32,
+    cell_span: u8,
+    color: contract.Rgba8,
+};
+
+pub const CursorTrailRect = struct {
+    x_px: i32,
+    y_px: i32,
+    width_px: u16,
+    height_px: u16,
+    opacity: u8,
+    color: contract.Rgba8,
+    first_cell: u32,
+    cell_span: u8,
+};
+
 pub fn empty() TextScene {
     return .{ .clear_draws = &.{}, .background_draws = &.{}, .sprite_draws = &.{}, .decoration_draws = &.{}, .cursor_draws = &.{}, .missing = &.{} };
 }
@@ -26,6 +53,9 @@ pub const OwnedTextScene = struct {
     allocator: std.mem.Allocator,
     scene: contract.TextScene,
     cursor_presentation: ?contract.CursorPresentation = null,
+    cursor_fill_rects: []const CursorFillRect = &.{},
+    cursor_text_recolor_spans: []const CursorTextRecolorSpan = &.{},
+    cursor_trail_rects: []const CursorTrailRect = &.{},
     owned: bool = true,
 
     pub fn deinit(self: *OwnedTextScene) void {
@@ -37,6 +67,9 @@ pub const OwnedTextScene = struct {
             self.allocator.free(self.scene.cursor_draws);
             self.allocator.free(self.scene.raster_requests);
             self.allocator.free(self.scene.missing);
+            self.allocator.free(self.cursor_fill_rects);
+            self.allocator.free(self.cursor_text_recolor_spans);
+            self.allocator.free(self.cursor_trail_rects);
         }
         self.* = undefined;
     }
@@ -46,6 +79,9 @@ pub const BorrowedTextScene = struct {
     allocator: std.mem.Allocator,
     scene: contract.TextScene,
     cursor_presentation: ?contract.CursorPresentation = null,
+    cursor_fill_rects: []const CursorFillRect = &.{},
+    cursor_text_recolor_spans: []const CursorTextRecolorSpan = &.{},
+    cursor_trail_rects: []const CursorTrailRect = &.{},
 
     pub fn deinit(self: *BorrowedTextScene) void {
         self.allocator.free(self.scene.raster_requests);
@@ -60,8 +96,14 @@ pub const RetainedScratch = struct {
     clear_draws: std.ArrayList(contract.TextClearDraw) = .empty,
     decoration_draws: std.ArrayList(contract.TextDecorationDraw) = .empty,
     cursor_draws: std.ArrayList(contract.TextCursorDraw) = .empty,
+    cursor_fill_rects: std.ArrayList(CursorFillRect) = .empty,
+    cursor_text_recolor_spans: std.ArrayList(CursorTextRecolorSpan) = .empty,
+    cursor_trail_rects: std.ArrayList(CursorTrailRect) = .empty,
 
     pub fn deinit(self: *RetainedScratch, allocator: std.mem.Allocator) void {
+        self.cursor_trail_rects.deinit(allocator);
+        self.cursor_text_recolor_spans.deinit(allocator);
+        self.cursor_fill_rects.deinit(allocator);
         self.cursor_draws.deinit(allocator);
         self.decoration_draws.deinit(allocator);
         self.clear_draws.deinit(allocator);
@@ -76,11 +118,17 @@ pub const RetainedScratch = struct {
         try self.clear_draws.ensureTotalCapacity(allocator, capacities.clear_draws);
         try self.decoration_draws.ensureTotalCapacity(allocator, capacities.decoration_draws);
         try self.cursor_draws.ensureTotalCapacity(allocator, capacities.cursor_draws);
+        try self.cursor_fill_rects.ensureTotalCapacity(allocator, capacities.cursor_fill_rects);
+        try self.cursor_text_recolor_spans.ensureTotalCapacity(allocator, capacities.cursor_text_recolor_spans);
+        try self.cursor_trail_rects.ensureTotalCapacity(allocator, capacities.cursor_trail_rects);
         self.sprite_draws.clearRetainingCapacity();
         self.background_draws.clearRetainingCapacity();
         self.clear_draws.clearRetainingCapacity();
         self.decoration_draws.clearRetainingCapacity();
         self.cursor_draws.clearRetainingCapacity();
+        self.cursor_fill_rects.clearRetainingCapacity();
+        self.cursor_text_recolor_spans.clearRetainingCapacity();
+        self.cursor_trail_rects.clearRetainingCapacity();
     }
 };
 
@@ -153,7 +201,18 @@ fn appendSceneAssemblyPopulation(
     try assembly.missing.appendSlice(assembly.allocator, missing);
 
     try appendGroupSpriteDraws(assembly, cache, cells, groups, cell_metrics, grid_metrics, damage);
-    try scene_rects.appendCursorDraws(assembly.allocator, &assembly.cursor_draws, cursor, damage, cell_metrics);
+    try scene_rects.appendCursorPrimitives(
+        assembly.allocator,
+        &assembly.cursor_draws,
+        &assembly.cursor_fill_rects,
+        &assembly.cursor_text_recolor_spans,
+        &assembly.cursor_trail_rects,
+        cells,
+        grid_metrics,
+        cursor,
+        damage,
+        cell_metrics,
+    );
     try scene_rects.appendClearDraws(assembly.allocator, &assembly.clear_draws, cells, cell_metrics, grid_metrics, damage);
     try scene_rects.appendBackgroundDraws(assembly.allocator, &assembly.background_draws, cells, cell_metrics, grid_metrics, damage);
     try scene_rects.appendRectDecorationDraws(underlineDrawColor, spriteDrawColor, assembly.allocator, &assembly.decoration_draws, cells, cell_metrics, grid_metrics, damage);
@@ -166,6 +225,9 @@ const DrawCapacities = struct {
     clear_draws: usize,
     decoration_draws: usize,
     cursor_draws: usize,
+    cursor_fill_rects: usize,
+    cursor_text_recolor_spans: usize,
+    cursor_trail_rects: usize,
 };
 
 const SceneAssembly = struct {
@@ -177,6 +239,9 @@ const SceneAssembly = struct {
     clear_draws: std.ArrayList(contract.TextClearDraw) = .empty,
     decoration_draws: std.ArrayList(contract.TextDecorationDraw) = .empty,
     cursor_draws: std.ArrayList(contract.TextCursorDraw) = .empty,
+    cursor_fill_rects: std.ArrayList(CursorFillRect) = .empty,
+    cursor_text_recolor_spans: std.ArrayList(CursorTextRecolorSpan) = .empty,
+    cursor_trail_rects: std.ArrayList(CursorTrailRect) = .empty,
     raster_requests: std.ArrayList(contract.SpriteRasterRequest) = .empty,
     missing: std.ArrayList(contract.MissingGlyph) = .empty,
 
@@ -187,6 +252,9 @@ const SceneAssembly = struct {
         self.clear_draws = scratch.clear_draws;
         self.decoration_draws = scratch.decoration_draws;
         self.cursor_draws = scratch.cursor_draws;
+        self.cursor_fill_rects = scratch.cursor_fill_rects;
+        self.cursor_text_recolor_spans = scratch.cursor_text_recolor_spans;
+        self.cursor_trail_rects = scratch.cursor_trail_rects;
     }
 
     fn releaseRetainedScratch(self: *SceneAssembly) void {
@@ -196,6 +264,9 @@ const SceneAssembly = struct {
         scratch.clear_draws = self.clear_draws;
         scratch.decoration_draws = self.decoration_draws;
         scratch.cursor_draws = self.cursor_draws;
+        scratch.cursor_fill_rects = self.cursor_fill_rects;
+        scratch.cursor_text_recolor_spans = self.cursor_text_recolor_spans;
+        scratch.cursor_trail_rects = self.cursor_trail_rects;
     }
 
     fn deinit(self: *SceneAssembly) void {
@@ -205,6 +276,9 @@ const SceneAssembly = struct {
             self.clear_draws.deinit(self.allocator);
             self.decoration_draws.deinit(self.allocator);
             self.cursor_draws.deinit(self.allocator);
+            self.cursor_fill_rects.deinit(self.allocator);
+            self.cursor_text_recolor_spans.deinit(self.allocator);
+            self.cursor_trail_rects.deinit(self.allocator);
         } else {
             self.releaseRetainedScratch();
         }
@@ -224,7 +298,12 @@ const SceneAssembly = struct {
             .cursor_draws = try self.cursor_draws.toOwnedSlice(self.allocator),
             .raster_requests = try self.raster_requests.toOwnedSlice(self.allocator),
             .missing = try self.missing.toOwnedSlice(self.allocator),
-        }, .cursor_presentation = self.cursor_presentation };
+        },
+            .cursor_presentation = self.cursor_presentation,
+            .cursor_fill_rects = try self.cursor_fill_rects.toOwnedSlice(self.allocator),
+            .cursor_text_recolor_spans = try self.cursor_text_recolor_spans.toOwnedSlice(self.allocator),
+            .cursor_trail_rects = try self.cursor_trail_rects.toOwnedSlice(self.allocator),
+        };
     }
 
     fn toBorrowedScene(self: *SceneAssembly, damage: scene_damage.NormalizedDamage) !BorrowedTextScene {
@@ -242,7 +321,12 @@ const SceneAssembly = struct {
             .cursor_draws = self.cursor_draws.items,
             .raster_requests = raster_requests,
             .missing = missing,
-        }, .cursor_presentation = self.cursor_presentation };
+        },
+            .cursor_presentation = self.cursor_presentation,
+            .cursor_fill_rects = self.cursor_fill_rects.items,
+            .cursor_text_recolor_spans = self.cursor_text_recolor_spans.items,
+            .cursor_trail_rects = self.cursor_trail_rects.items,
+        };
     }
 
     fn appendRasterizedSpriteDraw(self: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, req: contract.SpriteRasterRequest, draw: SpriteDrawInput) !void {
@@ -316,6 +400,9 @@ fn drawCapacities(
         .clear_draws = scene_rects.countClearDraws(grid_metrics, damage),
         .decoration_draws = scene_rects.countRectDecorationDraws(cells, cell_metrics, grid_metrics, damage),
         .cursor_draws = scene_rects.countCursorDraws(cursor, damage),
+        .cursor_fill_rects = scene_rects.countCursorFillRects(cursor, damage),
+        .cursor_text_recolor_spans = scene_rects.countCursorTextRecolorSpans(cursor, damage),
+        .cursor_trail_rects = scene_rects.countCursorTrailRects(cursor, damage),
     };
 }
 
@@ -707,6 +794,58 @@ test "scene stores cursor presentation owner" {
     try std.testing.expect(owned.cursor_presentation != null);
     try std.testing.expectEqual(@as(u16, 3), owned.cursor_presentation.?.primary_extent.col);
     try std.testing.expectEqual(@as(u8, 200), owned.cursor_presentation.?.cursor_opacity);
+}
+
+test "scene cursor primitive metadata uses grid width for non-zero-row multicell beam" {
+    const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    var cursor = testCursorPresentation(.beam, 2, 1, color);
+    cursor.primary_extent.cols = 3;
+    cursor.primary_extent.rows = 2;
+    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10, .rows = 4 }, .{ .cursor = cursor });
+    defer owned.deinit();
+    try std.testing.expectEqual(@as(u32, 12), owned.cursor_fill_rects[0].first_cell);
+    try std.testing.expectEqual(@as(u8, 6), owned.cursor_fill_rects[0].cell_span);
+}
+
+test "scene cursor primitive metadata uses full covered extent for hollow edges" {
+    const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    var cursor = testCursorPresentation(.hollow, 4, 2, color);
+    cursor.primary_extent.cols = 2;
+    cursor.primary_extent.rows = 3;
+    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 12, .rows = 5 }, .{ .cursor = cursor });
+    defer owned.deinit();
+    try std.testing.expectEqual(@as(usize, 4), owned.cursor_fill_rects.len);
+    for (owned.cursor_fill_rects) |rect| {
+        try std.testing.expectEqual(@as(u32, 28), rect.first_cell);
+        try std.testing.expectEqual(@as(u8, 6), rect.cell_span);
+    }
+}
+
+test "scene cursor trail primitive metadata uses grid width and full extent" {
+    const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    var cursor = testCursorPresentation(.beam, 0, 0, color);
+    cursor.visible = false;
+    cursor.trail.count = 1;
+    cursor.trail.rects[0] = .{ .extent = .{ .row = 3, .col = 5, .rows = 2, .cols = 4 }, .opacity = 12, .color = .{ .r = 1, .g = 2, .b = 3 } };
+    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 20, .rows = 6 }, .{ .cursor = cursor });
+    defer owned.deinit();
+    try std.testing.expectEqual(@as(usize, 1), owned.cursor_trail_rects.len);
+    try std.testing.expectEqual(@as(u32, 65), owned.cursor_trail_rects[0].first_cell);
+    try std.testing.expectEqual(@as(u8, 8), owned.cursor_trail_rects[0].cell_span);
+}
+
+test "hidden cursor emits trail primitives only" {
+    const color = contract.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    var cursor = testCursorPresentation(.block, 1, 1, color);
+    cursor.visible = false;
+    cursor.trail.count = 1;
+    cursor.trail.rects[0] = .{ .extent = .{ .row = 2, .col = 3, .rows = 1, .cols = 2 }, .opacity = 12, .color = .{ .r = 1, .g = 2, .b = 3 } };
+    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10, .rows = 4 }, .{ .cursor = cursor });
+    defer owned.deinit();
+    try std.testing.expectEqual(@as(usize, 0), owned.scene.cursor_draws.len);
+    try std.testing.expectEqual(@as(usize, 0), owned.cursor_fill_rects.len);
+    try std.testing.expectEqual(@as(usize, 0), owned.cursor_text_recolor_spans.len);
+    try std.testing.expectEqual(@as(usize, 1), owned.cursor_trail_rects.len);
 }
 
 test "scene damage filters clean rows" {
