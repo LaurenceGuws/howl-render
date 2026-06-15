@@ -30,6 +30,7 @@ typedef HowlRenderPreparedSurfaceObject *HowlRenderRdrSfcHandle;
 #define HOWL_RENDER_SURFACE_CREATES_MAX 256
 #define HOWL_RENDER_SURFACE_RETIRES_MAX 256
 #define HOWL_RENDER_SURFACE_HOST_ACKS_MAX 256
+#define HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX 16
 
 #define HOWL_RENDER_SURFACE_DAMAGE_RECT 1
 #define HOWL_RENDER_SURFACE_DAMAGE_FULL 2
@@ -348,15 +349,30 @@ typedef struct {
 } HowlRenderPrepareRequest;
 
 typedef struct {
-    uint64_t snapshot_seq;
-    uint64_t dirty_epoch;
-    uint64_t geometry_epoch;
-    uint64_t damage_base_seq;
-    uint64_t required_base_seq;
-    uint8_t damage_kind;
+    uint16_t row;
+    uint16_t col;
+    uint16_t rows;
+    uint16_t cols;
+    uint8_t opacity;
     uint8_t reserved0;
     uint16_t reserved1;
-} HowlRenderPreparedSurfaceToken;
+    HowlVtRgb8 color;
+} HowlRenderHostCursorTrailRect;
+
+typedef struct {
+    uint8_t focused;
+    uint8_t cursor_opacity;
+    uint8_t text_blink_opacity;
+    uint8_t effective_shape;
+    HowlVtColor cursor_color;
+    HowlVtColor cursor_text_color;
+    HowlVtColor cursor_trail_color;
+    float cursor_beam_thickness;
+    float cursor_underline_thickness;
+    uint16_t cursor_trail_count;
+    uint16_t reserved0;
+    HowlRenderHostCursorTrailRect cursor_trail_rects[HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX];
+} HowlRenderHostCursorCadence;
 
 typedef struct {
     uint64_t host_surface_id;
@@ -412,9 +428,9 @@ int howl_render_text_session_set_fallback_font_paths(
     const uint8_t *const *ptrs,
     size_t count
 );
-int howl_render_text_session_set_cursor_blink_visible(
+int howl_render_text_session_set_cursor_cadence(
     HowlRenderTextSessionHandle handle,
-    uint8_t visible
+    const HowlRenderHostCursorCadence *cadence
 );
 int howl_render_text_session_is_valid_font(HowlRenderTextSessionHandle handle);
 HowlRenderLayoutResult howl_render_text_session_derive_layout(
@@ -439,17 +455,6 @@ HowlRenderPrepareStatus howl_render_text_session_take_prepare_request(
 HowlRenderSubmitDecisionStatus howl_render_text_session_take_submit_handle(
     HowlRenderTextSessionHandle handle,
     HowlRenderRdrSfcHandle *rdr_sfc_handle_out
-);
-int howl_render_text_session_accept_submitted(
-    HowlRenderTextSessionHandle handle,
-    HowlRenderPreparedSurfaceToken prepared_token
-);
-HowlRenderSubmitStatus howl_render_text_session_submit(
-    HowlRenderTextSessionHandle text_session_handle,
-    HowlRenderRdrSfcHandle rdr_sfc_handle,
-    HowlRenderPreparedSurfaceToken prepared_token,
-    const HowlRenderSubmitExecution *execution_in,
-    HowlRenderSubmitResult *result_out
 );
 HowlRenderSubmitStatus howl_render_text_session_submit_handle(
     HowlRenderTextSessionHandle text_session_handle,

@@ -60,12 +60,6 @@ pub fn setFallbackFontPaths(value: c.HowlRenderTextSessionHandle, ptrs: ?[*]cons
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub fn setCursorBlinkVisible(value: c.HowlRenderTextSessionHandle, visible: u8) callconv(.c) c_int {
-    const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
-    _ = owner.setCursorBlinkVisible(visible != 0);
-    return c.HOWL_RENDER_CALL_OK;
-}
-
 pub const HostCursorCadenceRect = extern struct {
     row: u16,
     col: u16,

@@ -51,14 +51,6 @@ pub fn validPartialPrepareRequest() c.HowlRenderPrepareRequest {
     return .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = damagePartial() };
 }
 
-pub fn validFullPreparedSurfaceToken() c.HowlRenderPreparedSurfaceToken {
-    return .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .required_base_seq = 0, .damage_kind = damageFull() };
-}
-
-pub fn validPartialPreparedSurfaceToken() c.HowlRenderPreparedSurfaceToken {
-    return .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .required_base_seq = 1, .damage_kind = damagePartial() };
-}
-
 pub fn preparedHandleWithFailure(failure: render_surface_emitter_model.RenderSurfaceEmissionFailure) prepared_handle_model.PreparedHandle {
     return .{
         .session_owner = undefined,
@@ -112,19 +104,6 @@ pub fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, s
 pub fn createTestTextSessionHandle() !c.HowlRenderTextSessionHandle {
     const owner = @import("../render_session.zig").TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 }) orelse return error.OutOfMemory;
     return @ptrCast(owner);
-}
-
-pub fn preparedSurfaceTokenFromHandle(rdr_sfc_handle: c.HowlRenderRdrSfcHandle) !c.HowlRenderPreparedSurfaceToken {
-    var info = std.mem.zeroes(c.HowlRenderPreparedSurfaceInfo);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, prepared_surface.describe(rdr_sfc_handle, &info));
-    return .{
-        .snapshot_seq = info.snapshot_seq,
-        .dirty_epoch = info.dirty_epoch,
-        .geometry_epoch = info.geometry_epoch,
-        .damage_base_seq = if (info.damage_kind == damagePartial()) info.required_base_seq else 0,
-        .required_base_seq = info.required_base_seq,
-        .damage_kind = info.damage_kind,
-    };
 }
 
 pub fn validExecutionInput() c.HowlRenderSubmitExecution {
@@ -181,12 +160,6 @@ pub fn damagePartial() u8 {
 }
 pub fn damageFull() u8 {
     return @intCast(c.HOWL_RENDER_DAMAGE_FULL);
-}
-
-pub fn expectInvalidPreparedSurfaceTokenRejected(handle: c.HowlRenderTextSessionHandle, rdr_sfc_handle: c.HowlRenderRdrSfcHandle, prepared_token: c.HowlRenderPreparedSurfaceToken) !void {
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, submission.acceptSubmitted(handle, prepared_token));
-    const execution = c.HowlRenderSubmitExecution{ .host_surface = .{ .host_surface_id = 1, .width = 1, .height = 1 } };
-    try std.testing.expectEqual(c.HOWL_RENDER_SUBMIT_FAILED, submission.submit(handle, rdr_sfc_handle, prepared_token, &execution, null));
 }
 
 pub fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderTextSessionHandle, request: c.HowlRenderPrepareRequest) !void {

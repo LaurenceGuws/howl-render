@@ -11,7 +11,6 @@ comptime {
     @export(&text_session.setFontSize, .{ .name = "howl_render_text_session_set_font_size_px" });
     @export(&text_session.setFontPath, .{ .name = "howl_render_text_session_set_font_path" });
     @export(&text_session.setFallbackFontPaths, .{ .name = "howl_render_text_session_set_fallback_font_paths" });
-    @export(&text_session.setCursorBlinkVisible, .{ .name = "howl_render_text_session_set_cursor_blink_visible" });
     @export(&text_session.setCursorCadence, .{ .name = "howl_render_text_session_set_cursor_cadence" });
     @export(&text_session.isValidFont, .{ .name = "howl_render_text_session_is_valid_font" });
     @export(&surface_geometry.deriveLayout, .{ .name = "howl_render_text_session_derive_layout" });
@@ -19,8 +18,6 @@ comptime {
     @export(&prepared_surface.prepareHandle, .{ .name = "howl_render_text_session_prepare_handle" });
     @export(&prepare_request.takePrepareRequest, .{ .name = "howl_render_text_session_take_prepare_request" });
     @export(&submission.takeSubmitHandle, .{ .name = "howl_render_text_session_take_submit_handle" });
-    @export(&submission.acceptSubmitted, .{ .name = "howl_render_text_session_accept_submitted" });
-    @export(&submission.submit, .{ .name = "howl_render_text_session_submit" });
     @export(&submission.submitHandle, .{ .name = "howl_render_text_session_submit_handle" });
     @export(&work_state.workState, .{ .name = "howl_render_text_session_work_state" });
     @export(&prepared_surface.release, .{ .name = "howl_render_rdr_sfc_release" });

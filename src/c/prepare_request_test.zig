@@ -45,7 +45,7 @@ test "render ffi invalid prepare requests fail and leave output handle null" {
     try support.expectPrepareHandleFailedWithNullOutput(handle, partial_zero_damage_base);
 }
 
-test "render abi take prepare request keeps retained-backed active source" {
+test "render abi take prepare request stores latest source on session owner" {
     const handle = try support.createTestTextSessionHandle();
     defer support.text.deinit(handle);
 
@@ -69,7 +69,8 @@ test "render abi take prepare request keeps retained-backed active source" {
     try std.testing.expectEqual(@as(u64, 1), request.geometry_epoch);
 
     const owner = handle_owner.textSessionOwner(handle) orelse return error.TestUnexpectedResult;
-    try std.testing.expect(owner.prepare_requests.active_source != null);
-    try std.testing.expect(owner.prepare_requests.active_source.?.retained_storage);
-    try std.testing.expectEqual(owner.source_slot.active_slot.cells.ptr, owner.prepare_requests.active_source.?.cells.ptr);
+    try std.testing.expect(owner.latest_source != null);
+    try std.testing.expect(!owner.latest_source.?.retained_storage);
+    try std.testing.expect(owner.prepare_request != null);
+    try std.testing.expectEqual(@as(u32, 'A'), owner.latest_source.?.cells[0].codepoint);
 }

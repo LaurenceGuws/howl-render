@@ -53,9 +53,10 @@ pub const SubmittedSurface = struct {
         return .{ .submit_pending = false };
     }
 
-    pub fn submittedToken(self: *SubmittedSurface) ?tokens.SnapshotToken {
-        lockMutex(&self.mutex);
-        defer self.mutex.unlock();
+    pub fn submittedToken(self: *const SubmittedSurface) ?tokens.SnapshotToken {
+        const submitted_owner: *SubmittedSurface = @constCast(self);
+        lockMutex(&submitted_owner.mutex);
+        defer submitted_owner.mutex.unlock();
         return if (self.submitted_token) |submitted| submitted.token else null;
     }
 

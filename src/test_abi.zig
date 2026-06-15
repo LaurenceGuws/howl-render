@@ -16,20 +16,22 @@ test "render c header translation exports shipped entrypoints" {
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_set_font_size_px"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_set_font_path"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_set_fallback_font_paths"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_set_cursor_blink_visible"));
+    try std.testing.expect(@hasDecl(c, "howl_render_text_session_set_cursor_cadence"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_is_valid_font"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_derive_layout"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_sync_geometry"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_prepare_handle"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_take_prepare_request"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_take_submit_handle"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_accept_submitted"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_submit"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_submit_handle"));
     try std.testing.expect(@hasDecl(c, "howl_render_text_session_work_state"));
     try std.testing.expect(@hasDecl(c, "howl_render_rdr_sfc_release"));
     try std.testing.expect(@hasDecl(c, "howl_render_rdr_sfc_describe"));
     try std.testing.expect(@hasDecl(c, "howl_render_rdr_sfc_render_surface"));
+    try std.testing.expect(!@hasDecl(c, "howl_render_text_session_set_cursor_blink_visible"));
+    try std.testing.expect(!@hasDecl(c, "howl_render_text_session_accept_submitted"));
+    try std.testing.expect(!@hasDecl(c, "howl_render_text_session_submit"));
+    try std.testing.expect(!@hasDecl(c, "HowlRenderPreparedSurfaceToken"));
 }
 
 test "render c enum values remain stable" {
@@ -57,7 +59,6 @@ test "render c enum values remain stable" {
 
 test "render c struct sizes remain stable" {
     try std.testing.expectEqual(@as(usize, 40), @sizeOf(c.HowlRenderPrepareRequest));
-    try std.testing.expectEqual(@as(usize, 48), @sizeOf(c.HowlRenderPreparedSurfaceToken));
     try std.testing.expectEqual(@as(usize, 16), @sizeOf(c.HowlRenderHostSurface));
     try std.testing.expectEqual(@as(usize, 24), @sizeOf(c.HowlRenderSubmitResult));
     try std.testing.expectEqual(@as(usize, 8), @sizeOf(c.HowlRenderSessionWorkState));

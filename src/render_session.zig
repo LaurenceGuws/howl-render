@@ -8,8 +8,6 @@ const prepared_handle = @import("surface/handle.zig");
 const render_geometry = @import("geometry.zig");
 const geometry_contract = @import("geometry_contract.zig");
 const source_publication = @import("vt_publication/publication.zig");
-const source_slot = @import("vt_publication/source_slot.zig");
-const source_prepare = @import("vt_publication/prepare_queue.zig");
 const publication_damage = @import("vt_publication/damage.zig");
 const prepared_surface = @import("surface/prepared_surface.zig");
 const submitted_surface = @import("submitted_surface.zig");
@@ -28,6 +26,7 @@ const shape_run = @import("text/shape/run.zig");
 const text_support = @import("text/ft_hb/support.zig");
 const text_glyph_raster = @import("text/ft_hb/glyph_raster.zig");
 const text_raster_operation = @import("text/raster/operation.zig");
+const c = @import("howl_render_c");
 
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
 const ft_hb_face_text_cache_entry_cap: u32 = 4096;
@@ -397,11 +396,11 @@ pub const TextSessionOwner = struct {
     allocator: std.mem.Allocator,
     session: TextSession,
     geometry: render_geometry.GeometryOwner,
-    source_slot: source_slot.SourceSlot,
-    prepare_requests: source_prepare.PrepareRequests,
+    latest_source: ?source_publication.PublicationSource = null,
+    latest_source_dirty_epoch: u64 = 0,
+    prepare_request: ?tokens.RenderRequest = null,
+    prepared_candidate: ?*prepared_handle.PreparedHandle = null,
     submitted: submitted_surface.SubmittedSurface,
-    source_dirty_epoch: u64 = 0,
-    cursor_blink_visible: bool = true,
     cursor_focused: bool = true,
     cursor_opacity: u8 = 255,
     text_blink_opacity: u8 = 255,
@@ -442,8 +441,6 @@ pub const TextSessionOwner = struct {
             .allocator = allocator,
             .session = TextSession.init(allocator),
             .geometry = .{},
-            .source_slot = source_slot.SourceSlot.init(allocator),
-            .prepare_requests = source_prepare.PrepareRequests.init(allocator),
             .submitted = .{},
             .config = config,
             .font_paths = text_paths.FontPaths.init(allocator),
@@ -453,12 +450,12 @@ pub const TextSessionOwner = struct {
 
     pub fn destroy(self: *TextSessionOwner) void {
         self.rdr_sfc_handle = null;
+        self.clearPreparedCandidate();
+        self.clearLatestSource();
         for (self.prepared_handles.items) |prepared| prepared.destroy();
         self.prepared_handles.deinit(self.allocator);
         self.prepared_handles = .empty;
         self.font_paths.deinit();
-        self.prepare_requests.deinit();
-        self.source_slot.deinit();
         self.session.deinit();
         self.allocator.destroy(self);
     }
@@ -486,16 +483,15 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn prepareHandle(self: *TextSessionOwner, token: tokens.SnapshotToken) !*prepared_handle.PreparedHandle {
-        const consume = try self.prepare_requests.consumePrepare(
-            self.geometry.prepareLayout(token.geometry_epoch),
-            token,
-        );
-        errdefer _ = self.prepare_requests.retryTakenPrepare(token);
+        if (self.prepared_candidate != null) return error.PreparedCandidateBusy;
+        const request = self.prepare_request orelse return error.MissingPrepareSource;
+        const source = self.latest_source orelse return error.MissingPrepareSource;
+        if (!publication_damage.sameSnapshotToken(request.token, token)) return error.MismatchedPrepareSource;
         var prepared = self.session.prepareSurface(.{
             .config = self.config,
-            .request = consume.request,
-            .layout = consume.layout,
-            .state = consume.state,
+            .request = request,
+            .layout = self.geometry.prepareLayout(token.geometry_epoch),
+            .state = source,
             .cursor_theme = .{
                 .cursor_color = self.cursor_color,
                 .cursor_text_color = self.cursor_text_color,
@@ -510,6 +506,8 @@ pub const TextSessionOwner = struct {
         std.debug.assert(!self.session.mutex.locked.load(.acquire));
         const owner = prepared_handle.PreparedHandle.create(self, &prepared) catch |err| return err;
         self.rdr_sfc_handle = @ptrCast(owner);
+        self.prepared_candidate = owner;
+        self.prepare_request = null;
         return owner;
     }
 
@@ -520,6 +518,7 @@ pub const TextSessionOwner = struct {
     pub fn clearCachedPreparedHandle(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle) void {
         const handle: RdrSfcHandle = @ptrCast(prepared);
         if (self.rdr_sfc_handle == handle) self.rdr_sfc_handle = null;
+        if (self.prepared_candidate == prepared) self.prepared_candidate = null;
     }
 
     pub fn invalidateTextState(self: *TextSessionOwner) void {
@@ -544,9 +543,9 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn nextSourceDirtyEpoch(self: *TextSessionOwner) u64 {
-        self.source_dirty_epoch +%= 1;
-        if (self.source_dirty_epoch == 0) self.source_dirty_epoch = 1;
-        return self.source_dirty_epoch;
+        self.latest_source_dirty_epoch +%= 1;
+        if (self.latest_source_dirty_epoch == 0) self.latest_source_dirty_epoch = 1;
+        return self.latest_source_dirty_epoch;
     }
 
     pub fn submittedToken(self: *TextSessionOwner) ?tokens.SnapshotToken {
@@ -573,25 +572,8 @@ pub const TextSessionOwner = struct {
 
     pub fn syncGeometry(self: *TextSessionOwner, layout: geometry_contract.Geometry) !geometry_contract.GeometryResponse {
         const response = self.geometry.sync(layout);
-        if (response.changed) {
-            const cols = @max(1, @divTrunc(layout.grid_px.width, @max(layout.cell_px.width, 1)));
-            const rows = @max(1, @divTrunc(layout.grid_px.height, @max(layout.cell_px.height, 1)));
-            try self.source_slot.syncReservedSlotCapacity(cols, rows);
-            self.prepare_requests.refreshRetainedSlotViews(&self.source_slot);
-        }
+        if (response.changed) self.recomputePrepareRequest();
         return response;
-    }
-
-    pub fn setCursorBlinkVisible(self: *TextSessionOwner, visible: bool) bool {
-        if (self.cursor_blink_visible == visible) return false;
-        self.cursor_blink_visible = visible;
-        var changed = false;
-        if (self.source_slot.reservedSource()) |source| {
-            changed = publication_damage.setSourceCursorBlinkVisible(source, visible) or changed;
-        }
-        changed = self.prepare_requests.setCursorBlinkVisible(visible) or changed;
-        if (changed) self.prepare_requests.requestBlinkRefresh();
-        return true;
     }
 
     pub fn setHostCursorCadence(self: *TextSessionOwner, cadence: HostCursorCadence) bool {
@@ -626,12 +608,9 @@ pub const TextSessionOwner = struct {
             changed = true;
         }
 
-        if (self.source_slot.reservedSource()) |source| {
+        if (self.latest_source) |*source| {
             changed = self.applyHostCursorCadenceToSource(source) or changed;
-        }
-        if (self.prepare_requests.active_source) |*source| {
-            changed = self.applyHostCursorCadenceToSource(source) or changed;
-            if (changed and self.prepare_requests.active_taken) self.prepare_requests.requestBlinkRefresh();
+            if (changed) self.recomputePrepareRequest();
         }
         return changed;
     }
@@ -669,66 +648,66 @@ pub const TextSessionOwner = struct {
         return changed;
     }
 
-    pub fn prepare(self: *TextSessionOwner) ?tokens.RenderRequest {
-        const submitted_token = self.submittedToken();
-        const request = self.prepare_requests.takePrepareRequest(self.geometry.geometry_epoch) orelse return null;
-        const effective_token = submitted_surface.SubmittedSurface.prepareTokenForRetainedState(
-            request.token,
-            submitted_token,
-        );
-        if (!publication_damage.sameSnapshotToken(effective_token, request.token)) {
-            self.prepare_requests.active_request = .{
-                .token = effective_token,
-                .allow_retained_reuse = request.allow_retained_reuse,
-            };
+    pub fn ingestPublishedSource(self: *TextSessionOwner, result: c.HowlVtSurfaceResult) !?tokens.RenderRequest {
+        var source = try source_publication.ownedSourceFromSurfaceResult(self.allocator, result, self.cursor_opacity != 0);
+        errdefer source.deinit(self.allocator);
+        _ = self.applyHostCursorCadenceToSource(&source);
+        publication_damage.canonicalizeDirtyMetadata(source.rows, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
+        try source_publication.validatePublicationSourceBoundary(source);
+
+        const prior = self.latest_source;
+        const damage_kind = self.classifySourceDamage(source);
+        if (damage_kind == .none) {
+            source.deinit(self.allocator);
+            return null;
         }
-        return self.prepare_requests.active_request;
+        self.invalidatePreparedCandidateForSource(source.snapshot_seq);
+        self.clearLatestSource();
+        self.latest_source = source;
+        self.prepare_request = self.renderRequestForSource(self.latest_source.?, damage_kind, prior != null);
+        return self.prepare_request;
     }
 
     pub fn takeSubmitHandle(self: *TextSessionOwner) SubmitHandleDecision {
-        const opaque_handle = self.rdr_sfc_handle orelse return .idle;
-        const prepared = prepared_handle.PreparedHandle.fromHandle(opaque_handle) orelse return .failed;
+        const prepared = self.prepared_candidate orelse return .idle;
+        const opaque_handle = self.rdr_sfc_handle orelse return .failed;
+        if (@as(RdrSfcHandle, @ptrCast(prepared)) != opaque_handle) return .failed;
         if (!prepared.belongsToSession(self)) return .failed;
         if (!prepared.isLive()) {
-            self.rdr_sfc_handle = null;
+            self.clearPreparedCandidate();
             return .failed;
         }
         if (prepared.state != .prepared) return .failed;
         const prepared_token = prepared.preparedSurfaceToken();
-        if (self.submitted.isStalePrepared(self.prepare_requests.latestToken(), prepared_token.token)) {
-            self.rdr_sfc_handle = null;
-            self.prepare_requests.retireAtOrBefore(prepared_token.token);
+        const latest_token = if (self.prepare_request) |request| request.token else null;
+        if (self.submitted.isStalePrepared(latest_token, prepared_token.token)) {
+            self.clearPreparedCandidate();
             return .stale;
         }
         const validation = self.submitted.validatePrepared(prepared_token);
         if (validation != .valid) {
-            self.rdr_sfc_handle = null;
-            _ = self.prepare_requests.requestFullPrepare(submitted_surface.SubmittedSurface.forceFull);
+            self.clearPreparedCandidate();
+            if (self.prepare_request) |request| self.prepare_request = .{ .token = submitted_surface.SubmittedSurface.forceFull(request.token), .allow_retained_reuse = false };
             return .needs_full_prepare;
         }
         prepared.state = .submit_ready;
         return .{ .submit = prepared };
     }
 
-    pub fn submitPrepared(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle, prepared_token: tokens.PreparedSurfaceToken, execution: TextSession.SubmitExecution) SubmitPreparedResult {
-        if (prepared.state != .prepared) return .failed;
-        if (!prepared.belongsToSession(self)) return .failed;
-        if (!samePreparedSurfaceToken(prepared.preparedSurfaceToken(), prepared_token)) return .needs_prepare;
-        return self.executePreparedSubmit(prepared, execution);
-    }
-
     pub fn submitPreparedHandle(self: *TextSessionOwner, prepared: *prepared_handle.PreparedHandle, execution: TextSession.SubmitExecution) SubmitPreparedResult {
         if (self.rdr_sfc_handle != @as(RdrSfcHandle, @ptrCast(prepared))) return .failed;
+        if (self.prepared_candidate != prepared) return .failed;
         if (!prepared.isLive()) {
-            self.rdr_sfc_handle = null;
+            self.clearPreparedCandidate();
             return .failed;
         }
         if (prepared.state != .submit_ready) return .failed;
         const submitted = prepared.preparedSurfaceToken().token;
         return switch (self.executePreparedSubmit(prepared, execution)) {
             .rendered => |result| blk: {
-                self.rdr_sfc_handle = null;
-                self.acceptSubmitted(.{ .token = submitted });
+                self.clearPreparedCandidateAfterConsume();
+                self.acceptSubmittedToken(.{ .token = submitted });
+                self.prepare_request = null;
                 break :blk .{ .rendered = result };
             },
             .needs_prepare => .needs_prepare,
@@ -736,20 +715,23 @@ pub const TextSessionOwner = struct {
         };
     }
 
-    pub fn acceptSubmitted(self: *TextSessionOwner, submitted: tokens.SubmittedSurfaceToken) void {
+    fn acceptSubmittedToken(self: *TextSessionOwner, submitted: tokens.SubmittedSurfaceToken) void {
         if (submitted.token.geometry_epoch != self.geometry.geometry_epoch) {
-            _ = self.prepare_requests.requestFullPrepare(submitted_surface.SubmittedSurface.forceFull);
+            if (self.prepare_request) |request| self.prepare_request = .{ .token = submitted_surface.SubmittedSurface.forceFull(request.token), .allow_retained_reuse = false };
             return;
         }
         self.submitted.acceptSubmitted(submitted);
     }
 
     pub fn workState(self: *const TextSessionOwner) SessionWorkState {
-        const submitted_work = self.submitted.workState();
+        const source_pending = if (self.latest_source) |source|
+            self.prepare_request == null and self.prepared_candidate == null and !self.sourceSubmitted(source.snapshot_seq)
+        else
+            false;
         return .{
-            .source_pending = self.source_slot.sourcePending(),
-            .prepare_pending = self.prepare_requests.preparePending(),
-            .submit_pending = submitted_work.submit_pending or self.rdr_sfc_handle != null,
+            .source_pending = source_pending,
+            .prepare_pending = self.prepare_request != null,
+            .submit_pending = self.prepared_candidate != null,
         };
     }
 
@@ -769,16 +751,83 @@ pub const TextSessionOwner = struct {
         prepared.consume();
         return .{ .rendered = result };
     }
-};
 
-fn samePreparedSurfaceToken(a: tokens.PreparedSurfaceToken, b: tokens.PreparedSurfaceToken) bool {
-    return a.token.snapshot_seq == b.token.snapshot_seq and
-        a.token.dirty_epoch == b.token.dirty_epoch and
-        a.token.geometry_epoch == b.token.geometry_epoch and
-        a.token.damage_base_seq == b.token.damage_base_seq and
-        a.token.damage_kind == b.token.damage_kind and
-        a.required_base_seq == b.required_base_seq;
-}
+    fn clearLatestSource(self: *TextSessionOwner) void {
+        if (self.latest_source) |*source| source.deinit(self.allocator);
+        self.latest_source = null;
+        self.prepare_request = null;
+    }
+
+    fn clearPreparedCandidate(self: *TextSessionOwner) void {
+        const prepared = self.prepared_candidate orelse {
+            self.rdr_sfc_handle = null;
+            return;
+        };
+        self.prepared_candidate = null;
+        self.rdr_sfc_handle = null;
+        prepared.release();
+    }
+
+    fn clearPreparedCandidateAfterConsume(self: *TextSessionOwner) void {
+        self.prepared_candidate = null;
+        self.rdr_sfc_handle = null;
+    }
+
+    fn invalidatePreparedCandidateForSource(self: *TextSessionOwner, snapshot_seq: u64) void {
+        const prepared = self.prepared_candidate orelse return;
+        if (prepared.preparedSurfaceToken().token.snapshot_seq == snapshot_seq) return;
+        self.clearPreparedCandidate();
+    }
+
+    fn classifySourceDamage(self: *const TextSessionOwner, source: source_publication.PublicationSource) tokens.DamageKind {
+        const damage_kind = publication_damage.classifyDirty(source.snapshot());
+        const prior = self.latest_source orelse return damage_kind;
+        const prior_snapshot = prior.snapshot();
+        const submitted_token = self.submitted.submittedToken();
+        const prior_matches_submitted = if (submitted_token) |token| prior_snapshot.snapshot_seq == token.snapshot_seq else false;
+        if (self.prepare_request) |request| {
+            if (request.token.geometry_epoch != self.geometry.geometry_epoch) return .full;
+        }
+        if (source.snapshot_seq == prior_snapshot.snapshot_seq) {
+            if (publication_damage.samePublicationSource(prior, source)) return .none;
+            if (publication_damage.cursorPresentationChanged(prior, source)) return .full;
+            if (publication_damage.colorPresentationChanged(prior, source)) return .full;
+            if (damage_kind == .partial and !prior_matches_submitted) return .full;
+            return damage_kind;
+        }
+        if (publication_damage.cursorPresentationChanged(prior, source)) return .full;
+        if (publication_damage.colorPresentationChanged(prior, source)) return .full;
+        if (source.cols != prior.cols or source.rows != prior.rows) return .full;
+        if (source.is_alternate_screen != prior.is_alternate_screen) return .full;
+        if (source.scroll_row != prior.scroll_row) return .full;
+        if (damage_kind == .partial and !prior_matches_submitted) return .full;
+        return damage_kind;
+    }
+
+    fn renderRequestForSource(self: *const TextSessionOwner, source: source_publication.PublicationSource, damage_kind: tokens.DamageKind, had_prior_source: bool) tokens.RenderRequest {
+        std.debug.assert(damage_kind != .none);
+        const submitted_token = self.submitted.submittedToken();
+        const token = tokens.SnapshotToken{
+            .snapshot_seq = source.snapshot_seq,
+            .dirty_epoch = source.dirty_epoch,
+            .geometry_epoch = self.geometry.geometry_epoch,
+            .damage_base_seq = if (damage_kind == .partial) if (submitted_token) |value| value.snapshot_seq else 0 else 0,
+            .damage_kind = damage_kind,
+        };
+        const effective_token = submitted_surface.SubmittedSurface.prepareTokenForRetainedState(token, submitted_token);
+        return .{ .token = effective_token, .allow_retained_reuse = had_prior_source and effective_token.damage_kind == .partial };
+    }
+
+    fn recomputePrepareRequest(self: *TextSessionOwner) void {
+        const source = self.latest_source orelse return;
+        self.prepare_request = self.renderRequestForSource(source, .full, true);
+    }
+
+    fn sourceSubmitted(self: *const TextSessionOwner, snapshot_seq: u64) bool {
+        const token = self.submitted.submittedToken() orelse return false;
+        return token.snapshot_seq == snapshot_seq;
+    }
+};
 
 fn executionMatchesPrepared(render_px: geometry_contract.PixelSize, execution: TextSession.SubmitExecution) bool {
     return execution.host_surface.width == render_px.width and execution.host_surface.height == render_px.height;
@@ -820,8 +869,9 @@ test "render session owner keeps source and submitted owners separate" {
     ) orelse return error.OutOfMemory;
     defer owner.destroy();
 
-    try std.testing.expect(owner.source_slot.reserved == null);
-    try std.testing.expect(owner.prepare_requests.active_source == null);
+    try std.testing.expect(owner.latest_source == null);
+    try std.testing.expect(owner.prepare_request == null);
+    try std.testing.expect(owner.prepared_candidate == null);
     try std.testing.expect(owner.submitted.submitted_token == null);
 }
 
@@ -894,16 +944,20 @@ test "render session owner rejects prepared work after resize publication" {
     try std.testing.expect(initial_geometry.changed);
     try std.testing.expectEqual(@as(u64, 1), initial_geometry.geometry_epoch);
 
-    const first_source = try testSource(std.testing.allocator, 1, 'A');
-    const first_admission = owner.prepare_requests.admitSource(&owner.source_slot, first_source, owner.submittedToken(), owner.geometry.geometry_epoch);
-    try std.testing.expect(first_admission.admitted);
-    try std.testing.expectEqual(@as(u64, 1), first_admission.geometry_epoch);
-
-    const old_request = owner.prepare() orelse return error.TestUnexpectedResult;
+    var first_cells = [_]source_abi.SourceCell{testCell('A')};
+    var first_source = source_publication.validSurfaceResult(first_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
+    first_source.source.cols = 1;
+    first_source.source.cursor.col = 0;
+    first_source.snapshot_seq = 1;
+    first_source.dirty_generation = 1;
+    const old_request = try owner.ingestPublishedSource(first_source) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), old_request.token.snapshot_seq);
     try std.testing.expectEqual(@as(u64, 1), old_request.token.geometry_epoch);
+    try std.testing.expect(owner.workState().prepare_pending);
+    try std.testing.expect(!owner.workState().submit_pending);
     const old_rdr_sfc_handle = try owner.prepareHandle(old_request.token);
     defer old_rdr_sfc_handle.release();
+    try std.testing.expect(!owner.workState().prepare_pending);
     try std.testing.expect(owner.workState().submit_pending);
 
     const resized_geometry = try owner.syncGeometry(.{
@@ -914,25 +968,62 @@ test "render session owner rejects prepared work after resize publication" {
     try std.testing.expect(resized_geometry.changed);
     try std.testing.expect(resized_geometry.geometry_epoch > old_request.token.geometry_epoch);
 
-    const resized_source = try testSource(std.testing.allocator, 2, 'A');
-    const resized_admission = owner.prepare_requests.admitSource(&owner.source_slot, resized_source, owner.submittedToken(), resized_geometry.geometry_epoch);
-    try std.testing.expect(resized_admission.admitted);
-    try std.testing.expectEqual(tokens.DamageKind.full, resized_admission.damage_kind);
-    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_admission.geometry_epoch);
+    var resized_cells = [_]source_abi.SourceCell{testCell('A')};
+    var resized_source = source_publication.validSurfaceResult(resized_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
+    resized_source.source.cols = 1;
+    resized_source.source.cursor.col = 0;
+    resized_source.snapshot_seq = 2;
+    resized_source.dirty_generation = 2;
+    const resized_request = try owner.ingestPublishedSource(resized_source) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(tokens.DamageKind.full, resized_request.token.damage_kind);
+    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_request.token.geometry_epoch);
 
     const decision = owner.takeSubmitHandle();
     switch (decision) {
-        .stale => {},
+        .idle => {},
         else => return error.TestUnexpectedResult,
     }
     try std.testing.expect(!owner.workState().submit_pending);
 
-    const resized_request = owner.prepare() orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 2), resized_request.token.snapshot_seq);
     try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_request.token.geometry_epoch);
     try std.testing.expectEqual(tokens.DamageKind.full, resized_request.token.damage_kind);
     try std.testing.expectEqual(@as(u64, 0), resized_request.token.damage_base_seq);
     try std.testing.expect(!resized_request.allow_retained_reuse);
+}
+
+test "render session owner drops duplicate copied source without mutating latest source" {
+    const owner = TextSessionOwner.create(
+        std.testing.allocator,
+        .{ .surface_px = .{ .width = 8, .height = 16 } },
+    ) orelse return error.OutOfMemory;
+    defer owner.destroy();
+
+    _ = try owner.syncGeometry(.{
+        .render_px = .{ .width = 8, .height = 16 },
+        .grid_px = .{ .width = 8, .height = 16 },
+        .cell_px = .{ .width = 8, .height = 16 },
+    });
+
+    var cells = [_]source_abi.SourceCell{testCell('A')};
+    var source = source_publication.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
+    source.source.cols = 1;
+    source.source.cursor.col = 0;
+    source.snapshot_seq = 1;
+    source.dirty_generation = 1;
+
+    const first = try owner.ingestPublishedSource(source) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 1), first.token.snapshot_seq);
+    const latest_cells = owner.latest_source.?.cells.ptr;
+    const latest_dirty_rows = owner.latest_source.?.dirty_rows.ptr;
+
+    try std.testing.expect((try owner.ingestPublishedSource(source)) == null);
+    try std.testing.expect(owner.latest_source != null);
+    try std.testing.expectEqual(latest_cells, owner.latest_source.?.cells.ptr);
+    try std.testing.expectEqual(latest_dirty_rows, owner.latest_source.?.dirty_rows.ptr);
+    try std.testing.expectEqual(@as(u64, 1), owner.latest_source.?.snapshot_seq);
+    try std.testing.expect(owner.prepare_request != null);
+    try std.testing.expectEqual(@as(u64, 1), owner.prepare_request.?.token.snapshot_seq);
 }
 
 fn testCell(codepoint: u21) source_abi.SourceCell {
@@ -961,6 +1052,7 @@ test "render session owner rejects partial rdr_sfc handle with wrong submitted b
     const rdr_sfc_handle = try prepared_handle.PreparedHandle.create(owner, &prepared_value);
     defer rdr_sfc_handle.release();
     owner.rdr_sfc_handle = @ptrCast(rdr_sfc_handle);
+    owner.prepared_candidate = rdr_sfc_handle;
 
     switch (owner.takeSubmitHandle()) {
         .needs_full_prepare => {},
