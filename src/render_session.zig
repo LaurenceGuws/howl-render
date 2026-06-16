@@ -590,7 +590,7 @@ pub const TextSessionOwner = struct {
         return response;
     }
 
-    pub fn setHostCursorCadence(self: *TextSessionOwner, cadence: HostCursorCadence) bool {
+    pub fn setHostCursorCadence(self: *TextSessionOwner, cadence: HostCursorCadence) void {
         var changed = false;
         changed = updateBool(&self.cursor_focused, cadence.focused) or changed;
         changed = updateByte(&self.cursor_opacity, cadence.cursor_opacity) or changed;
@@ -620,7 +620,6 @@ pub const TextSessionOwner = struct {
         if (self.latest_source) |source| changed = self.updateCursorTrailForSource(source, new_trigger) or changed;
 
         if (changed) self.recomputePrepareRequest();
-        return changed;
     }
 
     pub fn applyHostCursorCadenceToSource(self: *TextSessionOwner, source: *source_publication.PublicationSource) bool {
@@ -1028,7 +1027,7 @@ test "render session owner stores configured cursor theme inputs" {
     ) orelse return error.OutOfMemory;
     defer owner.destroy();
 
-    _ = owner.setHostCursorCadence(.{
+    owner.setHostCursorCadence(.{
         .focused = true,
         .cursor_opacity = 255,
         .text_blink_opacity = 255,
@@ -1070,7 +1069,7 @@ test "render session owner emits render-owned cursor trail rect" {
 
     var trigger_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
     trigger_rects[0] = .{ .row = 0, .col = 0, .rows = 1, .cols = 1, .opacity = 255, .reserved0 = 0, .reserved1 = 0, .color = .{ .r = 0, .g = 0, .b = 0 } };
-    _ = owner.setHostCursorCadence(.{
+    owner.setHostCursorCadence(.{
         .focused = true,
         .cursor_opacity = 255,
         .text_blink_opacity = 255,
@@ -1102,7 +1101,7 @@ test "render session owner emits render-owned cursor trail rect" {
     try std.testing.expect(owner.latest_source.?.cursor_trail_rects[0].width_px > 0);
     try std.testing.expect(owner.workState().animation_pending);
 
-    _ = owner.setHostCursorCadence(.{
+    owner.setHostCursorCadence(.{
         .focused = true,
         .cursor_opacity = 255,
         .text_blink_opacity = 255,
@@ -1241,7 +1240,7 @@ test "render session owner cadence change does not hide duplicate source damage"
     _ = try owner.ingestPublishedSource(source) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u8, 255), owner.latest_source.?.cursor.cursor_opacity);
 
-    _ = owner.setHostCursorCadence(.{
+    owner.setHostCursorCadence(.{
         .focused = true,
         .cursor_opacity = 0,
         .text_blink_opacity = 255,

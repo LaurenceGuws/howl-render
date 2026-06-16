@@ -112,7 +112,7 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
             .color = host_cadence.cursor_trail_rects[index].color,
         };
     }
-    _ = owner.setHostCursorCadence(.{
+    owner.setHostCursorCadence(.{
         .focused = host_cadence.focused != 0,
         .cursor_opacity = host_cadence.cursor_opacity,
         .text_blink_opacity = host_cadence.text_blink_opacity,
