@@ -27,7 +27,7 @@ const shape_run = @import("text/shape/run.zig");
 const text_support = @import("text/ft_hb/support.zig");
 const text_glyph_raster = @import("text/ft_hb/glyph_raster.zig");
 const text_raster_operation = @import("text/raster/operation.zig");
-const text_cursor_trail = @import("text/cursor_trail.zig");
+const cursor_presentation_mod = @import("cursor_presentation.zig");
 const c = @import("howl_render_c");
 
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
@@ -380,23 +380,8 @@ pub const TextSession = struct {
 };
 
 pub const TextSessionOwner = struct {
-    pub const HostCursorCadenceRect = source_abi.SourceCursorTrailRect;
-    pub const HostCursorCadence = struct {
-        focused: bool,
-        cursor_opacity: u8,
-        text_blink_opacity: u8,
-        effective_shape: source_abi.SourceCursorShape,
-        cursor_color: source_abi.SourceColor,
-        cursor_text_color: source_abi.SourceColor,
-        cursor_trail_color: source_abi.SourceColor,
-        cursor_beam_thickness: f32,
-        cursor_underline_thickness: f32,
-        cursor_trail_decay_fast_s: f32,
-        cursor_trail_decay_slow_s: f32,
-        cursor_trail_count: u16,
-        cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect,
-        now_ns: u64,
-    };
+    pub const HostCursorCadenceRect = cursor_presentation_mod.HostCursorCadenceRect;
+    pub const HostCursorCadence = cursor_presentation_mod.HostCursorCadence;
 
     allocator: std.mem.Allocator,
     session: TextSession,
@@ -406,25 +391,7 @@ pub const TextSessionOwner = struct {
     prepare_request: ?tokens.RenderRequest = null,
     pending_prepared: pending_prepared_surface.PendingPreparedSurface = .{},
     submitted: submitted_surface.SubmittedSurface,
-    cursor_focused: bool = true,
-    cursor_opacity: u8 = 255,
-    text_blink_opacity: u8 = 255,
-    cursor_effective_shape: source_abi.SourceCursorShape = .block,
-    cursor_color: source_abi.SourceColor = .{ .kind = 2, .value = 0xCCCCCC },
-    cursor_text_color: source_abi.SourceColor = .{ .kind = 2, .value = 0x111111 },
-    cursor_trail_color: source_abi.SourceColor = .{ .kind = 0, .value = 0 },
-    cursor_beam_thickness: f32 = 1.5,
-    cursor_underline_thickness: f32 = 2.0,
-    cursor_trail_decay_fast_s: f32 = 0.1,
-    cursor_trail_decay_slow_s: f32 = 0.4,
-    cursor_trail_count: u16 = 0,
-    cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
-    cursor_cadence_now_ns: u64 = 0,
-    cursor_trail: text_cursor_trail.CursorTrail = .{},
-    cursor_trail_initialized: bool = false,
-    cursor_trail_trigger_valid: bool = false,
-    cursor_trail_trigger_pending: bool = false,
-    cursor_trail_trigger_rect: HostCursorCadenceRect = .{},
+    cursor_presentation: cursor_presentation_mod.CursorPresentation = .{},
     config: TextSessionConfig,
     font_paths: text_paths.FontPaths,
     render_surface_sprite_resources: sprite_resource_store.SpriteResourceStore = .init(),
@@ -493,20 +460,14 @@ pub const TextSessionOwner = struct {
         if (self.pending_prepared.submitPending()) return error.PreparedCandidateBusy;
         const request = self.prepare_request orelse return error.MissingPrepareSource;
         var source = self.latest_source orelse return error.MissingPrepareSource;
-        _ = self.applyHostCursorCadenceToSource(&source);
+        _ = self.cursor_presentation.applyHostCursorCadenceToSource(&source, self.geometry.cell_px);
         if (!publication_damage.sameSnapshotToken(request.token, token)) return error.MismatchedPrepareSource;
         var prepared = self.session.prepareSurface(.{
             .config = self.config,
             .request = request,
             .layout = self.geometry.prepareLayout(token.geometry_epoch),
             .state = source,
-            .cursor_theme = .{
-                .cursor_color = self.cursor_color,
-                .cursor_text_color = self.cursor_text_color,
-                .cursor_trail_color = self.cursor_trail_color,
-                .cursor_beam_thickness = self.cursor_beam_thickness,
-                .cursor_underline_thickness = self.cursor_underline_thickness,
-            },
+            .cursor_theme = self.cursor_presentation.cursorThemeConfig(),
         }) catch |err| {
             return err;
         };
@@ -549,24 +510,6 @@ pub const TextSessionOwner = struct {
         return self.submitted.submittedToken();
     }
 
-    fn updateBool(target: *bool, next: bool) bool {
-        if (target.* == next) return false;
-        target.* = next;
-        return true;
-    }
-
-    fn updateByte(target: *u8, next: u8) bool {
-        if (target.* == next) return false;
-        target.* = next;
-        return true;
-    }
-
-    fn updateF32(target: *f32, next: f32) bool {
-        if (target.* == next) return false;
-        target.* = next;
-        return true;
-    }
-
     pub fn syncGeometry(self: *TextSessionOwner, layout: geometry_contract.Geometry) !geometry_contract.GeometryResponse {
         const response = self.geometry.sync(layout);
         if (response.changed) self.recomputePrepareRequest();
@@ -574,153 +517,13 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn setHostCursorCadence(self: *TextSessionOwner, cadence: HostCursorCadence) void {
-        var changed = false;
-        changed = updateBool(&self.cursor_focused, cadence.focused) or changed;
-        changed = updateByte(&self.cursor_opacity, cadence.cursor_opacity) or changed;
-        changed = updateByte(&self.text_blink_opacity, cadence.text_blink_opacity) or changed;
-        if (!std.mem.eql(u8, std.mem.asBytes(&self.cursor_color), std.mem.asBytes(&cadence.cursor_color))) {
-            self.cursor_color = cadence.cursor_color;
-            changed = true;
-        }
-        if (!std.mem.eql(u8, std.mem.asBytes(&self.cursor_text_color), std.mem.asBytes(&cadence.cursor_text_color))) {
-            self.cursor_text_color = cadence.cursor_text_color;
-            changed = true;
-        }
-        if (!std.mem.eql(u8, std.mem.asBytes(&self.cursor_trail_color), std.mem.asBytes(&cadence.cursor_trail_color))) {
-            self.cursor_trail_color = cadence.cursor_trail_color;
-            changed = true;
-        }
-        changed = updateF32(&self.cursor_beam_thickness, cadence.cursor_beam_thickness) or changed;
-        changed = updateF32(&self.cursor_underline_thickness, cadence.cursor_underline_thickness) or changed;
-        changed = updateF32(&self.cursor_trail_decay_fast_s, cadence.cursor_trail_decay_fast_s) or changed;
-        changed = updateF32(&self.cursor_trail_decay_slow_s, cadence.cursor_trail_decay_slow_s) or changed;
-        self.cursor_cadence_now_ns = cadence.now_ns;
-        if (self.cursor_effective_shape != cadence.effective_shape) {
-            self.cursor_effective_shape = cadence.effective_shape;
-            changed = true;
-        }
-        const new_trigger = self.updateCursorTrailTrigger(cadence);
-        if (self.latest_source) |source| changed = self.updateCursorTrailForSource(source, new_trigger) or changed;
-
-        if (changed) self.recomputePrepareRequest();
-    }
-
-    pub fn applyHostCursorCadenceToSource(self: *TextSessionOwner, source: *source_publication.PublicationSource) bool {
-        var changed = false;
-        if (source.cursor.focused != self.cursor_focused) {
-            source.cursor.focused = self.cursor_focused;
-            changed = true;
-        }
-        if (source.cursor.cursor_opacity != self.cursor_opacity) {
-            source.cursor.cursor_opacity = self.cursor_opacity;
-            changed = true;
-        }
-        if (source.cursor.text_blink_opacity != self.text_blink_opacity) {
-            source.cursor.text_blink_opacity = self.text_blink_opacity;
-            changed = true;
-        }
-        if (source.cursor.effective_shape != self.cursor_effective_shape) {
-            source.cursor.effective_shape = self.cursor_effective_shape;
-            changed = true;
-        }
-        if (source.cursor_phase_visible != (self.cursor_opacity != 0)) {
-            source.cursor_phase_visible = self.cursor_opacity != 0;
-            changed = true;
-        }
-        changed = self.updateCursorTrailForSource(source.*, false) or changed;
-        if (source.cursor_trail_count != self.cursor_trail_count) {
-            source.cursor_trail_count = self.cursor_trail_count;
-            changed = true;
-        }
-        if (!std.mem.eql(u8, std.mem.asBytes(&source.cursor_trail_rects), std.mem.asBytes(&self.cursor_trail_rects))) {
-            source.cursor_trail_rects = self.cursor_trail_rects;
-            changed = true;
-        }
-        return changed;
-    }
-
-    fn updateCursorTrailTrigger(self: *TextSessionOwner, cadence: HostCursorCadence) bool {
-        if (cadence.cursor_trail_count == 0) {
-            self.cursor_trail_trigger_valid = false;
-            self.cursor_trail_trigger_pending = false;
-            return false;
-        }
-        const rect = cadence.cursor_trail_rects[0];
-        if (self.cursor_trail_trigger_valid and sameTrailTriggerRect(self.cursor_trail_trigger_rect, rect)) return false;
-        self.cursor_trail_trigger_valid = true;
-        self.cursor_trail_trigger_pending = true;
-        self.cursor_trail_trigger_rect = rect;
-        return true;
-    }
-
-    fn updateCursorTrailForSource(self: *TextSessionOwner, source: source_publication.PublicationSource, new_trigger: bool) bool {
-        const before_count = self.cursor_trail_count;
-        const before_rects = self.cursor_trail_rects;
-        const target = self.cursorTrailTarget(source) orelse {
-            self.cursor_trail_initialized = false;
-            self.cursor_trail_count = 0;
-            self.cursor_trail_rects = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
-            return before_count != self.cursor_trail_count or !std.mem.eql(u8, std.mem.asBytes(&before_rects), std.mem.asBytes(&self.cursor_trail_rects));
-        };
-        const start_trigger = new_trigger or self.cursor_trail_trigger_pending;
-        if (start_trigger) {
-            self.cursor_trail.snapToTarget(targetFromTriggerRect(self.cursor_trail_trigger_rect, self.geometry.cell_px), self.cursor_cadence_now_ns);
-            self.cursor_trail.setTarget(target);
-            self.cursor_trail_initialized = true;
-            self.cursor_trail_trigger_pending = false;
-        } else if (!self.cursor_trail_initialized) {
-            self.cursor_trail.snapToTarget(target, self.cursor_cadence_now_ns);
-            self.cursor_trail_initialized = true;
-        } else {
-            self.cursor_trail.setTarget(target);
-        }
-        _ = self.cursor_trail.update(.{ .decay_fast_s = self.cursor_trail_decay_fast_s, .decay_slow_s = self.cursor_trail_decay_slow_s }, self.cursor_cadence_now_ns, target.visible);
-        self.cursor_trail_rects = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
-        self.cursor_trail_count = if (self.cursor_trail.needs_render) 1 else 0;
-        if (self.cursor_trail_count != 0) self.cursor_trail_rects[0] = self.cursorTrailRect();
-        return before_count != self.cursor_trail_count or !std.mem.eql(u8, std.mem.asBytes(&before_rects), std.mem.asBytes(&self.cursor_trail_rects));
-    }
-
-    fn cursorTrailTarget(self: *const TextSessionOwner, source: source_publication.PublicationSource) ?text_cursor_trail.Target {
-        if (self.geometry.cell_px.width == 0) return null;
-        if (self.geometry.cell_px.height == 0) return null;
-        return text_cursor_trail.targetFromCursor(.{
-            .visible = source.cursor.visible and self.cursor_opacity != 0,
-            .shape = mapTrailCursorShape(self.cursor_effective_shape),
-            .beam_thickness = self.cursor_beam_thickness,
-            .underline_thickness = self.cursor_underline_thickness,
-            .primary_extent = contract.CellExtent{ .row = source.cursor.row, .col = source.cursor.col, .rows = source.cursor.cell_rows, .cols = source.cursor.cell_cols },
-        }, .{ .cell_w_px = self.geometry.cell_px.width, .cell_h_px = self.geometry.cell_px.height, .baseline_px = 0 });
-    }
-
-    fn cursorTrailRect(self: *const TextSessionOwner) HostCursorCadenceRect {
-        const min_x = @min(@min(self.cursor_trail.corner_x[0], self.cursor_trail.corner_x[1]), @min(self.cursor_trail.corner_x[2], self.cursor_trail.corner_x[3]));
-        const max_x = @max(@max(self.cursor_trail.corner_x[0], self.cursor_trail.corner_x[1]), @max(self.cursor_trail.corner_x[2], self.cursor_trail.corner_x[3]));
-        const min_y = @min(@min(self.cursor_trail.corner_y[0], self.cursor_trail.corner_y[1]), @min(self.cursor_trail.corner_y[2], self.cursor_trail.corner_y[3]));
-        const max_y = @max(@max(self.cursor_trail.corner_y[0], self.cursor_trail.corner_y[1]), @max(self.cursor_trail.corner_y[2], self.cursor_trail.corner_y[3]));
-        const x_px = floorI32(min_x);
-        const y_px = floorI32(min_y);
-        return .{
-            .row = 0,
-            .col = 0,
-            .rows = 1,
-            .cols = 1,
-            .opacity = @intFromFloat(@round(@min(@max(self.cursor_trail.opacity, 0), 1) * 255.0)),
-            .reserved0 = 0,
-            .reserved1 = 0,
-            .color = .{ .r = 0, .g = 0, .b = 0 },
-            .pixel_rect = true,
-            .x_px = x_px,
-            .y_px = y_px,
-            .width_px = ceilSpanU16(max_x - @as(f32, @floatFromInt(x_px))),
-            .height_px = ceilSpanU16(max_y - @as(f32, @floatFromInt(y_px))),
-        };
+        if (self.cursor_presentation.setHostCursorCadence(cadence, self.latest_source, self.geometry.cell_px)) self.recomputePrepareRequest();
     }
 
     pub fn ingestPublishedSource(self: *TextSessionOwner, result: c.HowlVtSurfaceResult) !?tokens.RenderRequest {
-        var source = try source_publication.ownedSourceFromSurfaceResult(self.allocator, result, self.cursor_opacity != 0);
+        var source = try source_publication.ownedSourceFromSurfaceResult(self.allocator, result, self.cursor_presentation.cursor_opacity != 0);
         errdefer source.deinit(self.allocator);
-        _ = self.applyHostCursorCadenceToSource(&source);
+        _ = self.cursor_presentation.applyHostCursorCadenceToSource(&source, self.geometry.cell_px);
         publication_damage.canonicalizeDirtyMetadata(source.rows, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
         try source_publication.validatePublicationSourceBoundary(source);
 
@@ -782,7 +585,7 @@ pub const TextSessionOwner = struct {
             .source_pending = source_pending,
             .prepare_pending = self.prepare_request != null,
             .submit_pending = self.pending_prepared.submitPending(),
-            .animation_pending = self.cursor_trail.needs_render,
+            .animation_pending = self.cursor_presentation.animationPending(),
         };
     }
 
@@ -858,38 +661,6 @@ pub const TextSessionOwner = struct {
         return token.snapshot_seq == snapshot_seq;
     }
 };
-
-fn sameTrailTriggerRect(a: source_abi.SourceCursorTrailRect, b: source_abi.SourceCursorTrailRect) bool {
-    return a.row == b.row and a.col == b.col and a.rows == b.rows and a.cols == b.cols;
-}
-
-fn targetFromTriggerRect(rect: source_abi.SourceCursorTrailRect, cell_px: geometry_contract.CellSize) text_cursor_trail.Target {
-    std.debug.assert(cell_px.width != 0);
-    std.debug.assert(cell_px.height != 0);
-    const left_px: f32 = @floatFromInt(@as(u32, rect.col) * @as(u32, cell_px.width));
-    const top_px: f32 = @floatFromInt(@as(u32, rect.row) * @as(u32, cell_px.height));
-    const width_px: f32 = @floatFromInt(@as(u32, @max(rect.cols, 1)) * @as(u32, cell_px.width));
-    const height_px: f32 = @floatFromInt(@as(u32, @max(rect.rows, 1)) * @as(u32, cell_px.height));
-    return .{ .left_px = left_px, .right_px = left_px + width_px, .top_px = top_px, .bottom_px = top_px + height_px, .visible = true };
-}
-
-fn mapTrailCursorShape(shape: source_abi.SourceCursorShape) contract.CursorShape {
-    return switch (shape) {
-        .block => .block,
-        .underline => .underline,
-        .beam => .beam,
-        .none => .none,
-        .hollow_block => .hollow,
-    };
-}
-
-fn floorI32(value: f32) i32 {
-    return @intFromFloat(@floor(value));
-}
-
-fn ceilSpanU16(value: f32) u16 {
-    return @intFromFloat(@min(@ceil(@max(value, 1)), @as(f32, @floatFromInt(std.math.maxInt(u16)))));
-}
 
 fn executionMatchesPrepared(render_px: geometry_contract.PixelSize, execution: TextSession.SubmitExecution) bool {
     return execution.host_surface.width == render_px.width and execution.host_surface.height == render_px.height;
@@ -987,14 +758,15 @@ test "render session owner stores configured cursor theme inputs" {
         .now_ns = 1234,
     });
 
-    try std.testing.expectEqual(@as(u32, 0x102030), owner.cursor_color.value);
-    try std.testing.expectEqual(@as(u32, 0x405060), owner.cursor_text_color.value);
-    try std.testing.expectEqual(@as(u32, 0x708090), owner.cursor_trail_color.value);
-    try std.testing.expectEqual(@as(f32, 2.5), owner.cursor_beam_thickness);
-    try std.testing.expectEqual(@as(f32, 3.5), owner.cursor_underline_thickness);
-    try std.testing.expectEqual(@as(f32, 0.2), owner.cursor_trail_decay_fast_s);
-    try std.testing.expectEqual(@as(f32, 0.6), owner.cursor_trail_decay_slow_s);
-    try std.testing.expectEqual(@as(u64, 1234), owner.cursor_cadence_now_ns);
+    const cursor = owner.cursor_presentation;
+    try std.testing.expectEqual(@as(u32, 0x102030), cursor.cursor_color.value);
+    try std.testing.expectEqual(@as(u32, 0x405060), cursor.cursor_text_color.value);
+    try std.testing.expectEqual(@as(u32, 0x708090), cursor.cursor_trail_color.value);
+    try std.testing.expectEqual(@as(f32, 2.5), cursor.cursor_beam_thickness);
+    try std.testing.expectEqual(@as(f32, 3.5), cursor.cursor_underline_thickness);
+    try std.testing.expectEqual(@as(f32, 0.2), cursor.cursor_trail_decay_fast_s);
+    try std.testing.expectEqual(@as(f32, 0.6), cursor.cursor_trail_decay_slow_s);
+    try std.testing.expectEqual(@as(u64, 1234), cursor.cadence_now_ns);
 }
 
 test "render session owner emits render-owned cursor trail rect" {
@@ -1011,7 +783,7 @@ test "render session owner emits render-owned cursor trail rect" {
     });
 
     var trigger_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
-    trigger_rects[0] = .{ .row = 0, .col = 0, .rows = 1, .cols = 1, .opacity = 255, .reserved0 = 0, .reserved1 = 0, .color = .{ .r = 0, .g = 0, .b = 0 } };
+    trigger_rects[0] = .{ .row = 0, .col = 1, .rows = 1, .cols = 1, .opacity = 255, .reserved0 = 0, .reserved1 = 0, .color = .{ .r = 0, .g = 0, .b = 0 } };
     owner.setHostCursorCadence(.{
         .focused = true,
         .cursor_opacity = 255,
