@@ -107,8 +107,8 @@ pub fn countCursorTextRecolorSpans(cursor: anytype, damage: scene_damage.Normali
 }
 
 pub fn countCursorTrailRects(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
+    _ = damage;
     const cursor_value = cursor orelse return 0;
-    if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
     return cursor_value.trail.count;
 }
 
@@ -879,6 +879,7 @@ test "visible no-shape produces no cursor draws fill or recolor" {
     try std.testing.expectEqual(@as(usize, 0), countCursorDraws(@as(?@TypeOf(cursor), cursor), damage));
     try std.testing.expectEqual(@as(usize, 0), countCursorFillRects(@as(?@TypeOf(cursor), cursor), damage));
     try std.testing.expectEqual(@as(usize, 0), countCursorTextRecolorSpans(@as(?@TypeOf(cursor), cursor), damage));
+    try std.testing.expectEqual(@as(usize, 1), countCursorTrailRects(@as(?@TypeOf(cursor), cursor), damage));
 
     const draws = try cursorDraws(std.testing.allocator, cursor, cell_metrics);
     defer std.testing.allocator.free(draws);
