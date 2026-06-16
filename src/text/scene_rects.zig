@@ -405,19 +405,33 @@ fn appendCursorTextRecolorSpans(allocator: std.mem.Allocator, out: *std.ArrayLis
 
 fn appendCursorTrailRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("scene.zig").CursorTrailRect), grid_metrics: contract.GridMetrics, cursor: anytype, cell_metrics: contract.CellMetrics) !void {
     for (cursor.trail.rects[0..cursor.trail.count]) |rect| {
-        const first_cell: u32 = @as(u32, rect.extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, rect.extent.col);
+        const first_cell: u32 = if (rect.pixel_rect) pixelRectFirstCell(rect, grid_metrics, cell_metrics) else @as(u32, rect.extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, rect.extent.col);
+        const x_px: i32 = if (rect.pixel_rect) rect.x_px else @as(i32, @intCast(rect.extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
+        const y_px: i32 = if (rect.pixel_rect) rect.y_px else @as(i32, @intCast(rect.extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
+        const width_px: u16 = if (rect.pixel_rect) rect.width_px else @intCast(@as(u32, rect.extent.cols) * @as(u32, cell_metrics.cell_w_px));
+        const height_px: u16 = if (rect.pixel_rect) rect.height_px else @intCast(@as(u32, rect.extent.rows) * @as(u32, cell_metrics.cell_h_px));
+        const cell_span: u8 = if (rect.pixel_rect) 1 else @intCast(@min(@as(u32, rect.extent.cols) * @as(u32, rect.extent.rows), @as(u32, std.math.maxInt(u8))));
         const color_value = resolveCursorTrailColor(cursor, rect);
         try out.append(allocator, .{
-            .x_px = @as(i32, @intCast(rect.extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px)),
-            .y_px = @as(i32, @intCast(rect.extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px)),
-            .width_px = @intCast(@as(u32, rect.extent.cols) * @as(u32, cell_metrics.cell_w_px)),
-            .height_px = @intCast(@as(u32, rect.extent.rows) * @as(u32, cell_metrics.cell_h_px)),
+            .x_px = x_px,
+            .y_px = y_px,
+            .width_px = width_px,
+            .height_px = height_px,
             .opacity = rect.opacity,
             .color = .{ .r = color_value.r, .g = color_value.g, .b = color_value.b, .a = rect.opacity },
             .first_cell = first_cell,
-            .cell_span = @intCast(@min(@as(u32, rect.extent.cols) * @as(u32, rect.extent.rows), @as(u32, std.math.maxInt(u8)))),
+            .cell_span = cell_span,
         });
     }
+}
+
+fn pixelRectFirstCell(rect: anytype, grid_metrics: contract.GridMetrics, cell_metrics: contract.CellMetrics) u32 {
+    std.debug.assert(rect.pixel_rect);
+    std.debug.assert(cell_metrics.cell_w_px != 0);
+    std.debug.assert(cell_metrics.cell_h_px != 0);
+    const col: u32 = @intCast(@max(@divTrunc(rect.x_px, @as(i32, @intCast(cell_metrics.cell_w_px))), 0));
+    const row: u32 = @intCast(@max(@divTrunc(rect.y_px, @as(i32, @intCast(cell_metrics.cell_h_px))), 0));
+    return @min(row, @as(u32, @max(grid_metrics.rows, 1)) - 1) * @max(@as(u32, grid_metrics.cols), 1) + @min(col, @as(u32, @max(grid_metrics.cols, 1)) - 1);
 }
 
 pub fn appendCursorDrawsUnmanaged(out: *std.ArrayListUnmanaged(contract.TextCursorDraw), cursor: anytype, damage: scene_damage.NormalizedDamage, cell_metrics: contract.CellMetrics) void {
@@ -868,6 +882,25 @@ test "configured trail color overrides empty trail rect color" {
     try appendCursorTrailRects(std.testing.allocator, &list, .{ .cols = 1, .rows = 1 }, cursor, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     try std.testing.expectEqual(@as(usize, 1), list.items.len);
     try std.testing.expectEqual(@as(u8, 0x70), list.items[0].color.r);
+}
+
+test "cursor trail pixel rect bypasses cell extent scaling" {
+    var cursor = testCursorPresentation();
+    cursor.trail.rects[0].pixel_rect = true;
+    cursor.trail.rects[0].x_px = 5;
+    cursor.trail.rects[0].y_px = 7;
+    cursor.trail.rects[0].width_px = 23;
+    cursor.trail.rects[0].height_px = 29;
+
+    var list = std.ArrayList(@import("scene.zig").CursorTrailRect).empty;
+    defer list.deinit(std.testing.allocator);
+    try appendCursorTrailRects(std.testing.allocator, &list, .{ .cols = 8, .rows = 4 }, cursor, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
+
+    try std.testing.expectEqual(@as(usize, 1), list.items.len);
+    try std.testing.expectEqual(@as(i32, 5), list.items[0].x_px);
+    try std.testing.expectEqual(@as(i32, 7), list.items[0].y_px);
+    try std.testing.expectEqual(@as(u16, 23), list.items[0].width_px);
+    try std.testing.expectEqual(@as(u16, 29), list.items[0].height_px);
 }
 
 test "visible no-shape produces no cursor draws fill or recolor" {

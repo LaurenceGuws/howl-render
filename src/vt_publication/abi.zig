@@ -73,6 +73,11 @@ pub const SourceCursorTrailRect = struct {
     reserved0: u8 = 0,
     reserved1: u16 = 0,
     color: SourceRgb = .{ .r = 0, .g = 0, .b = 0 },
+    pixel_rect: bool = false,
+    x_px: i32 = 0,
+    y_px: i32 = 0,
+    width_px: u16 = 0,
+    height_px: u16 = 0,
 };
 
 pub fn validateSourceCell(cell: SourceCell) !void {

@@ -57,6 +57,11 @@ pub const CursorTrailRect = struct {
     extent: CellExtent,
     opacity: u8,
     color: Rgb8,
+    pixel_rect: bool = false,
+    x_px: i32 = 0,
+    y_px: i32 = 0,
+    width_px: u16 = 0,
+    height_px: u16 = 0,
 };
 
 pub const CursorTrailSource = struct {
@@ -209,6 +214,11 @@ fn mapCursorTrailSource(source: []const source_abi.SourceCursorTrailRect) Cursor
             .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 },
             .opacity = 0,
             .color = .{ .r = 0, .g = 0, .b = 0 },
+            .pixel_rect = false,
+            .x_px = 0,
+            .y_px = 0,
+            .width_px = 0,
+            .height_px = 0,
         };
     }
     for (source, 0..) |rect_value, index| {
@@ -221,6 +231,11 @@ fn mapCursorTrailSource(source: []const source_abi.SourceCursorTrailRect) Cursor
             },
             .opacity = rect_value.opacity,
             .color = mapRgb8(rect_value.color),
+            .pixel_rect = rect_value.pixel_rect,
+            .x_px = rect_value.x_px,
+            .y_px = rect_value.y_px,
+            .width_px = rect_value.width_px,
+            .height_px = rect_value.height_px,
         };
     }
     return .{ .rects = rects, .count = @intCast(source.len) };
