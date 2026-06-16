@@ -5,6 +5,7 @@ test {
     _ = @import("geometry_test.zig");
     _ = @import("render_session.zig");
     _ = @import("submitted_surface.zig");
+    _ = @import("text/cursor_trail.zig");
     _ = @import("c/text_session_test.zig");
     _ = @import("c/submission_test.zig");
     _ = @import("text/ft_hb/support_test.zig");
