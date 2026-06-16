@@ -18,11 +18,13 @@ pub fn sessionWorkStateOut(value: render_session.SessionWorkState) c.HowlRenderS
     std.debug.assert(@intFromBool(value.source_pending) <= 1);
     std.debug.assert(@intFromBool(value.prepare_pending) <= 1);
     std.debug.assert(@intFromBool(value.submit_pending) <= 1);
+    std.debug.assert(@intFromBool(value.animation_pending) <= 1);
     return .{
         .status = c.HOWL_RENDER_CALL_OK,
         .source_pending = @intFromBool(value.source_pending),
         .prepare_pending = @intFromBool(value.prepare_pending),
         .submit_pending = @intFromBool(value.submit_pending),
+        .animation_pending = @intFromBool(value.animation_pending),
     };
 }
 
@@ -32,5 +34,6 @@ pub fn sessionWorkStateFailure(status: c_int) c.HowlRenderSessionWorkState {
         .source_pending = 0,
         .prepare_pending = 0,
         .submit_pending = 0,
+        .animation_pending = 0,
     };
 }

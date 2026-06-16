@@ -41,6 +41,7 @@ pub const SessionWorkState = struct {
     source_pending: bool,
     prepare_pending: bool,
     submit_pending: bool,
+    animation_pending: bool,
 };
 
 fn count32(items: anytype) u32 {
@@ -818,6 +819,7 @@ pub const TextSessionOwner = struct {
             .source_pending = source_pending,
             .prepare_pending = self.prepare_request != null,
             .submit_pending = self.prepared_candidate != null,
+            .animation_pending = self.cursor_trail.needs_render,
         };
     }
 
@@ -1098,6 +1100,25 @@ test "render session owner emits render-owned cursor trail rect" {
     try std.testing.expect(owner.latest_source.?.cursor_trail_rects[0].pixel_rect);
     try std.testing.expect(owner.latest_source.?.cursor_trail_rects[0].x_px > 0);
     try std.testing.expect(owner.latest_source.?.cursor_trail_rects[0].width_px > 0);
+    try std.testing.expect(owner.workState().animation_pending);
+
+    _ = owner.setHostCursorCadence(.{
+        .focused = true,
+        .cursor_opacity = 255,
+        .text_blink_opacity = 255,
+        .effective_shape = .block,
+        .cursor_color = .{ .kind = 0, .value = 0 },
+        .cursor_text_color = .{ .kind = 0, .value = 0 },
+        .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },
+        .cursor_beam_thickness = 1.5,
+        .cursor_underline_thickness = 2.0,
+        .cursor_trail_decay_fast_s = 0.1,
+        .cursor_trail_decay_slow_s = 0.4,
+        .cursor_trail_count = 0,
+        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
+        .now_ns = 10 * std.time.ns_per_s,
+    });
+    try std.testing.expect(!owner.workState().animation_pending);
 }
 
 test "render session owner rejects prepared work after resize publication" {

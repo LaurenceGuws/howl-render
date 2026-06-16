@@ -335,7 +335,7 @@ typedef struct {
     uint8_t source_pending;
     uint8_t prepare_pending;
     uint8_t submit_pending;
-    uint8_t reserved0;
+    uint8_t animation_pending;
 } HowlRenderSessionWorkState;
 
 typedef struct {
