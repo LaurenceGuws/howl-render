@@ -369,9 +369,12 @@ typedef struct {
     HowlVtColor cursor_trail_color;
     float cursor_beam_thickness;
     float cursor_underline_thickness;
+    float cursor_trail_decay_fast_s;
+    float cursor_trail_decay_slow_s;
     uint16_t cursor_trail_count;
     uint16_t reserved0;
     HowlRenderHostCursorTrailRect cursor_trail_rects[HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX];
+    uint64_t now_ns;
 } HowlRenderHostCursorCadence;
 
 typedef struct {

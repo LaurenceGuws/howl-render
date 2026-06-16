@@ -81,9 +81,12 @@ pub const HostCursorCadence = extern struct {
     cursor_trail_color: c.HowlVtColor,
     cursor_beam_thickness: f32,
     cursor_underline_thickness: f32,
+    cursor_trail_decay_fast_s: f32,
+    cursor_trail_decay_slow_s: f32,
     cursor_trail_count: u16,
     reserved0: u16 = 0,
     cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect,
+    now_ns: u64,
 };
 
 pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const HostCursorCadence) callconv(.c) c_int {
@@ -94,6 +97,7 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
     if (!source_abi.sourceColorValid(host_cadence.cursor_text_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!source_abi.sourceColorValid(host_cadence.cursor_trail_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!(host_cadence.cursor_beam_thickness > 0) or !(host_cadence.cursor_underline_thickness > 0)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!(host_cadence.cursor_trail_decay_fast_s > 0) or !(host_cadence.cursor_trail_decay_slow_s > 0)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (host_cadence.cursor_trail_count > source_abi.max_cursor_trail_rects) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     var trail_rects = [_]render_session.TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(render_session.TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
     for (0..host_cadence.cursor_trail_count) |index| {
@@ -118,8 +122,11 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
         .cursor_trail_color = host_cadence.cursor_trail_color,
         .cursor_beam_thickness = host_cadence.cursor_beam_thickness,
         .cursor_underline_thickness = host_cadence.cursor_underline_thickness,
+        .cursor_trail_decay_fast_s = host_cadence.cursor_trail_decay_fast_s,
+        .cursor_trail_decay_slow_s = host_cadence.cursor_trail_decay_slow_s,
         .cursor_trail_count = host_cadence.cursor_trail_count,
         .cursor_trail_rects = trail_rects,
+        .now_ns = host_cadence.now_ns,
     });
     return c.HOWL_RENDER_CALL_OK;
 }
@@ -136,6 +143,8 @@ test "text session cadence accepts hollow host shape and rejects out-of-range sh
     cadence.effective_shape = 4;
     cadence.cursor_beam_thickness = 1.5;
     cadence.cursor_underline_thickness = 2.0;
+    cadence.cursor_trail_decay_fast_s = 0.1;
+    cadence.cursor_trail_decay_slow_s = 0.4;
 
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, setCursorCadence(handle, &cadence));
 
