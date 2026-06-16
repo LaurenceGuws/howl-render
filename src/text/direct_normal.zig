@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const atlas_cache = @import("raster/atlas.zig");
 const cluster = @import("shape/cluster.zig");
 const contract = @import("contract.zig");
@@ -127,20 +126,15 @@ pub fn prepare(
     lane_report: *lane.LaneReport,
     rejected_complex_cells_out: ?*u64,
 ) !?Product {
-    const prepare_start_ns = timeNowNs();
     const damage = direct_scene.Damage.init(damage_input, grid_metrics.rows);
     const decoration_layout = scene_rects.rectDecorationLayout(session.metrics, grid_metrics);
     const source_len = sourceLen(source);
     var rejected_complex_cells: u64 = 0;
     try driver.scratch.reset(driver.allocator, source_len, source_len, grid_metrics.rows);
-    proof.prepare_calls += 1;
     const appended_visible = try appendVisible(driver, source, damage, grid_metrics, decoration_layout, session, policy, lane_report, &rejected_complex_cells);
     if (!appended_visible) {
         std.debug.assert(policy == .require_all_normal);
         std.debug.assert(rejected_complex_cells != 0);
-        proof.fallback_reject_calls += 1;
-        proof.direct_normal_prepare_ns += elapsedSinceNs(prepare_start_ns);
-        logProofMaybe();
         if (rejected_complex_cells_out) |out| out.* = rejected_complex_cells;
         assertNoPartialDrawState(driver.scratch);
         lane_report.assertValid();
@@ -148,7 +142,6 @@ pub fn prepare(
     }
     std.debug.assert(rejected_complex_cells == 0);
     if (rejected_complex_cells_out) |out| out.* = 0;
-    const append_scene_rects_start_ns = timeNowNs();
     direct_scene.appendClears(
         &driver.scratch.clear_draws,
         driver.scratch.clear_row_colors.items,
@@ -158,14 +151,7 @@ pub fn prepare(
         damage,
     );
     direct_scene.appendCursor(&driver.scratch.cursor_draws, cursor, session.metrics, damage);
-    proof.append_scene_rects_ns += elapsedSinceNs(append_scene_rects_start_ns);
-    const finish_scene_start_ns = timeNowNs();
     const product = try finishScene(driver, damage, lane_report);
-    proof.finish_scene_ns += elapsedSinceNs(finish_scene_start_ns);
-    proof.direct_success_calls += 1;
-    proof.raster_req_count_total += @intCast(driver.scratch.raster_reqs.items.len);
-    proof.direct_normal_prepare_ns += elapsedSinceNs(prepare_start_ns);
-    logProofMaybe();
     return product;
 }
 
@@ -200,168 +186,6 @@ const PublicationCandidate = union(enum) {
 
 const ascii_codepoints = initAsciiCodepoints();
 
-const proof_log_period: u64 = 32;
-const append_renderable_proof_session_id = "coder-2026-06-14-ascii-rain-performance-proof-29";
-
-const AppendRenderableProofMode = enum {
-    renderable_append,
-    append_resolved_glyph,
-    blank_fast_return,
-    resolve_face,
-    lookup_glyph,
-    key_derivation,
-    atlas_reserve,
-    raster_enqueue,
-    sprite_append,
-    lane_report_update,
-};
-
-const append_renderable_proof_mode_env = "HOWL_APPEND_RENDERABLE_PROOF_MODE";
-
-const Proof = struct {
-    prepare_calls: u64 = 0,
-    direct_normal_prepare_ns: u64 = 0,
-    publication_renderable_text_ns: u64 = 0,
-    publication_cell_supported_ns: u64 = 0,
-    publication_damage_include_ns: u64 = 0,
-    source_candidate_ns: u64 = 0,
-    append_renderable_ns: u64 = 0,
-    renderable_append_ns: u64 = 0,
-    append_resolved_glyph_ns: u64 = 0,
-    inline_background_ns: u64 = 0,
-    inline_clear_note_ns: u64 = 0,
-    inline_decoration_ns: u64 = 0,
-    blank_fast_return_ns: u64 = 0,
-    resolve_face_ns: u64 = 0,
-    lookup_glyph_ns: u64 = 0,
-    key_derivation_ns: u64 = 0,
-    atlas_reserve_ns: u64 = 0,
-    raster_enqueue_ns: u64 = 0,
-    sprite_append_ns: u64 = 0,
-    lane_report_update_ns: u64 = 0,
-    append_visible_ns: u64 = 0,
-    append_scene_rects_ns: u64 = 0,
-    finish_scene_ns: u64 = 0,
-    visible_cells_scanned: u64 = 0,
-    included_normal_cells: u64 = 0,
-    direct_success_calls: u64 = 0,
-    fallback_reject_calls: u64 = 0,
-    append_renderable_calls: u64 = 0,
-    raster_req_count_total: u64 = 0,
-};
-
-var proof: Proof = .{};
-var append_renderable_proof_mode: ?AppendRenderableProofMode = null;
-var append_renderable_proof_log_header_written = false;
-
-fn timeNowNs() u64 {
-    var timespec: std.c.timespec = undefined;
-    switch (std.c.errno(std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &timespec))) {
-        .SUCCESS => {},
-        else => unreachable,
-    }
-    const seconds_ns = @as(u64, @intCast(timespec.sec)) * std.time.ns_per_s;
-    return seconds_ns + @as(u64, @intCast(timespec.nsec));
-}
-
-fn elapsedSinceNs(start_ns: u64) u64 {
-    const end_ns = timeNowNs();
-    std.debug.assert(end_ns >= start_ns);
-    return end_ns - start_ns;
-}
-
-fn nsToMs(ns: u64) f64 {
-    return @as(f64, @floatFromInt(ns)) / @as(f64, std.time.ns_per_ms);
-}
-
-fn appendRenderableProofMode() AppendRenderableProofMode {
-    if (append_renderable_proof_mode) |mode| return mode;
-    const env_value = std.c.getenv(append_renderable_proof_mode_env) orelse {
-        append_renderable_proof_mode = .lookup_glyph;
-        return .lookup_glyph;
-    };
-    const mode = std.meta.stringToEnum(AppendRenderableProofMode, std.mem.span(env_value)) orelse @panic("invalid HOWL_APPEND_RENDERABLE_PROOF_MODE");
-    append_renderable_proof_mode = mode;
-    return mode;
-}
-
-fn recordAppendRenderableProof(mode: AppendRenderableProofMode, field: *u64, start_ns: u64) void {
-    const selected_mode = appendRenderableProofMode();
-    if (selected_mode != mode and selected_mode != .renderable_append and selected_mode != .append_resolved_glyph) return;
-    field.* += elapsedSinceNs(start_ns);
-}
-
-fn recordRenderableAppendInnerProof(field: *u64, start_ns: u64) void {
-    if (appendRenderableProofMode() != .renderable_append) return;
-    field.* += elapsedSinceNs(start_ns);
-}
-
-fn logProofMaybe() void {
-    if (builtin.is_test) return;
-    if (proof.prepare_calls == 0 or proof.prepare_calls % proof_log_period != 0) return;
-    if (!append_renderable_proof_log_header_written) {
-        append_renderable_proof_log_header_written = true;
-        std.log.warn(
-            "ascii-rain-proof session={s} fresh-section-begin append_renderable_mode={s}",
-            .{ append_renderable_proof_session_id, @tagName(appendRenderableProofMode()) },
-        );
-    }
-    std.log.warn(
-        "ascii-rain-proof direct_normal append_renderable_mode={s} prepare calls={} direct_normal_prepare_ms={d:.3} source_candidate_ms={d:.3} publication_cell_supported_ms={d:.3} publication_renderable_text_ms={d:.3} publication_damage_include_ms={d:.3} append_renderable_ms={d:.3} renderable_append_ms={d:.3} inline_background_ms={d:.3} inline_clear_note_ms={d:.3} inline_decoration_ms={d:.3}",
-        .{
-            @tagName(appendRenderableProofMode()),
-            proof.prepare_calls,
-            nsToMs(proof.direct_normal_prepare_ns),
-            nsToMs(proof.source_candidate_ns),
-            nsToMs(proof.publication_cell_supported_ns),
-            nsToMs(proof.publication_renderable_text_ns),
-            nsToMs(proof.publication_damage_include_ns),
-            nsToMs(proof.append_renderable_ns),
-            nsToMs(proof.renderable_append_ns),
-            nsToMs(proof.inline_background_ns),
-            nsToMs(proof.inline_clear_note_ns),
-            nsToMs(proof.inline_decoration_ns),
-        },
-    );
-    std.log.warn(
-        "ascii-rain-proof direct_normal append_renderable_mode={s} inline_background_ns={} inline_clear_note_ns={} inline_decoration_ns={} append_renderable_calls={} fallback_reject_calls={} append_scene_rects_ms={d:.3} direct_normal_prepare_ms={d:.3}",
-        .{
-            @tagName(appendRenderableProofMode()),
-            proof.inline_background_ns,
-            proof.inline_clear_note_ns,
-            proof.inline_decoration_ns,
-            proof.append_renderable_calls,
-            proof.fallback_reject_calls,
-            nsToMs(proof.append_scene_rects_ns),
-            nsToMs(proof.direct_normal_prepare_ns),
-        },
-    );
-    std.log.warn(
-        "ascii-rain-proof direct_normal append_renderable_mode={s} append_resolved_glyph_ms={d:.3} blank_fast_return_ms={d:.3} resolve_face_ms={d:.3} lookup_glyph_ms={d:.3} key_derivation_ms={d:.3} atlas_reserve_ms={d:.3} raster_enqueue_ms={d:.3} sprite_append_ms={d:.3} lane_report_update_ms={d:.3} append_visible_ms={d:.3} append_scene_rects_ms={d:.3} finish_scene_ms={d:.3} visible_cells_scanned={} included_normal_cells={} direct_success_calls={} fallback_reject_calls={} append_renderable_calls={} raster_req_count_total={}",
-        .{
-            @tagName(appendRenderableProofMode()),
-            nsToMs(proof.append_resolved_glyph_ns),
-            nsToMs(proof.blank_fast_return_ns),
-            nsToMs(proof.resolve_face_ns),
-            nsToMs(proof.lookup_glyph_ns),
-            nsToMs(proof.key_derivation_ns),
-            nsToMs(proof.atlas_reserve_ns),
-            nsToMs(proof.raster_enqueue_ns),
-            nsToMs(proof.sprite_append_ns),
-            nsToMs(proof.lane_report_update_ns),
-            nsToMs(proof.append_visible_ns),
-            nsToMs(proof.append_scene_rects_ns),
-            nsToMs(proof.finish_scene_ns),
-            proof.visible_cells_scanned,
-            proof.included_normal_cells,
-            proof.direct_success_calls,
-            proof.fallback_reject_calls,
-            proof.append_renderable_calls,
-            proof.raster_req_count_total,
-        },
-    );
-}
-
 const ScratchCheckpoint = struct {
     missing_len: usize,
     sprite_draws_len: usize,
@@ -383,8 +207,6 @@ fn appendVisible(
     lane_report: *lane.LaneReport,
     rejected_complex_cells: *u64,
 ) !bool {
-    const append_visible_start_ns = timeNowNs();
-    defer proof.append_visible_ns += elapsedSinceNs(append_visible_start_ns);
     rejected_complex_cells.* = 0;
     const lane_report_start = lane_report.*;
     const scratch_start = checkpointScratch(driver.scratch);
@@ -394,18 +216,14 @@ fn appendVisible(
         const publication = source.publication;
         var idx_publication: u32 = 0;
         while (idx_publication < sourceLen(source)) : (idx_publication += 1) {
-            proof.visible_cells_scanned += 1;
             const cell = publication.cells[@intCast(idx_publication)];
             const supported = publicationCellSupported(publication.cells, idx_publication, cell);
             if (supported) {
                 const item = publicationRenderableText(publication.theme, idx_publication, cell);
-                const include_start_ns = timeNowNs();
                 const included = cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable);
-                proof.publication_damage_include_ns += elapsedSinceNs(include_start_ns);
                 if (!included) continue;
 
                 if (rejecting) continue;
-                proof.included_normal_cells += 1;
                 recordLane(lane_report, item.text);
                 try appendRenderable(driver, item.renderable, item.text, damage, grid_metrics, decoration_layout, session, lane_report);
                 continue;
@@ -494,8 +312,6 @@ fn candidateDecision(policy: Policy, lane_report: *lane.LaneReport, candidate: C
 }
 
 fn sourceCandidate(source: Source, idx: u32, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics) ?Candidate {
-    const source_candidate_start_ns = timeNowNs();
-    defer proof.source_candidate_ns += elapsedSinceNs(source_candidate_start_ns);
     if (source == .publication) {
         const publication = source.publication;
         switch (publicationCandidate(publication.cells, publication.theme, idx, damage, grid_metrics)) {
@@ -516,12 +332,7 @@ fn publicationCandidate(cells: []const source_vt.SourceCell, theme: source_theme
     if (!supported) return .unsupported;
 
     const item = publicationRenderableText(theme, idx, cell);
-    const include_start_ns = timeNowNs();
-    if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) {
-        proof.publication_damage_include_ns += elapsedSinceNs(include_start_ns);
-        return .skip;
-    }
-    proof.publication_damage_include_ns += elapsedSinceNs(include_start_ns);
+    if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) return .skip;
     const choice = lane.LaneClass.normal();
     choice.assertValid();
     std.debug.assert(lane.classifyRenderableCell(item.renderable, item.text).renderableClass() == .normal);
@@ -529,8 +340,6 @@ fn publicationCandidate(cells: []const source_vt.SourceCell, theme: source_theme
 }
 
 fn publicationCellSupported(cells: []const source_vt.SourceCell, idx: u32, cell: source_vt.SourceCell) bool {
-    const supported_start_ns = timeNowNs();
-    defer proof.publication_cell_supported_ns += elapsedSinceNs(supported_start_ns);
     if (!publicationCodepointSupported(cell.codepoint)) return false;
     if (cell.combining_len != 0) return false;
     if (cell.flags.continuation != 0) return false;
@@ -547,8 +356,6 @@ fn publicationCellSupported(cells: []const source_vt.SourceCell, idx: u32, cell:
 }
 
 fn publicationRenderableText(theme: source_theme.SurfaceTheme, idx: u32, cell: source_vt.SourceCell) cluster.RenderableText {
-    const renderable_text_start_ns = timeNowNs();
-    defer proof.publication_renderable_text_ns += elapsedSinceNs(renderable_text_start_ns);
     std.debug.assert(publicationCodepointSupported(cell.codepoint));
     std.debug.assert(cell.combining_len == 0);
     std.debug.assert(cell.flags.continuation == 0);
@@ -736,10 +543,6 @@ fn appendRenderable(
     session: font_session.FontSession,
     lane_report: *lane.LaneReport,
 ) !void {
-    const append_renderable_start_ns = timeNowNs();
-    defer proof.append_renderable_ns += elapsedSinceNs(append_renderable_start_ns);
-    proof.append_renderable_calls += 1;
-
     direct_scene.appendRenderableRects(
         &driver.scratch.background_draws,
         &driver.scratch.background_merge_live,
@@ -747,9 +550,6 @@ fn appendRenderable(
         driver.scratch.clear_row_colors.items,
         driver.scratch.clear_row_matches.items,
         &driver.scratch.decoration_draws,
-        &proof.inline_background_ns,
-        &proof.inline_clear_note_ns,
-        &proof.inline_decoration_ns,
         renderable,
         session.metrics,
         grid_metrics,
@@ -757,9 +557,7 @@ fn appendRenderable(
         damage,
     );
 
-    const renderable_append_start_ns = timeNowNs();
     try renderableAppend(driver, renderable, text, grid_metrics, session, lane_report);
-    recordAppendRenderableProof(.renderable_append, &proof.renderable_append_ns, renderable_append_start_ns);
 }
 
 fn renderableAppend(
@@ -777,13 +575,10 @@ fn renderableAppend(
 }
 
 fn resolveFaceOrAppendMissing(driver: Driver, renderable: contract.RenderableCell, text: contract.CellText, session: font_session.FontSession) ?font_session.FontFaceRecord {
-    const resolve_face_start_ns = timeNowNs();
     const face = resolveFace(session, renderable, text) orelse {
-        recordAppendRenderableProof(.resolve_face, &proof.resolve_face_ns, resolve_face_start_ns);
         driver.scratch.missing.appendAssumeCapacity(.{ .codepoint = text.first_cp, .style = renderable.style, .presentation = renderable.presentation, .reason = .no_fallback_face });
         return null;
     };
-    recordAppendRenderableProof(.resolve_face, &proof.resolve_face_ns, resolve_face_start_ns);
     return face;
 }
 
@@ -802,35 +597,25 @@ fn appendResolvedGlyph(
     lane_report: *lane.LaneReport,
     face: font_session.FontFaceRecord,
 ) void {
-    const append_resolved_glyph_start_ns = timeNowNs();
     const lookup = lookupGlyph(driver, text, session, face);
     const resolved = deriveResolvedGlyphKey(renderable, session, face, lookup);
     const residency = reserveAtlasOrAppendPendingRaster(driver, session, face, resolved);
     spriteAppend(driver, renderable, grid_metrics, session, lane_report, resolved.lookup, residency, resolved.span);
-    recordAppendRenderableProof(.append_resolved_glyph, &proof.append_resolved_glyph_ns, append_resolved_glyph_start_ns);
 }
 
 fn lookupGlyph(driver: Driver, text: CellText, session: FontSession, face: FontFaceRecord) LookupGlyphResult {
-    const lookup_glyph_start_ns = timeNowNs();
-    const lookup = driver.glyph_lookup.lookupGlyph(face.id, text.first_cp, session.metrics);
-    recordAppendRenderableProof(.lookup_glyph, &proof.lookup_glyph_ns, lookup_glyph_start_ns);
-    return lookup;
+    return driver.glyph_lookup.lookupGlyph(face.id, text.first_cp, session.metrics);
 }
 
 fn deriveResolvedGlyphKey(renderable: RenderableCell, session: FontSession, face: FontFaceRecord, lookup: LookupGlyphResult) ResolvedGlyphKey {
     const span = @max(renderable.cell_span, 1);
-    const key_derivation_start_ns = timeNowNs();
     const key = sprite_key.hashGlyphLocal(face.id, lookup.glyph_id, span, session.metrics);
-    recordAppendRenderableProof(.key_derivation, &proof.key_derivation_ns, key_derivation_start_ns);
     return .{ .lookup = lookup, .span = span, .key = key };
 }
 
 fn reserveAtlasOrAppendPendingRaster(driver: Driver, session: font_session.FontSession, face: font_session.FontFaceRecord, resolved: ResolvedGlyphKey) atlas_cache.ReserveResult {
-    const atlas_reserve_start_ns = timeNowNs();
     const residency = driver.atlas.reserve(resolved.key, false);
-    recordAppendRenderableProof(.atlas_reserve, &proof.atlas_reserve_ns, atlas_reserve_start_ns);
     if (residency.pending) {
-        const raster_enqueue_start_ns = timeNowNs();
         driver.scratch.raster_reqs.appendAssumeCapacity(.{
             .face_id = face.id.value,
             .glyph_id = resolved.lookup.glyph_id,
@@ -838,20 +623,16 @@ fn reserveAtlasOrAppendPendingRaster(driver: Driver, session: font_session.FontS
             .cell_metrics = session.metrics,
             .cell_span = resolved.span,
         });
-        recordAppendRenderableProof(.raster_enqueue, &proof.raster_enqueue_ns, raster_enqueue_start_ns);
     }
     return residency;
 }
 
 fn blankFastReturn(driver: Driver, text: contract.CellText) bool {
     const sprite_draw_count = driver.scratch.sprite_draws.items.len;
-    const blank_fast_return_start_ns = timeNowNs();
     if (text.first_cp == 0 or text.first_cp == '\t') {
-        recordAppendRenderableProof(.blank_fast_return, &proof.blank_fast_return_ns, blank_fast_return_start_ns);
         std.debug.assert(driver.scratch.sprite_draws.items.len == sprite_draw_count);
         return true;
     }
-    recordAppendRenderableProof(.blank_fast_return, &proof.blank_fast_return_ns, blank_fast_return_start_ns);
     return false;
 }
 
@@ -865,7 +646,6 @@ fn spriteAppend(
     residency: atlas_cache.ReserveResult,
     span: u8,
 ) void {
-    const sprite_append_start_ns = timeNowNs();
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const col = renderable.first_cell % cols;
     const row = renderable.first_cell / cols;
@@ -880,10 +660,7 @@ fn spriteAppend(
         .first_cell = renderable.first_cell,
         .cell_span = span,
     });
-    recordAppendRenderableProof(.sprite_append, &proof.sprite_append_ns, sprite_append_start_ns);
-    const lane_report_update_start_ns = timeNowNs();
     lane_report.direct_normal_draws += 1;
-    recordAppendRenderableProof(.lane_report_update, &proof.lane_report_update_ns, lane_report_update_start_ns);
 }
 
 fn assertNoPartialDrawState(scratch: *const Scratch) void {

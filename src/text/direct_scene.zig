@@ -81,26 +81,15 @@ pub fn appendRenderableRects(
     clear_row_colors: []contract.Rgba8,
     clear_row_matches: []bool,
     decoration_draws: *std.ArrayListUnmanaged(contract.TextDecorationDraw),
-    inline_background_ns: *u64,
-    inline_clear_note_ns: *u64,
-    inline_decoration_ns: *u64,
     cell: contract.RenderableCell,
     cell_metrics: contract.CellMetrics,
     grid_metrics: contract.GridMetrics,
     decoration_layout: scene_rects.RectDecorationLayout,
     damage: Damage,
 ) void {
-    const inline_background_start_ns = timeNowNs();
     appendBackground(background_draws, background_merge_live, background_merge_end_cell, cell, cell_metrics, grid_metrics, damage);
-    inline_background_ns.* += elapsedSinceNs(inline_background_start_ns);
-
-    const inline_clear_note_start_ns = timeNowNs();
     noteClearColor(clear_row_colors, clear_row_matches, cell, grid_metrics, damage);
-    inline_clear_note_ns.* += elapsedSinceNs(inline_clear_note_start_ns);
-
-    const inline_decoration_start_ns = timeNowNs();
     appendDecorations(decoration_draws, cell, decoration_layout, damage);
-    inline_decoration_ns.* += elapsedSinceNs(inline_decoration_start_ns);
 }
 
 fn toSceneDamage(damage: Damage) scene_damage.NormalizedDamage {
@@ -110,20 +99,4 @@ fn toSceneDamage(damage: Damage) scene_damage.NormalizedDamage {
         .dirty_cols_start = damage.dirty_cols_start,
         .dirty_cols_end = damage.dirty_cols_end,
     };
-}
-
-fn timeNowNs() u64 {
-    var timespec: std.c.timespec = undefined;
-    switch (std.c.errno(std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &timespec))) {
-        .SUCCESS => {},
-        else => unreachable,
-    }
-    const seconds_ns = @as(u64, @intCast(timespec.sec)) * std.time.ns_per_s;
-    return seconds_ns + @as(u64, @intCast(timespec.nsec));
-}
-
-fn elapsedSinceNs(start_ns: u64) u64 {
-    const end_ns = timeNowNs();
-    std.debug.assert(end_ns >= start_ns);
-    return end_ns - start_ns;
 }
