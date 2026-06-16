@@ -289,7 +289,7 @@ test "prepared handle reports missing surface when render_surface emission overf
 
     try std.testing.expect(handle.renderSurface() == null);
     try std.testing.expectEqual(RenderSurfaceEmissionFailure.command_bound_overflow, handle.renderSurfaceEmissionFailure());
-    try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
+    try std.testing.expectEqual(@as(usize, 1), session_owner.pending_prepared.registeredHandleCount());
 }
 
 test "prepared handle overflow still consumes prepare surface once" {
@@ -303,7 +303,7 @@ test "prepared handle overflow still consumes prepare surface once" {
     try std.testing.expect(handle.renderSurface() == null);
     try std.testing.expectEqual(RenderSurfaceEmissionFailure.command_bound_overflow, handle.renderSurfaceEmissionFailure());
     try std.testing.expectEqual(@as(u64, 0), prepared.request.token.snapshot_seq);
-    try std.testing.expectEqual(@as(usize, 1), session_owner.prepared_handles.items.len);
+    try std.testing.expectEqual(@as(usize, 1), session_owner.pending_prepared.registeredHandleCount());
 }
 
 test "prepared handle allocation failure is reported in info" {

@@ -26,8 +26,7 @@ pub const PreparedHandle = struct {
         };
         value.* = emptyPreparedSurface(prepared_allocator);
         errdefer prepared_handle.destroy();
-        try session_owner.registerPreparedHandle(prepared_handle);
-        prepared_handle.registered = true;
+        try session_owner.pending_prepared.registerHandle(session_owner.allocator, prepared_handle);
         prepared_handle.emitRenderSurfacePayload() catch |err| {
             prepared_handle.prepared.render_surface_emission_failure = switch (err) {
                 error.OutOfMemory => .allocation_failed,
@@ -55,7 +54,7 @@ pub const PreparedHandle = struct {
             .released, .consumed => return,
             .prepared, .submit_ready => {
                 std.debug.assert(self.render_surface_payload == null or self.state == .prepared or self.state == .submit_ready);
-                self.session_owner.clearCachedPreparedHandle(self);
+                self.session_owner.pending_prepared.clearCachedHandle(self);
                 self.deinitPayload();
                 self.state = .released;
             },
@@ -99,7 +98,7 @@ pub const PreparedHandle = struct {
 
     pub fn consume(self: *PreparedHandle) void {
         std.debug.assert(self.state == .prepared or self.state == .submit_ready);
-        self.session_owner.clearCachedPreparedHandle(self);
+        self.session_owner.pending_prepared.clearCachedHandle(self);
         self.deinitPayload();
         self.state = .consumed;
     }
@@ -114,15 +113,7 @@ pub const PreparedHandle = struct {
     }
 
     fn detachFromSessionTracking(self: *PreparedHandle) void {
-        if (!self.registered) return;
-        self.session_owner.clearCachedPreparedHandle(self);
-        for (self.session_owner.prepared_handles.items, 0..) |prepared, index| {
-            if (prepared != self) continue;
-            self.session_owner.prepared_handles.items[index] = &destroyed_prepared_handle_sentinel;
-            self.registered = false;
-            return;
-        }
-        std.debug.panic("prepared handle registration missing during destroy", .{});
+        self.session_owner.pending_prepared.detachRegisteredHandle(self);
     }
 
     fn emitRenderSurfacePayload(self: *PreparedHandle) !void {
@@ -146,6 +137,10 @@ pub const PreparedHandle = struct {
 };
 
 var destroyed_prepared_handle_sentinel: PreparedHandle = undefined;
+
+pub fn destroyedSentinel() *PreparedHandle {
+    return &destroyed_prepared_handle_sentinel;
+}
 
 fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedSurface {
     return .{
