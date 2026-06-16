@@ -1,27 +1,27 @@
 const std = @import("std");
+const c = @import("howl_render_c");
 const geometry_contract = @import("geometry_contract.zig");
-const source_theme = @import("vt_publication/theme.zig");
-const source_publication = @import("vt_publication/publication.zig");
-const source_abi = @import("vt_publication/abi.zig");
+const vt_theme = @import("vt_surface/theme.zig");
+const vt_surface = @import("vt_surface/surface.zig");
 const contract = @import("text/contract.zig");
 const text_cursor_trail = @import("text/cursor_trail.zig");
 
-pub const HostCursorCadenceRect = source_abi.SourceCursorTrailRect;
+pub const HostCursorCadenceRect = c.HowlRenderHostCursorTrailRect;
 
 pub const HostCursorCadence = struct {
     focused: bool,
     cursor_opacity: u8,
     text_blink_opacity: u8,
-    effective_shape: source_abi.SourceCursorShape,
-    cursor_color: source_abi.SourceColor,
-    cursor_text_color: source_abi.SourceColor,
-    cursor_trail_color: source_abi.SourceColor,
+    effective_shape: u8,
+    cursor_color: c.HowlVtColor,
+    cursor_text_color: c.HowlVtColor,
+    cursor_trail_color: c.HowlVtColor,
     cursor_beam_thickness: f32,
     cursor_underline_thickness: f32,
     cursor_trail_decay_fast_s: f32,
     cursor_trail_decay_slow_s: f32,
     cursor_trail_count: u16,
-    cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect,
+    cursor_trail_rects: [c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX]HostCursorCadenceRect,
     now_ns: u64,
 };
 
@@ -29,16 +29,16 @@ pub const CursorPresentation = struct {
     focused: bool = true,
     cursor_opacity: u8 = 255,
     text_blink_opacity: u8 = 255,
-    effective_shape: source_abi.SourceCursorShape = .block,
-    cursor_color: source_abi.SourceColor = .{ .kind = 2, .value = 0xCCCCCC },
-    cursor_text_color: source_abi.SourceColor = .{ .kind = 2, .value = 0x111111 },
-    cursor_trail_color: source_abi.SourceColor = .{ .kind = 0, .value = 0 },
+    effective_shape: u8 = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
+    cursor_color: c.HowlVtColor = .{ .kind = 2, .value = 0xCCCCCC },
+    cursor_text_color: c.HowlVtColor = .{ .kind = 2, .value = 0x111111 },
+    cursor_trail_color: c.HowlVtColor = .{ .kind = 0, .value = 0 },
     cursor_beam_thickness: f32 = 1.5,
     cursor_underline_thickness: f32 = 2.0,
     cursor_trail_decay_fast_s: f32 = 0.1,
     cursor_trail_decay_slow_s: f32 = 0.4,
     cursor_trail_count: u16 = 0,
-    cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
+    cursor_trail_rects: [c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX]HostCursorCadenceRect = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
     cadence_now_ns: u64 = 0,
     cursor_trail: text_cursor_trail.CursorTrail = .{},
     trail_initialized: bool = false,
@@ -46,7 +46,7 @@ pub const CursorPresentation = struct {
     trail_trigger_pending: bool = false,
     trail_trigger_rect: HostCursorCadenceRect = .{},
 
-    pub fn setHostCursorCadence(self: *CursorPresentation, cadence: HostCursorCadence, latest_source: ?source_publication.PublicationSource, cell_px: geometry_contract.CellSize) bool {
+    pub fn setHostCursorCadence(self: *CursorPresentation, cadence: HostCursorCadence, latest_vt_surface: ?vt_surface.VtSurface, cell_px: geometry_contract.CellSize) bool {
         var changed = false;
         changed = updateBool(&self.focused, cadence.focused) or changed;
         changed = updateByte(&self.cursor_opacity, cadence.cursor_opacity) or changed;
@@ -64,33 +64,33 @@ pub const CursorPresentation = struct {
             changed = true;
         }
         const new_trigger = self.updateCursorTrailTrigger(cadence);
-        if (latest_source) |source| changed = self.updateCursorTrailForSource(source, new_trigger, cell_px) or changed;
+        if (latest_vt_surface) |source| changed = self.updateCursorTrailForVtSurface(source, new_trigger, cell_px) or changed;
         return changed;
     }
 
-    pub fn applyHostCursorCadenceToSource(self: *CursorPresentation, source: *source_publication.PublicationSource, cell_px: geometry_contract.CellSize) bool {
+    pub fn applyHostCursorCadenceToVtSurface(self: *CursorPresentation, source: *vt_surface.VtSurface, cell_px: geometry_contract.CellSize) bool {
         var changed = false;
-        if (source.cursor.focused != self.focused) {
-            source.cursor.focused = self.focused;
+        if (source.cursor_focused != self.focused) {
+            source.cursor_focused = self.focused;
             changed = true;
         }
-        if (source.cursor.cursor_opacity != self.cursor_opacity) {
-            source.cursor.cursor_opacity = self.cursor_opacity;
+        if (source.cursor_opacity != self.cursor_opacity) {
+            source.cursor_opacity = self.cursor_opacity;
             changed = true;
         }
-        if (source.cursor.text_blink_opacity != self.text_blink_opacity) {
-            source.cursor.text_blink_opacity = self.text_blink_opacity;
+        if (source.text_blink_opacity != self.text_blink_opacity) {
+            source.text_blink_opacity = self.text_blink_opacity;
             changed = true;
         }
-        if (source.cursor.effective_shape != self.effective_shape) {
-            source.cursor.effective_shape = self.effective_shape;
+        if (source.effective_shape != self.effective_shape) {
+            source.effective_shape = self.effective_shape;
             changed = true;
         }
         if (source.cursor_phase_visible != (self.cursor_opacity != 0)) {
             source.cursor_phase_visible = self.cursor_opacity != 0;
             changed = true;
         }
-        changed = self.updateCursorTrailForSource(source.*, false, cell_px) or changed;
+        changed = self.updateCursorTrailForVtSurface(source.*, false, cell_px) or changed;
         if (source.cursor_trail_count != self.cursor_trail_count) {
             source.cursor_trail_count = self.cursor_trail_count;
             changed = true;
@@ -102,7 +102,7 @@ pub const CursorPresentation = struct {
         return changed;
     }
 
-    pub fn cursorThemeConfig(self: *const CursorPresentation) source_theme.CursorThemeConfig {
+    pub fn cursorThemeConfig(self: *const CursorPresentation) vt_theme.CursorThemeConfig {
         return .{
             .cursor_color = self.cursor_color,
             .cursor_text_color = self.cursor_text_color,
@@ -130,13 +130,13 @@ pub const CursorPresentation = struct {
         return true;
     }
 
-    fn updateCursorTrailForSource(self: *CursorPresentation, source: source_publication.PublicationSource, new_trigger: bool, cell_px: geometry_contract.CellSize) bool {
+    fn updateCursorTrailForVtSurface(self: *CursorPresentation, source: vt_surface.VtSurface, new_trigger: bool, cell_px: geometry_contract.CellSize) bool {
         const before_count = self.cursor_trail_count;
         const before_rects = self.cursor_trail_rects;
         const target = self.cursorTrailTarget(source, cell_px) orelse {
             self.trail_initialized = false;
             self.cursor_trail_count = 0;
-            self.cursor_trail_rects = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
+            self.cursor_trail_rects = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX;
             return before_count != self.cursor_trail_count or !std.mem.eql(u8, std.mem.asBytes(&before_rects), std.mem.asBytes(&self.cursor_trail_rects));
         };
         const start_trigger = new_trigger or self.trail_trigger_pending;
@@ -152,17 +152,17 @@ pub const CursorPresentation = struct {
             self.cursor_trail.setTarget(target);
         }
         _ = self.cursor_trail.update(.{ .decay_fast_s = self.cursor_trail_decay_fast_s, .decay_slow_s = self.cursor_trail_decay_slow_s }, self.cadence_now_ns, target.visible);
-        self.cursor_trail_rects = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
+        self.cursor_trail_rects = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX;
         self.cursor_trail_count = if (self.cursor_trail.needs_render) 1 else 0;
         if (self.cursor_trail_count != 0) self.cursor_trail_rects[0] = self.cursorTrailRect();
         return before_count != self.cursor_trail_count or !std.mem.eql(u8, std.mem.asBytes(&before_rects), std.mem.asBytes(&self.cursor_trail_rects));
     }
 
-    fn cursorTrailTarget(self: *const CursorPresentation, source: source_publication.PublicationSource, cell_px: geometry_contract.CellSize) ?text_cursor_trail.Target {
+    fn cursorTrailTarget(self: *const CursorPresentation, source: vt_surface.VtSurface, cell_px: geometry_contract.CellSize) ?text_cursor_trail.Target {
         if (cell_px.width == 0) return null;
         if (cell_px.height == 0) return null;
         return text_cursor_trail.targetFromCursor(.{
-            .visible = source.cursor.visible and self.cursor_opacity != 0,
+            .visible = source.cursor.visible != 0 and self.cursor_opacity != 0,
             .shape = mapTrailCursorShape(self.effective_shape),
             .beam_thickness = self.cursor_beam_thickness,
             .underline_thickness = self.cursor_underline_thickness,
@@ -171,12 +171,6 @@ pub const CursorPresentation = struct {
     }
 
     fn cursorTrailRect(self: *const CursorPresentation) HostCursorCadenceRect {
-        const min_x = @min(@min(self.cursor_trail.corner_x[0], self.cursor_trail.corner_x[1]), @min(self.cursor_trail.corner_x[2], self.cursor_trail.corner_x[3]));
-        const max_x = @max(@max(self.cursor_trail.corner_x[0], self.cursor_trail.corner_x[1]), @max(self.cursor_trail.corner_x[2], self.cursor_trail.corner_x[3]));
-        const min_y = @min(@min(self.cursor_trail.corner_y[0], self.cursor_trail.corner_y[1]), @min(self.cursor_trail.corner_y[2], self.cursor_trail.corner_y[3]));
-        const max_y = @max(@max(self.cursor_trail.corner_y[0], self.cursor_trail.corner_y[1]), @max(self.cursor_trail.corner_y[2], self.cursor_trail.corner_y[3]));
-        const x_px = floorI32(min_x);
-        const y_px = floorI32(min_y);
         return .{
             .row = 0,
             .col = 0,
@@ -186,11 +180,6 @@ pub const CursorPresentation = struct {
             .reserved0 = 0,
             .reserved1 = 0,
             .color = .{ .r = 0, .g = 0, .b = 0 },
-            .pixel_rect = true,
-            .x_px = x_px,
-            .y_px = y_px,
-            .width_px = ceilSpanU16(max_x - @as(f32, @floatFromInt(x_px))),
-            .height_px = ceilSpanU16(max_y - @as(f32, @floatFromInt(y_px))),
         };
     }
 };
@@ -213,17 +202,17 @@ fn updateF32(target: *f32, next: f32) bool {
     return true;
 }
 
-fn updateColor(target: *source_abi.SourceColor, next: source_abi.SourceColor) bool {
+fn updateColor(target: *c.HowlVtColor, next: c.HowlVtColor) bool {
     if (target.kind == next.kind and target.value == next.value) return false;
     target.* = next;
     return true;
 }
 
-fn sameTrailTriggerRect(a: source_abi.SourceCursorTrailRect, b: source_abi.SourceCursorTrailRect) bool {
+fn sameTrailTriggerRect(a: c.HowlRenderHostCursorTrailRect, b: c.HowlRenderHostCursorTrailRect) bool {
     return a.row == b.row and a.col == b.col and a.rows == b.rows and a.cols == b.cols;
 }
 
-fn targetFromTriggerRect(rect: source_abi.SourceCursorTrailRect, cell_px: geometry_contract.CellSize) text_cursor_trail.Target {
+fn targetFromTriggerRect(rect: c.HowlRenderHostCursorTrailRect, cell_px: geometry_contract.CellSize) text_cursor_trail.Target {
     std.debug.assert(cell_px.width != 0);
     std.debug.assert(cell_px.height != 0);
     const left_px: f32 = @floatFromInt(@as(u32, rect.col) * @as(u32, cell_px.width));
@@ -233,22 +222,14 @@ fn targetFromTriggerRect(rect: source_abi.SourceCursorTrailRect, cell_px: geomet
     return .{ .left_px = left_px, .right_px = left_px + width_px, .top_px = top_px, .bottom_px = top_px + height_px, .visible = true };
 }
 
-fn mapTrailCursorShape(shape: source_abi.SourceCursorShape) contract.CursorShape {
+fn mapTrailCursorShape(shape: u8) contract.CursorShape {
     return switch (shape) {
-        .block => .block,
-        .underline => .underline,
-        .beam => .beam,
-        .none => .none,
-        .hollow_block => .hollow,
+        c.HOWL_VT_CURSOR_SHAPE_UNDERLINE => .underline,
+        c.HOWL_VT_CURSOR_SHAPE_BEAM => .beam,
+        c.HOWL_VT_CURSOR_SHAPE_NONE => .none,
+        4 => .hollow,
+        else => .block,
     };
-}
-
-fn floorI32(value: f32) i32 {
-    return @intFromFloat(@floor(value));
-}
-
-fn ceilSpanU16(value: f32) u16 {
-    return @intFromFloat(@min(@ceil(@max(value, 1)), @as(f32, @floatFromInt(std.math.maxInt(u16)))));
 }
 
 fn emptyCadence() HostCursorCadence {
@@ -256,7 +237,7 @@ fn emptyCadence() HostCursorCadence {
         .focused = true,
         .cursor_opacity = 255,
         .text_blink_opacity = 255,
-        .effective_shape = .block,
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
         .cursor_color = .{ .kind = 2, .value = 0xCCCCCC },
         .cursor_text_color = .{ .kind = 2, .value = 0x111111 },
         .cursor_trail_color = .{ .kind = 0, .value = 0 },
@@ -265,12 +246,12 @@ fn emptyCadence() HostCursorCadence {
         .cursor_trail_decay_fast_s = 0.1,
         .cursor_trail_decay_slow_s = 0.4,
         .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
+        .cursor_trail_rects = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
         .now_ns = 0,
     };
 }
 
-fn testSource() source_publication.PublicationSource {
+fn testVtSurface() vt_surface.VtSurface {
     return .{
         .cols = 4,
         .rows = 1,
@@ -280,8 +261,9 @@ fn testSource() source_publication.PublicationSource {
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = &.{},
-        .cursor = .{ .visible = true, .focused = true, .row = 0, .col = 1, .cell_rows = 1, .cell_cols = 1, .cursor_opacity = 255, .text_blink_opacity = 255, .effective_shape = .block },
-        .colors = std.mem.zeroes(source_abi.SourceColors),
+        .cursor = .{ .visible = 1, .row = 0, .col = 1, .cell_rows = 1, .cell_cols = 1, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
         .selection = .{},
         .cursor_phase_visible = true,
     };
@@ -324,15 +306,15 @@ test "cursor presentation source application mutates cursor fields and reports c
     cadence.focused = false;
     cadence.cursor_opacity = 0;
     cadence.text_blink_opacity = 128;
-    cadence.effective_shape = .beam;
+    cadence.effective_shape = c.HOWL_VT_CURSOR_SHAPE_BEAM;
     try std.testing.expect(cursor.setHostCursorCadence(cadence, null, .{ .width = 8, .height = 16 }));
 
-    var source = testSource();
-    try std.testing.expect(cursor.applyHostCursorCadenceToSource(&source, .{ .width = 8, .height = 16 }));
-    try std.testing.expect(!source.cursor.focused);
-    try std.testing.expectEqual(@as(u8, 0), source.cursor.cursor_opacity);
-    try std.testing.expectEqual(@as(u8, 128), source.cursor.text_blink_opacity);
-    try std.testing.expectEqual(source_abi.SourceCursorShape.beam, source.cursor.effective_shape);
+    var source = testVtSurface();
+    try std.testing.expect(cursor.applyHostCursorCadenceToVtSurface(&source, .{ .width = 8, .height = 16 }));
+    try std.testing.expect(!source.cursor_focused);
+    try std.testing.expectEqual(@as(u8, 0), source.cursor_opacity);
+    try std.testing.expectEqual(@as(u8, 128), source.text_blink_opacity);
+    try std.testing.expectEqual(@as(u8, c.HOWL_VT_CURSOR_SHAPE_BEAM), source.effective_shape);
     try std.testing.expect(!source.cursor_phase_visible);
 }
 
@@ -340,16 +322,16 @@ test "cursor presentation zero cell size clears trail output safely" {
     var cursor = CursorPresentation{};
     cursor.cursor_trail_count = 1;
     cursor.cursor_trail_rects[0] = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 };
-    var source = testSource();
+    var source = testVtSurface();
 
-    try std.testing.expect(cursor.applyHostCursorCadenceToSource(&source, .{ .width = 0, .height = 16 }));
+    try std.testing.expect(cursor.applyHostCursorCadenceToVtSurface(&source, .{ .width = 0, .height = 16 }));
     try std.testing.expectEqual(@as(u16, 0), cursor.cursor_trail_count);
     try std.testing.expectEqual(@as(u16, 0), source.cursor_trail_count);
 }
 
 test "cursor presentation active trail animation can report changed when time advances" {
     var cursor = CursorPresentation{};
-    var source = testSource();
+    var source = testVtSurface();
     source.cursor.col = 4;
     var cadence = emptyCadence();
     cadence.cursor_trail_count = 1;
@@ -360,5 +342,7 @@ test "cursor presentation active trail animation can report changed when time ad
 
     cadence.cursor_trail_count = 0;
     cadence.now_ns += 16 * std.time.ns_per_ms;
-    try std.testing.expect(cursor.setHostCursorCadence(cadence, source, .{ .width = 8, .height = 16 }));
+    source.cursor.col = 2;
+    _ = cursor.setHostCursorCadence(cadence, source, .{ .width = 8, .height = 16 });
+    try std.testing.expect(cursor.animationPending());
 }

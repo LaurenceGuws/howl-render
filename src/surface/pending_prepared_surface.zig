@@ -69,7 +69,7 @@ pub const PendingPreparedSurface = struct {
         prepared.release();
     }
 
-    pub fn invalidateForSource(self: *PendingPreparedSurface, snapshot_seq: u64) void {
+    pub fn invalidateForVtSurface(self: *PendingPreparedSurface, snapshot_seq: u64) void {
         std.debug.assert(snapshot_seq != 0);
         const prepared = self.prepared_candidate orelse return;
         if (prepared.preparedSurfaceToken().token.snapshot_seq == snapshot_seq) return;

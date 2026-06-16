@@ -5,7 +5,7 @@ const scene_rects = @import("scene_rects.zig");
 const atlas_cache = @import("raster/atlas.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const sprite_key = @import("raster/key.zig");
-const cursor_presentation = @import("../vt_publication/cursor.zig");
+const cursor_presentation = @import("../vt_surface/cursor.zig");
 
 pub const TextScene = contract.TextScene;
 pub const TextSpriteDraw = contract.TextSpriteDraw;
@@ -289,16 +289,18 @@ const SceneAssembly = struct {
 
     fn toOwnedScene(self: *SceneAssembly, damage: scene_damage.NormalizedDamage) !OwnedTextScene {
         defer if (self.retained_scratch != null) self.releaseRetainedScratch();
-        return .{ .allocator = self.allocator, .scene = .{
-            .full_redraw = damage.full,
-            .clear_draws = try self.clear_draws.toOwnedSlice(self.allocator),
-            .background_draws = try self.background_draws.toOwnedSlice(self.allocator),
-            .sprite_draws = try self.sprite_draws.toOwnedSlice(self.allocator),
-            .decoration_draws = try self.decoration_draws.toOwnedSlice(self.allocator),
-            .cursor_draws = try self.cursor_draws.toOwnedSlice(self.allocator),
-            .raster_requests = try self.raster_requests.toOwnedSlice(self.allocator),
-            .missing = try self.missing.toOwnedSlice(self.allocator),
-        },
+        return .{
+            .allocator = self.allocator,
+            .scene = .{
+                .full_redraw = damage.full,
+                .clear_draws = try self.clear_draws.toOwnedSlice(self.allocator),
+                .background_draws = try self.background_draws.toOwnedSlice(self.allocator),
+                .sprite_draws = try self.sprite_draws.toOwnedSlice(self.allocator),
+                .decoration_draws = try self.decoration_draws.toOwnedSlice(self.allocator),
+                .cursor_draws = try self.cursor_draws.toOwnedSlice(self.allocator),
+                .raster_requests = try self.raster_requests.toOwnedSlice(self.allocator),
+                .missing = try self.missing.toOwnedSlice(self.allocator),
+            },
             .cursor_presentation = self.cursor_presentation,
             .cursor_fill_rects = try self.cursor_fill_rects.toOwnedSlice(self.allocator),
             .cursor_text_recolor_spans = try self.cursor_text_recolor_spans.toOwnedSlice(self.allocator),
@@ -312,16 +314,18 @@ const SceneAssembly = struct {
         const raster_requests = try self.raster_requests.toOwnedSlice(self.allocator);
         errdefer self.allocator.free(raster_requests);
         const missing = try self.missing.toOwnedSlice(self.allocator);
-        return .{ .allocator = self.allocator, .scene = .{
-            .full_redraw = damage.full,
-            .clear_draws = self.clear_draws.items,
-            .background_draws = self.background_draws.items,
-            .sprite_draws = self.sprite_draws.items,
-            .decoration_draws = self.decoration_draws.items,
-            .cursor_draws = self.cursor_draws.items,
-            .raster_requests = raster_requests,
-            .missing = missing,
-        },
+        return .{
+            .allocator = self.allocator,
+            .scene = .{
+                .full_redraw = damage.full,
+                .clear_draws = self.clear_draws.items,
+                .background_draws = self.background_draws.items,
+                .sprite_draws = self.sprite_draws.items,
+                .decoration_draws = self.decoration_draws.items,
+                .cursor_draws = self.cursor_draws.items,
+                .raster_requests = raster_requests,
+                .missing = missing,
+            },
             .cursor_presentation = self.cursor_presentation,
             .cursor_fill_rects = self.cursor_fill_rects.items,
             .cursor_text_recolor_spans = self.cursor_text_recolor_spans.items,

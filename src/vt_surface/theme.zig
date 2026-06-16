@@ -1,23 +1,24 @@
 const std = @import("std");
-const source_abi = @import("abi.zig");
+const c = @import("howl_render_c");
+const vt_surface = @import("surface.zig");
 const contract = @import("../text/contract.zig");
 
 pub const SurfaceTheme = struct {
     default_fg: contract.Rgba8,
     default_bg: contract.Rgba8,
     cursor_color: contract.Rgba8,
-    cursor_default_color: source_abi.SourceColor = .{ .kind = 2, .value = 0xCCCCCC },
-    cursor_text_color: source_abi.SourceColor = .{ .kind = 2, .value = 0x111111 },
-    cursor_trail_color: source_abi.SourceColor = .{ .kind = 0, .value = 0 },
+    cursor_default_color: c.HowlVtColor = .{ .kind = 2, .value = 0xCCCCCC },
+    cursor_text_color: c.HowlVtColor = .{ .kind = 2, .value = 0x111111 },
+    cursor_trail_color: c.HowlVtColor = .{ .kind = 0, .value = 0 },
     cursor_beam_thickness: f32 = 1.5,
     cursor_underline_thickness: f32 = 2.0,
     palette: [256]contract.Rgba8,
 };
 
 pub const CursorThemeConfig = struct {
-    cursor_color: source_abi.SourceColor = .{ .kind = 2, .value = 0xCCCCCC },
-    cursor_text_color: source_abi.SourceColor = .{ .kind = 2, .value = 0x111111 },
-    cursor_trail_color: source_abi.SourceColor = .{ .kind = 0, .value = 0 },
+    cursor_color: c.HowlVtColor = .{ .kind = 2, .value = 0xCCCCCC },
+    cursor_text_color: c.HowlVtColor = .{ .kind = 2, .value = 0x111111 },
+    cursor_trail_color: c.HowlVtColor = .{ .kind = 0, .value = 0 },
     cursor_beam_thickness: f32 = 1.5,
     cursor_underline_thickness: f32 = 2.0,
 };
@@ -28,7 +29,7 @@ pub const CellSemanticTruth = struct {
     empty: bool,
 };
 
-const publication_color_kind_max: u8 = 2;
+const vt_surface_color_kind_max: u8 = 2;
 
 pub const default_theme = defaultTheme();
 
@@ -85,7 +86,7 @@ fn indexedDefaultColor(idx: u8) contract.Rgba8 {
     return .{ .r = gray, .g = gray, .b = gray, .a = 255 };
 }
 
-fn rgbaFromVtRgb(color: source_abi.SourceRgb) contract.Rgba8 {
+fn rgbaFromVtRgb(color: c.HowlVtRgb8) contract.Rgba8 {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = 255 };
 }
 
@@ -93,11 +94,11 @@ fn indexed256(idx: u8, theme: SurfaceTheme) contract.Rgba8 {
     return theme.palette[idx];
 }
 
-pub fn themeFromPublicationColors(colors: source_abi.SourceColors) SurfaceTheme {
-    return themeFromPublicationColorsWithCursorConfig(colors, .{});
+pub fn themeFromVtSurfaceColors(colors: c.HowlVtRenderColorState) SurfaceTheme {
+    return themeFromVtSurfaceColorsWithCursorConfig(colors, .{});
 }
 
-pub fn themeFromPublicationColorsWithCursorConfig(colors: source_abi.SourceColors, cursor_config: CursorThemeConfig) SurfaceTheme {
+pub fn themeFromVtSurfaceColorsWithCursorConfig(colors: c.HowlVtRenderColorState, cursor_config: CursorThemeConfig) SurfaceTheme {
     var palette: [256]contract.Rgba8 = undefined;
     for (colors.palette, 0..) |color, idx| palette[idx] = rgbaFromVtRgb(color);
     return .{
@@ -113,7 +114,7 @@ pub fn themeFromPublicationColorsWithCursorConfig(colors: source_abi.SourceColor
     };
 }
 
-fn resolveCursorThemeColor(color_value: source_abi.SourceColor, palette: [256]contract.Rgba8, fallback: contract.Rgba8, default_rgb: contract.Rgba8) contract.Rgba8 {
+fn resolveCursorThemeColor(color_value: c.HowlVtColor, palette: [256]contract.Rgba8, fallback: contract.Rgba8, default_rgb: contract.Rgba8) contract.Rgba8 {
     return switch (color_value.kind) {
         0 => fallback,
         1 => palette[@intCast(color_value.value & 0xFF)],
@@ -127,7 +128,7 @@ fn resolveCursorThemeColor(color_value: source_abi.SourceColor, palette: [256]co
     };
 }
 
-pub fn mapPublicationColor(color: source_abi.SourceColor, is_fg: bool, theme: SurfaceTheme) contract.Rgba8 {
+pub fn mapVtSurfaceColor(color: c.HowlVtColor, is_fg: bool, theme: SurfaceTheme) contract.Rgba8 {
     return switch (color.kind) {
         0 => if (is_fg) theme.default_fg else theme.default_bg,
         1 => indexed256(@intCast(color.value & 0xFF), theme),
@@ -141,8 +142,8 @@ pub fn mapPublicationColor(color: source_abi.SourceColor, is_fg: bool, theme: Su
     };
 }
 
-pub fn semanticColorFromPublicationColor(color: source_abi.SourceColor) contract.SemanticColor {
-    std.debug.assert(color.kind <= publication_color_kind_max);
+pub fn semanticColorFromVtSurfaceColor(color: c.HowlVtColor) contract.SemanticColor {
+    std.debug.assert(color.kind <= vt_surface_color_kind_max);
     return switch (color.kind) {
         0 => .{ .kind = .default },
         1 => .{ .kind = .indexed, .value = color.value & 0xFF },
@@ -151,7 +152,7 @@ pub fn semanticColorFromPublicationColor(color: source_abi.SourceColor) contract
     };
 }
 
-pub fn mapPublicationUnderlineStyle(value: u8) contract.UnderlineStyle {
+pub fn mapVtSurfaceUnderlineStyle(value: u8) contract.UnderlineStyle {
     return switch (value) {
         1 => .double,
         2 => .curly,
@@ -161,7 +162,7 @@ pub fn mapPublicationUnderlineStyle(value: u8) contract.UnderlineStyle {
     };
 }
 
-pub fn publicationCellTruth(src: source_abi.SourceCell) CellSemanticTruth {
+pub fn vtSurfaceCellTruth(src: c.HowlVtSurfaceCell) CellSemanticTruth {
     std.debug.assert(src.combining_len <= src.combining.len);
     const default_fg = src.fg_color.kind == 0;
     const default_bg = src.bg_color.kind == 0;
@@ -206,7 +207,7 @@ pub fn applySelectionStyle(cell: *contract.CellInput, theme: SurfaceTheme, truth
     assertOpaqueColor(cell.bg);
 }
 
-test "renderable content color keeps opaque default background for ordinary publication cell" {
+test "renderable content color keeps opaque default background for ordinary vt surface cell" {
     const theme = SurfaceTheme{
         .default_fg = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC, .a = 255 },
         .default_bg = .{ .r = 0x11, .g = 0x22, .b = 0x33, .a = 255 },
@@ -219,19 +220,19 @@ test "renderable content color keeps opaque default background for ordinary publ
         .palette = [_]contract.Rgba8{.{ .r = 0, .g = 0, .b = 0, .a = 255 }} ** 256,
     };
 
-    const truth = publicationCellTruth(.{
+    const truth = vtSurfaceCellTruth(.{
         .codepoint = 'A',
         .flags = .{ .continuation = 0 },
         .fg_color = .{ .kind = 0, .value = 0 },
         .bg_color = .{ .kind = 0, .value = 0 },
         .underline_color = .{ .kind = 0, .value = 0 },
         .underline_style = 0,
-        .attrs = std.mem.zeroes(source_abi.SourceCellAttrs),
+        .attrs = std.mem.zeroes(c.HowlVtSurfaceCellAttrs),
         .link_id = 0,
     });
 
     assertSemanticEmptyClassification(truth, theme, theme.default_bg, false);
-    try std.testing.expectEqual(@as(u8, 255), mapPublicationColor(.{ .kind = 0, .value = 0 }, false, theme).a);
+    try std.testing.expectEqual(@as(u8, 255), mapVtSurfaceColor(.{ .kind = 0, .value = 0 }, false, theme).a);
 }
 
 test "renderable content color keeps default background truth through inverse and selection" {
@@ -271,17 +272,17 @@ test "renderable content color keeps default background truth through inverse an
 }
 
 test "renderable content color semantic empty truth does not treat continuation as empty" {
-    const continuation = publicationCellTruth(.{ .codepoint = ' ', .flags = .{ .continuation = 1 } });
+    const continuation = vtSurfaceCellTruth(.{ .codepoint = ' ', .flags = .{ .continuation = 1 } });
     try std.testing.expect(!continuation.empty);
 }
 
-test "cursor theme config overrides publication defaults" {
-    var colors = std.mem.zeroes(source_abi.SourceColors);
+test "cursor theme config overrides vt_surface defaults" {
+    var colors = std.mem.zeroes(c.HowlVtRenderColorState);
     colors.foreground = .{ .r = 1, .g = 2, .b = 3 };
     colors.background = .{ .r = 4, .g = 5, .b = 6 };
     colors.cursor = .{ .r = 7, .g = 8, .b = 9 };
 
-    const theme = themeFromPublicationColorsWithCursorConfig(colors, .{
+    const theme = themeFromVtSurfaceColorsWithCursorConfig(colors, .{
         .cursor_color = .{ .kind = 2, .value = 0x102030 },
         .cursor_text_color = .{ .kind = 2, .value = 0x405060 },
         .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },

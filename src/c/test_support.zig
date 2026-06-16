@@ -15,7 +15,7 @@ const render_surface_realizer = @import("../surface/realizer.zig");
 const text_contract = @import("../text/contract.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const text_session_model = @import("../render_session.zig");
-const source_abi = @import("../vt_publication/abi.zig");
+const vt_surface = @import("../vt_surface/surface.zig");
 
 pub const prepare = prepare_request;
 pub const prepared = prepared_surface;
@@ -31,10 +31,6 @@ pub const realizer = render_surface_realizer;
 pub const text_contract_ns = text_contract;
 pub const text_rasterizer = rasterizer;
 pub const text_session_model_ns = text_session_model;
-
-pub const VtSurfaceResult = c.HowlVtSurfaceResult;
-pub const VtSurfaceCell = source_abi.SourceCell;
-pub const VtSurfaceCellAttrs = source_abi.SourceCellAttrs;
 
 comptime {
     std.debug.assert(c.HOWL_RENDER_CALL_OK == 0);
@@ -81,7 +77,7 @@ pub fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, s
     const cols = @divTrunc(geometry_response.grid_px.width, geometry_response.cell_px.width);
     const rows = @divTrunc(geometry_response.grid_px.height, geometry_response.cell_px.height);
     const cell_count = @as(usize, cols) * @as(usize, rows);
-    const cells = try std.testing.allocator.alloc(VtSurfaceCell, cell_count);
+    const cells = try std.testing.allocator.alloc(c.HowlVtSurfaceCell, cell_count);
     defer std.testing.allocator.free(cells);
     @memset(cells, testCell());
     const dirty_rows = try std.testing.allocator.alloc(u8, rows);
@@ -93,9 +89,9 @@ pub fn createPreparedHandleWithSnapshot(handle: c.HowlRenderTextSessionHandle, s
     const dirty_cols_end = try std.testing.allocator.alloc(u16, rows);
     defer std.testing.allocator.free(dirty_cols_end);
     @memset(dirty_cols_end, cols - 1);
-    const vt_surface = validVtSurfaceResult(snapshot_seq, cols, rows, cells, dirty_rows, dirty_cols_start, dirty_cols_end);
+    const surface_result = validVtSurfaceResult(snapshot_seq, cols, rows, cells, dirty_rows, dirty_cols_start, dirty_cols_end);
     var request = std.mem.zeroes(c.HowlRenderPrepareRequest);
-    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepare_request.takePrepareRequest(handle, &vt_surface, &request));
+    try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepare_request.takePrepareRequest(handle, &surface_result, &request));
     var rdr_sfc_handle: c.HowlRenderRdrSfcHandle = null;
     try std.testing.expectEqual(c.HOWL_RENDER_PREPARE_READY, prepared_surface.prepareHandle(handle, request, &rdr_sfc_handle));
     return rdr_sfc_handle;
@@ -115,7 +111,7 @@ pub fn nextPrepareRequest(handle: c.HowlRenderTextSessionHandle, snapshot_seq: u
     return .{ .snapshot_seq = snapshot_seq, .dirty_epoch = snapshot_seq, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = damageFull() };
 }
 
-pub fn validVtSurfaceResult(snapshot_seq: u64, cols: u16, rows: u16, cells: []const VtSurfaceCell, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) VtSurfaceResult {
+pub fn validVtSurfaceResult(snapshot_seq: u64, cols: u16, rows: u16, cells: []const c.HowlVtSurfaceCell, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) c.HowlVtSurfaceResult {
     return .{
         .status = c.HOWL_VT_CALL_OK,
         .history_count = 0,
@@ -144,8 +140,8 @@ pub fn validVtSurfaceResult(snapshot_seq: u64, cols: u16, rows: u16, cells: []co
     };
 }
 
-pub fn testCell() VtSurfaceCell {
-    return .{ .codepoint = 'a', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = std.mem.zeroes(VtSurfaceCellAttrs), .link_id = 0 };
+pub fn testCell() c.HowlVtSurfaceCell {
+    return .{ .codepoint = 'a', .flags = .{ .continuation = 0 }, .fg_color = .{ .kind = 0, .value = 0 }, .bg_color = .{ .kind = 0, .value = 0 }, .underline_color = .{ .kind = 0, .value = 0 }, .underline_style = 0, .attrs = std.mem.zeroes(c.HowlVtSurfaceCellAttrs), .link_id = 0 };
 }
 
 pub fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: text_contract.SpriteColorMode, pixels: []u8, visual_bounds: rasterizer.SpriteBounds) rasterizer.RasterSpriteOutput {

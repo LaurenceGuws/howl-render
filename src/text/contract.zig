@@ -5,7 +5,7 @@ const color = @import("color.zig");
 const effects = @import("effects.zig");
 const metrics = @import("metrics.zig");
 const scene_contract = @import("scene_contract.zig");
-const cursor_presentation = @import("../vt_publication/cursor.zig");
+const cursor_presentation = @import("../vt_surface/cursor.zig");
 
 pub const Rgba8 = color.Rgba8;
 pub const SemanticColorKind = color.SemanticColorKind;

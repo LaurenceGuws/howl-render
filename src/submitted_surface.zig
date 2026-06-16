@@ -134,7 +134,7 @@ test "submitted owner reports stale submit when newer snapshot already won" {
     try std.testing.expect(stale);
 }
 
-test "submitted owner has no source publication state" {
+test "submitted owner has no vt surface state" {
     var submitted = SubmittedSurface{};
     try std.testing.expect(submitted.submittedToken() == null);
     try std.testing.expect(!submitted.workState().submit_pending);

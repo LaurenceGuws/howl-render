@@ -3,7 +3,7 @@ const support = @import("test_support.zig");
 const c = support.c;
 const handle_owner = @import("text_session_handle.zig");
 
-test "render abi prepare request requires vt source" {
+test "render abi prepare request requires vt surface" {
     const handle = support.text.init(.{ .surface_px = .{ .width = 16, .height = 16 }, .font_size_px = 8 });
     defer support.text.deinit(handle);
     try std.testing.expect(handle != null);
@@ -45,7 +45,7 @@ test "render ffi invalid prepare requests fail and leave output handle null" {
     try support.expectPrepareHandleFailedWithNullOutput(handle, partial_zero_damage_base);
 }
 
-test "render abi take prepare request stores latest source on session owner" {
+test "render abi take prepare request stores latest vt surface on session owner" {
     const handle = try support.createTestTextSessionHandle();
     defer support.text.deinit(handle);
 
@@ -56,7 +56,7 @@ test "render abi take prepare request stores latest source on session owner" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, geometry.status);
     try std.testing.expect(geometry.changed != 0);
 
-    var cells = [_]support.VtSurfaceCell{support.testCell()};
+    var cells = [_]c.HowlVtSurfaceCell{support.testCell()};
     cells[0].codepoint = 'A';
     const dirty_rows = [_]u8{1};
     const dirty_cols_start = [_]u16{0};
@@ -69,8 +69,8 @@ test "render abi take prepare request stores latest source on session owner" {
     try std.testing.expectEqual(@as(u64, 1), request.geometry_epoch);
 
     const owner = handle_owner.textSessionOwner(handle) orelse return error.TestUnexpectedResult;
-    try std.testing.expect(owner.latest_source != null);
-    try std.testing.expect(!owner.latest_source.?.retained_storage);
+    try std.testing.expect(owner.latest_vt_surface != null);
+    try std.testing.expect(!owner.latest_vt_surface.?.retained_storage);
     try std.testing.expect(owner.prepare_request != null);
-    try std.testing.expectEqual(@as(u32, 'A'), owner.latest_source.?.cells[0].codepoint);
+    try std.testing.expectEqual(@as(u32, 'A'), owner.latest_vt_surface.?.cells[0].codepoint);
 }

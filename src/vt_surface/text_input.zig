@@ -1,6 +1,6 @@
 const std = @import("std");
-const source_abi = @import("abi.zig");
-const source_publication = @import("publication.zig");
+const c = @import("howl_render_c");
+const vt_surface = @import("surface.zig");
 const contract = @import("../text/contract.zig");
 const scene = @import("../text/scene.zig");
 const scene_damage = @import("../text/scene_damage.zig");
@@ -65,10 +65,10 @@ fn detectCellPresentation(codepoint: u21, combining_len: u8, combining: [3]u32) 
     return .any;
 }
 
-fn mapSourceCellInput(src: source_abi.SourceCell, theme: SurfaceTheme) contract.CellInput {
+fn mapVtSurfaceCellInputInternal(src: c.HowlVtSurfaceCell, theme: SurfaceTheme) contract.CellInput {
     std.debug.assert(src.combining_len <= src.combining.len);
-    const truth = color.publicationCellTruth(src);
-    const bg = color.mapPublicationColor(src.bg_color, false, theme);
+    const truth = color.vtSurfaceCellTruth(src);
+    const bg = color.mapVtSurfaceColor(src.bg_color, false, theme);
     var out: contract.CellInput = .{
         .codepoint = @intCast(src.codepoint),
         .combining_len = src.combining_len,
@@ -77,14 +77,14 @@ fn mapSourceCellInput(src: source_abi.SourceCell, theme: SurfaceTheme) contract.
         .presentation = detectCellPresentation(@intCast(src.codepoint), src.combining_len, src.combining),
         .dim = src.attrs.dim != 0,
         .invisible = src.attrs.invisible != 0,
-        .semantic_fg = color.semanticColorFromPublicationColor(src.fg_color),
-        .semantic_bg = color.semanticColorFromPublicationColor(src.bg_color),
-        .fg = color.mapPublicationColor(src.fg_color, true, theme),
+        .semantic_fg = color.semanticColorFromVtSurfaceColor(src.fg_color),
+        .semantic_bg = color.semanticColorFromVtSurfaceColor(src.bg_color),
+        .fg = color.mapVtSurfaceColor(src.fg_color, true, theme),
         .bg = bg,
         .underline_color_set = src.attrs.underline_color_set != 0,
-        .semantic_underline_color = color.semanticColorFromPublicationColor(src.underline_color),
-        .underline_color = if (src.attrs.underline_color_set != 0) color.mapPublicationColor(src.underline_color, true, theme) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
-        .underline_style = color.mapPublicationUnderlineStyle(src.underline_style),
+        .semantic_underline_color = color.semanticColorFromVtSurfaceColor(src.underline_color),
+        .underline_color = if (src.attrs.underline_color_set != 0) color.mapVtSurfaceColor(src.underline_color, true, theme) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        .underline_style = color.mapVtSurfaceUnderlineStyle(src.underline_style),
         .underline = src.attrs.underline != 0,
         .strikethrough = src.attrs.strikethrough != 0,
         .continuation = src.flags.continuation != 0,
@@ -96,12 +96,12 @@ fn mapSourceCellInput(src: source_abi.SourceCell, theme: SurfaceTheme) contract.
     return out;
 }
 
-pub fn mapCellInput(src: source_abi.SourceCell, theme: SurfaceTheme) contract.CellInput {
-    return mapSourceCellInput(src, theme);
+pub fn mapCellInput(src: c.HowlVtSurfaceCell, theme: SurfaceTheme) contract.CellInput {
+    return mapVtSurfaceCellInputInternal(src, theme);
 }
 
-pub fn mapPublicationCellInput(src: source_abi.SourceCell, theme: SurfaceTheme) contract.CellInput {
-    return mapSourceCellInput(src, theme);
+pub fn mapVtSurfaceCellInput(src: c.HowlVtSurfaceCell, theme: SurfaceTheme) contract.CellInput {
+    return mapVtSurfaceCellInputInternal(src, theme);
 }
 
 fn count16(items: anytype) u16 {
@@ -123,7 +123,7 @@ fn canMapDirtyOnly(state: anytype) bool {
     return !state.damage.full and count16(state.damage.dirty_rows) == rows and count16(state.damage.dirty_cols_start) == rows and count16(state.damage.dirty_cols_end) == rows;
 }
 
-fn mapDirtyCellsOnly(dst: []contract.CellInput, cells: []const source_abi.SourceCell, grid_cols: u16, grid_rows: u16, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, theme: SurfaceTheme) void {
+fn mapDirtyCellsOnly(dst: []contract.CellInput, cells: []const c.HowlVtSurfaceCell, grid_cols: u16, grid_rows: u16, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, theme: SurfaceTheme) void {
     const cols: u16 = @max(grid_cols, 1);
     const cell_len = count32(cells);
     var row: u16 = 0;
@@ -180,23 +180,23 @@ pub fn vtStateToSurfaceTextInputWithTheme(allocator: std.mem.Allocator, state: a
     };
 }
 
-pub fn publicationSourceToTextSceneInput(allocator: std.mem.Allocator, source: source_publication.PublicationSource, full_damage: bool) !OwnedTextSceneInput {
-    return publicationSourceToTextSceneInputWithTheme(allocator, source, full_damage, color.themeFromPublicationColors(source.colors));
+pub fn vtSurfaceToTextSceneInput(allocator: std.mem.Allocator, source: vt_surface.VtSurface, full_damage: bool) !OwnedTextSceneInput {
+    return vtSurfaceToTextSceneInputWithTheme(allocator, source, full_damage, color.themeFromVtSurfaceColors(source.colors));
 }
 
-pub fn publicationSourceToTextSceneInputWithTheme(allocator: std.mem.Allocator, source: source_publication.PublicationSource, full_damage: bool, theme: SurfaceTheme) !OwnedTextSceneInput {
+pub fn vtSurfaceToTextSceneInputWithTheme(allocator: std.mem.Allocator, source: vt_surface.VtSurface, full_damage: bool, theme: SurfaceTheme) !OwnedTextSceneInput {
     const cell_inputs = try allocator.alloc(contract.CellInput, source.cells.len);
     errdefer allocator.free(cell_inputs);
 
-    const mapped = publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, theme);
+    const mapped = vtSurfaceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, theme);
     return .{ .allocator = allocator, .cells = mapped.cells, .grid = mapped.grid, .options = mapped.options };
 }
 
-pub fn publicationSourceToTextSceneInputBorrowed(cell_inputs: []contract.CellInput, source: source_publication.PublicationSource, full_damage: bool) BorrowedTextSceneInput {
-    return publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, color.themeFromPublicationColors(source.colors));
+pub fn vtSurfaceToTextSceneInputBorrowed(cell_inputs: []contract.CellInput, source: vt_surface.VtSurface, full_damage: bool) BorrowedTextSceneInput {
+    return vtSurfaceToTextSceneInputBorrowedWithTheme(cell_inputs, source, full_damage, color.themeFromVtSurfaceColors(source.colors));
 }
 
-pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contract.CellInput, source: source_publication.PublicationSource, full_damage: bool, theme: SurfaceTheme) BorrowedTextSceneInput {
+pub fn vtSurfaceToTextSceneInputBorrowedWithTheme(cell_inputs: []contract.CellInput, source: vt_surface.VtSurface, full_damage: bool, theme: SurfaceTheme) BorrowedTextSceneInput {
     std.debug.assert(cell_inputs.len >= source.cells.len);
     const mapped_cells = cell_inputs[0..source.cells.len];
 
@@ -223,13 +223,13 @@ pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contrac
             if (end_col < start_col) continue;
             var idx = base + @as(u32, start_col);
             const end_idx = @min(base + @as(u32, end_col) + 1, cell_len);
-            while (idx < end_idx) : (idx += 1) mapped_cells[@intCast(idx)] = mapPublicationCellInput(source.cells[@intCast(idx)], theme);
+            while (idx < end_idx) : (idx += 1) mapped_cells[@intCast(idx)] = mapVtSurfaceCellInput(source.cells[@intCast(idx)], theme);
         }
     } else {
-        for (source.cells, mapped_cells) |src, *dst| dst.* = mapPublicationCellInput(src, theme);
+        for (source.cells, mapped_cells) |src, *dst| dst.* = mapVtSurfaceCellInput(src, theme);
     }
 
-    const cursor_presentation = cursor.mapPublicationCursor(source, theme);
+    const cursor_presentation = cursor.mapVtSurfaceCursor(source, theme);
     return .{
         .cells = mapped_cells,
         .grid = .{ .cols = source.cols, .rows = source.rows },
@@ -238,14 +238,14 @@ pub fn publicationSourceToTextSceneInputBorrowedWithTheme(cell_inputs: []contrac
 }
 
 test "renderable content converts VT source to text scene input" {
-    const cells = [_]source_abi.SourceCell{.{
+    const cells = [_]c.HowlVtSurfaceCell{.{
         .codepoint = 'A',
         .underline_color = .{ .kind = 2, .value = 0xCC3366 },
         .attrs = .{ .underline = 1, .underline_color_set = 1 },
     }};
     const state = .{
         .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
-        .cursor = .{ .visible = true, .col = 0, .row = 0, .shape = .beam, .blink = true },
+        .cursor = .{ .visible = 1, .col = 0, .row = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BEAM, .blink = 1 },
         .damage = .{ .full = true, .dirty_rows = &[_]bool{}, .dirty_cols_start = &[_]u16{}, .dirty_cols_end = &[_]u16{} },
     };
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
@@ -261,7 +261,7 @@ test "renderable content converts VT source to text scene input" {
 }
 
 test "renderable content maps inverse VT source colors" {
-    const cells = [_]source_abi.SourceCell{.{
+    const cells = [_]c.HowlVtSurfaceCell{.{
         .codepoint = 'R',
         .fg_color = .{ .kind = 2, .value = 0x102030 },
         .bg_color = .{ .kind = 2, .value = 0xA0B0C0 },
@@ -269,7 +269,7 @@ test "renderable content maps inverse VT source colors" {
     }};
     const state = .{
         .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
-        .cursor = .{ .visible = false, .col = 0, .row = 0, .shape = .beam, .blink = false },
+        .cursor = .{ .visible = 0, .col = 0, .row = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BEAM, .blink = 0 },
         .damage = .{ .full = true, .dirty_rows = &[_]bool{}, .dirty_cols_start = &[_]u16{}, .dirty_cols_end = &[_]u16{} },
     };
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
@@ -280,10 +280,10 @@ test "renderable content maps inverse VT source colors" {
 }
 
 test "renderable content keeps opaque default background for blank VT cell" {
-    const cells = [_]source_abi.SourceCell{.{ .codepoint = ' ', .bg_color = .{ .kind = 0, .value = 0 } }};
+    const cells = [_]c.HowlVtSurfaceCell{.{ .codepoint = ' ', .bg_color = .{ .kind = 0, .value = 0 } }};
     const state = .{
         .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
-        .cursor = .{ .visible = false, .col = 0, .row = 0, .shape = .block },
+        .cursor = .{ .visible = 0, .col = 0, .row = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
         .damage = .{ .full = true, .dirty_rows = &[_]bool{}, .dirty_cols_start = &[_]u16{}, .dirty_cols_end = &[_]u16{} },
     };
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
@@ -294,7 +294,7 @@ test "renderable content keeps opaque default background for blank VT cell" {
 }
 
 test "renderable content keeps default background truth through inverse VT cell" {
-    const cells = [_]source_abi.SourceCell{.{
+    const cells = [_]c.HowlVtSurfaceCell{.{
         .codepoint = 'I',
         .fg_color = .{ .kind = 0, .value = 0 },
         .bg_color = .{ .kind = 0, .value = 0 },
@@ -302,7 +302,7 @@ test "renderable content keeps default background truth through inverse VT cell"
     }};
     const state = .{
         .grid = .{ .cells = &cells, .cols = 1, .rows = 1 },
-        .cursor = .{ .visible = false, .col = 0, .row = 0, .shape = .block },
+        .cursor = .{ .visible = 0, .col = 0, .row = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
         .damage = .{ .full = true, .dirty_rows = &[_]bool{}, .dirty_cols_start = &[_]u16{}, .dirty_cols_end = &[_]u16{} },
     };
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
@@ -311,8 +311,8 @@ test "renderable content keeps default background truth through inverse VT cell"
     try std.testing.expectEqual(default_theme.default_fg.r, input.cells[0].bg.r);
 }
 
-test "renderable content publication mapping preserves combining truth" {
-    var cells = [_]source_abi.SourceCell{.{
+test "renderable content vt surface mapping preserves combining truth" {
+    var cells = [_]c.HowlVtSurfaceCell{.{
         .codepoint = 'o',
         .combining_len = 1,
         .combining = .{ 0x0300, 0, 0 },
@@ -321,14 +321,14 @@ test "renderable content publication mapping preserves combining truth" {
         .bg_color = .{ .kind = 0, .value = 0 },
         .underline_color = .{ .kind = 0, .value = 0 },
         .underline_style = 0,
-        .attrs = std.mem.zeroes(source_abi.SourceCellAttrs),
+        .attrs = std.mem.zeroes(c.HowlVtSurfaceCellAttrs),
         .link_id = 0,
     }};
     var storage: [1]contract.CellInput = undefined;
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
-    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+    const mapped = vtSurfaceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 1,
         .rows = 1,
         .history_count = 0,
@@ -337,9 +337,9 @@ test "renderable content publication mapping preserves combining truth" {
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
-        .colors = std.mem.zeroes(source_abi.SourceColors),
-        .selection = std.mem.zeroes(source_abi.SourceSelection),
+        .cursor = .{ .visible = 0, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+        .selection = std.mem.zeroes(c.HowlVtSelection),
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
@@ -349,13 +349,13 @@ test "renderable content publication mapping preserves combining truth" {
     try std.testing.expectEqual(@as(u32, 0x0300), mapped.cells[0].combining[0]);
 }
 
-test "renderable content publication mapping threads explicit no-shape cursor truth" {
-    var cells = [_]source_abi.SourceCell{std.mem.zeroes(source_abi.SourceCell)};
+test "renderable content vt surface mapping threads explicit no-shape cursor truth" {
+    var cells = [_]c.HowlVtSurfaceCell{std.mem.zeroes(c.HowlVtSurfaceCell)};
     var storage: [1]contract.CellInput = undefined;
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
-    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+    const mapped = vtSurfaceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 1,
         .rows = 1,
         .history_count = 0,
@@ -364,9 +364,10 @@ test "renderable content publication mapping threads explicit no-shape cursor tr
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .none, .effective_shape = .none },
-        .colors = std.mem.zeroes(source_abi.SourceColors),
-        .selection = std.mem.zeroes(source_abi.SourceSelection),
+        .cursor = .{ .visible = 1, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_NONE },
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_NONE,
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+        .selection = std.mem.zeroes(c.HowlVtSelection),
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
@@ -377,14 +378,14 @@ test "renderable content publication mapping threads explicit no-shape cursor tr
     try std.testing.expect(mapped.options.scene.cursor.?.visible);
 }
 
-test "renderable content publication mapping threads partial damage" {
-    const cells = [_]source_abi.SourceCell{ .{}, .{} };
+test "renderable content vt surface mapping threads partial damage" {
+    const cells = [_]c.HowlVtSurfaceCell{ .{}, .{} };
     const dirty_rows = [_]bool{ false, true };
     const dirty_starts = [_]u16{ 0, 2 };
     const dirty_ends = [_]u16{ 0, 5 };
     const state = .{
         .grid = .{ .cells = &cells, .cols = 6, .rows = 2 },
-        .cursor = .{ .visible = false, .col = 0, .row = 0, .shape = .block },
+        .cursor = .{ .visible = 0, .col = 0, .row = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
         .damage = .{ .full = false, .dirty_rows = &dirty_rows, .dirty_cols_start = &dirty_starts, .dirty_cols_end = &dirty_ends },
     };
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
@@ -394,13 +395,13 @@ test "renderable content publication mapping threads partial damage" {
 }
 
 test "renderable content maps only dirty ranges for partial damage" {
-    const cells = [_]source_abi.SourceCell{ .{ .codepoint = 'A' }, .{ .codepoint = 'B' }, .{ .codepoint = 'C' }, .{ .codepoint = 'D' } };
+    const cells = [_]c.HowlVtSurfaceCell{ .{ .codepoint = 'A' }, .{ .codepoint = 'B' }, .{ .codepoint = 'C' }, .{ .codepoint = 'D' } };
     const dirty_rows = [_]bool{ false, true };
     const dirty_starts = [_]u16{ 0, 1 };
     const dirty_ends = [_]u16{ 0, 1 };
     const state = .{
         .grid = .{ .cells = &cells, .cols = 2, .rows = 2 },
-        .cursor = .{ .visible = false, .col = 0, .row = 0, .shape = .block },
+        .cursor = .{ .visible = 0, .col = 0, .row = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
         .damage = .{ .full = false, .dirty_rows = &dirty_rows, .dirty_cols_start = &dirty_starts, .dirty_cols_end = &dirty_ends },
     };
     var input = try vtStateToTextSceneInput(std.testing.allocator, state);
@@ -409,19 +410,19 @@ test "renderable content maps only dirty ranges for partial damage" {
     try std.testing.expectEqual(@as(u21, 'D'), input.cells[3].codepoint);
 }
 
-test "renderable content borrowed publication mapping reuses caller storage" {
-    var cells = [_]source_abi.SourceCell{ std.mem.zeroes(source_abi.SourceCell), std.mem.zeroes(source_abi.SourceCell) };
+test "renderable content borrowed vt surface mapping reuses caller storage" {
+    var cells = [_]c.HowlVtSurfaceCell{ std.mem.zeroes(c.HowlVtSurfaceCell), std.mem.zeroes(c.HowlVtSurfaceCell) };
     cells[0].codepoint = 'A';
     cells[1].codepoint = ' ';
     var storage: [4]contract.CellInput = undefined;
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
-    var colors = std.mem.zeroes(source_abi.SourceColors);
+    var colors = std.mem.zeroes(c.HowlVtRenderColorState);
     colors.foreground = .{ .r = default_theme.default_fg.r, .g = default_theme.default_fg.g, .b = default_theme.default_fg.b };
     colors.background = .{ .r = default_theme.default_bg.r, .g = default_theme.default_bg.g, .b = default_theme.default_bg.b };
     colors.cursor = .{ .r = default_theme.cursor_color.r, .g = default_theme.cursor_color.g, .b = default_theme.cursor_color.b };
-    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+    const mapped = vtSurfaceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 2,
         .rows = 1,
         .history_count = 0,
@@ -430,9 +431,9 @@ test "renderable content borrowed publication mapping reuses caller storage" {
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .cursor = .{ .visible = 0, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
         .colors = colors,
-        .selection = std.mem.zeroes(source_abi.SourceSelection),
+        .selection = std.mem.zeroes(c.HowlVtSelection),
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
@@ -441,8 +442,8 @@ test "renderable content borrowed publication mapping reuses caller storage" {
     try std.testing.expectEqual(@intFromPtr(&storage[0]), @intFromPtr(&mapped.cells[0]));
 }
 
-test "renderable content uses VT-owned color state and selection styling" {
-    var cells = [_]source_abi.SourceCell{ std.mem.zeroes(source_abi.SourceCell), std.mem.zeroes(source_abi.SourceCell) };
+test "renderable content uses VT surface color state and selection styling" {
+    var cells = [_]c.HowlVtSurfaceCell{ std.mem.zeroes(c.HowlVtSurfaceCell), std.mem.zeroes(c.HowlVtSurfaceCell) };
     cells[0].codepoint = 'A';
     cells[0].fg_color = .{ .kind = 0, .value = 0 };
     cells[0].bg_color = .{ .kind = 1, .value = 1 };
@@ -452,12 +453,12 @@ test "renderable content uses VT-owned color state and selection styling" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
-    var colors = std.mem.zeroes(source_abi.SourceColors);
+    var colors = std.mem.zeroes(c.HowlVtRenderColorState);
     colors.foreground = .{ .r = 1, .g = 2, .b = 3 };
     colors.background = .{ .r = 4, .g = 5, .b = 6 };
     colors.cursor = .{ .r = 7, .g = 8, .b = 9 };
     colors.palette[1] = .{ .r = 10, .g = 11, .b = 12 };
-    const mapped = publicationSourceToTextSceneInputBorrowed(storage[0..], .{
+    const mapped = vtSurfaceToTextSceneInputBorrowed(storage[0..], .{
         .cols = 2,
         .rows = 1,
         .history_count = 1,
@@ -466,9 +467,12 @@ test "renderable content uses VT-owned color state and selection styling" {
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .block, .blink = false, .cursor_color = .{ .kind = 2, .value = 0x070809 }, .cursor_text_color = .{ .kind = 1, .value = 1 } },
+        .cursor = .{ .visible = 1, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK, .blink = 0 },
+        .cursor_color = .{ .kind = 2, .value = 0x070809 },
+        .cursor_text_color = .{ .kind = 1, .value = 1 },
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
         .colors = colors,
-        .selection = std.mem.zeroes(source_abi.SourceSelection),
+        .selection = std.mem.zeroes(c.HowlVtSelection),
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
@@ -479,21 +483,21 @@ test "renderable content uses VT-owned color state and selection styling" {
     try std.testing.expectEqual(@as(u32, 0x070809), mapped.options.scene.cursor.?.cursor_color.value);
 }
 
-test "renderable content threads configured cursor defaults into publication cursor" {
+test "renderable content threads configured cursor defaults into vt surface cursor" {
     var storage: [1]contract.CellInput = undefined;
-    const colors = std.mem.zeroes(source_abi.SourceColors);
-    var cells = [_]source_abi.SourceCell{std.mem.zeroes(source_abi.SourceCell)};
+    const colors = std.mem.zeroes(c.HowlVtRenderColorState);
+    var cells = [_]c.HowlVtSurfaceCell{std.mem.zeroes(c.HowlVtSurfaceCell)};
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
-    const theme = color.themeFromPublicationColorsWithCursorConfig(colors, .{
+    const theme = color.themeFromVtSurfaceColorsWithCursorConfig(colors, .{
         .cursor_color = .{ .kind = 2, .value = 0x102030 },
         .cursor_text_color = .{ .kind = 2, .value = 0x405060 },
         .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },
         .cursor_beam_thickness = 2.5,
         .cursor_underline_thickness = 3.5,
     });
-    const mapped = publicationSourceToTextSceneInputBorrowedWithTheme(storage[0..], .{
+    const mapped = vtSurfaceToTextSceneInputBorrowedWithTheme(storage[0..], .{
         .cols = 1,
         .rows = 1,
         .history_count = 0,
@@ -502,9 +506,12 @@ test "renderable content threads configured cursor defaults into publication cur
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = true, .row = 0, .col = 0, .shape = .block, .cursor_color = .{ .kind = 0, .value = 0 }, .cursor_text_color = .{ .kind = 0, .value = 0 } },
+        .cursor = .{ .visible = 1, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
+        .cursor_color = .{ .kind = 0, .value = 0 },
+        .cursor_text_color = .{ .kind = 0, .value = 0 },
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
         .colors = colors,
-        .selection = std.mem.zeroes(source_abi.SourceSelection),
+        .selection = std.mem.zeroes(c.HowlVtSelection),
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
         .dirty_cols_start = @constCast(&dirty_starts),
@@ -520,12 +527,12 @@ fn rgbValue(value: contract.Rgba8) u32 {
 }
 
 test "renderable content semantic empty truth does not treat invisible or continuation cells as empty" {
-    const invisible = mapPublicationCellInput(.{ .codepoint = ' ', .attrs = .{ .invisible = 1 } }, default_theme);
+    const invisible = mapVtSurfaceCellInput(.{ .codepoint = ' ', .attrs = .{ .invisible = 1 } }, default_theme);
     try std.testing.expect(!invisible.empty);
 
-    var publication = std.mem.zeroes(source_abi.SourceCell);
-    publication.codepoint = ' ';
-    publication.flags.continuation = 1;
-    const mapped = mapPublicationCellInput(publication, default_theme);
+    var cell = std.mem.zeroes(c.HowlVtSurfaceCell);
+    cell.codepoint = ' ';
+    cell.flags.continuation = 1;
+    const mapped = mapVtSurfaceCellInput(cell, default_theme);
     try std.testing.expect(!mapped.empty);
 }

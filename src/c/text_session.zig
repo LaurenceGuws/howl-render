@@ -4,7 +4,7 @@ const handle_owner = @import("text_session_handle.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const render_session = @import("../render_session.zig");
 const text_support = @import("../text/ft_hb/support.zig");
-const source_abi = @import("../vt_publication/abi.zig");
+const vt_surface = @import("../vt_surface/surface.zig");
 
 pub fn init(config: c.HowlRenderTextConfig) callconv(.c) c.HowlRenderTextSessionHandle {
     if (config.surface_px.width == 0 or config.surface_px.height == 0) return null;
@@ -85,7 +85,7 @@ pub const HostCursorCadence = extern struct {
     cursor_trail_decay_slow_s: f32,
     cursor_trail_count: u16,
     reserved0: u16 = 0,
-    cursor_trail_rects: [source_abi.max_cursor_trail_rects]HostCursorCadenceRect,
+    cursor_trail_rects: [c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX]HostCursorCadenceRect,
     now_ns: u64,
 };
 
@@ -93,13 +93,13 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const host_cadence = cadence orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (host_cadence.effective_shape > 4) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!source_abi.sourceColorValid(host_cadence.cursor_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!source_abi.sourceColorValid(host_cadence.cursor_text_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!source_abi.sourceColorValid(host_cadence.cursor_trail_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!vt_surface.vtSurfaceColorValid(host_cadence.cursor_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!vt_surface.vtSurfaceColorValid(host_cadence.cursor_text_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!vt_surface.vtSurfaceColorValid(host_cadence.cursor_trail_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!(host_cadence.cursor_beam_thickness > 0) or !(host_cadence.cursor_underline_thickness > 0)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!(host_cadence.cursor_trail_decay_fast_s > 0) or !(host_cadence.cursor_trail_decay_slow_s > 0)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (host_cadence.cursor_trail_count > source_abi.max_cursor_trail_rects) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    var trail_rects = [_]render_session.TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(render_session.TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
+    if (host_cadence.cursor_trail_count > c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    var trail_rects = [_]render_session.TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(render_session.TextSessionOwner.HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX;
     for (0..host_cadence.cursor_trail_count) |index| {
         trail_rects[index] = .{
             .row = host_cadence.cursor_trail_rects[index].row,
@@ -116,7 +116,7 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
         .focused = host_cadence.focused != 0,
         .cursor_opacity = host_cadence.cursor_opacity,
         .text_blink_opacity = host_cadence.text_blink_opacity,
-        .effective_shape = @enumFromInt(host_cadence.effective_shape),
+        .effective_shape = host_cadence.effective_shape,
         .cursor_color = host_cadence.cursor_color,
         .cursor_text_color = host_cadence.cursor_text_color,
         .cursor_trail_color = host_cadence.cursor_trail_color,

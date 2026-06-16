@@ -1,8 +1,7 @@
 const std = @import("std");
-const abi = @import("abi.zig");
 const c = @import("howl_render_c");
 
-pub const VtSnapshot = struct {
+pub const VtSurfaceSnapshot = struct {
     cols: u16,
     rows: u16,
     history_count: u64,
@@ -15,7 +14,7 @@ pub const VtSnapshot = struct {
     dirty_cols_end: []const u16,
 };
 
-pub const PublicationSource = struct {
+pub const VtSurface = struct {
     cols: u16,
     rows: u16,
     history_count: u64,
@@ -23,14 +22,20 @@ pub const PublicationSource = struct {
     snapshot_seq: u64,
     dirty_epoch: u64,
     is_alternate_screen: bool,
-    cells: []abi.SourceCell,
-    cursor: abi.SourceCursor,
+    cells: []c.HowlVtSurfaceCell,
+    cursor: c.HowlVtCursor,
+    cursor_color: c.HowlVtColor = .{ .kind = 0, .value = 0 },
+    cursor_text_color: c.HowlVtColor = .{ .kind = 0, .value = 0 },
+    cursor_opacity: u8 = 255,
+    text_blink_opacity: u8 = 255,
+    cursor_focused: bool = true,
+    effective_shape: u8 = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
     extra_cursor_count: u16 = 0,
-    extra_cursors: [abi.max_extra_cursors]abi.SourceExtraCursor = [_]abi.SourceExtraCursor{.{}} ** abi.max_extra_cursors,
+    extra_cursors: [c.HOWL_VT_MAX_EXTRA_CURSORS]c.HowlVtExtraCursor = [_]c.HowlVtExtraCursor{.{}} ** c.HOWL_VT_MAX_EXTRA_CURSORS,
     cursor_trail_count: u16 = 0,
-    cursor_trail_rects: [abi.max_cursor_trail_rects]abi.SourceCursorTrailRect = [_]abi.SourceCursorTrailRect{.{}} ** abi.max_cursor_trail_rects,
-    colors: abi.SourceColors,
-    selection: abi.SourceSelection,
+    cursor_trail_rects: [c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX]c.HowlRenderHostCursorTrailRect = [_]c.HowlRenderHostCursorTrailRect{.{}} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
+    colors: c.HowlVtRenderColorState,
+    selection: c.HowlVtSelection,
     // Compatibility field for later-slice consumers still reading blink visibility directly.
     cursor_phase_visible: bool,
     dirty_rows: []u8 = &.{},
@@ -38,7 +43,7 @@ pub const PublicationSource = struct {
     dirty_cols_end: []u16 = &.{},
     retained_storage: bool = false,
 
-    pub fn deinit(self: *PublicationSource, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *VtSurface, allocator: std.mem.Allocator) void {
         if (!self.retained_storage) {
             allocator.free(self.cells);
             if (self.dirty_rows.len > 0) allocator.free(self.dirty_rows);
@@ -48,8 +53,8 @@ pub const PublicationSource = struct {
         self.* = undefined;
     }
 
-    pub fn clone(self: *const PublicationSource, allocator: std.mem.Allocator) !PublicationSource {
-        const cells = try allocator.dupe(abi.SourceCell, self.cells);
+    pub fn clone(self: *const VtSurface, allocator: std.mem.Allocator) !VtSurface {
+        const cells = try allocator.dupe(c.HowlVtSurfaceCell, self.cells);
         errdefer allocator.free(cells);
         const dirty_rows = try allocator.dupe(u8, self.dirty_rows);
         errdefer allocator.free(dirty_rows);
@@ -67,6 +72,12 @@ pub const PublicationSource = struct {
             .is_alternate_screen = self.is_alternate_screen,
             .cells = cells,
             .cursor = self.cursor,
+            .cursor_color = self.cursor_color,
+            .cursor_text_color = self.cursor_text_color,
+            .cursor_opacity = self.cursor_opacity,
+            .text_blink_opacity = self.text_blink_opacity,
+            .cursor_focused = self.cursor_focused,
+            .effective_shape = self.effective_shape,
             .extra_cursor_count = self.extra_cursor_count,
             .extra_cursors = self.extra_cursors,
             .cursor_trail_count = self.cursor_trail_count,
@@ -81,7 +92,7 @@ pub const PublicationSource = struct {
         };
     }
 
-    pub fn snapshot(self: *const PublicationSource) VtSnapshot {
+    pub fn snapshot(self: *const VtSurface) VtSurfaceSnapshot {
         return .{
             .cols = self.cols,
             .rows = self.rows,
@@ -97,29 +108,29 @@ pub const PublicationSource = struct {
     }
 };
 
-pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
+pub fn validateVtSurfaceBoundary(source: VtSurface) !void {
     if (source.cols == 0) return error.InvalidSurfaceSource;
     if (source.rows == 0) return error.InvalidSurfaceSource;
     const cell_count = cellCountChecked(source.cols, source.rows) catch return error.InvalidSurfaceSource;
     if (source.cells.len != cell_count) return error.InvalidSurfaceSource;
     if (source.cursor.cell_cols == 0) return error.InvalidSurfaceSource;
     if (source.cursor.cell_rows == 0) return error.InvalidSurfaceSource;
-    if (!abi.sourceColorValid(source.cursor.cursor_color)) return error.InvalidSurfaceSource;
-    if (!abi.sourceColorValid(source.cursor.cursor_text_color)) return error.InvalidSurfaceSource;
-    try abi.validateSourceCells(source.cells);
-    if (source.extra_cursor_count > abi.max_extra_cursors) return error.InvalidSurfaceSource;
-    if (source.cursor_trail_count > abi.max_cursor_trail_rects) return error.InvalidSurfaceSource;
+    if (!vtSurfaceColorValid(source.cursor_color)) return error.InvalidSurfaceSource;
+    if (!vtSurfaceColorValid(source.cursor_text_color)) return error.InvalidSurfaceSource;
+    try validateVtSurfaceCells(source.cells);
+    if (source.extra_cursor_count > c.HOWL_VT_MAX_EXTRA_CURSORS) return error.InvalidSurfaceSource;
+    if (source.cursor_trail_count > c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX) return error.InvalidSurfaceSource;
     for (source.extra_cursors[0..source.extra_cursor_count]) |cursor| {
         if (cursor.rows == 0) return error.InvalidSurfaceSource;
         if (cursor.cols == 0) return error.InvalidSurfaceSource;
-        if (!abi.sourceColorValid(cursor.cursor_color)) return error.InvalidSurfaceSource;
-        if (!abi.sourceColorValid(cursor.text_color)) return error.InvalidSurfaceSource;
+        if (!vtSurfaceColorValid(cursor.cursor_color)) return error.InvalidSurfaceSource;
+        if (!vtSurfaceColorValid(cursor.text_color)) return error.InvalidSurfaceSource;
     }
     for (source.cursor_trail_rects[0..source.cursor_trail_count]) |rect| {
         if (rect.rows == 0) return error.InvalidSurfaceSource;
         if (rect.cols == 0) return error.InvalidSurfaceSource;
     }
-    try validateDirtySource(
+    try validateDirtyVtSurface(
         source.rows,
         source.cols,
         source.dirty_rows,
@@ -128,8 +139,73 @@ pub fn validatePublicationSourceBoundary(source: PublicationSource) !void {
     );
 }
 
-pub fn ownedSourceFromSurfaceResult(allocator: std.mem.Allocator, result: anytype, cursor_phase_visible: bool) !PublicationSource {
-    try abi.validatePublicationSurfaceResult(result);
+pub fn validateVtSurfaceCell(cell: c.HowlVtSurfaceCell) !void {
+    if (cell.codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
+    if (cell.combining_len > cell.combining.len) return error.InvalidSurfaceSource;
+    for (cell.combining[0..cell.combining_len]) |codepoint| {
+        if (codepoint > std.math.maxInt(u21)) return error.InvalidSurfaceSource;
+    }
+    if (!vtSurfaceColorValid(cell.fg_color)) return error.InvalidSurfaceSource;
+    if (!vtSurfaceColorValid(cell.bg_color)) return error.InvalidSurfaceSource;
+    if (!vtSurfaceColorValid(cell.underline_color)) return error.InvalidSurfaceSource;
+    if (!underlineStyleValid(cell.underline_style)) return error.InvalidSurfaceSource;
+}
+
+pub fn validateVtSurfaceCells(cells: []const c.HowlVtSurfaceCell) !void {
+    for (cells) |cell| try validateVtSurfaceCell(cell);
+}
+
+pub fn vtSurfaceColorValid(color: anytype) bool {
+    return switch (color.kind) {
+        0 => true,
+        1 => color.value <= std.math.maxInt(u8),
+        2 => color.value <= std.math.maxInt(u24),
+        else => false,
+    };
+}
+
+pub fn underlineStyleValid(value: u8) bool {
+    return value <= 4;
+}
+
+pub fn validateVtSurfaceResult(result: anytype) !void {
+    if (result.status != c.HOWL_VT_CALL_OK) return error.InvalidSurfaceSource;
+    if (result.snapshot_seq == 0) return error.InvalidSurfaceSource;
+    if (result.dirty_generation == 0) return error.InvalidSurfaceSource;
+    if (result.scrollback_offset > result.history_count) return error.InvalidSurfaceSource;
+
+    const surface = result.source;
+    if (surface.cols == 0) return error.InvalidSurfaceSource;
+    if (surface.rows == 0) return error.InvalidSurfaceSource;
+
+    const cell_count = cellCountChecked(surface.cols, surface.rows) catch return error.InvalidSurfaceSource;
+    if (surface.surface_cells.ptr == null or surface.surface_cells.len != cell_count) return error.InvalidSurfaceSource;
+    if (surface.dirty_rows.ptr == null or surface.dirty_rows.len != surface.rows) return error.InvalidSurfaceSource;
+    if (surface.dirty_cols_start.ptr == null or surface.dirty_cols_start.len != surface.rows) return error.InvalidSurfaceSource;
+    if (surface.dirty_cols_end.ptr == null or surface.dirty_cols_end.len != surface.rows) return error.InvalidSurfaceSource;
+    if (surface.cursor.shape > 3) return error.InvalidSurfaceSource;
+    if (!vtSurfaceColorValid(surface.cursor_color)) return error.InvalidSurfaceSource;
+    if (!vtSurfaceColorValid(surface.cursor_text_color)) return error.InvalidSurfaceSource;
+    if (surface.cursor.cell_cols == 0) return error.InvalidSurfaceSource;
+    if (surface.cursor.cell_rows == 0) return error.InvalidSurfaceSource;
+    if (surface.extra_cursor_count > c.HOWL_VT_MAX_EXTRA_CURSORS) return error.InvalidSurfaceSource;
+
+    for (surface.extra_cursors[0..surface.extra_cursor_count]) |cursor| {
+        if (cursor.shape > 4) return error.InvalidSurfaceSource;
+        if (cursor.mode > 1) return error.InvalidSurfaceSource;
+        if (!vtSurfaceColorValid(cursor.cursor_color)) return error.InvalidSurfaceSource;
+        if (!vtSurfaceColorValid(cursor.text_color)) return error.InvalidSurfaceSource;
+    }
+
+    const dirty_rows = surface.dirty_rows.ptr[0..surface.dirty_rows.len];
+    const dirty_cols_start = surface.dirty_cols_start.ptr[0..surface.dirty_cols_start.len];
+    const dirty_cols_end = surface.dirty_cols_end.ptr[0..surface.dirty_cols_end.len];
+    validateDirtyVtSurface(surface.rows, surface.cols, dirty_rows, dirty_cols_start, dirty_cols_end) catch return error.InvalidSurfaceSource;
+    for (surface.surface_cells.ptr[0..surface.surface_cells.len]) |cell| try validateVtSurfaceCell(cell);
+}
+
+pub fn vtSurfaceFromResult(allocator: std.mem.Allocator, result: anytype, cursor_phase_visible: bool) !VtSurface {
+    try validateVtSurfaceResult(result);
 
     const surface = result.source;
     const cell_count = try cellCountChecked(surface.cols, surface.rows);
@@ -138,7 +214,7 @@ pub fn ownedSourceFromSurfaceResult(allocator: std.mem.Allocator, result: anytyp
     std.debug.assert(surface.dirty_cols_start.len == surface.rows);
     std.debug.assert(surface.dirty_cols_end.len == surface.rows);
 
-    const cells = try allocator.alloc(abi.SourceCell, cell_count);
+    const cells = try allocator.alloc(c.HowlVtSurfaceCell, cell_count);
     errdefer allocator.free(cells);
     @memcpy(cells, surface.surface_cells.ptr[0..surface.surface_cells.len]);
     std.debug.assert(cells.len == cell_count);
@@ -159,11 +235,14 @@ pub fn ownedSourceFromSurfaceResult(allocator: std.mem.Allocator, result: anytyp
         .dirty_epoch = result.dirty_generation,
         .is_alternate_screen = surface.is_alternate_screen != 0,
         .cells = cells,
-        .cursor = vtCursorIn(surface.cursor, surface.cursor_color, surface.cursor_text_color),
+        .cursor = surface.cursor,
+        .cursor_color = surface.cursor_color,
+        .cursor_text_color = surface.cursor_text_color,
+        .effective_shape = surface.cursor.shape,
         .extra_cursor_count = surface.extra_cursor_count,
         .extra_cursors = extraCursorsIn(surface.extra_cursors, surface.extra_cursor_count),
         .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]abi.SourceCursorTrailRect{.{}} ** abi.max_cursor_trail_rects,
+        .cursor_trail_rects = [_]c.HowlRenderHostCursorTrailRect{.{}} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
         .colors = surface.colors,
         .selection = surface.selection,
         .cursor_phase_visible = cursor_phase_visible,
@@ -173,7 +252,7 @@ pub fn ownedSourceFromSurfaceResult(allocator: std.mem.Allocator, result: anytyp
     };
 }
 
-pub fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot) !PublicationSource {
+pub fn testVtSurfaceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSurfaceSnapshot) !VtSurface {
     std.debug.assert(snapshot.cols > 0);
     std.debug.assert(snapshot.rows > 0);
     std.debug.assert(snapshot.dirty_rows.len == snapshot.rows);
@@ -181,9 +260,9 @@ pub fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot
     std.debug.assert(snapshot.dirty_cols_end.len == snapshot.rows);
 
     const cell_count = try cellCountChecked(snapshot.cols, snapshot.rows);
-    const cells = try allocator.alloc(abi.SourceCell, cell_count);
+    const cells = try allocator.alloc(c.HowlVtSurfaceCell, cell_count);
     errdefer allocator.free(cells);
-    @memset(cells, std.mem.zeroes(abi.SourceCell));
+    @memset(cells, std.mem.zeroes(c.HowlVtSurfaceCell));
     const dirty_rows = try allocator.dupe(u8, snapshot.dirty_rows);
     errdefer allocator.free(dirty_rows);
     const dirty_cols_start = try allocator.dupe(u16, snapshot.dirty_cols_start);
@@ -199,13 +278,16 @@ pub fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot
         .dirty_epoch = snapshot.dirty_epoch,
         .is_alternate_screen = snapshot.is_alternate_screen,
         .cells = cells,
-        .cursor = std.mem.zeroes(abi.SourceCursor),
+        .cursor = std.mem.zeroes(c.HowlVtCursor),
+        .cursor_color = .{ .kind = 0, .value = 0 },
+        .cursor_text_color = .{ .kind = 0, .value = 0 },
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
         .extra_cursor_count = 0,
-        .extra_cursors = [_]abi.SourceExtraCursor{.{}} ** abi.max_extra_cursors,
+        .extra_cursors = [_]c.HowlVtExtraCursor{.{}} ** c.HOWL_VT_MAX_EXTRA_CURSORS,
         .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]abi.SourceCursorTrailRect{.{}} ** abi.max_cursor_trail_rects,
-        .colors = std.mem.zeroes(abi.SourceColors),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_trail_rects = [_]c.HowlRenderHostCursorTrailRect{.{}} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+        .selection = std.mem.zeroes(c.HowlVtSelection),
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -213,10 +295,10 @@ pub fn testSourceFromSnapshot(allocator: std.mem.Allocator, snapshot: VtSnapshot
     };
 }
 
-pub fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !PublicationSource {
-    const cells = try allocator.alloc(abi.SourceCell, 1);
+pub fn ownedTestVtSurface(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !VtSurface {
+    const cells = try allocator.alloc(c.HowlVtSurfaceCell, 1);
     errdefer allocator.free(cells);
-    cells[0] = std.mem.zeroes(abi.SourceCell);
+    cells[0] = std.mem.zeroes(c.HowlVtSurfaceCell);
     cells[0].codepoint = codepoint;
     const dirty_rows = try allocator.dupe(u8, &[_]u8{1});
     errdefer allocator.free(dirty_rows);
@@ -233,13 +315,16 @@ pub fn ownedTestSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoin
         .dirty_epoch = snapshot_seq,
         .is_alternate_screen = false,
         .cells = cells,
-        .cursor = std.mem.zeroes(abi.SourceCursor),
+        .cursor = std.mem.zeroes(c.HowlVtCursor),
+        .cursor_color = .{ .kind = 0, .value = 0 },
+        .cursor_text_color = .{ .kind = 0, .value = 0 },
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
         .extra_cursor_count = 0,
-        .extra_cursors = [_]abi.SourceExtraCursor{.{}} ** abi.max_extra_cursors,
+        .extra_cursors = [_]c.HowlVtExtraCursor{.{}} ** c.HOWL_VT_MAX_EXTRA_CURSORS,
         .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]abi.SourceCursorTrailRect{.{}} ** abi.max_cursor_trail_rects,
-        .colors = std.mem.zeroes(abi.SourceColors),
-        .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
+        .cursor_trail_rects = [_]c.HowlRenderHostCursorTrailRect{.{}} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+        .selection = std.mem.zeroes(c.HowlVtSelection),
         .cursor_phase_visible = true,
         .dirty_rows = dirty_rows,
         .dirty_cols_start = dirty_cols_start,
@@ -251,7 +336,7 @@ fn cellCountChecked(cols: u16, rows: u16) !usize {
     return std.math.mul(usize, cols, rows);
 }
 
-fn validateDirtySource(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) !void {
+fn validateDirtyVtSurface(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) !void {
     if (dirty_rows.len != rows) return error.InvalidSurfaceSource;
     if (dirty_cols_start.len != rows) return error.InvalidSurfaceSource;
     if (dirty_cols_end.len != rows) return error.InvalidSurfaceSource;
@@ -270,57 +355,19 @@ fn validateDirtySource(rows: u16, cols: u16, dirty_rows: []const u8, dirty_cols_
     }
 }
 
-fn vtCursorIn(value: c.HowlVtCursor, cursor_color: c.HowlVtColor, cursor_text_color: c.HowlVtColor) abi.SourceCursor {
-    const shape = switch (value.shape) {
-        1 => abi.SourceCursorShape.underline,
-        2 => .beam,
-        3 => .none,
-        else => .block,
-    };
-    return .{
-        .row = value.row,
-        .col = value.col,
-        .visible = value.visible != 0,
-        .shape = shape,
-        .blink = value.blink != 0,
-        .position_changed_by_client_at_ms = value.position_changed_by_client_at_ms,
-        .cell_cols = value.cell_cols,
-        .cell_rows = value.cell_rows,
-        .cursor_color = cursor_color,
-        .cursor_text_color = cursor_text_color,
-        .cursor_opacity = 255,
-        .text_blink_opacity = 255,
-        .focused = true,
-        .effective_shape = shape,
-    };
-}
-
-fn extraCursorsIn(value: anytype, count: u16) [abi.max_extra_cursors]abi.SourceExtraCursor {
-    var out = [_]abi.SourceExtraCursor{.{}} ** abi.max_extra_cursors;
-    for (out[0..count], value[0..count]) |*target, source| {
-        target.* = .{
-            .row = source.row,
-            .col = source.col,
-            .rows = source.rows,
-            .cols = source.cols,
-            .shape = @enumFromInt(source.shape),
-            .mode = @enumFromInt(source.mode),
-            .shape_follows_main = source.shape_follows_main != 0,
-            .color_follows_main = source.color_follows_main != 0,
-            .cursor_color = source.cursor_color,
-            .text_color = source.text_color,
-        };
-    }
-    return out;
-}
-
-fn validTestCell() abi.SourceCell {
-    var cell = std.mem.zeroes(abi.SourceCell);
+fn validTestCell() c.HowlVtSurfaceCell {
+    var cell = std.mem.zeroes(c.HowlVtSurfaceCell);
     cell.codepoint = 'A';
     return cell;
 }
 
-pub fn validSurfaceResult(cells: []const abi.SourceCell, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) c.HowlVtSurfaceResult {
+fn extraCursorsIn(value: [c.HOWL_VT_MAX_EXTRA_CURSORS]c.HowlVtExtraCursor, count: u16) [c.HOWL_VT_MAX_EXTRA_CURSORS]c.HowlVtExtraCursor {
+    var out = [_]c.HowlVtExtraCursor{.{}} ** c.HOWL_VT_MAX_EXTRA_CURSORS;
+    for (out[0..count], value[0..count]) |*target, source| target.* = source;
+    return out;
+}
+
+pub fn validSurfaceResult(cells: []const c.HowlVtSurfaceCell, dirty_rows: []const u8, dirty_cols_start: []const u16, dirty_cols_end: []const u16) c.HowlVtSurfaceResult {
     return .{
         .status = c.HOWL_VT_CALL_OK,
         .history_count = 7,
@@ -342,61 +389,61 @@ pub fn validSurfaceResult(cells: []const abi.SourceCell, dirty_rows: []const u8,
             .cursor_color = .{ .kind = 2, .value = 0x010203 },
             .cursor_text_color = .{ .kind = 1, .value = 7 },
             .extra_cursor_count = 0,
-            .extra_cursors = [_]c.HowlVtExtraCursor{.{}} ** abi.max_extra_cursors,
+            .extra_cursors = [_]c.HowlVtExtraCursor{.{}} ** c.HOWL_VT_MAX_EXTRA_CURSORS,
             .colors = std.mem.zeroes(c.HowlVtRenderColorState),
             .selection = .{ .active = 1, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 1 } },
         },
     };
 }
 
-test "source vt rejects source cell codepoint above u21" {
+test "vt surface rejects source cell codepoint above u21" {
     var cell = validTestCell();
     cell.codepoint = @as(u32, std.math.maxInt(u21)) + 1;
-    try std.testing.expectError(error.InvalidSurfaceSource, abi.validateSourceCell(cell));
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceCell(cell));
 }
 
-test "source vt rejects combining length beyond storage" {
+test "vt surface rejects combining length beyond storage" {
     var cell = validTestCell();
     cell.combining_len = 4;
-    try std.testing.expectError(error.InvalidSurfaceSource, abi.validateSourceCell(cell));
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceCell(cell));
 }
 
-test "source vt rejects active combining codepoint above u21" {
+test "vt surface rejects active combining codepoint above u21" {
     var cell = validTestCell();
     cell.combining_len = 1;
     cell.combining[0] = @as(u32, std.math.maxInt(u21)) + 1;
-    try std.testing.expectError(error.InvalidSurfaceSource, abi.validateSourceCell(cell));
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceCell(cell));
 }
 
-test "source vt rejects invalid color kind" {
+test "vt surface rejects invalid color kind" {
     var cell = validTestCell();
     cell.fg_color = .{ .kind = 3, .value = 0 };
-    try std.testing.expectError(error.InvalidSurfaceSource, abi.validateSourceCell(cell));
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceCell(cell));
 }
 
-test "source vt rejects indexed color outside u8" {
+test "vt surface rejects indexed color outside u8" {
     var cell = validTestCell();
     cell.bg_color = .{ .kind = 1, .value = @as(u32, std.math.maxInt(u8)) + 1 };
-    try std.testing.expectError(error.InvalidSurfaceSource, abi.validateSourceCell(cell));
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceCell(cell));
 }
 
-test "source vt rejects rgb color outside u24" {
+test "vt surface rejects rgb color outside u24" {
     var cell = validTestCell();
     cell.underline_color = .{ .kind = 2, .value = @as(u32, std.math.maxInt(u24)) + 1 };
-    try std.testing.expectError(error.InvalidSurfaceSource, abi.validateSourceCell(cell));
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceCell(cell));
 }
 
-test "source vt rejects underline style above shipped range" {
+test "vt surface rejects underline style above shipped range" {
     var cell = validTestCell();
     cell.underline_style = 5;
-    try std.testing.expectError(error.InvalidSurfaceSource, abi.validateSourceCell(cell));
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceCell(cell));
 }
 
-test "source publication boundary rejects dirty span length mismatch" {
-    var cells = [_]abi.SourceCell{validTestCell()};
+test "vt surface boundary rejects dirty span length mismatch" {
+    var cells = [_]c.HowlVtSurfaceCell{validTestCell()};
     var dirty_cols_start = [_]u16{0};
     var dirty_cols_end = [_]u16{0};
-    const source = PublicationSource{
+    const source = VtSurface{
         .cols = 1,
         .rows = 1,
         .history_count = 0,
@@ -405,25 +452,25 @@ test "source publication boundary rejects dirty span length mismatch" {
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = std.mem.zeroes(abi.SourceCursor),
-        .colors = std.mem.zeroes(abi.SourceColors),
-        .selection = std.mem.zeroes(abi.SourceSelection),
+        .cursor = std.mem.zeroes(c.HowlVtCursor),
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
+        .selection = std.mem.zeroes(c.HowlVtSelection),
         .cursor_phase_visible = true,
         .dirty_rows = &[_]u8{},
         .dirty_cols_start = dirty_cols_start[0..],
         .dirty_cols_end = dirty_cols_end[0..],
     };
-    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSourceBoundary(source));
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceBoundary(source));
 }
 
-test "source publication copy in preserves snapshot and dirty metadata" {
-    const cells = [_]abi.SourceCell{ validTestCell(), validTestCell() };
+test "vt surface copy in preserves snapshot and dirty metadata" {
+    const cells = [_]c.HowlVtSurfaceCell{ validTestCell(), validTestCell() };
     const dirty_rows = [_]u8{1};
     const dirty_cols_start = [_]u16{0};
     const dirty_cols_end = [_]u16{1};
     const result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
 
-    var source = try ownedSourceFromSurfaceResult(std.testing.allocator, result, false);
+    var source = try vtSurfaceFromResult(std.testing.allocator, result, false);
     defer source.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(u16, 2), source.cols);
@@ -435,8 +482,8 @@ test "source publication copy in preserves snapshot and dirty metadata" {
     try std.testing.expect(source.is_alternate_screen);
     try std.testing.expect(!source.cursor_phase_visible);
     try std.testing.expectEqual(@as(u64, 17), source.cursor.position_changed_by_client_at_ms);
-    try std.testing.expectEqual(@as(u32, 0x010203), source.cursor.cursor_color.value);
-    try std.testing.expectEqual(@as(u32, 7), source.cursor.cursor_text_color.value);
+    try std.testing.expectEqual(@as(u32, 0x010203), source.cursor_color.value);
+    try std.testing.expectEqual(@as(u32, 7), source.cursor_text_color.value);
     try std.testing.expectEqual(@as(u16, 0), source.extra_cursor_count);
     try std.testing.expectEqual(@as(u16, 0), source.cursor_trail_count);
     try std.testing.expectEqualSlices(u8, dirty_rows[0..], source.dirty_rows);
@@ -446,24 +493,24 @@ test "source publication copy in preserves snapshot and dirty metadata" {
     try std.testing.expectEqual(@as(u32, 'A'), source.cells[1].codepoint);
 }
 
-test "source publication copy in preserves vt no-shape without reinterpretation" {
-    const cells = [_]abi.SourceCell{ validTestCell(), validTestCell() };
+test "vt surface copy in preserves vt no-shape without reinterpretation" {
+    const cells = [_]c.HowlVtSurfaceCell{ validTestCell(), validTestCell() };
     const dirty_rows = [_]u8{1};
     const dirty_cols_start = [_]u16{0};
     const dirty_cols_end = [_]u16{1};
     var result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
     result.source.cursor.shape = 3;
 
-    var source = try ownedSourceFromSurfaceResult(std.testing.allocator, result, true);
+    var source = try vtSurfaceFromResult(std.testing.allocator, result, true);
     defer source.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(abi.SourceCursorShape.none, source.cursor.shape);
-    try std.testing.expectEqual(abi.SourceCursorShape.none, source.cursor.effective_shape);
+    try std.testing.expectEqual(@as(u8, c.HOWL_VT_CURSOR_SHAPE_NONE), source.cursor.shape);
+    try std.testing.expectEqual(@as(u8, c.HOWL_VT_CURSOR_SHAPE_NONE), source.effective_shape);
     try std.testing.expect(source.cursor_phase_visible);
 }
 
-test "source publication boundary rejects widened invalid cursor aggregates" {
-    var source = try testSourceFromSnapshot(std.testing.allocator, .{
+test "vt surface boundary rejects widened invalid cursor aggregates" {
+    var source = try testVtSurfaceFromSnapshot(std.testing.allocator, .{
         .cols = 1,
         .rows = 1,
         .history_count = 0,
@@ -478,19 +525,19 @@ test "source publication boundary rejects widened invalid cursor aggregates" {
     defer source.deinit(std.testing.allocator);
 
     source.cursor.cell_cols = 0;
-    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSourceBoundary(source));
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceBoundary(source));
 
     source.cursor.cell_cols = 1;
-    source.extra_cursor_count = abi.max_extra_cursors + 1;
-    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSourceBoundary(source));
+    source.extra_cursor_count = c.HOWL_VT_MAX_EXTRA_CURSORS + 1;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceBoundary(source));
 
     source.extra_cursor_count = 0;
-    source.cursor_trail_count = abi.max_cursor_trail_rects + 1;
-    try std.testing.expectError(error.InvalidSurfaceSource, validatePublicationSourceBoundary(source));
+    source.cursor_trail_count = c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX + 1;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceBoundary(source));
 }
 
-test "source publication ignores inactive extra cursor tail when count is zero" {
-    const cells = [_]abi.SourceCell{ validTestCell(), validTestCell() };
+test "vt surface ignores inactive extra cursor tail when count is zero" {
+    const cells = [_]c.HowlVtSurfaceCell{ validTestCell(), validTestCell() };
     const dirty_rows = [_]u8{1};
     const dirty_cols_start = [_]u16{0};
     const dirty_cols_end = [_]u16{1};
@@ -504,9 +551,41 @@ test "source publication ignores inactive extra cursor tail when count is zero" 
     result.source.extra_cursors[0].text_color = .{ .kind = 3, .value = 0xffffffff };
     result.source.extra_cursor_count = 0;
 
-    var source = try ownedSourceFromSurfaceResult(std.testing.allocator, result, false);
+    var source = try vtSurfaceFromResult(std.testing.allocator, result, false);
     defer source.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(u16, 0), source.extra_cursor_count);
-    try std.testing.expectEqual(std.mem.zeroes(abi.SourceExtraCursor), source.extra_cursors[0]);
+    try std.testing.expectEqual(std.mem.zeroes(c.HowlVtExtraCursor), source.extra_cursors[0]);
+}
+
+test "vt surface result rejects widened cursor and extra cursor enum violations" {
+    var cells = [_]c.HowlVtSurfaceCell{ std.mem.zeroes(c.HowlVtSurfaceCell), std.mem.zeroes(c.HowlVtSurfaceCell) };
+    const dirty_rows = [_]u8{1};
+    const dirty_cols_start = [_]u16{0};
+    const dirty_cols_end = [_]u16{1};
+    var result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+
+    result.source.cursor.cell_cols = 0;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceResult(result));
+
+    result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.cursor_color.kind = 3;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceResult(result));
+
+    result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.extra_cursor_count = c.HOWL_VT_MAX_EXTRA_CURSORS + 1;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceResult(result));
+
+    result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.cursor.shape = 3;
+    try validateVtSurfaceResult(result);
+
+    result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.cursor.shape = 4;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceResult(result));
+
+    result = validSurfaceResult(cells[0..], dirty_rows[0..], dirty_cols_start[0..], dirty_cols_end[0..]);
+    result.source.extra_cursor_count = 1;
+    result.source.extra_cursors[0].shape = 5;
+    try std.testing.expectError(error.InvalidSurfaceSource, validateVtSurfaceResult(result));
 }

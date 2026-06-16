@@ -1,19 +1,18 @@
 const std = @import("std");
 const geometry_mod = @import("grid_geometry.zig");
-const source_text_input = @import("vt_publication/text_input.zig");
-const source_theme = @import("vt_publication/theme.zig");
-const source_cursor = @import("vt_publication/cursor.zig");
+const vt_text_input = @import("vt_surface/text_input.zig");
+const vt_theme = @import("vt_surface/theme.zig");
+const vt_cursor = @import("vt_surface/cursor.zig");
 const tokens = @import("tokens.zig");
 const prepared_handle = @import("surface/handle.zig");
 const pending_prepared_surface = @import("surface/pending_prepared_surface.zig");
 const render_geometry = @import("geometry.zig");
 const geometry_contract = @import("geometry_contract.zig");
-const source_publication = @import("vt_publication/publication.zig");
-const publication_damage = @import("vt_publication/damage.zig");
+const vt_surface = @import("vt_surface/surface.zig");
+const vt_surface_damage = @import("vt_surface/damage.zig");
 const prepared_surface = @import("surface/prepared_surface.zig");
 const submitted_surface = @import("submitted_surface.zig");
 const sprite_resource_store = @import("surface/resource_store.zig");
-const source_abi = @import("vt_publication/abi.zig");
 const contract = @import("text/contract.zig");
 const font_resolve = @import("text/resolve.zig");
 const text_paths = @import("text/paths.zig");
@@ -108,8 +107,8 @@ pub const TextSession = struct {
         config: TextSessionConfig,
         request: tokens.RenderRequest,
         layout: geometry_contract.PrepareLayout,
-        state: source_publication.PublicationSource,
-        cursor_theme: source_theme.CursorThemeConfig = .{},
+        state: vt_surface.VtSurface,
+        cursor_theme: vt_theme.CursorThemeConfig = .{},
     };
 
     pub fn init(allocator: std.mem.Allocator) TextSession {
@@ -167,10 +166,10 @@ pub const TextSession = struct {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         var resolve: font_resolve.ResolveObservability = .{};
-        const theme = source_theme.themeFromPublicationColorsWithCursorConfig(prepare.state.colors, prepare.cursor_theme);
+        const theme = vt_theme.themeFromVtSurfaceColorsWithCursorConfig(prepare.state.colors, prepare.cursor_theme);
         const dirty_rows: []const bool = @ptrCast(prepare.state.dirty_rows);
         const options: surface_preparer.PrepareOptions = .{ .scene = .{
-            .cursor = source_cursor.mapPublicationCursor(prepare.state, theme),
+            .cursor = vt_cursor.mapVtSurfaceCursor(prepare.state, theme),
             .damage = .{
                 .full = prepare.request.token.damage_kind == .full,
                 .dirty_rows = dirty_rows,
@@ -179,7 +178,7 @@ pub const TextSession = struct {
             },
         } };
         const preparer = try self.ensureTextPreparer(&context);
-        if (try preparer.preparePublicationWithSessionOptions(
+        if (try preparer.prepareVtSurfaceWithSessionOptions(
             prepare.state,
             .{ .cols = prepare.state.cols, .rows = prepare.state.rows },
             fontSession(&context, &faces, &resolve),
@@ -193,7 +192,7 @@ pub const TextSession = struct {
         try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
         const cell_input_scratch = self.cell_input_scratch[0..prepare.state.cells.len];
         std.debug.assert(cell_input_scratch.len == prepare.state.cells.len);
-        const text_input = source_text_input.publicationSourceToTextSceneInputBorrowedWithTheme(
+        const text_input = vt_text_input.vtSurfaceToTextSceneInputBorrowedWithTheme(
             cell_input_scratch,
             prepare.state,
             prepare.request.token.damage_kind == .full,
@@ -386,8 +385,8 @@ pub const TextSessionOwner = struct {
     allocator: std.mem.Allocator,
     session: TextSession,
     geometry: render_geometry.GeometryOwner,
-    latest_source: ?source_publication.PublicationSource = null,
-    latest_source_dirty_epoch: u64 = 0,
+    latest_vt_surface: ?vt_surface.VtSurface = null,
+    latest_vt_surface_dirty_epoch: u64 = 0,
     prepare_request: ?tokens.RenderRequest = null,
     pending_prepared: pending_prepared_surface.PendingPreparedSurface = .{},
     submitted: submitted_surface.SubmittedSurface,
@@ -428,7 +427,7 @@ pub const TextSessionOwner = struct {
 
     pub fn destroy(self: *TextSessionOwner) void {
         self.pending_prepared.deinit(self.allocator);
-        self.clearLatestSource();
+        self.clearLatestVtSurface();
         self.font_paths.deinit();
         self.session.deinit();
         self.allocator.destroy(self);
@@ -459,9 +458,9 @@ pub const TextSessionOwner = struct {
     pub fn prepareHandle(self: *TextSessionOwner, token: tokens.SnapshotToken) !*prepared_handle.PreparedHandle {
         if (self.pending_prepared.submitPending()) return error.PreparedCandidateBusy;
         const request = self.prepare_request orelse return error.MissingPrepareSource;
-        var source = self.latest_source orelse return error.MissingPrepareSource;
-        _ = self.cursor_presentation.applyHostCursorCadenceToSource(&source, self.geometry.cell_px);
-        if (!publication_damage.sameSnapshotToken(request.token, token)) return error.MismatchedPrepareSource;
+        var source = self.latest_vt_surface orelse return error.MissingPrepareSource;
+        _ = self.cursor_presentation.applyHostCursorCadenceToVtSurface(&source, self.geometry.cell_px);
+        if (!vt_surface_damage.sameSnapshotToken(request.token, token)) return error.MismatchedPrepareSource;
         var prepared = self.session.prepareSurface(.{
             .config = self.config,
             .request = request,
@@ -500,10 +499,10 @@ pub const TextSessionOwner = struct {
         self.invalidateTextState();
     }
 
-    pub fn nextSourceDirtyEpoch(self: *TextSessionOwner) u64 {
-        self.latest_source_dirty_epoch +%= 1;
-        if (self.latest_source_dirty_epoch == 0) self.latest_source_dirty_epoch = 1;
-        return self.latest_source_dirty_epoch;
+    pub fn nextVtSurfaceDirtyEpoch(self: *TextSessionOwner) u64 {
+        self.latest_vt_surface_dirty_epoch +%= 1;
+        if (self.latest_vt_surface_dirty_epoch == 0) self.latest_vt_surface_dirty_epoch = 1;
+        return self.latest_vt_surface_dirty_epoch;
     }
 
     pub fn submittedToken(self: *TextSessionOwner) ?tokens.SnapshotToken {
@@ -517,26 +516,26 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn setHostCursorCadence(self: *TextSessionOwner, cadence: HostCursorCadence) void {
-        if (self.cursor_presentation.setHostCursorCadence(cadence, self.latest_source, self.geometry.cell_px)) self.recomputePrepareRequest();
+        if (self.cursor_presentation.setHostCursorCadence(cadence, self.latest_vt_surface, self.geometry.cell_px)) self.recomputePrepareRequest();
     }
 
-    pub fn ingestPublishedSource(self: *TextSessionOwner, result: c.HowlVtSurfaceResult) !?tokens.RenderRequest {
-        var source = try source_publication.ownedSourceFromSurfaceResult(self.allocator, result, self.cursor_presentation.cursor_opacity != 0);
+    pub fn ingestVtSurface(self: *TextSessionOwner, result: c.HowlVtSurfaceResult) !?tokens.RenderRequest {
+        var source = try vt_surface.vtSurfaceFromResult(self.allocator, result, self.cursor_presentation.cursor_opacity != 0);
         errdefer source.deinit(self.allocator);
-        _ = self.cursor_presentation.applyHostCursorCadenceToSource(&source, self.geometry.cell_px);
-        publication_damage.canonicalizeDirtyMetadata(source.rows, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
-        try source_publication.validatePublicationSourceBoundary(source);
+        _ = self.cursor_presentation.applyHostCursorCadenceToVtSurface(&source, self.geometry.cell_px);
+        vt_surface_damage.canonicalizeDirtyMetadata(source.rows, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
+        try vt_surface.validateVtSurfaceBoundary(source);
 
-        const prior = self.latest_source;
-        const damage_kind = self.classifySourceDamage(source);
+        const prior = self.latest_vt_surface;
+        const damage_kind = self.classifyVtSurfaceDamage(source);
         if (damage_kind == .none) {
             source.deinit(self.allocator);
             return null;
         }
-        self.pending_prepared.invalidateForSource(source.snapshot_seq);
-        self.clearLatestSource();
-        self.latest_source = source;
-        self.prepare_request = self.renderRequestForSource(self.latest_source.?, damage_kind, prior != null);
+        self.pending_prepared.invalidateForVtSurface(source.snapshot_seq);
+        self.clearLatestVtSurface();
+        self.latest_vt_surface = source;
+        self.prepare_request = self.renderRequestForVtSurface(self.latest_vt_surface.?, damage_kind, prior != null);
         return self.prepare_request;
     }
 
@@ -577,8 +576,8 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn workState(self: *const TextSessionOwner) SessionWorkState {
-        const source_pending = if (self.latest_source) |source|
-            self.prepare_request == null and !self.pending_prepared.submitPending() and !self.sourceSubmitted(source.snapshot_seq)
+        const source_pending = if (self.latest_vt_surface) |source|
+            self.prepare_request == null and !self.pending_prepared.submitPending() and !self.vtSurfaceSubmitted(source.snapshot_seq)
         else
             false;
         return .{
@@ -606,15 +605,15 @@ pub const TextSessionOwner = struct {
         return .{ .rendered = result };
     }
 
-    fn clearLatestSource(self: *TextSessionOwner) void {
-        if (self.latest_source) |*source| source.deinit(self.allocator);
-        self.latest_source = null;
+    fn clearLatestVtSurface(self: *TextSessionOwner) void {
+        if (self.latest_vt_surface) |*source| source.deinit(self.allocator);
+        self.latest_vt_surface = null;
         self.prepare_request = null;
     }
 
-    fn classifySourceDamage(self: *const TextSessionOwner, source: source_publication.PublicationSource) tokens.DamageKind {
-        const damage_kind = publication_damage.classifyDirty(source.snapshot());
-        const prior = self.latest_source orelse return damage_kind;
+    fn classifyVtSurfaceDamage(self: *const TextSessionOwner, source: vt_surface.VtSurface) tokens.DamageKind {
+        const damage_kind = vt_surface_damage.classifyDirty(source.snapshot());
+        const prior = self.latest_vt_surface orelse return damage_kind;
         const prior_snapshot = prior.snapshot();
         const submitted_token = self.submitted.submittedToken();
         const prior_matches_submitted = if (submitted_token) |token| prior_snapshot.snapshot_seq == token.snapshot_seq else false;
@@ -622,14 +621,14 @@ pub const TextSessionOwner = struct {
             if (request.token.geometry_epoch != self.geometry.geometry_epoch) return .full;
         }
         if (source.snapshot_seq == prior_snapshot.snapshot_seq) {
-            if (publication_damage.samePublicationSource(prior, source)) return .none;
-            if (publication_damage.cursorPresentationChanged(prior, source)) return .full;
-            if (publication_damage.colorPresentationChanged(prior, source)) return .full;
+            if (vt_surface_damage.sameVtSurface(prior, source)) return .none;
+            if (vt_surface_damage.cursorPresentationChanged(prior, source)) return .full;
+            if (vt_surface_damage.colorPresentationChanged(prior, source)) return .full;
             if (damage_kind == .partial and !prior_matches_submitted) return .full;
             return damage_kind;
         }
-        if (publication_damage.cursorPresentationChanged(prior, source)) return .full;
-        if (publication_damage.colorPresentationChanged(prior, source)) return .full;
+        if (vt_surface_damage.cursorPresentationChanged(prior, source)) return .full;
+        if (vt_surface_damage.colorPresentationChanged(prior, source)) return .full;
         if (source.cols != prior.cols or source.rows != prior.rows) return .full;
         if (source.is_alternate_screen != prior.is_alternate_screen) return .full;
         if (source.scroll_row != prior.scroll_row) return .full;
@@ -637,7 +636,7 @@ pub const TextSessionOwner = struct {
         return damage_kind;
     }
 
-    fn renderRequestForSource(self: *const TextSessionOwner, source: source_publication.PublicationSource, damage_kind: tokens.DamageKind, had_prior_source: bool) tokens.RenderRequest {
+    fn renderRequestForVtSurface(self: *const TextSessionOwner, source: vt_surface.VtSurface, damage_kind: tokens.DamageKind, had_prior_source: bool) tokens.RenderRequest {
         std.debug.assert(damage_kind != .none);
         const submitted_token = self.submitted.submittedToken();
         const token = tokens.SnapshotToken{
@@ -652,11 +651,11 @@ pub const TextSessionOwner = struct {
     }
 
     fn recomputePrepareRequest(self: *TextSessionOwner) void {
-        const source = self.latest_source orelse return;
-        self.prepare_request = self.renderRequestForSource(source, .full, true);
+        const source = self.latest_vt_surface orelse return;
+        self.prepare_request = self.renderRequestForVtSurface(source, .full, true);
     }
 
-    fn sourceSubmitted(self: *const TextSessionOwner, snapshot_seq: u64) bool {
+    fn vtSurfaceSubmitted(self: *const TextSessionOwner, snapshot_seq: u64) bool {
         const token = self.submitted.submittedToken() orelse return false;
         return token.snapshot_seq == snapshot_seq;
     }
@@ -702,7 +701,7 @@ test "render session owner keeps source and submitted owners separate" {
     ) orelse return error.OutOfMemory;
     defer owner.destroy();
 
-    try std.testing.expect(owner.latest_source == null);
+    try std.testing.expect(owner.latest_vt_surface == null);
     try std.testing.expect(owner.prepare_request == null);
     try std.testing.expect(!owner.pending_prepared.submitPending());
     try std.testing.expect(owner.submitted.submitted_token == null);
@@ -745,7 +744,7 @@ test "render session owner stores configured cursor theme inputs" {
         .focused = true,
         .cursor_opacity = 255,
         .text_blink_opacity = 255,
-        .effective_shape = .beam,
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BEAM,
         .cursor_color = .{ .kind = 2, .value = 0x102030 },
         .cursor_text_color = .{ .kind = 2, .value = 0x405060 },
         .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },
@@ -754,7 +753,7 @@ test "render session owner stores configured cursor theme inputs" {
         .cursor_trail_decay_fast_s = 0.2,
         .cursor_trail_decay_slow_s = 0.6,
         .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
+        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
         .now_ns = 1234,
     });
 
@@ -782,13 +781,13 @@ test "render session owner emits render-owned cursor trail rect" {
         .cell_px = .{ .width = 8, .height = 16 },
     });
 
-    var trigger_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects;
+    var trigger_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX;
     trigger_rects[0] = .{ .row = 0, .col = 1, .rows = 1, .cols = 1, .opacity = 255, .reserved0 = 0, .reserved1 = 0, .color = .{ .r = 0, .g = 0, .b = 0 } };
     owner.setHostCursorCadence(.{
         .focused = true,
         .cursor_opacity = 255,
         .text_blink_opacity = 255,
-        .effective_shape = .block,
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
         .cursor_color = .{ .kind = 0, .value = 0 },
         .cursor_text_color = .{ .kind = 0, .value = 0 },
         .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },
@@ -801,26 +800,24 @@ test "render session owner emits render-owned cursor trail rect" {
         .now_ns = 16 * std.time.ns_per_ms,
     });
 
-    var cells = [_]source_abi.SourceCell{testCell('A')} ** 10;
-    var source = source_publication.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
+    var cells = [_]c.HowlVtSurfaceCell{testCell('A')} ** 10;
+    var source = vt_surface.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
     source.source.cols = 10;
     source.source.cursor.col = 4;
     source.source.cursor.row = 0;
     source.snapshot_seq = 1;
     source.dirty_generation = 1;
 
-    _ = try owner.ingestPublishedSource(source) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u16, 1), owner.latest_source.?.cursor_trail_count);
-    try std.testing.expect(owner.latest_source.?.cursor_trail_rects[0].pixel_rect);
-    try std.testing.expect(owner.latest_source.?.cursor_trail_rects[0].x_px > 0);
-    try std.testing.expect(owner.latest_source.?.cursor_trail_rects[0].width_px > 0);
+    _ = try owner.ingestVtSurface(source) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u16, 1), owner.latest_vt_surface.?.cursor_trail_count);
+    try std.testing.expect(owner.latest_vt_surface.?.cursor_trail_rects[0].opacity > 0);
     try std.testing.expect(owner.workState().animation_pending);
 
     owner.setHostCursorCadence(.{
         .focused = true,
         .cursor_opacity = 255,
         .text_blink_opacity = 255,
-        .effective_shape = .block,
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
         .cursor_color = .{ .kind = 0, .value = 0 },
         .cursor_text_color = .{ .kind = 0, .value = 0 },
         .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },
@@ -829,13 +826,13 @@ test "render session owner emits render-owned cursor trail rect" {
         .cursor_trail_decay_fast_s = 0.1,
         .cursor_trail_decay_slow_s = 0.4,
         .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
+        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
         .now_ns = 10 * std.time.ns_per_s,
     });
     try std.testing.expect(!owner.workState().animation_pending);
 }
 
-test "render session owner rejects prepared work after resize publication" {
+test "render session owner rejects prepared work after resize vt_surface" {
     const owner = TextSessionOwner.create(
         std.testing.allocator,
         .{ .surface_px = .{ .width = 8, .height = 16 } },
@@ -850,13 +847,13 @@ test "render session owner rejects prepared work after resize publication" {
     try std.testing.expect(initial_geometry.changed);
     try std.testing.expectEqual(@as(u64, 1), initial_geometry.geometry_epoch);
 
-    var first_cells = [_]source_abi.SourceCell{testCell('A')};
-    var first_source = source_publication.validSurfaceResult(first_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
+    var first_cells = [_]c.HowlVtSurfaceCell{testCell('A')};
+    var first_source = vt_surface.validSurfaceResult(first_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
     first_source.source.cols = 1;
     first_source.source.cursor.col = 0;
     first_source.snapshot_seq = 1;
     first_source.dirty_generation = 1;
-    const old_request = try owner.ingestPublishedSource(first_source) orelse return error.TestUnexpectedResult;
+    const old_request = try owner.ingestVtSurface(first_source) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), old_request.token.snapshot_seq);
     try std.testing.expectEqual(@as(u64, 1), old_request.token.geometry_epoch);
     try std.testing.expect(owner.workState().prepare_pending);
@@ -874,13 +871,13 @@ test "render session owner rejects prepared work after resize publication" {
     try std.testing.expect(resized_geometry.changed);
     try std.testing.expect(resized_geometry.geometry_epoch > old_request.token.geometry_epoch);
 
-    var resized_cells = [_]source_abi.SourceCell{testCell('A')};
-    var resized_source = source_publication.validSurfaceResult(resized_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
+    var resized_cells = [_]c.HowlVtSurfaceCell{testCell('A')};
+    var resized_source = vt_surface.validSurfaceResult(resized_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
     resized_source.source.cols = 1;
     resized_source.source.cursor.col = 0;
     resized_source.snapshot_seq = 2;
     resized_source.dirty_generation = 2;
-    const resized_request = try owner.ingestPublishedSource(resized_source) orelse return error.TestUnexpectedResult;
+    const resized_request = try owner.ingestVtSurface(resized_source) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(tokens.DamageKind.full, resized_request.token.damage_kind);
     try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_request.token.geometry_epoch);
 
@@ -898,7 +895,7 @@ test "render session owner rejects prepared work after resize publication" {
     try std.testing.expect(!resized_request.allow_retained_reuse);
 }
 
-test "render session owner drops duplicate copied source without mutating latest source" {
+test "render session owner drops duplicate copied vt surface without mutating latest vt surface" {
     const owner = TextSessionOwner.create(
         std.testing.allocator,
         .{ .surface_px = .{ .width = 8, .height = 16 } },
@@ -911,23 +908,23 @@ test "render session owner drops duplicate copied source without mutating latest
         .cell_px = .{ .width = 8, .height = 16 },
     });
 
-    var cells = [_]source_abi.SourceCell{testCell('A')};
-    var source = source_publication.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
+    var cells = [_]c.HowlVtSurfaceCell{testCell('A')};
+    var source = vt_surface.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
     source.source.cols = 1;
     source.source.cursor.col = 0;
     source.snapshot_seq = 1;
     source.dirty_generation = 1;
 
-    const first = try owner.ingestPublishedSource(source) orelse return error.TestUnexpectedResult;
+    const first = try owner.ingestVtSurface(source) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), first.token.snapshot_seq);
-    const latest_cells = owner.latest_source.?.cells.ptr;
-    const latest_dirty_rows = owner.latest_source.?.dirty_rows.ptr;
+    const latest_cells = owner.latest_vt_surface.?.cells.ptr;
+    const latest_dirty_rows = owner.latest_vt_surface.?.dirty_rows.ptr;
 
-    try std.testing.expect((try owner.ingestPublishedSource(source)) == null);
-    try std.testing.expect(owner.latest_source != null);
-    try std.testing.expectEqual(latest_cells, owner.latest_source.?.cells.ptr);
-    try std.testing.expectEqual(latest_dirty_rows, owner.latest_source.?.dirty_rows.ptr);
-    try std.testing.expectEqual(@as(u64, 1), owner.latest_source.?.snapshot_seq);
+    try std.testing.expect((try owner.ingestVtSurface(source)) == null);
+    try std.testing.expect(owner.latest_vt_surface != null);
+    try std.testing.expectEqual(latest_cells, owner.latest_vt_surface.?.cells.ptr);
+    try std.testing.expectEqual(latest_dirty_rows, owner.latest_vt_surface.?.dirty_rows.ptr);
+    try std.testing.expectEqual(@as(u64, 1), owner.latest_vt_surface.?.snapshot_seq);
     try std.testing.expect(owner.prepare_request != null);
     try std.testing.expectEqual(@as(u64, 1), owner.prepare_request.?.token.snapshot_seq);
 }
@@ -945,21 +942,21 @@ test "render session owner cadence change does not hide duplicate source damage"
         .cell_px = .{ .width = 8, .height = 16 },
     });
 
-    var cells = [_]source_abi.SourceCell{testCell('A')};
-    var source = source_publication.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
+    var cells = [_]c.HowlVtSurfaceCell{testCell('A')};
+    var source = vt_surface.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
     source.source.cols = 1;
     source.source.cursor.col = 0;
     source.snapshot_seq = 1;
     source.dirty_generation = 1;
 
-    _ = try owner.ingestPublishedSource(source) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u8, 255), owner.latest_source.?.cursor.cursor_opacity);
+    _ = try owner.ingestVtSurface(source) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u8, 255), owner.latest_vt_surface.?.cursor_opacity);
 
     owner.setHostCursorCadence(.{
         .focused = true,
         .cursor_opacity = 0,
         .text_blink_opacity = 255,
-        .effective_shape = .beam,
+        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BEAM,
         .cursor_color = .{ .kind = 0, .value = 0 },
         .cursor_text_color = .{ .kind = 0, .value = 0 },
         .cursor_trail_color = .{ .kind = 0, .value = 0 },
@@ -968,26 +965,26 @@ test "render session owner cadence change does not hide duplicate source damage"
         .cursor_trail_decay_fast_s = 0.1,
         .cursor_trail_decay_slow_s = 0.4,
         .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** source_abi.max_cursor_trail_rects,
+        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
         .now_ns = 0,
     });
-    try std.testing.expectEqual(@as(u8, 255), owner.latest_source.?.cursor.cursor_opacity);
+    try std.testing.expectEqual(@as(u8, 255), owner.latest_vt_surface.?.cursor_opacity);
 
-    const cursor_request = try owner.ingestPublishedSource(source) orelse return error.TestUnexpectedResult;
+    const cursor_request = try owner.ingestVtSurface(source) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 1), cursor_request.token.snapshot_seq);
     try std.testing.expectEqual(tokens.DamageKind.full, cursor_request.token.damage_kind);
-    try std.testing.expectEqual(@as(u8, 0), owner.latest_source.?.cursor.cursor_opacity);
+    try std.testing.expectEqual(@as(u8, 0), owner.latest_vt_surface.?.cursor_opacity);
 }
 
-fn testCell(codepoint: u21) source_abi.SourceCell {
-    var cell = std.mem.zeroes(source_abi.SourceCell);
+fn testCell(codepoint: u21) c.HowlVtSurfaceCell {
+    var cell = std.mem.zeroes(c.HowlVtSurfaceCell);
     cell.codepoint = codepoint;
     return cell;
 }
 
-fn testSource(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !source_publication.PublicationSource {
+fn testVtSurface(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !vt_surface.VtSurface {
     _ = testCell(codepoint);
-    return source_publication.ownedTestSource(allocator, snapshot_seq, codepoint);
+    return vt_surface.ownedTestVtSurface(allocator, snapshot_seq, codepoint);
 }
 
 test "render session owner rejects partial rdr_sfc handle with wrong submitted base" {

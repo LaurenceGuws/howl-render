@@ -8,7 +8,7 @@ pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, vt_surface: ?*co
     prepare_out.* = std.mem.zeroes(c.HowlRenderPrepareRequest);
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_PREPARE_FAILED;
     const visible = vt_surface orelse return c.HOWL_RENDER_PREPARE_FAILED;
-    const request = (owner.ingestPublishedSource(visible.*) catch return c.HOWL_RENDER_PREPARE_FAILED) orelse return c.HOWL_RENDER_PREPARE_IDLE;
+    const request = (owner.ingestVtSurface(visible.*) catch return c.HOWL_RENDER_PREPARE_FAILED) orelse return c.HOWL_RENDER_PREPARE_IDLE;
     prepare_out.* = prepareRequestOut(request);
     return c.HOWL_RENDER_PREPARE_READY;
 }

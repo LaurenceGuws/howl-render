@@ -1,4 +1,5 @@
 const std = @import("std");
+const c = @import("howl_render_c");
 const builtin = @import("builtin");
 const contract = @import("contract.zig");
 const direct_normal = @import("direct_normal.zig");
@@ -18,9 +19,8 @@ const scene_damage = @import("scene_damage.zig");
 const scene_rects = @import("scene_rects.zig");
 const shape_run = @import("shape/run.zig");
 const lane = @import("lane.zig");
-const source_vt = @import("../vt_publication/abi.zig");
-const source_publication = @import("../vt_publication/publication.zig");
-const source_theme = @import("../vt_publication/theme.zig");
+const vt_surface = @import("../vt_surface/surface.zig");
+const vt_theme = @import("../vt_surface/theme.zig");
 
 pub const TextSurfacePreparer = struct {
     allocator: std.mem.Allocator,
@@ -120,26 +120,26 @@ pub const TextSurfacePreparer = struct {
         return self.preparePreparedTextSurface(text_cache, renderable, grid_metrics, session, options);
     }
 
-    pub fn preparePublicationWithSessionOptions(
+    pub fn prepareVtSurfaceWithSessionOptions(
         self: *TextSurfacePreparer,
-        source: source_publication.PublicationSource,
+        source: vt_surface.VtSurface,
         grid_metrics: contract.GridMetrics,
         session: font_session.FontSession,
         options: PrepareOptions,
-        theme: source_theme.SurfaceTheme,
+        theme: vt_theme.SurfaceTheme,
     ) !?OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
-        var publication_complex_cells: u64 = 0;
-        if (try self.prepareDirectNormal(.{ .publication = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &publication_complex_cells)) |direct| {
+        var vtSurfaceComplexCells: u64 = 0;
+        if (try self.prepareDirectNormal(.{ .vt_surface = .{ .cells = source.cells, .theme = theme } }, .require_all_normal, grid_metrics, session, options, &lane_report, &vtSurfaceComplexCells)) |direct| {
             return self.finishNormalOnlySurface(direct, lane_report, options.scene.cursor);
         }
         const cell_count = count32(source.cells);
-        try self.ensureClusterScratchCapacity(cell_count, countPublicationCodepoints(source.cells));
-        // If publication failed direct-normal, it must continue through the shared shaped-scene owner.
-        std.debug.assert(publication_complex_cells != 0);
-        var sparse = try cluster.buildSparsePublicationCellsWithDamageScratch(self.allocator, &self.cluster_scratch, source.cells, theme, grid_metrics, options.scene.damage);
+        try self.ensureClusterScratchCapacity(cell_count, countVtSurfaceCodepoints(source.cells));
+        // If the VT surface failed direct-normal, it must continue through the shared shaped-scene owner.
+        std.debug.assert(vtSurfaceComplexCells != 0);
+        var sparse = try cluster.buildSparseVtSurfaceCellsWithDamageScratch(self.allocator, &self.cluster_scratch, source.cells, theme, grid_metrics, options.scene.damage);
         errdefer sparse.deinit();
-        return try self.preparePreparedTextSurfaceWithExpectedComplexCells(sparse.text_cache, sparse.renderable, grid_metrics, session, options, publication_complex_cells);
+        return try self.preparePreparedTextSurfaceWithExpectedComplexCells(sparse.text_cache, sparse.renderable, grid_metrics, session, options, vtSurfaceComplexCells);
     }
 
     fn preparePreparedTextSurface(
@@ -425,7 +425,7 @@ pub const TextSurfacePreparer = struct {
         return total;
     }
 
-    fn countPublicationCodepoints(cells: []const source_vt.SourceCell) u32 {
+    fn countVtSurfaceCodepoints(cells: []const c.HowlVtSurfaceCell) u32 {
         var total: u32 = 0;
         for (cells) |cell| total += @as(u32, 1) + cell.combining_len;
         return total;
@@ -647,7 +647,7 @@ pub const PrepareOptions = struct {
     scene: scene.BuildOptions = .{},
 };
 
-fn testPublicationCell(codepoint: u32) source_vt.SourceCell {
+fn testVtSurfaceCell(codepoint: u32) c.HowlVtSurfaceCell {
     return .{
         .codepoint = codepoint,
         .flags = .{ .continuation = 0 },
@@ -660,7 +660,7 @@ fn testPublicationCell(codepoint: u32) source_vt.SourceCell {
     };
 }
 
-fn testOneRowPublicationSource(cells: []source_vt.SourceCell, colors: source_vt.SourceColors) source_publication.PublicationSource {
+fn testOneRowVtSurface(cells: []c.HowlVtSurfaceCell, colors: c.HowlVtRenderColorState) vt_surface.VtSurface {
     std.debug.assert(cells.len <= std.math.maxInt(u16));
     return .{
         .cols = @intCast(cells.len),
@@ -671,7 +671,7 @@ fn testOneRowPublicationSource(cells: []source_vt.SourceCell, colors: source_vt.
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells,
-        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .cursor = .{ .visible = 0, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
         .colors = colors,
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
@@ -682,8 +682,8 @@ fn testOneRowPublicationSource(cells: []source_vt.SourceCell, colors: source_vt.
     };
 }
 
-fn testPublicationColors() source_vt.SourceColors {
-    var colors = std.mem.zeroes(source_vt.SourceColors);
+fn testVtSurfaceColors() c.HowlVtRenderColorState {
+    var colors = std.mem.zeroes(c.HowlVtRenderColorState);
     colors.foreground = .{ .r = 0xf0, .g = 0xf1, .b = 0xf2 };
     colors.background = .{ .r = 0x10, .g = 0x11, .b = 0x12 };
     colors.cursor = .{ .r = 0xff, .g = 0xff, .b = 0xff };
@@ -928,12 +928,12 @@ test "text preparation partial damage clears use empty default background truth"
     try std.testing.expectEqual(@as(u8, 255), analysis.scene.scene.clear_draws[0].color.a);
 }
 
-test "text preparation publication clears use empty default background truth" {
+test "text preparation vt surface clears use empty default background truth" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    var colors = std.mem.zeroes(source_vt.SourceColors);
+    var colors = std.mem.zeroes(c.HowlVtRenderColorState);
     colors.background = .{ .r = 0x44, .g = 0x55, .b = 0x66 };
-    var cells = [_]source_vt.SourceCell{.{
+    var cells = [_]c.HowlVtSurfaceCell{.{
         .codepoint = ' ',
         .flags = .{ .continuation = 0 },
         .fg_color = .{ .kind = 0, .value = 0 },
@@ -946,7 +946,7 @@ test "text preparation publication clears use empty default background truth" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{0};
-    const source = source_publication.PublicationSource{
+    const source = vt_surface.VtSurface{
         .cols = 1,
         .rows = 1,
         .history_count = 0,
@@ -955,7 +955,7 @@ test "text preparation publication clears use empty default background truth" {
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
+        .cursor = .{ .visible = 0, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
         .colors = colors,
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
@@ -965,7 +965,7 @@ test "text preparation publication clears use empty default background truth" {
         .retained_storage = true,
     };
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.clear_draws));
@@ -977,10 +977,10 @@ test "text preparation publication clears use empty default background truth" {
     try std.testing.expectEqual(@as(u8, 255), analysis.scene.scene.background_draws[0].color.a);
 }
 
-test "text preparation publication ascii stays on direct normal path" {
+test "text preparation vt surface ascii stays on direct normal path" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    var cells = [_]source_vt.SourceCell{
+    var cells = [_]c.HowlVtSurfaceCell{
         .{
             .codepoint = 'A',
             .flags = .{ .continuation = 0 },
@@ -1005,7 +1005,7 @@ test "text preparation publication ascii stays on direct normal path" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
-    const source = source_publication.PublicationSource{
+    const source = vt_surface.VtSurface{
         .cols = 2,
         .rows = 1,
         .history_count = 0,
@@ -1014,8 +1014,8 @@ test "text preparation publication ascii stays on direct normal path" {
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
-        .colors = std.mem.zeroes(source_vt.SourceColors),
+        .cursor = .{ .visible = 0, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
@@ -1024,7 +1024,7 @@ test "text preparation publication ascii stays on direct normal path" {
         .retained_storage = true,
     };
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(source.colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(source.colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -1033,17 +1033,17 @@ test "text preparation publication ascii stays on direct normal path" {
     try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
 }
 
-test "text preparation publication styled indexed ascii stays on direct normal path" {
+test "text preparation vt surface styled indexed ascii stays on direct normal path" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{testPublicationCell('S')};
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{testVtSurfaceCell('S')};
     cells[0].fg_color = .{ .kind = 1, .value = 2 };
     cells[0].bg_color = .{ .kind = 1, .value = 3 };
     cells[0].attrs = .{ .bold = 1, .dim = 1, .italic = 1, .underline = 1, .underline_color_set = 0, .blink = 1, .inverse = 1, .invisible = 0, .strikethrough = 0, .selected = 0 };
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1060,16 +1060,16 @@ test "text preparation publication styled indexed ascii stays on direct normal p
     try std.testing.expectEqual(colors.palette[2].b, analysis.scene.scene.background_draws[0].color.b);
 }
 
-test "text preparation publication non inverse indexed ascii stays on direct normal path" {
+test "text preparation vt surface non inverse indexed ascii stays on direct normal path" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{testPublicationCell('N')};
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{testVtSurfaceCell('N')};
     cells[0].fg_color = .{ .kind = 1, .value = 4 };
     cells[0].bg_color = .{ .kind = 1, .value = 5 };
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1084,14 +1084,14 @@ test "text preparation publication non inverse indexed ascii stays on direct nor
     try std.testing.expectEqual(colors.palette[5].b, analysis.scene.scene.background_draws[0].color.b);
 }
 
-test "text preparation publication zero codepoint stays on direct normal path without sprite draw" {
+test "text preparation vt surface zero codepoint stays on direct normal path without sprite draw" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{testPublicationCell(0)};
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{testVtSurfaceCell(0)};
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
@@ -1104,17 +1104,17 @@ test "text preparation publication zero codepoint stays on direct normal path wi
     try std.testing.expectEqual(colors.background.b, analysis.scene.scene.background_draws[0].color.b);
 }
 
-test "text preparation publication styled indexed zero codepoint stays on direct normal path" {
+test "text preparation vt surface styled indexed zero codepoint stays on direct normal path" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{testPublicationCell(0)};
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{testVtSurfaceCell(0)};
     cells[0].fg_color = .{ .kind = 1, .value = 2 };
     cells[0].bg_color = .{ .kind = 1, .value = 3 };
     cells[0].attrs = .{ .bold = 1, .dim = 1, .italic = 1, .underline = 1, .underline_color_set = 0, .blink = 1, .inverse = 1, .invisible = 0, .strikethrough = 0, .selected = 0 };
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
@@ -1130,15 +1130,15 @@ test "text preparation publication styled indexed zero codepoint stays on direct
     try std.testing.expectEqual(colors.palette[3].b, analysis.scene.scene.decoration_draws[0].color.b);
 }
 
-test "text preparation publication unsupported space and rgb keep fallback scratch clean" {
+test "text preparation vt surface unsupported space and rgb keep fallback scratch clean" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{ testPublicationCell(' '), testPublicationCell('R') };
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{ testVtSurfaceCell(' '), testVtSurfaceCell('R') };
     cells[1].fg_color = .{ .kind = 2, .value = 0x123456 };
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1149,14 +1149,14 @@ test "text preparation publication unsupported space and rgb keep fallback scrat
     try std.testing.expectEqual(@as(u8, 0x56), analysis.scene.scene.sprite_draws[0].color.b);
 }
 
-test "text preparation publication tab stays on generic fallback without partial direct scratch" {
+test "text preparation vt surface tab stays on generic fallback without partial direct scratch" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('\t') };
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{ testVtSurfaceCell('A'), testVtSurfaceCell('\t') };
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1165,14 +1165,14 @@ test "text preparation publication tab stays on generic fallback without partial
     try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
 }
 
-test "text preparation publication other control stays on generic fallback without partial direct scratch" {
+test "text preparation vt surface other control stays on generic fallback without partial direct scratch" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell(0x1f) };
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{ testVtSurfaceCell('A'), testVtSurfaceCell(0x1f) };
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -1184,16 +1184,16 @@ test "text preparation publication other control stays on generic fallback witho
     try std.testing.expectEqual(@as(u32, 1), analysis.scene.scene.sprite_draws[1].first_cell);
 }
 
-test "text preparation publication unsupported curly falls back without partial direct scratch" {
+test "text preparation vt surface unsupported curly falls back without partial direct scratch" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('C') };
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{ testVtSurfaceCell('A'), testVtSurfaceCell('C') };
     cells[1].attrs.underline = 1;
     cells[1].underline_style = 2;
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expect(count32(analysis.scene.scene.sprite_draws) >= 2);
@@ -1202,16 +1202,16 @@ test "text preparation publication unsupported curly falls back without partial 
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
 }
 
-test "text preparation publication unsupported combining falls back without partial direct scratch" {
+test "text preparation vt surface unsupported combining falls back without partial direct scratch" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{ testPublicationCell('A'), testPublicationCell('M') };
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{ testVtSurfaceCell('A'), testVtSurfaceCell('M') };
     cells[1].combining_len = 1;
     cells[1].combining = .{ 0x0332, 0, 0 };
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -1220,15 +1220,15 @@ test "text preparation publication unsupported combining falls back without part
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
 }
 
-test "text preparation publication unsupported link reaches generic path without partial scratch" {
+test "text preparation vt surface unsupported link reaches generic path without partial scratch" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    const colors = testPublicationColors();
-    var cells = [_]source_vt.SourceCell{testPublicationCell('L')};
+    const colors = testVtSurfaceColors();
+    var cells = [_]c.HowlVtSurfaceCell{testVtSurfaceCell('L')};
     cells[0].link_id = 9;
-    const source = testOneRowPublicationSource(cells[0..], colors);
+    const source = testOneRowVtSurface(cells[0..], colors);
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.sprite_draws));
@@ -1355,10 +1355,10 @@ test "text preparation keeps icon codepoints out of the normal lane" {
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
 }
 
-test "text preparation prepares publication cells through shared full pipeline surface" {
+test "text preparation prepares vt surface cells through shared full pipeline surface" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    var cells = [_]source_vt.SourceCell{
+    var cells = [_]c.HowlVtSurfaceCell{
         .{
             .codepoint = 'A',
             .flags = .{ .continuation = 0 },
@@ -1385,7 +1385,7 @@ test "text preparation prepares publication cells through shared full pipeline s
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
-    const source = source_publication.PublicationSource{
+    const source = vt_surface.VtSurface{
         .cols = 2,
         .rows = 1,
         .history_count = 0,
@@ -1394,8 +1394,8 @@ test "text preparation prepares publication cells through shared full pipeline s
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
-        .colors = std.mem.zeroes(source_vt.SourceColors),
+        .cursor = .{ .visible = 0, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
@@ -1404,7 +1404,7 @@ test "text preparation prepares publication cells through shared full pipeline s
         .retained_storage = true,
     };
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(source.colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(source.colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -1414,10 +1414,10 @@ test "text preparation prepares publication cells through shared full pipeline s
     try std.testing.expectEqual(@as(u64, 0), engine.counters.missing_glyphs);
 }
 
-test "text preparation publication complex rejection falls back once" {
+test "text preparation vt surface complex rejection falls back once" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
-    var cells = [_]source_vt.SourceCell{
+    var cells = [_]c.HowlVtSurfaceCell{
         .{
             .codepoint = 'A',
             .flags = .{ .continuation = 0 },
@@ -1444,7 +1444,7 @@ test "text preparation publication complex rejection falls back once" {
     const dirty_rows = [_]u8{1};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
-    const source = source_publication.PublicationSource{
+    const source = vt_surface.VtSurface{
         .cols = 2,
         .rows = 1,
         .history_count = 0,
@@ -1453,8 +1453,8 @@ test "text preparation publication complex rejection falls back once" {
         .dirty_epoch = 1,
         .is_alternate_screen = false,
         .cells = cells[0..],
-        .cursor = .{ .visible = false, .row = 0, .col = 0, .shape = .block },
-        .colors = std.mem.zeroes(source_vt.SourceColors),
+        .cursor = .{ .visible = 0, .row = 0, .col = 0, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
+        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
         .selection = .{ .active = 0, .selecting = 0, .start = .{ .row = 0, .col = 0 }, .end = .{ .row = 0, .col = 0 } },
         .cursor_phase_visible = true,
         .dirty_rows = @constCast(&dirty_rows),
@@ -1463,7 +1463,7 @@ test "text preparation publication complex rejection falls back once" {
         .retained_storage = true,
     };
 
-    var analysis = (try engine.preparePublicationWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, source_theme.themeFromPublicationColors(source.colors))).?;
+    var analysis = (try engine.prepareVtSurfaceWithSessionOptions(source, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{}, vt_theme.themeFromVtSurfaceColors(source.colors))).?;
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
