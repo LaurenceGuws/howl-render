@@ -1,4 +1,6 @@
 const std = @import("std");
+const metrics = @import("metrics.zig");
+const contract = @import("contract.zig");
 
 pub const Target = struct {
     left_px: f32,
@@ -108,6 +110,27 @@ pub const CursorTrail = struct {
     }
 };
 
+pub fn targetFromCursor(cursor: anytype, cell_metrics: contract.CellMetrics) ?Target {
+    if (cursor.shape == .none) return null;
+    const base_left: f32 = @floatFromInt(@as(u32, cursor.primary_extent.col) * @as(u32, cell_metrics.cell_w_px));
+    const base_top: f32 = @floatFromInt(@as(u32, cursor.primary_extent.row) * @as(u32, cell_metrics.cell_h_px));
+    const full_width: f32 = @floatFromInt(@as(u32, cursor.primary_extent.cols) * @as(u32, cell_metrics.cell_w_px));
+    const full_height: f32 = @floatFromInt(@as(u32, cursor.primary_extent.rows) * @as(u32, cell_metrics.cell_h_px));
+    const geom = metrics.cursorGeometry(cell_metrics, cursor.beam_thickness, cursor.underline_thickness);
+    return switch (cursor.shape) {
+        .none => null,
+        .block, .hollow => .{ .left_px = base_left, .right_px = base_left + full_width, .top_px = base_top, .bottom_px = base_top + full_height, .visible = cursor.visible },
+        .beam => .{ .left_px = base_left, .right_px = base_left + @as(f32, @floatFromInt(geom.beam_w_px)), .top_px = base_top, .bottom_px = base_top + full_height, .visible = cursor.visible },
+        .underline => .{
+            .left_px = base_left,
+            .right_px = base_left + full_width,
+            .top_px = base_top + full_height - @as(f32, @floatFromInt(geom.underline_h_px)),
+            .bottom_px = base_top + full_height,
+            .visible = cursor.visible,
+        },
+    };
+}
+
 fn norm(x: f32, y: f32) f32 {
     return @sqrt(x * x + y * y);
 }
@@ -145,4 +168,46 @@ test "cursor trail opacity follows cursor visibility" {
     _ = trail.update(.{ .decay_fast_s = 0.1, .decay_slow_s = 0.4 }, 1 + 100 * std.time.ns_per_ms, false);
     try std.testing.expect(trail.opacity < 1);
     try std.testing.expect(trail.opacity > 0);
+}
+
+test "cursor trail target follows cursor shape geometry" {
+    const cell_metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    var cursor = testCursor(.block);
+
+    var target = targetFromCursor(cursor, cell_metrics).?;
+    try std.testing.expectEqual(@as(f32, 16), target.left_px);
+    try std.testing.expectEqual(@as(f32, 24), target.right_px);
+    try std.testing.expectEqual(@as(f32, 16), target.top_px);
+    try std.testing.expectEqual(@as(f32, 32), target.bottom_px);
+
+    cursor.shape = .beam;
+    cursor.beam_thickness = 3.5;
+    target = targetFromCursor(cursor, cell_metrics).?;
+    try std.testing.expect(target.right_px - target.left_px > 1);
+    try std.testing.expect(target.right_px - target.left_px < 8);
+
+    cursor.shape = .underline;
+    cursor.underline_thickness = 4.0;
+    target = targetFromCursor(cursor, cell_metrics).?;
+    try std.testing.expect(target.top_px > 16);
+    try std.testing.expectEqual(@as(f32, 32), target.bottom_px);
+
+    cursor.shape = .none;
+    try std.testing.expect(targetFromCursor(cursor, cell_metrics) == null);
+}
+
+fn testCursor(shape: contract.CursorShape) struct {
+    visible: bool,
+    shape: contract.CursorShape,
+    beam_thickness: f32,
+    underline_thickness: f32,
+    primary_extent: contract.CellExtent,
+} {
+    return .{
+        .visible = true,
+        .shape = shape,
+        .beam_thickness = 1.5,
+        .underline_thickness = 2.0,
+        .primary_extent = .{ .row = 1, .col = 2, .rows = 1, .cols = 1 },
+    };
 }
