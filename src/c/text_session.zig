@@ -4,7 +4,6 @@ const handle_owner = @import("text_session_handle.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const render_session = @import("../render_session.zig");
 const text_support = @import("../text/ft_hb/support.zig");
-const vt_surface = @import("../vt_surface/surface.zig");
 
 pub fn init(config: c.HowlRenderTextConfig) callconv(.c) c.HowlRenderTextSessionHandle {
     if (config.surface_px.width == 0 or config.surface_px.height == 0) return null;
@@ -93,9 +92,9 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const host_cadence = cadence orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (host_cadence.effective_shape > 4) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!vt_surface.vtSurfaceColorValid(host_cadence.cursor_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!vt_surface.vtSurfaceColorValid(host_cadence.cursor_text_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    if (!vt_surface.vtSurfaceColorValid(host_cadence.cursor_trail_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!colorValid(host_cadence.cursor_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!colorValid(host_cadence.cursor_text_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    if (!colorValid(host_cadence.cursor_trail_color)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!(host_cadence.cursor_beam_thickness > 0) or !(host_cadence.cursor_underline_thickness > 0)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (!(host_cadence.cursor_trail_decay_fast_s > 0) or !(host_cadence.cursor_trail_decay_slow_s > 0)) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (host_cadence.cursor_trail_count > c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
@@ -129,6 +128,15 @@ pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const H
         .now_ns = host_cadence.now_ns,
     });
     return c.HOWL_RENDER_CALL_OK;
+}
+
+fn colorValid(color: c.HowlVtColor) bool {
+    return switch (color.kind) {
+        0 => true,
+        1 => color.value <= std.math.maxInt(u8),
+        2 => color.value <= std.math.maxInt(u24),
+        else => false,
+    };
 }
 
 test "text session cadence accepts hollow host shape and rejects out-of-range shape" {

@@ -1,8 +1,6 @@
 const std = @import("std");
 const c = @import("howl_render_c");
 const geometry_contract = @import("geometry_contract.zig");
-const vt_surface = @import("vt_surface/surface.zig");
-const vt_text_input = @import("vt_surface/text_input.zig");
 
 const contract = @import("text/contract.zig");
 const surface_preparer = @import("text/surface_preparer.zig");
@@ -15,7 +13,6 @@ const OutputFormat = enum { ndjson, text };
 const WorkloadInput = union(enum) {
     cells: []contract.CellInput,
     cell_texts: []const cluster.CellTextInput,
-    vt_surface: vt_surface.VtSurface,
 };
 
 const Options = struct {
@@ -329,51 +326,6 @@ fn buildAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildVtSurfaceAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
-    const rows: u16 = 24;
-    const cols: u16 = 80;
-    const len = cellCount(rows, cols);
-    const cells = try allocator.alloc(c.HowlVtSurfaceCell, @intCast(len));
-    const dirty_rows = try allocator.alloc(u8, rows);
-    const dirty_cols_start = try allocator.alloc(u16, rows);
-    const dirty_cols_end = try allocator.alloc(u16, rows);
-    @memset(dirty_rows, 1);
-    @memset(dirty_cols_start, 0);
-    @memset(dirty_cols_end, cols -| 1);
-    for (cells, 0..) |*cell, idx| {
-        cell.* = std.mem.zeroes(c.HowlVtSurfaceCell);
-        cell.codepoint = @as(u32, 'A') + @as(u32, @intCast(idx % 26));
-    }
-    return buildWorkload(
-        "vt_surface_ascii_full",
-        .{ .vt_surface = .{
-            .cols = cols,
-            .rows = rows,
-            .history_count = 0,
-            .scroll_row = 0,
-            .snapshot_seq = 1,
-            .dirty_epoch = 1,
-            .is_alternate_screen = false,
-            .cells = cells,
-            .cursor = std.mem.zeroes(c.HowlVtCursor),
-            .colors = defaultVtSurfaceColors(),
-            .selection = std.mem.zeroes(c.HowlVtSelection),
-            .cursor_phase_visible = true,
-            .dirty_rows = dirty_rows,
-            .dirty_cols_start = dirty_cols_start,
-            .dirty_cols_end = dirty_cols_end,
-            .retained_storage = true,
-        } },
-        .{ .cols = cols, .rows = rows },
-        true,
-        @ptrCast(dirty_rows),
-        dirty_cols_start,
-        dirty_cols_end,
-        .{ .width = 9, .height = 18 },
-        len,
-    );
-}
-
 fn buildAsciiFullLargeWorkload(allocator: std.mem.Allocator) !Workload {
     const rows: u16 = 120;
     const cols: u16 = 320;
@@ -401,65 +353,6 @@ fn buildAsciiFullLargeWorkload(allocator: std.mem.Allocator) !Workload {
         dirty.ends,
         .{ .width = 9, .height = 18 },
         cellCount(rows, cols),
-    );
-}
-
-fn sourceRgb(color: contract.Rgba8) c.HowlVtRgb8 {
-    return .{ .r = color.r, .g = color.g, .b = color.b };
-}
-
-fn defaultVtSurfaceColors() c.HowlVtRenderColorState {
-    const theme = vt_text_input.default_theme;
-    var colors = std.mem.zeroes(c.HowlVtRenderColorState);
-    colors.foreground = sourceRgb(theme.default_fg);
-    colors.background = sourceRgb(theme.default_bg);
-    colors.cursor = sourceRgb(theme.cursor_color);
-    for (theme.palette, 0..) |color, idx| colors.palette[idx] = sourceRgb(color);
-    return colors;
-}
-
-fn buildVtSurfaceAsciiFullLargeWorkload(allocator: std.mem.Allocator) !Workload {
-    const rows: u16 = 120;
-    const cols: u16 = 320;
-    const len = cellCount(rows, cols);
-    const cells = try allocator.alloc(c.HowlVtSurfaceCell, @intCast(len));
-    const dirty_rows = try allocator.alloc(u8, rows);
-    const dirty_cols_start = try allocator.alloc(u16, rows);
-    const dirty_cols_end = try allocator.alloc(u16, rows);
-    @memset(dirty_rows, 1);
-    @memset(dirty_cols_start, 0);
-    @memset(dirty_cols_end, cols -| 1);
-    for (cells, 0..) |*cell, idx| {
-        cell.* = std.mem.zeroes(c.HowlVtSurfaceCell);
-        cell.codepoint = @as(u32, 'A') + @as(u32, @intCast(idx % 26));
-    }
-    return buildWorkload(
-        "vt_surface_ascii_full_large",
-        .{ .vt_surface = .{
-            .cols = cols,
-            .rows = rows,
-            .history_count = 0,
-            .scroll_row = 0,
-            .snapshot_seq = 1,
-            .dirty_epoch = 1,
-            .is_alternate_screen = false,
-            .cells = cells,
-            .cursor = std.mem.zeroes(c.HowlVtCursor),
-            .colors = defaultVtSurfaceColors(),
-            .selection = std.mem.zeroes(c.HowlVtSelection),
-            .cursor_phase_visible = true,
-            .dirty_rows = dirty_rows,
-            .dirty_cols_start = dirty_cols_start,
-            .dirty_cols_end = dirty_cols_end,
-            .retained_storage = true,
-        } },
-        .{ .cols = cols, .rows = rows },
-        true,
-        @ptrCast(dirty_rows),
-        dirty_cols_start,
-        dirty_cols_end,
-        .{ .width = 9, .height = 18 },
-        len,
     );
 }
 
@@ -818,15 +711,6 @@ fn prepareWorkloadSurface(preparer: *surface_preparer.TextSurfacePreparer, workl
             context.session,
             context.options,
         ),
-        .vt_surface => |source| blk: {
-            const mapped = vt_text_input.vtSurfaceToTextSceneInputBorrowed(context.borrowed_cells, source, true);
-            break :blk try preparer.prepareCellsWithSessionOptions(
-                mapped.cells,
-                mapped.grid,
-                context.session,
-                .{ .scene = mapped.options.scene },
-            );
-        },
     };
 }
 
@@ -923,10 +807,6 @@ fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObse
 
 fn runWorkloadInitState(allocator: std.mem.Allocator, workload: Workload, counting: *CountingAllocator, preparer: *surface_preparer.TextSurfacePreparer, context: *WorkloadPrepareContext) void {
     context.* = initPrepareContext(workload);
-    switch (workload.input) {
-        .vt_surface => |source| context.borrowed_cells = allocator.alloc(contract.CellInput, source.cells.len) catch unreachable,
-        else => {},
-    }
     counting.* = CountingAllocator.init(allocator);
     preparer.* = surface_preparer.TextSurfacePreparer.init(counting.allocator());
 }
@@ -1076,9 +956,7 @@ pub fn main(init: std.process.Init) !void {
 
     const workloads = [_]Workload{
         try buildAsciiFullWorkload(arena),
-        try buildVtSurfaceAsciiFullWorkload(arena),
         try buildAsciiFullLargeWorkload(arena),
-        try buildVtSurfaceAsciiFullLargeWorkload(arena),
         try buildLsdLikeWorkload(arena, false),
         try buildLsdLikeWorkload(arena, true),
         try buildCellTextAsciiFullWorkload(arena),

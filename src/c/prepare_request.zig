@@ -3,12 +3,12 @@ const c = @import("howl_render_c");
 const handle_owner = @import("text_session_handle.zig");
 const tokens = @import("../tokens.zig");
 
-pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, vt_surface: ?*const c.HowlVtSurfaceResult, out: ?*c.HowlRenderPrepareRequest) callconv(.c) c_int {
+pub fn takePrepareRequest(value: c.HowlRenderTextSessionHandle, render_state: c.HowlVtRenderStateHandle, out: ?*c.HowlRenderPrepareRequest) callconv(.c) c_int {
     const prepare_out = out orelse return c.HOWL_RENDER_PREPARE_FAILED;
     prepare_out.* = std.mem.zeroes(c.HowlRenderPrepareRequest);
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_PREPARE_FAILED;
-    const visible = vt_surface orelse return c.HOWL_RENDER_PREPARE_FAILED;
-    const request = (owner.ingestVtSurface(visible.*) catch return c.HOWL_RENDER_PREPARE_FAILED) orelse return c.HOWL_RENDER_PREPARE_IDLE;
+    if (render_state == null) return c.HOWL_RENDER_PREPARE_FAILED;
+    const request = (owner.ingestRenderState(render_state) catch return c.HOWL_RENDER_PREPARE_FAILED) orelse return c.HOWL_RENDER_PREPARE_IDLE;
     prepare_out.* = prepareRequestOut(request);
     return c.HOWL_RENDER_PREPARE_READY;
 }

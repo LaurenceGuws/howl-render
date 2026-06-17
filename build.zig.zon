@@ -10,6 +10,9 @@
         .harfbuzz = .{
             .path = "vendor/harfbuzz-zig",
         },
+        .howl_vt = .{
+            .path = "../howl-vt",
+        },
     },
     .paths = .{
         "build.zig",

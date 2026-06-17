@@ -452,7 +452,7 @@ HowlRenderPrepareStatus howl_render_text_session_prepare_handle(
 );
 HowlRenderPrepareStatus howl_render_text_session_take_prepare_request(
     HowlRenderTextSessionHandle handle,
-    const HowlVtSurfaceResult *vt_surface,
+    HowlVtRenderStateHandle render_state,
     HowlRenderPrepareRequest *prepare_request_out
 );
 HowlRenderSubmitDecisionStatus howl_render_text_session_take_submit_handle(

@@ -1,11 +1,7 @@
 const std = @import("std");
-const c = @import("howl_render_c");
 const contract = @import("../contract.zig");
 const scene_damage = @import("../scene_damage.zig");
 const lane = @import("../lane.zig");
-const vt_text_input = @import("../../vt_surface/text_input.zig");
-const vt_theme = @import("../../vt_surface/theme.zig");
-const vt_surface = @import("../../vt_surface/surface.zig");
 
 const VS15: u32 = 0xfe0e;
 const VS16: u32 = 0xfe0f;
@@ -259,56 +255,6 @@ pub fn buildSparseCellsWithDamageScratch(
     };
 }
 
-pub fn buildSparseVtSurfaceCellsWithDamageScratch(
-    allocator: std.mem.Allocator,
-    scratch: *RetainedScratch,
-    cells: []const c.HowlVtSurfaceCell,
-    theme: vt_theme.SurfaceTheme,
-    grid_metrics: contract.GridMetrics,
-    damage: scene_damage.DamageInput,
-) !SparseCells {
-    const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
-    const total_cells = count32(cells);
-    try scratch.require(total_cells, countVtSurfaceCodepoints(cells));
-
-    var text_count: u32 = 0;
-    var codepoint_count: u32 = 0;
-    var renderable_count: u32 = 0;
-    var cell_idx: u32 = 0;
-    while (cell_idx < total_cells) {
-        if (scene_damage.cleanRowSkip(normalized_damage, grid_metrics, cell_idx, total_cells)) |next_idx| {
-            cell_idx = next_idx;
-            continue;
-        }
-        const idx = cell_idx;
-        cell_idx += 1;
-        const source_cell_value = cells[@intCast(idx)];
-        if (source_cell_value.flags.continuation != 0) continue;
-        const mapped = vt_text_input.mapVtSurfaceCellInput(source_cell_value, theme);
-        const first_cell = idx;
-        const span = inferredVtSurfaceCellSpan(cells, first_cell);
-        if (!scene_damage.includeSpan(normalized_damage, grid_metrics, first_cell, span)) continue;
-        var scratch_codepoints: [4]u32 = undefined;
-        const cps = cellCodepointsForRenderableOwnership(mapped, &scratch_codepoints);
-        const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
-            const next_id = text_count;
-            appendScratchText(scratch, &text_count, &codepoint_count, cps);
-            break :blk contract.CellTextId{ .value = next_id };
-        };
-        scratch.renderable[@intCast(renderable_count)] = renderableFromCellInput(text_id, first_cell, span, mapped, false);
-        renderable_count += 1;
-    }
-
-    const renderable = try allocator.dupe(contract.RenderableCell, scratch.renderable[0..@intCast(renderable_count)]);
-    errdefer allocator.free(renderable);
-    const text_cache = try cloneTextCache(allocator, scratch.texts[0..@intCast(text_count)], scratch.codepoints[0..@intCast(codepoint_count)]);
-    errdefer text_cache.deinit();
-    return .{
-        .text_cache = text_cache,
-        .renderable = .{ .allocator = allocator, .cells = renderable },
-    };
-}
-
 pub fn buildLineTextCacheFromInputs(allocator: std.mem.Allocator, inputs: []const CellTextInput) !OwnedLineTextCache {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
@@ -478,14 +424,6 @@ pub fn sourceRenderableTextFromCells(cells: []const contract.CellInput, idx: u32
     if (cell.continuation) return null;
     const cell_span = inferredCellSpan(cells, idx);
     return initRenderableTextFromCellInput(renderableFromCellInput(.{ .value = 0 }, idx, cell_span, cell, false), cell);
-}
-
-pub fn sourceRenderableTextFromVtSurface(cells: []const c.HowlVtSurfaceCell, theme: vt_theme.SurfaceTheme, idx: u32) ?RenderableText {
-    const cell = cells[idx];
-    if (cell.flags.continuation != 0) return null;
-    const mapped = vt_text_input.mapVtSurfaceCellInput(cell, theme);
-    const cell_span = inferredVtSurfaceCellSpan(cells, idx);
-    return initRenderableTextFromCellInput(renderableFromCellInput(.{ .value = 0 }, idx, cell_span, mapped, false), mapped);
 }
 
 pub fn sourceRenderableTextFromInputs(inputs: []const CellTextInput, idx: u32) ?RenderableText {
@@ -676,13 +614,6 @@ fn inferredInputCellSpan(inputs: []const CellTextInput, idx: u32) u8 {
     return @intCast(@min(span, std.math.maxInt(u8)));
 }
 
-fn inferredVtSurfaceCellSpan(cells: []const c.HowlVtSurfaceCell, idx: u32) u8 {
-    var span: u32 = 1;
-    const total = count32(cells);
-    while (idx + span < total and cells[@intCast(idx + span)].flags.continuation != 0) : (span += 1) {}
-    return @intCast(@min(span, std.math.maxInt(u8)));
-}
-
 fn inferredRenderableCellSpan(cells: []const contract.RenderableCell, idx: u32) u8 {
     var span: u32 = 1;
     const total = count32(cells);
@@ -735,12 +666,6 @@ fn countNormalizedInputCodepoints(inputs: []const CellTextInput) u32 {
 }
 
 fn countCellInputCodepoints(cells: []const contract.CellInput) u32 {
-    var total_codepoints: u32 = 0;
-    for (cells) |cell| total_codepoints += @as(u32, cell.combining_len) + 1;
-    return total_codepoints;
-}
-
-fn countVtSurfaceCodepoints(cells: []const c.HowlVtSurfaceCell) u32 {
     var total_codepoints: u32 = 0;
     for (cells) |cell| total_codepoints += @as(u32, cell.combining_len) + 1;
     return total_codepoints;

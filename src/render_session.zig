@@ -1,15 +1,10 @@
 const std = @import("std");
 const geometry_mod = @import("grid_geometry.zig");
-const vt_text_input = @import("vt_surface/text_input.zig");
-const vt_theme = @import("vt_surface/theme.zig");
-const vt_cursor = @import("vt_surface/cursor.zig");
 const tokens = @import("tokens.zig");
 const prepared_handle = @import("surface/handle.zig");
 const pending_prepared_surface = @import("surface/pending_prepared_surface.zig");
 const render_geometry = @import("geometry.zig");
 const geometry_contract = @import("geometry_contract.zig");
-const vt_surface = @import("vt_surface/surface.zig");
-const vt_surface_damage = @import("vt_surface/damage.zig");
 const prepared_surface = @import("surface/prepared_surface.zig");
 const submitted_surface = @import("submitted_surface.zig");
 const sprite_resource_store = @import("surface/resource_store.zig");
@@ -28,6 +23,8 @@ const text_glyph_raster = @import("text/ft_hb/glyph_raster.zig");
 const text_raster_operation = @import("text/raster/operation.zig");
 const cursor_presentation_mod = @import("cursor_presentation.zig");
 const c = @import("howl_render_c");
+
+const max_cursor_trail_rects = 16;
 
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
 const ft_hb_face_text_cache_entry_cap: u32 = 4096;
@@ -86,12 +83,234 @@ pub const SubmitResult = struct {
     host_surface: HostSurface,
 };
 
+const RenderStateToken = struct {
+    cols: u16,
+    rows: u16,
+    snapshot_seq: u64,
+    dirty_epoch: u64,
+    scroll_row: u64,
+    is_alternate_screen: bool,
+    dirty: c_int,
+};
+
+const CursorPresentationFacts = cursor_presentation_mod.PresentationFacts;
+
+const RenderStateTextInput = struct {
+    cells: []const contract.CellInput,
+    grid: contract.GridMetrics,
+    dirty_rows: []const bool,
+    dirty_cols_start: []const u16,
+    dirty_cols_end: []const u16,
+    cursor: ?contract.CursorPresentation,
+};
+
+const RenderStateColors = struct {
+    background: c.HowlVtRgb8,
+    foreground: c.HowlVtRgb8,
+    cursor: c.HowlVtRgb8,
+    cursor_has_value: bool,
+    palette: [256]c.HowlVtRgb8,
+};
+
+fn colorFromRgb(value: c.HowlVtRgb8) contract.Rgba8 {
+    return .{ .r = value.r, .g = value.g, .b = value.b, .a = 255 };
+}
+
+fn colorFromValue(value: c.HowlVtColor, colors: RenderStateColors, foreground: bool) contract.Rgba8 {
+    return switch (value.kind) {
+        0 => if (foreground) colorFromRgb(colors.foreground) else colorFromRgb(colors.background),
+        1 => colorFromRgb(colors.palette[@intCast(value.value & 0xff)]),
+        2 => .{ .r = @intCast((value.value >> 16) & 0xff), .g = @intCast((value.value >> 8) & 0xff), .b = @intCast(value.value & 0xff), .a = 255 },
+        else => if (foreground) colorFromRgb(colors.foreground) else colorFromRgb(colors.background),
+    };
+}
+
+fn semanticColor(value: c.HowlVtColor) contract.SemanticColor {
+    return switch (value.kind) {
+        0 => .{ .kind = .default },
+        1 => .{ .kind = .indexed, .value = value.value & 0xff },
+        2 => .{ .kind = .rgb, .value = value.value & 0xffffff },
+        else => .{ .kind = .default },
+    };
+}
+
+fn underlineStyle(value: u8) contract.UnderlineStyle {
+    return switch (value) {
+        1 => .double,
+        2 => .curly,
+        3 => .dotted,
+        4 => .dashed,
+        else => .straight,
+    };
+}
+
+fn fontStyle(cell: c.HowlVtRenderStateCell) contract.FontStyle {
+    if (cell.attrs.bold != 0 and cell.attrs.italic != 0) return .bold_italic;
+    if (cell.attrs.bold != 0) return .bold;
+    if (cell.attrs.italic != 0) return .italic;
+    return .regular;
+}
+
+fn presentation(cell: c.HowlVtRenderStateCell) contract.TextPresentation {
+    for (cell.combining[0..cell.combining_len]) |cp| {
+        if (cp == 0xfe0f) return .emoji;
+        if (cp == 0xfe0e) return .text;
+    }
+    return .any;
+}
+
+fn mapCell(cell: c.HowlVtRenderStateCell, colors: RenderStateColors, selected: bool, highlighted: bool) contract.CellInput {
+    std.debug.assert(cell.combining_len <= cell.combining.len);
+    const default_fg = cell.fg_color.kind == 0;
+    const default_bg = cell.bg_color.kind == 0;
+    const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
+    const visible_flags = cell.flags.continuation != 0 or cell.attrs.inverse != 0 or cell.attrs.underline != 0 or cell.attrs.strikethrough != 0 or cell.attrs.invisible != 0 or selected or highlighted;
+    var out = contract.CellInput{
+        .codepoint = @intCast(cell.codepoint),
+        .combining_len = cell.combining_len,
+        .combining = cell.combining,
+        .style = fontStyle(cell),
+        .presentation = presentation(cell),
+        .dim = cell.attrs.dim != 0,
+        .invisible = cell.attrs.invisible != 0,
+        .semantic_fg = semanticColor(cell.fg_color),
+        .semantic_bg = semanticColor(cell.bg_color),
+        .fg = colorFromValue(cell.fg_color, colors, true),
+        .bg = colorFromValue(cell.bg_color, colors, false),
+        .underline_color_set = cell.attrs.underline_color_set != 0,
+        .semantic_underline_color = semanticColor(cell.underline_color),
+        .underline_color = if (cell.attrs.underline_color_set != 0) colorFromValue(cell.underline_color, colors, true) else .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        .underline_style = underlineStyle(cell.underline_style),
+        .underline = cell.attrs.underline != 0 or highlighted,
+        .strikethrough = cell.attrs.strikethrough != 0,
+        .continuation = cell.flags.continuation != 0,
+        .empty = blank and cell.combining_len == 0 and default_fg and default_bg and !visible_flags,
+    };
+    if (cell.attrs.inverse != 0) {
+        const fg = out.fg;
+        out.fg = out.bg;
+        out.bg = fg;
+        out.empty = false;
+    }
+    if (selected) {
+        out.fg = colorFromRgb(colors.background);
+        out.bg = colorFromRgb(colors.foreground);
+        out.empty = false;
+    }
+    return out;
+}
+
+fn requireVtOk(status: i32) !void {
+    if (status == c.HOWL_VT_CALL_OK) return;
+    return error.InvalidRenderState;
+}
+
+fn renderStateU16(state: c.HowlVtRenderStateHandle, key: c.HowlVtRenderStateData) !u16 {
+    var value: u16 = 0;
+    try requireVtOk(c.howl_vt_render_state_get(state, key, &value));
+    return value;
+}
+
+fn renderStateU64(state: c.HowlVtRenderStateHandle, key: c.HowlVtRenderStateData) !u64 {
+    var value: u64 = 0;
+    try requireVtOk(c.howl_vt_render_state_get(state, key, &value));
+    return value;
+}
+
+fn renderStateByte(state: c.HowlVtRenderStateHandle, key: c.HowlVtRenderStateData) !u8 {
+    var value: u8 = 0;
+    try requireVtOk(c.howl_vt_render_state_get(state, key, &value));
+    return value;
+}
+
+fn readRenderStateToken(state: c.HowlVtRenderStateHandle) !RenderStateToken {
+    return .{
+        .cols = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_COLS),
+        .rows = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_ROWS),
+        .snapshot_seq = try renderStateU64(state, c.HOWL_VT_RENDER_STATE_DATA_SNAPSHOT_SEQ),
+        .dirty_epoch = try renderStateU64(state, c.HOWL_VT_RENDER_STATE_DATA_DIRTY_GENERATION),
+        .scroll_row = try renderStateU64(state, c.HOWL_VT_RENDER_STATE_DATA_SCROLL_ROW),
+        .is_alternate_screen = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_IS_ALTERNATE_SCREEN) != 0,
+        .dirty = blk: {
+            var value: c_int = 0;
+            try requireVtOk(c.howl_vt_render_state_get(state, c.HOWL_VT_RENDER_STATE_DATA_DIRTY, &value));
+            break :blk value;
+        },
+    };
+}
+
+fn readRenderStateColors(state: c.HowlVtRenderStateHandle) !RenderStateColors {
+    var colors: c.HowlVtRenderStateColors = .{ .size = @sizeOf(c.HowlVtRenderStateColors) };
+    try requireVtOk(c.howl_vt_render_state_colors_get(state, &colors));
+    return .{
+        .background = colors.background,
+        .foreground = colors.foreground,
+        .cursor = colors.cursor,
+        .cursor_has_value = colors.cursor_has_value != 0,
+        .palette = colors.palette,
+    };
+}
+
+fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateColors, facts: CursorPresentationFacts) !?contract.CursorPresentation {
+    const has_viewport = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE) != 0;
+    if (!has_viewport) return null;
+    const row = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y);
+    const col = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_X);
+    const visible = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VISIBLE) != 0;
+    var trail_rects = [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } }} ** max_cursor_trail_rects;
+    var trail_count: u16 = 0;
+    while (trail_count < @min(facts.cursor_trail_count, max_cursor_trail_rects)) : (trail_count += 1) {
+        const rect = facts.cursor_trail_rects[trail_count];
+        trail_rects[trail_count] = .{ .extent = .{ .row = rect.row, .col = rect.col, .rows = rect.rows, .cols = rect.cols }, .opacity = rect.opacity, .color = .{ .r = rect.color.r, .g = rect.color.g, .b = rect.color.b } };
+    }
+    return .{
+        .focused = facts.focused,
+        .visible = visible and facts.cursor_opacity != 0,
+        .blink = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_BLINKING) != 0,
+        .shape = cursorShape(facts.effective_shape),
+        .beam_thickness = facts.cursor_beam_thickness,
+        .underline_thickness = facts.cursor_underline_thickness,
+        .cursor_opacity = facts.cursor_opacity,
+        .text_blink_opacity = facts.text_blink_opacity,
+        .cursor_color = cursorColor(if (facts.cursor_color.kind == 0) .{ .kind = 2, .value = rgbValue(colors.cursor) } else facts.cursor_color),
+        .cursor_text_color = cursorColor(facts.cursor_text_color),
+        .cursor_trail_color = cursorColor(facts.cursor_trail_color),
+        .default_foreground = .{ .r = colors.foreground.r, .g = colors.foreground.g, .b = colors.foreground.b },
+        .default_background = .{ .r = colors.background.r, .g = colors.background.g, .b = colors.background.b },
+        .primary_extent = .{ .row = row, .col = col, .rows = 1, .cols = if (try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL) != 0) 2 else 1 },
+        .extra_cursors = [_]contract.ExtraCursorPresentation{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .shape = .none, .mode = .point, .shape_follows_main = false, .color_follows_main = false, .cursor_color = .{ .kind = .default, .value = 0 }, .text_color = .{ .kind = .default, .value = 0 } }} ** 256,
+        .extra_cursor_count = 0,
+        .trail = .{ .rects = trail_rects, .count = trail_count },
+    };
+}
+
+fn rgbValue(value: c.HowlVtRgb8) u32 {
+    return (@as(u32, value.r) << 16) | (@as(u32, value.g) << 8) | value.b;
+}
+
+fn cursorColor(value: c.HowlVtColor) contract.CursorColor {
+    return .{ .kind = @enumFromInt(value.kind), .value = value.value };
+}
+
+fn cursorShape(value: u8) contract.CursorShape {
+    return switch (value) {
+        c.HOWL_VT_CURSOR_SHAPE_UNDERLINE => .underline,
+        c.HOWL_VT_CURSOR_SHAPE_BEAM => .beam,
+        c.HOWL_VT_CURSOR_SHAPE_NONE => .none,
+        4 => .hollow,
+        else => .block,
+    };
+}
+
 pub const TextSession = struct {
     allocator: std.mem.Allocator,
     text_state: text_support.FtHbSupport,
     mutex: ThreadMutex = .{},
     text_preparer: ?surface_preparer.TextSurfacePreparer = null,
     cell_input_scratch: []contract.CellInput = &.{},
+    dirty_rows_scratch: []bool = &.{},
+    dirty_cols_start_scratch: []u16 = &.{},
+    dirty_cols_end_scratch: []u16 = &.{},
 
     const TextContext = struct {
         session: *TextSession,
@@ -107,8 +326,8 @@ pub const TextSession = struct {
         config: TextSessionConfig,
         request: tokens.RenderRequest,
         layout: geometry_contract.PrepareLayout,
-        state: vt_surface.VtSurface,
-        cursor_theme: vt_theme.CursorThemeConfig = .{},
+        render_state: c.HowlVtRenderStateHandle,
+        cursor_presentation: CursorPresentationFacts,
     };
 
     pub fn init(allocator: std.mem.Allocator) TextSession {
@@ -127,6 +346,12 @@ pub const TextSession = struct {
         }
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
         self.cell_input_scratch = &.{};
+        if (self.dirty_rows_scratch.len > 0) self.allocator.free(self.dirty_rows_scratch);
+        self.dirty_rows_scratch = &.{};
+        if (self.dirty_cols_start_scratch.len > 0) self.allocator.free(self.dirty_cols_start_scratch);
+        self.dirty_cols_start_scratch = &.{};
+        if (self.dirty_cols_end_scratch.len > 0) self.allocator.free(self.dirty_cols_end_scratch);
+        self.dirty_cols_end_scratch = &.{};
         self.text_state.deinit();
     }
 
@@ -166,41 +391,20 @@ pub const TextSession = struct {
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
         var resolve: font_resolve.ResolveObservability = .{};
-        const theme = vt_theme.themeFromVtSurfaceColorsWithCursorConfig(prepare.state.colors, prepare.cursor_theme);
-        const dirty_rows: []const bool = @ptrCast(prepare.state.dirty_rows);
+        const read = try self.readRenderState(prepare.render_state, prepare.request.token.damage_kind == .full, prepare.cursor_presentation);
         const options: surface_preparer.PrepareOptions = .{ .scene = .{
-            .cursor = vt_cursor.mapVtSurfaceCursor(prepare.state, theme),
+            .cursor = read.cursor,
             .damage = .{
                 .full = prepare.request.token.damage_kind == .full,
-                .dirty_rows = dirty_rows,
-                .dirty_cols_start = prepare.state.dirty_cols_start,
-                .dirty_cols_end = prepare.state.dirty_cols_end,
+                .dirty_rows = read.dirty_rows,
+                .dirty_cols_start = read.dirty_cols_start,
+                .dirty_cols_end = read.dirty_cols_end,
             },
         } };
         const preparer = try self.ensureTextPreparer(&context);
-        if (try preparer.prepareVtSurfaceWithSessionOptions(
-            prepare.state,
-            .{ .cols = prepare.state.cols, .rows = prepare.state.rows },
-            fontSession(&context, &faces, &resolve),
-            options,
-            theme,
-        )) |prepared_direct| {
-            const owned_direct = ownPreparedSurface(self.allocator, prepare, .{ .cols = prepare.state.cols, .rows = prepare.state.rows }, prepared_direct, resolve);
-            self.mutex.unlock();
-            return owned_direct;
-        }
-        try self.ensureCellInputScratchCapacity(prepare.state.cells.len);
-        const cell_input_scratch = self.cell_input_scratch[0..prepare.state.cells.len];
-        std.debug.assert(cell_input_scratch.len == prepare.state.cells.len);
-        const text_input = vt_text_input.vtSurfaceToTextSceneInputBorrowedWithTheme(
-            cell_input_scratch,
-            prepare.state,
-            prepare.request.token.damage_kind == .full,
-            theme,
-        );
-        var prepared = try preparer.prepareCellsWithSessionOptions(text_input.cells, text_input.grid, fontSession(&context, &faces, &resolve), .{ .scene = text_input.options.scene });
+        var prepared = try preparer.prepareCellsWithSessionOptions(read.cells, read.grid, fontSession(&context, &faces, &resolve), options);
         errdefer prepared.deinit();
-        const owned = ownPreparedSurface(self.allocator, prepare, text_input.grid, prepared, resolve);
+        const owned = ownPreparedSurface(self.allocator, prepare, read.grid, prepared, resolve);
         self.mutex.unlock();
         return owned;
     }
@@ -290,6 +494,74 @@ pub const TextSession = struct {
         const scratch = try self.allocator.alloc(contract.CellInput, cell_count);
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
         self.cell_input_scratch = scratch;
+    }
+
+    fn ensureDamageScratchCapacity(self: *TextSession, rows: usize) !void {
+        if (self.dirty_rows_scratch.len < rows) {
+            const scratch = try self.allocator.alloc(bool, rows);
+            if (self.dirty_rows_scratch.len > 0) self.allocator.free(self.dirty_rows_scratch);
+            self.dirty_rows_scratch = scratch;
+        }
+        if (self.dirty_cols_start_scratch.len < rows) {
+            const scratch = try self.allocator.alloc(u16, rows);
+            if (self.dirty_cols_start_scratch.len > 0) self.allocator.free(self.dirty_cols_start_scratch);
+            self.dirty_cols_start_scratch = scratch;
+        }
+        if (self.dirty_cols_end_scratch.len < rows) {
+            const scratch = try self.allocator.alloc(u16, rows);
+            if (self.dirty_cols_end_scratch.len > 0) self.allocator.free(self.dirty_cols_end_scratch);
+            self.dirty_cols_end_scratch = scratch;
+        }
+    }
+
+    fn readRenderState(self: *TextSession, state: c.HowlVtRenderStateHandle, full_damage: bool, cursor_facts: CursorPresentationFacts) !RenderStateTextInput {
+        const token = try readRenderStateToken(state);
+        const cell_count = try std.math.mul(usize, token.cols, token.rows);
+        try self.ensureCellInputScratchCapacity(cell_count);
+        try self.ensureDamageScratchCapacity(token.rows);
+        const cells = self.cell_input_scratch[0..cell_count];
+        const dirty_rows = self.dirty_rows_scratch[0..token.rows];
+        const dirty_cols_start = self.dirty_cols_start_scratch[0..token.rows];
+        const dirty_cols_end = self.dirty_cols_end_scratch[0..token.rows];
+        const colors = try readRenderStateColors(state);
+        var row_iterator: c.HowlVtRenderStateRowIteratorHandle = null;
+        try requireVtOk(c.howl_vt_render_state_row_iterator_init(&row_iterator));
+        defer c.howl_vt_render_state_row_iterator_deinit(row_iterator);
+        try requireVtOk(c.howl_vt_render_state_get(state, c.HOWL_VT_RENDER_STATE_DATA_ROW_ITERATOR, @ptrCast(&row_iterator)));
+        var row_index: u16 = 0;
+        while (c.howl_vt_render_state_row_iterator_next(row_iterator) != 0) : (row_index += 1) {
+            std.debug.assert(row_index < token.rows);
+            var row_dirty: u8 = 0;
+            try requireVtOk(c.howl_vt_render_state_row_get(row_iterator, c.HOWL_VT_RENDER_STATE_ROW_DATA_DIRTY, @ptrCast(&row_dirty)));
+            dirty_rows[row_index] = full_damage or row_dirty != 0;
+            dirty_cols_start[row_index] = 0;
+            dirty_cols_end[row_index] = if (token.cols == 0) 0 else token.cols - 1;
+            var row_cells: c.HowlVtRenderStateRowCellsHandle = null;
+            try requireVtOk(c.howl_vt_render_state_row_cells_init(&row_cells));
+            defer c.howl_vt_render_state_row_cells_deinit(row_cells);
+            try requireVtOk(c.howl_vt_render_state_row_get(row_iterator, c.HOWL_VT_RENDER_STATE_ROW_DATA_CELLS, @ptrCast(&row_cells)));
+            var col: u16 = 0;
+            while (c.howl_vt_render_state_row_cells_next(row_cells) != 0) : (col += 1) {
+                std.debug.assert(col < token.cols);
+                const idx = @as(usize, row_index) * @as(usize, token.cols) + col;
+                var cell: c.HowlVtRenderStateCell = std.mem.zeroes(c.HowlVtRenderStateCell);
+                var selected: u8 = 0;
+                var highlighted: u8 = 0;
+                try requireVtOk(c.howl_vt_render_state_row_cells_get(row_cells, c.HOWL_VT_RENDER_STATE_ROW_CELLS_DATA_CELL, @ptrCast(&cell)));
+                try requireVtOk(c.howl_vt_render_state_row_cells_get(row_cells, c.HOWL_VT_RENDER_STATE_ROW_CELLS_DATA_SELECTED, @ptrCast(&selected)));
+                try requireVtOk(c.howl_vt_render_state_row_cells_get(row_cells, c.HOWL_VT_RENDER_STATE_ROW_CELLS_DATA_HIGHLIGHTED, @ptrCast(&highlighted)));
+                cells[idx] = mapCell(cell, colors, selected != 0, highlighted != 0);
+            }
+        }
+        std.debug.assert(row_index == token.rows);
+        return .{
+            .cells = cells,
+            .grid = .{ .cols = token.cols, .rows = token.rows },
+            .dirty_rows = dirty_rows,
+            .dirty_cols_start = dirty_cols_start,
+            .dirty_cols_end = dirty_cols_end,
+            .cursor = try readCursorPresentation(state, colors, cursor_facts),
+        };
     }
 
     fn ftHbSource(context: *TextContext) ft_hb_provider.FtHbSource {
@@ -385,8 +657,8 @@ pub const TextSessionOwner = struct {
     allocator: std.mem.Allocator,
     session: TextSession,
     geometry: render_geometry.GeometryOwner,
-    latest_vt_surface: ?vt_surface.VtSurface = null,
-    latest_vt_surface_dirty_epoch: u64 = 0,
+    latest_render_state: ?RenderStateToken = null,
+    latest_render_state_handle: c.HowlVtRenderStateHandle = null,
     prepare_request: ?tokens.RenderRequest = null,
     pending_prepared: pending_prepared_surface.PendingPreparedSurface = .{},
     submitted: submitted_surface.SubmittedSurface,
@@ -427,7 +699,7 @@ pub const TextSessionOwner = struct {
 
     pub fn destroy(self: *TextSessionOwner) void {
         self.pending_prepared.deinit(self.allocator);
-        self.clearLatestVtSurface();
+        self.clearLatestRenderState();
         self.font_paths.deinit();
         self.session.deinit();
         self.allocator.destroy(self);
@@ -458,15 +730,14 @@ pub const TextSessionOwner = struct {
     pub fn prepareHandle(self: *TextSessionOwner, token: tokens.SnapshotToken) !*prepared_handle.PreparedHandle {
         if (self.pending_prepared.submitPending()) return error.PreparedCandidateBusy;
         const request = self.prepare_request orelse return error.MissingPrepareSource;
-        var source = self.latest_vt_surface orelse return error.MissingPrepareSource;
-        _ = self.cursor_presentation.applyHostCursorCadenceToVtSurface(&source, self.geometry.cell_px);
-        if (!vt_surface_damage.sameSnapshotToken(request.token, token)) return error.MismatchedPrepareSource;
+        const handle = self.latest_render_state_handle orelse return error.MissingPrepareSource;
+        if (!sameSnapshotToken(request.token, token)) return error.MismatchedPrepareSource;
         var prepared = self.session.prepareSurface(.{
             .config = self.config,
             .request = request,
             .layout = self.geometry.prepareLayout(token.geometry_epoch),
-            .state = source,
-            .cursor_theme = self.cursor_presentation.cursorThemeConfig(),
+            .render_state = handle,
+            .cursor_presentation = self.cursor_presentation.presentationFacts(),
         }) catch |err| {
             return err;
         };
@@ -499,12 +770,6 @@ pub const TextSessionOwner = struct {
         self.invalidateTextState();
     }
 
-    pub fn nextVtSurfaceDirtyEpoch(self: *TextSessionOwner) u64 {
-        self.latest_vt_surface_dirty_epoch +%= 1;
-        if (self.latest_vt_surface_dirty_epoch == 0) self.latest_vt_surface_dirty_epoch = 1;
-        return self.latest_vt_surface_dirty_epoch;
-    }
-
     pub fn submittedToken(self: *TextSessionOwner) ?tokens.SnapshotToken {
         return self.submitted.submittedToken();
     }
@@ -516,26 +781,18 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn setHostCursorCadence(self: *TextSessionOwner, cadence: HostCursorCadence) void {
-        if (self.cursor_presentation.setHostCursorCadence(cadence, self.latest_vt_surface, self.geometry.cell_px)) self.recomputePrepareRequest();
+        if (self.cursor_presentation.setHostCursorCadence(cadence, null, self.geometry.cell_px)) self.recomputePrepareRequest();
     }
 
-    pub fn ingestVtSurface(self: *TextSessionOwner, result: c.HowlVtSurfaceResult) !?tokens.RenderRequest {
-        var source = try vt_surface.vtSurfaceFromResult(self.allocator, result, self.cursor_presentation.cursor_opacity != 0);
-        errdefer source.deinit(self.allocator);
-        _ = self.cursor_presentation.applyHostCursorCadenceToVtSurface(&source, self.geometry.cell_px);
-        vt_surface_damage.canonicalizeDirtyMetadata(source.rows, source.dirty_rows, source.dirty_cols_start, source.dirty_cols_end);
-        try vt_surface.validateVtSurfaceBoundary(source);
-
-        const prior = self.latest_vt_surface;
-        const damage_kind = self.classifyVtSurfaceDamage(source);
-        if (damage_kind == .none) {
-            source.deinit(self.allocator);
-            return null;
-        }
-        self.pending_prepared.invalidateForVtSurface(source.snapshot_seq);
-        self.clearLatestVtSurface();
-        self.latest_vt_surface = source;
-        self.prepare_request = self.renderRequestForVtSurface(self.latest_vt_surface.?, damage_kind, prior != null);
+    pub fn ingestRenderState(self: *TextSessionOwner, state: c.HowlVtRenderStateHandle) !?tokens.RenderRequest {
+        const token = try readRenderStateToken(state);
+        const prior = self.latest_render_state;
+        const damage_kind = self.classifyRenderStateDamage(token);
+        if (damage_kind == .none) return null;
+        self.pending_prepared.invalidateForRenderState(token.snapshot_seq);
+        self.latest_render_state = token;
+        self.latest_render_state_handle = state;
+        self.prepare_request = self.renderRequestForRenderState(token, damage_kind, prior != null);
         return self.prepare_request;
     }
 
@@ -576,8 +833,8 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn workState(self: *const TextSessionOwner) SessionWorkState {
-        const source_pending = if (self.latest_vt_surface) |source|
-            self.prepare_request == null and !self.pending_prepared.submitPending() and !self.vtSurfaceSubmitted(source.snapshot_seq)
+        const source_pending = if (self.latest_render_state) |source|
+            self.prepare_request == null and !self.pending_prepared.submitPending() and !self.renderStateSubmitted(source.snapshot_seq)
         else
             false;
         return .{
@@ -605,30 +862,25 @@ pub const TextSessionOwner = struct {
         return .{ .rendered = result };
     }
 
-    fn clearLatestVtSurface(self: *TextSessionOwner) void {
-        if (self.latest_vt_surface) |*source| source.deinit(self.allocator);
-        self.latest_vt_surface = null;
+    fn clearLatestRenderState(self: *TextSessionOwner) void {
+        self.latest_render_state = null;
+        self.latest_render_state_handle = null;
         self.prepare_request = null;
     }
 
-    fn classifyVtSurfaceDamage(self: *const TextSessionOwner, source: vt_surface.VtSurface) tokens.DamageKind {
-        const damage_kind = vt_surface_damage.classifyDirty(source.snapshot());
-        const prior = self.latest_vt_surface orelse return damage_kind;
-        const prior_snapshot = prior.snapshot();
+    fn classifyRenderStateDamage(self: *const TextSessionOwner, source: RenderStateToken) tokens.DamageKind {
+        const damage_kind: tokens.DamageKind = if (source.dirty == c.HOWL_VT_RENDER_STATE_DIRTY_FALSE) .none else if (source.dirty == c.HOWL_VT_RENDER_STATE_DIRTY_PARTIAL) .partial else .full;
+        const prior = self.latest_render_state orelse return if (damage_kind == .none) .full else damage_kind;
         const submitted_token = self.submitted.submittedToken();
-        const prior_matches_submitted = if (submitted_token) |token| prior_snapshot.snapshot_seq == token.snapshot_seq else false;
+        const prior_matches_submitted = if (submitted_token) |token| prior.snapshot_seq == token.snapshot_seq else false;
         if (self.prepare_request) |request| {
             if (request.token.geometry_epoch != self.geometry.geometry_epoch) return .full;
         }
-        if (source.snapshot_seq == prior_snapshot.snapshot_seq) {
-            if (vt_surface_damage.sameVtSurface(prior, source)) return .none;
-            if (vt_surface_damage.cursorPresentationChanged(prior, source)) return .full;
-            if (vt_surface_damage.colorPresentationChanged(prior, source)) return .full;
+        if (source.snapshot_seq == prior.snapshot_seq and source.dirty_epoch == prior.dirty_epoch) return .none;
+        if (source.snapshot_seq == prior.snapshot_seq) {
             if (damage_kind == .partial and !prior_matches_submitted) return .full;
             return damage_kind;
         }
-        if (vt_surface_damage.cursorPresentationChanged(prior, source)) return .full;
-        if (vt_surface_damage.colorPresentationChanged(prior, source)) return .full;
         if (source.cols != prior.cols or source.rows != prior.rows) return .full;
         if (source.is_alternate_screen != prior.is_alternate_screen) return .full;
         if (source.scroll_row != prior.scroll_row) return .full;
@@ -636,7 +888,7 @@ pub const TextSessionOwner = struct {
         return damage_kind;
     }
 
-    fn renderRequestForVtSurface(self: *const TextSessionOwner, source: vt_surface.VtSurface, damage_kind: tokens.DamageKind, had_prior_source: bool) tokens.RenderRequest {
+    fn renderRequestForRenderState(self: *const TextSessionOwner, source: RenderStateToken, damage_kind: tokens.DamageKind, had_prior_source: bool) tokens.RenderRequest {
         std.debug.assert(damage_kind != .none);
         const submitted_token = self.submitted.submittedToken();
         const token = tokens.SnapshotToken{
@@ -651,15 +903,19 @@ pub const TextSessionOwner = struct {
     }
 
     fn recomputePrepareRequest(self: *TextSessionOwner) void {
-        const source = self.latest_vt_surface orelse return;
-        self.prepare_request = self.renderRequestForVtSurface(source, .full, true);
+        const source = self.latest_render_state orelse return;
+        self.prepare_request = self.renderRequestForRenderState(source, .full, true);
     }
 
-    fn vtSurfaceSubmitted(self: *const TextSessionOwner, snapshot_seq: u64) bool {
+    fn renderStateSubmitted(self: *const TextSessionOwner, snapshot_seq: u64) bool {
         const token = self.submitted.submittedToken() orelse return false;
         return token.snapshot_seq == snapshot_seq;
     }
 };
+
+fn sameSnapshotToken(a: tokens.SnapshotToken, b: tokens.SnapshotToken) bool {
+    return a.snapshot_seq == b.snapshot_seq and a.dirty_epoch == b.dirty_epoch and a.geometry_epoch == b.geometry_epoch and a.damage_base_seq == b.damage_base_seq and a.damage_kind == b.damage_kind;
+}
 
 fn executionMatchesPrepared(render_px: geometry_contract.PixelSize, execution: TextSession.SubmitExecution) bool {
     return execution.host_surface.width == render_px.width and execution.host_surface.height == render_px.height;
@@ -701,7 +957,8 @@ test "render session owner keeps source and submitted owners separate" {
     ) orelse return error.OutOfMemory;
     defer owner.destroy();
 
-    try std.testing.expect(owner.latest_vt_surface == null);
+    try std.testing.expect(owner.latest_render_state == null);
+    try std.testing.expect(owner.latest_render_state_handle == null);
     try std.testing.expect(owner.prepare_request == null);
     try std.testing.expect(!owner.pending_prepared.submitPending());
     try std.testing.expect(owner.submitted.submitted_token == null);
@@ -766,225 +1023,6 @@ test "render session owner stores configured cursor theme inputs" {
     try std.testing.expectEqual(@as(f32, 0.2), cursor.cursor_trail_decay_fast_s);
     try std.testing.expectEqual(@as(f32, 0.6), cursor.cursor_trail_decay_slow_s);
     try std.testing.expectEqual(@as(u64, 1234), cursor.cadence_now_ns);
-}
-
-test "render session owner emits render-owned cursor trail rect" {
-    const owner = TextSessionOwner.create(
-        std.testing.allocator,
-        .{ .surface_px = .{ .width = 80, .height = 16 } },
-    ) orelse return error.OutOfMemory;
-    defer owner.destroy();
-
-    _ = try owner.syncGeometry(.{
-        .render_px = .{ .width = 80, .height = 16 },
-        .grid_px = .{ .width = 80, .height = 16 },
-        .cell_px = .{ .width = 8, .height = 16 },
-    });
-
-    var trigger_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX;
-    trigger_rects[0] = .{ .row = 0, .col = 1, .rows = 1, .cols = 1, .opacity = 255, .reserved0 = 0, .reserved1 = 0, .color = .{ .r = 0, .g = 0, .b = 0 } };
-    owner.setHostCursorCadence(.{
-        .focused = true,
-        .cursor_opacity = 255,
-        .text_blink_opacity = 255,
-        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
-        .cursor_color = .{ .kind = 0, .value = 0 },
-        .cursor_text_color = .{ .kind = 0, .value = 0 },
-        .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },
-        .cursor_beam_thickness = 1.5,
-        .cursor_underline_thickness = 2.0,
-        .cursor_trail_decay_fast_s = 0.1,
-        .cursor_trail_decay_slow_s = 0.4,
-        .cursor_trail_count = 1,
-        .cursor_trail_rects = trigger_rects,
-        .now_ns = 16 * std.time.ns_per_ms,
-    });
-
-    var cells = [_]c.HowlVtSurfaceCell{testCell('A')} ** 10;
-    var source = vt_surface.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
-    source.source.cols = 10;
-    source.source.cursor.col = 4;
-    source.source.cursor.row = 0;
-    source.snapshot_seq = 1;
-    source.dirty_generation = 1;
-
-    _ = try owner.ingestVtSurface(source) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u16, 1), owner.latest_vt_surface.?.cursor_trail_count);
-    try std.testing.expect(owner.latest_vt_surface.?.cursor_trail_rects[0].opacity > 0);
-    try std.testing.expect(owner.workState().animation_pending);
-
-    owner.setHostCursorCadence(.{
-        .focused = true,
-        .cursor_opacity = 255,
-        .text_blink_opacity = 255,
-        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
-        .cursor_color = .{ .kind = 0, .value = 0 },
-        .cursor_text_color = .{ .kind = 0, .value = 0 },
-        .cursor_trail_color = .{ .kind = 2, .value = 0x708090 },
-        .cursor_beam_thickness = 1.5,
-        .cursor_underline_thickness = 2.0,
-        .cursor_trail_decay_fast_s = 0.1,
-        .cursor_trail_decay_slow_s = 0.4,
-        .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
-        .now_ns = 10 * std.time.ns_per_s,
-    });
-    try std.testing.expect(!owner.workState().animation_pending);
-}
-
-test "render session owner rejects prepared work after resize vt_surface" {
-    const owner = TextSessionOwner.create(
-        std.testing.allocator,
-        .{ .surface_px = .{ .width = 8, .height = 16 } },
-    ) orelse return error.OutOfMemory;
-    defer owner.destroy();
-
-    const initial_geometry = try owner.syncGeometry(.{
-        .render_px = .{ .width = 8, .height = 16 },
-        .grid_px = .{ .width = 8, .height = 16 },
-        .cell_px = .{ .width = 8, .height = 16 },
-    });
-    try std.testing.expect(initial_geometry.changed);
-    try std.testing.expectEqual(@as(u64, 1), initial_geometry.geometry_epoch);
-
-    var first_cells = [_]c.HowlVtSurfaceCell{testCell('A')};
-    var first_source = vt_surface.validSurfaceResult(first_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
-    first_source.source.cols = 1;
-    first_source.source.cursor.col = 0;
-    first_source.snapshot_seq = 1;
-    first_source.dirty_generation = 1;
-    const old_request = try owner.ingestVtSurface(first_source) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u64, 1), old_request.token.snapshot_seq);
-    try std.testing.expectEqual(@as(u64, 1), old_request.token.geometry_epoch);
-    try std.testing.expect(owner.workState().prepare_pending);
-    try std.testing.expect(!owner.workState().submit_pending);
-    const old_rdr_sfc_handle = try owner.prepareHandle(old_request.token);
-    defer old_rdr_sfc_handle.release();
-    try std.testing.expect(!owner.workState().prepare_pending);
-    try std.testing.expect(owner.workState().submit_pending);
-
-    const resized_geometry = try owner.syncGeometry(.{
-        .render_px = .{ .width = 16, .height = 16 },
-        .grid_px = .{ .width = 8, .height = 16 },
-        .cell_px = .{ .width = 8, .height = 16 },
-    });
-    try std.testing.expect(resized_geometry.changed);
-    try std.testing.expect(resized_geometry.geometry_epoch > old_request.token.geometry_epoch);
-
-    var resized_cells = [_]c.HowlVtSurfaceCell{testCell('A')};
-    var resized_source = vt_surface.validSurfaceResult(resized_cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
-    resized_source.source.cols = 1;
-    resized_source.source.cursor.col = 0;
-    resized_source.snapshot_seq = 2;
-    resized_source.dirty_generation = 2;
-    const resized_request = try owner.ingestVtSurface(resized_source) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(tokens.DamageKind.full, resized_request.token.damage_kind);
-    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_request.token.geometry_epoch);
-
-    const decision = owner.takeSubmitHandle();
-    switch (decision) {
-        .idle => {},
-        else => return error.TestUnexpectedResult,
-    }
-    try std.testing.expect(!owner.workState().submit_pending);
-
-    try std.testing.expectEqual(@as(u64, 2), resized_request.token.snapshot_seq);
-    try std.testing.expectEqual(resized_geometry.geometry_epoch, resized_request.token.geometry_epoch);
-    try std.testing.expectEqual(tokens.DamageKind.full, resized_request.token.damage_kind);
-    try std.testing.expectEqual(@as(u64, 0), resized_request.token.damage_base_seq);
-    try std.testing.expect(!resized_request.allow_retained_reuse);
-}
-
-test "render session owner drops duplicate copied vt surface without mutating latest vt surface" {
-    const owner = TextSessionOwner.create(
-        std.testing.allocator,
-        .{ .surface_px = .{ .width = 8, .height = 16 } },
-    ) orelse return error.OutOfMemory;
-    defer owner.destroy();
-
-    _ = try owner.syncGeometry(.{
-        .render_px = .{ .width = 8, .height = 16 },
-        .grid_px = .{ .width = 8, .height = 16 },
-        .cell_px = .{ .width = 8, .height = 16 },
-    });
-
-    var cells = [_]c.HowlVtSurfaceCell{testCell('A')};
-    var source = vt_surface.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
-    source.source.cols = 1;
-    source.source.cursor.col = 0;
-    source.snapshot_seq = 1;
-    source.dirty_generation = 1;
-
-    const first = try owner.ingestVtSurface(source) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u64, 1), first.token.snapshot_seq);
-    const latest_cells = owner.latest_vt_surface.?.cells.ptr;
-    const latest_dirty_rows = owner.latest_vt_surface.?.dirty_rows.ptr;
-
-    try std.testing.expect((try owner.ingestVtSurface(source)) == null);
-    try std.testing.expect(owner.latest_vt_surface != null);
-    try std.testing.expectEqual(latest_cells, owner.latest_vt_surface.?.cells.ptr);
-    try std.testing.expectEqual(latest_dirty_rows, owner.latest_vt_surface.?.dirty_rows.ptr);
-    try std.testing.expectEqual(@as(u64, 1), owner.latest_vt_surface.?.snapshot_seq);
-    try std.testing.expect(owner.prepare_request != null);
-    try std.testing.expectEqual(@as(u64, 1), owner.prepare_request.?.token.snapshot_seq);
-}
-
-test "render session owner cadence change does not hide duplicate source damage" {
-    const owner = TextSessionOwner.create(
-        std.testing.allocator,
-        .{ .surface_px = .{ .width = 8, .height = 16 } },
-    ) orelse return error.OutOfMemory;
-    defer owner.destroy();
-
-    _ = try owner.syncGeometry(.{
-        .render_px = .{ .width = 8, .height = 16 },
-        .grid_px = .{ .width = 8, .height = 16 },
-        .cell_px = .{ .width = 8, .height = 16 },
-    });
-
-    var cells = [_]c.HowlVtSurfaceCell{testCell('A')};
-    var source = vt_surface.validSurfaceResult(cells[0..], &[_]u8{1}, &[_]u16{0}, &[_]u16{0});
-    source.source.cols = 1;
-    source.source.cursor.col = 0;
-    source.snapshot_seq = 1;
-    source.dirty_generation = 1;
-
-    _ = try owner.ingestVtSurface(source) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u8, 255), owner.latest_vt_surface.?.cursor_opacity);
-
-    owner.setHostCursorCadence(.{
-        .focused = true,
-        .cursor_opacity = 0,
-        .text_blink_opacity = 255,
-        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BEAM,
-        .cursor_color = .{ .kind = 0, .value = 0 },
-        .cursor_text_color = .{ .kind = 0, .value = 0 },
-        .cursor_trail_color = .{ .kind = 0, .value = 0 },
-        .cursor_beam_thickness = 1.5,
-        .cursor_underline_thickness = 2.0,
-        .cursor_trail_decay_fast_s = 0.1,
-        .cursor_trail_decay_slow_s = 0.4,
-        .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
-        .now_ns = 0,
-    });
-    try std.testing.expectEqual(@as(u8, 255), owner.latest_vt_surface.?.cursor_opacity);
-
-    const cursor_request = try owner.ingestVtSurface(source) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u64, 1), cursor_request.token.snapshot_seq);
-    try std.testing.expectEqual(tokens.DamageKind.full, cursor_request.token.damage_kind);
-    try std.testing.expectEqual(@as(u8, 0), owner.latest_vt_surface.?.cursor_opacity);
-}
-
-fn testCell(codepoint: u21) c.HowlVtSurfaceCell {
-    var cell = std.mem.zeroes(c.HowlVtSurfaceCell);
-    cell.codepoint = codepoint;
-    return cell;
-}
-
-fn testVtSurface(allocator: std.mem.Allocator, snapshot_seq: u64, codepoint: u21) !vt_surface.VtSurface {
-    _ = testCell(codepoint);
-    return vt_surface.ownedTestVtSurface(allocator, snapshot_seq, codepoint);
 }
 
 test "render session owner rejects partial rdr_sfc handle with wrong submitted base" {

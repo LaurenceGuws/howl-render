@@ -28,6 +28,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const harfbuzz_lib = harfbuzz_dep.artifact("harfbuzz");
+    const howl_vt_dep = b.dependency("howl_vt", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const howl_vt_lib = howl_vt_dep.artifact("howl_vt");
 
     const render_c_translate = b.addTranslateC(.{
         .root_source_file = b.path("include/howl_render.h"),
@@ -64,6 +69,7 @@ pub fn build(b: *std.Build) void {
     unit_test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     unit_test_mod.linkLibrary(harfbuzz_lib);
     unit_test_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    unit_test_mod.linkLibrary(howl_vt_lib);
     const unit_tests = add_test_artifact(b, "test-unit", unit_test_mod);
     const run_unit_tests = add_test_run_artifact(b, unit_tests);
 
@@ -81,6 +87,7 @@ pub fn build(b: *std.Build) void {
     abi_test_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     abi_test_mod.linkLibrary(harfbuzz_lib);
     abi_test_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    abi_test_mod.linkLibrary(howl_vt_lib);
     const abi_tests = add_test_artifact(b, "test-abi", abi_test_mod);
     const run_abi_tests = add_test_run_artifact(b, abi_tests);
 
@@ -113,6 +120,7 @@ pub fn build(b: *std.Build) void {
     ffi_mod.addIncludePath(freetype_lib.getEmittedIncludeTree());
     ffi_mod.linkLibrary(harfbuzz_lib);
     ffi_mod.addIncludePath(harfbuzz_lib.getEmittedIncludeTree());
+    ffi_mod.linkLibrary(howl_vt_lib);
     const ffi_lib = b.addLibrary(.{
         .name = "howl_render",
         .linkage = .dynamic,

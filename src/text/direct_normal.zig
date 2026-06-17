@@ -1,5 +1,4 @@
 const std = @import("std");
-const c = @import("howl_render_c");
 const atlas_cache = @import("raster/atlas.zig");
 const cluster = @import("shape/cluster.zig");
 const contract = @import("contract.zig");
@@ -14,8 +13,6 @@ const scene = @import("scene.zig");
 const scene_damage = @import("scene_damage.zig");
 const scene_rects = @import("scene_rects.zig");
 const sprite_key = @import("raster/key.zig");
-const vt_surface = @import("../vt_surface/surface.zig");
-const vt_theme = @import("../vt_surface/theme.zig");
 
 const RenderableCell = contract.RenderableCell;
 const CellText = contract.CellText;
@@ -44,10 +41,6 @@ pub const Policy = enum {
 
 pub const Source = union(enum) {
     raw_cells: []const contract.CellInput,
-    vt_surface: struct {
-        cells: []const c.HowlVtSurfaceCell,
-        theme: vt_theme.SurfaceTheme,
-    },
     inputs: []const cluster.CellTextInput,
     prepared: struct {
         cells: []const contract.RenderableCell,
@@ -179,14 +172,6 @@ const Candidate = struct {
     choice: lane.LaneClass,
 };
 
-const VtSurfaceCandidate = union(enum) {
-    candidate: Candidate,
-    skip,
-    unsupported,
-};
-
-const ascii_codepoints = initAsciiCodepoints();
-
 const ScratchCheckpoint = struct {
     missing_len: usize,
     sprite_draws_len: usize,
@@ -212,56 +197,6 @@ fn appendVisible(
     const lane_report_start = lane_report.*;
     const scratch_start = checkpointScratch(driver.scratch);
     var rejecting = false;
-
-    if (source == .vt_surface and policy == .require_all_normal) {
-        const surface_input = source.vt_surface;
-        var idx_vt_surface: u32 = 0;
-        while (idx_vt_surface < sourceLen(source)) : (idx_vt_surface += 1) {
-            const cell = surface_input.cells[@intCast(idx_vt_surface)];
-            const supported = vtSurfaceCellSupported(surface_input.cells, idx_vt_surface, cell);
-            if (supported) {
-                const item = vtSurfaceRenderableText(surface_input.theme, idx_vt_surface, cell);
-                const included = cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable);
-                if (!included) continue;
-
-                if (rejecting) continue;
-                recordLane(lane_report, item.text);
-                try appendRenderable(driver, item.renderable, item.text, damage, grid_metrics, decoration_layout, session, lane_report);
-                continue;
-            }
-
-            const candidate = sourceCandidate(source, idx_vt_surface, damage, grid_metrics);
-            const candidate_value = candidate orelse continue;
-            std.debug.assert(candidateValueVtSurfaceFallback(source, idx_vt_surface, surface_input.cells, candidate_value));
-            if (rejecting) {
-                if (candidate_value.choice.renderableClass() != .normal) rejected_complex_cells.* += 1;
-                continue;
-            }
-            switch (candidateDecision(policy, lane_report, candidate_value)) {
-                .include => {
-                    try appendRenderable(driver, candidate_value.item.renderable, candidate_value.item.text, damage, grid_metrics, decoration_layout, session, lane_report);
-                },
-                .skip => continue,
-                .reject => {
-                    rejected_complex_cells.* = 1;
-                    lane_report.* = lane_report_start;
-                    restoreScratch(driver.scratch, scratch_start);
-                    std.debug.assert(scratchEmpty(driver.scratch));
-                    lane_report.assertValid();
-                    rejecting = true;
-                },
-            }
-        }
-        if (rejecting) {
-            std.debug.assert(rejected_complex_cells.* != 0);
-            std.debug.assert(scratchEmpty(driver.scratch));
-            lane_report.assertValid();
-            return false;
-        }
-        std.debug.assert(rejected_complex_cells.* == 0);
-        lane_report.assertValid();
-        return true;
-    }
 
     var idx: u32 = 0;
     while (idx < sourceLen(source)) : (idx += 1) {
@@ -298,13 +233,6 @@ fn appendVisible(
     return true;
 }
 
-fn candidateValueVtSurfaceFallback(source: Source, idx: u32, vt_surface_cells: []const c.HowlVtSurfaceCell, candidate: Candidate) bool {
-    std.debug.assert(source == .vt_surface);
-    const cell = vt_surface_cells[@intCast(idx)];
-    if (!vtSurfaceCellSupported(vt_surface_cells, idx, cell)) return true;
-    return candidate.item.renderable.first_cell == idx and candidate.choice.renderableClass() == .normal;
-}
-
 fn candidateDecision(policy: Policy, lane_report: *lane.LaneReport, candidate: Candidate) Decision {
     const class = candidate.choice.renderableClass();
     const action = actions[@intFromEnum(policy)][@intFromEnum(class)];
@@ -313,198 +241,14 @@ fn candidateDecision(policy: Policy, lane_report: *lane.LaneReport, candidate: C
 }
 
 fn sourceCandidate(source: Source, idx: u32, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics) ?Candidate {
-    if (source == .vt_surface) {
-        const surface_input = source.vt_surface;
-        switch (vtSurfaceCandidate(surface_input.cells, surface_input.theme, idx, damage, grid_metrics)) {
-            .candidate => |candidate| return candidate,
-            .skip => return null,
-            .unsupported => {},
-        }
-    }
     const item = sourceItem(source, idx) orelse return null;
     if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) return null;
     return .{ .item = item, .choice = lane.classifyRenderableCell(item.renderable, item.text) };
 }
 
-fn vtSurfaceCandidate(cells: []const c.HowlVtSurfaceCell, theme: vt_theme.SurfaceTheme, idx: u32, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics) VtSurfaceCandidate {
-    std.debug.assert(idx < count32(cells));
-    const cell = cells[@intCast(idx)];
-    const supported = vtSurfaceCellSupported(cells, idx, cell);
-    if (!supported) return .unsupported;
-
-    const item = vtSurfaceRenderableText(theme, idx, cell);
-    if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) return .skip;
-    const choice = lane.LaneClass.normal();
-    choice.assertValid();
-    std.debug.assert(lane.classifyRenderableCell(item.renderable, item.text).renderableClass() == .normal);
-    return .{ .candidate = .{ .item = item, .choice = choice } };
-}
-
-fn vtSurfaceCellSupported(cells: []const c.HowlVtSurfaceCell, idx: u32, cell: c.HowlVtSurfaceCell) bool {
-    if (!vtSurfaceCodepointSupported(cell.codepoint)) return false;
-    if (cell.combining_len != 0) return false;
-    if (cell.flags.continuation != 0) return false;
-    if (vtSurfaceCellSpan(cells, idx) != 1) return false;
-    if (cell.link_id != 0) return false;
-    if (!vtSurfaceColorSupported(cell.fg_color)) return false;
-    if (!vtSurfaceColorSupported(cell.bg_color)) return false;
-    if (cell.attrs.selected != 0) return false;
-    if (cell.attrs.invisible != 0) return false;
-    if (cell.attrs.strikethrough != 0) return false;
-    if (cell.attrs.underline_color_set != 0) return false;
-    if (cell.underline_style != 0) return false;
-    return true;
-}
-
-fn vtSurfaceRenderableText(theme: vt_theme.SurfaceTheme, idx: u32, cell: c.HowlVtSurfaceCell) cluster.RenderableText {
-    std.debug.assert(vtSurfaceCodepointSupported(cell.codepoint));
-    std.debug.assert(cell.combining_len == 0);
-    std.debug.assert(cell.flags.continuation == 0);
-    std.debug.assert(vtSurfaceColorSupported(cell.fg_color));
-    std.debug.assert(vtSurfaceColorSupported(cell.bg_color));
-    std.debug.assert(cell.underline_style == 0);
-
-    const text = contract.CellText{
-        .id = .{ .value = 0 },
-        .first_cp = cell.codepoint,
-        .codepoints = ascii_codepoints[@intCast(cell.codepoint)][0..1],
-    };
-    if (cell.attrs.inverse == 0 and
-        cell.attrs.bold == 0 and
-        cell.attrs.italic == 0 and
-        cell.attrs.dim == 0 and
-        cell.attrs.underline == 0 and
-        cell.fg_color.kind == 0 and
-        cell.bg_color.kind == 0)
-    {
-        const item = cluster.RenderableText{
-            .renderable = .{
-                .text_id = .{ .value = 0 },
-                .first_cell = idx,
-                .cell_span = 1,
-                .style = .regular,
-                .presentation = .any,
-                .fg = theme.default_fg,
-                .bg = theme.default_bg,
-            },
-            .text = text,
-        };
-        std.debug.assert(item.text.codepoints.len == 1);
-        std.debug.assert(item.text.codepoints[0] == item.text.first_cp);
-        if (cell.codepoint == 0) {
-            std.debug.assert(item.text.first_cp == 0);
-        } else {
-            std.debug.assert(cell.codepoint >= 0x21 and cell.codepoint < 0x7f);
-        }
-        std.debug.assert(item.renderable.cell_span == 1);
-        return item;
-    }
-
-    var fg = theme.default_fg;
-    var bg = theme.default_bg;
-    var semantic_fg: contract.SemanticColor = .{};
-    var semantic_bg: contract.SemanticColor = .{};
-
-    switch (cell.fg_color.kind) {
-        0 => {},
-        1 => {
-            fg = theme.palette[@intCast(cell.fg_color.value)];
-            semantic_fg = .{ .kind = .indexed, .value = cell.fg_color.value };
-        },
-        else => unreachable,
-    }
-    switch (cell.bg_color.kind) {
-        0 => {},
-        1 => {
-            bg = theme.palette[@intCast(cell.bg_color.value)];
-            semantic_bg = .{ .kind = .indexed, .value = cell.bg_color.value };
-        },
-        else => unreachable,
-    }
-    if (cell.attrs.inverse != 0) std.mem.swap(contract.Rgba8, &fg, &bg);
-
-    const item = cluster.RenderableText{
-        .renderable = .{
-            .text_id = .{ .value = 0 },
-            .first_cell = idx,
-            .cell_span = 1,
-            .style = @enumFromInt(@as(u2, @truncate(cell.attrs.bold | (cell.attrs.italic << 1)))),
-            .presentation = .any,
-            .dim = cell.attrs.dim != 0,
-            .semantic_fg = semantic_fg,
-            .semantic_bg = semantic_bg,
-            .fg = fg,
-            .bg = bg,
-            .underline = cell.attrs.underline != 0,
-        },
-        .text = text,
-    };
-    std.debug.assert(item.text.codepoints.len == 1);
-    std.debug.assert(item.text.codepoints[0] == item.text.first_cp);
-    if (cell.codepoint == 0) {
-        std.debug.assert(item.text.first_cp == 0);
-    } else {
-        std.debug.assert(cell.codepoint >= 0x21 and cell.codepoint < 0x7f);
-    }
-    std.debug.assert(item.renderable.cell_span == 1);
-    return item;
-}
-
-fn vtSurfaceCodepointSupported(codepoint: u32) bool {
-    if (codepoint == 0) return true;
-    return codepoint >= 0x21 and codepoint < 0x7f;
-}
-
-fn vtSurfaceColorSupported(color: c.HowlVtColor) bool {
-    return switch (color.kind) {
-        0 => true,
-        1 => color.value <= std.math.maxInt(u8),
-        else => false,
-    };
-}
-
-fn vtSurfaceColorRgba(color: c.HowlVtColor, foreground: bool, theme: vt_theme.SurfaceTheme) contract.Rgba8 {
-    std.debug.assert(vtSurfaceColorSupported(color));
-    return switch (color.kind) {
-        0 => if (foreground) theme.default_fg else theme.default_bg,
-        1 => theme.palette[@intCast(color.value)],
-        else => unreachable,
-    };
-}
-
-fn vtSurfaceSemanticColor(color: c.HowlVtColor) contract.SemanticColor {
-    std.debug.assert(vtSurfaceColorSupported(color));
-    return switch (color.kind) {
-        0 => .{ .kind = .default },
-        1 => .{ .kind = .indexed, .value = color.value },
-        else => unreachable,
-    };
-}
-
-fn vtSurfaceFontStyle(bold: bool, italic: bool) contract.FontStyle {
-    if (bold and italic) return .bold_italic;
-    if (bold) return .bold;
-    if (italic) return .italic;
-    return .regular;
-}
-
-fn vtSurfaceCellSpan(cells: []const c.HowlVtSurfaceCell, idx: u32) u8 {
-    var span: u32 = 1;
-    const total = count32(cells);
-    while (idx + span < total and cells[@intCast(idx + span)].flags.continuation != 0) : (span += 1) {}
-    return @intCast(@min(span, std.math.maxInt(u8)));
-}
-
-fn initAsciiCodepoints() [128][1]u32 {
-    var table: [128][1]u32 = undefined;
-    for (&table, 0..) |*entry, idx| entry[0] = @intCast(idx);
-    return table;
-}
-
 fn sourceLen(source: Source) u32 {
     return switch (source) {
         .raw_cells => |cells| @intCast(cells.len),
-        .vt_surface => |surface_input| @intCast(surface_input.cells.len),
         .inputs => |inputs| @intCast(inputs.len),
         .prepared => |prepared| @intCast(prepared.cells.len),
     };
@@ -513,7 +257,6 @@ fn sourceLen(source: Source) u32 {
 fn sourceItem(source: Source, idx: u32) ?cluster.RenderableText {
     return switch (source) {
         .raw_cells => |cells| cluster.sourceRenderableTextFromCells(cells, idx),
-        .vt_surface => |surface_input| cluster.sourceRenderableTextFromVtSurface(surface_input.cells, surface_input.theme, idx),
         .inputs => |inputs| cluster.sourceRenderableTextFromInputs(inputs, idx),
         .prepared => |prepared| cluster.sourceRenderableTextFromPrepared(prepared.cells, prepared.text_cache, idx),
     };
@@ -753,23 +496,6 @@ fn blankText(text: contract.CellText) bool {
     return true;
 }
 
-fn testVtSurfaceCell(codepoint: u32) c.HowlVtSurfaceCell {
-    return .{
-        .codepoint = codepoint,
-        .flags = .{ .continuation = 0 },
-        .fg_color = .{ .kind = 0, .value = 0 },
-        .bg_color = .{ .kind = 0, .value = 0 },
-        .underline_color = .{ .kind = 0, .value = 0 },
-        .underline_style = 0,
-        .attrs = .{ .bold = 0, .dim = 0, .italic = 0, .underline = 0, .underline_color_set = 0, .blink = 0, .inverse = 0, .invisible = 0, .strikethrough = 0, .selected = 0 },
-        .link_id = 0,
-    };
-}
-
-fn testVtSurfaceTheme() vt_theme.SurfaceTheme {
-    return vt_theme.themeFromVtSurfaceColors(std.mem.zeroes(c.HowlVtRenderColorState));
-}
-
 fn testRenderableCell(first_cell: u32) contract.RenderableCell {
     return .{
         .text_id = .{ .value = 1 },
@@ -795,30 +521,6 @@ fn testFontSession(faces: []const font_session.FontFaceRecord) font_session.Font
         .faces = faces,
         .metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
     };
-}
-
-test "direct normal vt surface zero codepoint is a fast candidate" {
-    const cells = [_]c.HowlVtSurfaceCell{testVtSurfaceCell(0)};
-    const decision = vtSurfaceCandidate(cells[0..], testVtSurfaceTheme(), 0, direct_scene.Damage.init(.{}, 1), .{ .cols = 1, .rows = 1 });
-
-    switch (decision) {
-        .candidate => |candidate| {
-            try std.testing.expectEqual(@as(u32, 0), candidate.item.text.first_cp);
-            try std.testing.expectEqual(@as(usize, 1), candidate.item.text.codepoints.len);
-            try std.testing.expectEqual(@as(u32, 0), candidate.item.text.codepoints[0]);
-            try std.testing.expectEqual(lane.RenderableClass.normal, candidate.choice.renderableClass());
-        },
-        else => return error.TestUnexpectedResult,
-    }
-}
-
-test "direct normal vt_surface keeps unsupported non-printables on generic fallback" {
-    const cases = [_]u32{ '\t', 0x1f };
-    for (cases) |codepoint| {
-        const cells = [_]c.HowlVtSurfaceCell{testVtSurfaceCell(codepoint)};
-        const decision = vtSurfaceCandidate(cells[0..], testVtSurfaceTheme(), 0, direct_scene.Damage.init(.{}, 1), .{ .cols = 1, .rows = 1 });
-        try std.testing.expectEqual(VtSurfaceCandidate.unsupported, decision);
-    }
 }
 
 test "direct normal renderable append tab fast return leaves sprite raster missing and lane state unchanged" {

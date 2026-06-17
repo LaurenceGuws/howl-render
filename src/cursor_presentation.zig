@@ -1,8 +1,6 @@
 const std = @import("std");
 const c = @import("howl_render_c");
 const geometry_contract = @import("geometry_contract.zig");
-const vt_theme = @import("vt_surface/theme.zig");
-const vt_surface = @import("vt_surface/surface.zig");
 const contract = @import("text/contract.zig");
 const text_cursor_trail = @import("text/cursor_trail.zig");
 
@@ -23,6 +21,20 @@ pub const HostCursorCadence = struct {
     cursor_trail_count: u16,
     cursor_trail_rects: [c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX]HostCursorCadenceRect,
     now_ns: u64,
+};
+
+pub const PresentationFacts = struct {
+    focused: bool,
+    cursor_opacity: u8,
+    text_blink_opacity: u8,
+    effective_shape: u8,
+    cursor_color: c.HowlVtColor,
+    cursor_text_color: c.HowlVtColor,
+    cursor_trail_color: c.HowlVtColor,
+    cursor_beam_thickness: f32,
+    cursor_underline_thickness: f32,
+    cursor_trail_count: u16,
+    cursor_trail_rects: [c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX]HostCursorCadenceRect,
 };
 
 pub const CursorPresentation = struct {
@@ -46,7 +58,7 @@ pub const CursorPresentation = struct {
     trail_trigger_pending: bool = false,
     trail_trigger_rect: HostCursorCadenceRect = .{},
 
-    pub fn setHostCursorCadence(self: *CursorPresentation, cadence: HostCursorCadence, latest_vt_surface: ?vt_surface.VtSurface, cell_px: geometry_contract.CellSize) bool {
+    pub fn setHostCursorCadence(self: *CursorPresentation, cadence: HostCursorCadence, cursor_target: ?CursorTrailTarget, cell_px: geometry_contract.CellSize) bool {
         var changed = false;
         changed = updateBool(&self.focused, cadence.focused) or changed;
         changed = updateByte(&self.cursor_opacity, cadence.cursor_opacity) or changed;
@@ -64,51 +76,23 @@ pub const CursorPresentation = struct {
             changed = true;
         }
         const new_trigger = self.updateCursorTrailTrigger(cadence);
-        if (latest_vt_surface) |source| changed = self.updateCursorTrailForVtSurface(source, new_trigger, cell_px) or changed;
+        if (cursor_target) |target| changed = self.updateCursorTrail(target, new_trigger, cell_px) or changed;
         return changed;
     }
 
-    pub fn applyHostCursorCadenceToVtSurface(self: *CursorPresentation, source: *vt_surface.VtSurface, cell_px: geometry_contract.CellSize) bool {
-        var changed = false;
-        if (source.cursor_focused != self.focused) {
-            source.cursor_focused = self.focused;
-            changed = true;
-        }
-        if (source.cursor_opacity != self.cursor_opacity) {
-            source.cursor_opacity = self.cursor_opacity;
-            changed = true;
-        }
-        if (source.text_blink_opacity != self.text_blink_opacity) {
-            source.text_blink_opacity = self.text_blink_opacity;
-            changed = true;
-        }
-        if (source.effective_shape != self.effective_shape) {
-            source.effective_shape = self.effective_shape;
-            changed = true;
-        }
-        if (source.cursor_phase_visible != (self.cursor_opacity != 0)) {
-            source.cursor_phase_visible = self.cursor_opacity != 0;
-            changed = true;
-        }
-        changed = self.updateCursorTrailForVtSurface(source.*, false, cell_px) or changed;
-        if (source.cursor_trail_count != self.cursor_trail_count) {
-            source.cursor_trail_count = self.cursor_trail_count;
-            changed = true;
-        }
-        if (!std.mem.eql(u8, std.mem.asBytes(&source.cursor_trail_rects), std.mem.asBytes(&self.cursor_trail_rects))) {
-            source.cursor_trail_rects = self.cursor_trail_rects;
-            changed = true;
-        }
-        return changed;
-    }
-
-    pub fn cursorThemeConfig(self: *const CursorPresentation) vt_theme.CursorThemeConfig {
+    pub fn presentationFacts(self: *const CursorPresentation) PresentationFacts {
         return .{
+            .focused = self.focused,
+            .cursor_opacity = self.cursor_opacity,
+            .text_blink_opacity = self.text_blink_opacity,
+            .effective_shape = self.effective_shape,
             .cursor_color = self.cursor_color,
             .cursor_text_color = self.cursor_text_color,
             .cursor_trail_color = self.cursor_trail_color,
             .cursor_beam_thickness = self.cursor_beam_thickness,
             .cursor_underline_thickness = self.cursor_underline_thickness,
+            .cursor_trail_count = self.cursor_trail_count,
+            .cursor_trail_rects = self.cursor_trail_rects,
         };
     }
 
@@ -130,7 +114,7 @@ pub const CursorPresentation = struct {
         return true;
     }
 
-    fn updateCursorTrailForVtSurface(self: *CursorPresentation, source: vt_surface.VtSurface, new_trigger: bool, cell_px: geometry_contract.CellSize) bool {
+    fn updateCursorTrail(self: *CursorPresentation, source: CursorTrailTarget, new_trigger: bool, cell_px: geometry_contract.CellSize) bool {
         const before_count = self.cursor_trail_count;
         const before_rects = self.cursor_trail_rects;
         const target = self.cursorTrailTarget(source, cell_px) orelse {
@@ -158,15 +142,15 @@ pub const CursorPresentation = struct {
         return before_count != self.cursor_trail_count or !std.mem.eql(u8, std.mem.asBytes(&before_rects), std.mem.asBytes(&self.cursor_trail_rects));
     }
 
-    fn cursorTrailTarget(self: *const CursorPresentation, source: vt_surface.VtSurface, cell_px: geometry_contract.CellSize) ?text_cursor_trail.Target {
+    fn cursorTrailTarget(self: *const CursorPresentation, source: CursorTrailTarget, cell_px: geometry_contract.CellSize) ?text_cursor_trail.Target {
         if (cell_px.width == 0) return null;
         if (cell_px.height == 0) return null;
         return text_cursor_trail.targetFromCursor(.{
-            .visible = source.cursor.visible != 0 and self.cursor_opacity != 0,
+            .visible = source.visible and self.cursor_opacity != 0,
             .shape = mapTrailCursorShape(self.effective_shape),
             .beam_thickness = self.cursor_beam_thickness,
             .underline_thickness = self.cursor_underline_thickness,
-            .primary_extent = contract.CellExtent{ .row = source.cursor.row, .col = source.cursor.col, .rows = source.cursor.cell_rows, .cols = source.cursor.cell_cols },
+            .primary_extent = source.extent,
         }, .{ .cell_w_px = cell_px.width, .cell_h_px = cell_px.height, .baseline_px = 0 });
     }
 
@@ -182,6 +166,11 @@ pub const CursorPresentation = struct {
             .color = .{ .r = 0, .g = 0, .b = 0 },
         };
     }
+};
+
+pub const CursorTrailTarget = struct {
+    visible: bool,
+    extent: contract.CellExtent,
 };
 
 fn updateBool(target: *bool, next: bool) bool {
@@ -251,22 +240,8 @@ fn emptyCadence() HostCursorCadence {
     };
 }
 
-fn testVtSurface() vt_surface.VtSurface {
-    return .{
-        .cols = 4,
-        .rows = 1,
-        .history_count = 0,
-        .scroll_row = 0,
-        .snapshot_seq = 1,
-        .dirty_epoch = 1,
-        .is_alternate_screen = false,
-        .cells = &.{},
-        .cursor = .{ .visible = 1, .row = 0, .col = 1, .cell_rows = 1, .cell_cols = 1, .shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK },
-        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
-        .colors = std.mem.zeroes(c.HowlVtRenderColorState),
-        .selection = .{},
-        .cursor_phase_visible = true,
-    };
+fn testCursorTarget(col: u16) CursorTrailTarget {
+    return .{ .visible = true, .extent = .{ .row = 0, .col = col, .rows = 1, .cols = 1 } };
 }
 
 test "cursor presentation cadence stores theme inputs and reports changed" {
@@ -281,12 +256,12 @@ test "cursor presentation cadence stores theme inputs and reports changed" {
     cadence.cursor_trail_decay_slow_s = 0.6;
 
     try std.testing.expect(cursor.setHostCursorCadence(cadence, null, .{ .width = 8, .height = 16 }));
-    const theme = cursor.cursorThemeConfig();
-    try std.testing.expectEqual(@as(u32, 0x102030), theme.cursor_color.value);
-    try std.testing.expectEqual(@as(u32, 0x405060), theme.cursor_text_color.value);
-    try std.testing.expectEqual(@as(u32, 0x708090), theme.cursor_trail_color.value);
-    try std.testing.expectEqual(@as(f32, 2.5), theme.cursor_beam_thickness);
-    try std.testing.expectEqual(@as(f32, 3.5), theme.cursor_underline_thickness);
+    const facts = cursor.presentationFacts();
+    try std.testing.expectEqual(@as(u32, 0x102030), facts.cursor_color.value);
+    try std.testing.expectEqual(@as(u32, 0x405060), facts.cursor_text_color.value);
+    try std.testing.expectEqual(@as(u32, 0x708090), facts.cursor_trail_color.value);
+    try std.testing.expectEqual(@as(f32, 2.5), facts.cursor_beam_thickness);
+    try std.testing.expectEqual(@as(f32, 3.5), facts.cursor_underline_thickness);
     try std.testing.expectEqual(@as(f32, 0.2), cursor.cursor_trail_decay_fast_s);
     try std.testing.expectEqual(@as(f32, 0.6), cursor.cursor_trail_decay_slow_s);
 }
@@ -300,7 +275,7 @@ test "cursor presentation timestamp-only same cadence with no trail output repor
     try std.testing.expect(!cursor.setHostCursorCadence(cadence, null, .{ .width = 8, .height = 16 }));
 }
 
-test "cursor presentation source application mutates cursor fields and reports changed" {
+test "cursor presentation stores cadence fields without mutating VT state" {
     var cursor = CursorPresentation{};
     var cadence = emptyCadence();
     cadence.focused = false;
@@ -309,40 +284,32 @@ test "cursor presentation source application mutates cursor fields and reports c
     cadence.effective_shape = c.HOWL_VT_CURSOR_SHAPE_BEAM;
     try std.testing.expect(cursor.setHostCursorCadence(cadence, null, .{ .width = 8, .height = 16 }));
 
-    var source = testVtSurface();
-    try std.testing.expect(cursor.applyHostCursorCadenceToVtSurface(&source, .{ .width = 8, .height = 16 }));
-    try std.testing.expect(!source.cursor_focused);
-    try std.testing.expectEqual(@as(u8, 0), source.cursor_opacity);
-    try std.testing.expectEqual(@as(u8, 128), source.text_blink_opacity);
-    try std.testing.expectEqual(@as(u8, c.HOWL_VT_CURSOR_SHAPE_BEAM), source.effective_shape);
-    try std.testing.expect(!source.cursor_phase_visible);
+    const facts = cursor.presentationFacts();
+    try std.testing.expect(!facts.focused);
+    try std.testing.expectEqual(@as(u8, 0), facts.cursor_opacity);
+    try std.testing.expectEqual(@as(u8, 128), facts.text_blink_opacity);
+    try std.testing.expectEqual(@as(u8, c.HOWL_VT_CURSOR_SHAPE_BEAM), facts.effective_shape);
 }
 
 test "cursor presentation zero cell size clears trail output safely" {
     var cursor = CursorPresentation{};
     cursor.cursor_trail_count = 1;
     cursor.cursor_trail_rects[0] = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 };
-    var source = testVtSurface();
-
-    try std.testing.expect(cursor.applyHostCursorCadenceToVtSurface(&source, .{ .width = 0, .height = 16 }));
+    try std.testing.expect(cursor.updateCursorTrail(testCursorTarget(0), false, .{ .width = 0, .height = 16 }));
     try std.testing.expectEqual(@as(u16, 0), cursor.cursor_trail_count);
-    try std.testing.expectEqual(@as(u16, 0), source.cursor_trail_count);
 }
 
 test "cursor presentation active trail animation can report changed when time advances" {
     var cursor = CursorPresentation{};
-    var source = testVtSurface();
-    source.cursor.col = 4;
     var cadence = emptyCadence();
     cadence.cursor_trail_count = 1;
     cadence.cursor_trail_rects[0] = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 };
     cadence.now_ns = 16 * std.time.ns_per_ms;
-    try std.testing.expect(cursor.setHostCursorCadence(cadence, source, .{ .width = 8, .height = 16 }));
+    try std.testing.expect(cursor.setHostCursorCadence(cadence, testCursorTarget(4), .{ .width = 8, .height = 16 }));
     try std.testing.expect(cursor.animationPending());
 
     cadence.cursor_trail_count = 0;
     cadence.now_ns += 16 * std.time.ns_per_ms;
-    source.cursor.col = 2;
-    _ = cursor.setHostCursorCadence(cadence, source, .{ .width = 8, .height = 16 });
+    _ = cursor.setHostCursorCadence(cadence, testCursorTarget(2), .{ .width = 8, .height = 16 });
     try std.testing.expect(cursor.animationPending());
 }
