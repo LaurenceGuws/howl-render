@@ -846,9 +846,9 @@ fn testCursorPresentation() contract.CursorPresentation {
         .default_foreground = .{ .r = 0x10, .g = 0x20, .b = 0x30 },
         .default_background = .{ .r = 0x40, .g = 0x50, .b = 0x60 },
         .primary_extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 },
-        .extra_cursors = [_]contract.ExtraCursorPresentation{undefined} ** @import("../vt_surface/cursor.zig").max_extra_cursors,
+        .extra_cursors = [_]contract.ExtraCursorPresentation{undefined} ** contract.max_extra_cursors,
         .extra_cursor_count = 0,
-        .trail = .{ .rects = [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 128, .color = .{ .r = 0, .g = 0, .b = 0 } }} ++ [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } }} ** (@import("../vt_surface/cursor.zig").max_cursor_trail_rects - 1), .count = 1 },
+        .trail = .{ .rects = [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 128, .color = .{ .r = 0, .g = 0, .b = 0 } }} ++ [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } }} ** (contract.max_cursor_trail_rects - 1), .count = 1 },
     };
 }
 

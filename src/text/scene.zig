@@ -5,7 +5,6 @@ const scene_rects = @import("scene_rects.zig");
 const atlas_cache = @import("raster/atlas.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const sprite_key = @import("raster/key.zig");
-const cursor_presentation = @import("../vt_surface/cursor.zig");
 
 pub const TextScene = contract.TextScene;
 pub const TextSpriteDraw = contract.TextSpriteDraw;
@@ -439,9 +438,9 @@ fn testCursorPresentation(shape: contract.CursorShape, col: u16, row: u16, rgb: 
         .default_foreground = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b },
         .default_background = .{ .r = 0, .g = 0, .b = 0 },
         .primary_extent = .{ .row = row, .col = col, .rows = 1, .cols = 1 },
-        .extra_cursors = [_]contract.ExtraCursorPresentation{emptyExtraCursorPresentation()} ** cursor_presentation.max_extra_cursors,
+        .extra_cursors = [_]contract.ExtraCursorPresentation{emptyExtraCursorPresentation()} ** contract.max_extra_cursors,
         .extra_cursor_count = 0,
-        .trail = .{ .rects = [_]contract.CursorTrailRect{emptyCursorTrailRect()} ** cursor_presentation.max_cursor_trail_rects, .count = 0 },
+        .trail = .{ .rects = [_]contract.CursorTrailRect{emptyCursorTrailRect()} ** contract.max_cursor_trail_rects, .count = 0 },
     };
 }
 

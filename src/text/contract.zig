@@ -5,7 +5,7 @@ const color = @import("color.zig");
 const effects = @import("effects.zig");
 const metrics = @import("metrics.zig");
 const scene_contract = @import("scene_contract.zig");
-const cursor_presentation = @import("../vt_surface/cursor.zig");
+const cursor_presentation = @import("cursor_presentation.zig");
 
 pub const Rgba8 = color.Rgba8;
 pub const SemanticColorKind = color.SemanticColorKind;
@@ -25,6 +25,8 @@ pub const CellMetrics = metrics.CellMetrics;
 pub const GridMetrics = metrics.GridMetrics;
 
 pub const CellInput = cell_input.CellInput;
+pub const max_extra_cursors = cursor_presentation.max_extra_cursors;
+pub const max_cursor_trail_rects = cursor_presentation.max_cursor_trail_rects;
 pub const CursorColor = cursor_presentation.CursorColor;
 pub const Rgb8 = cursor_presentation.Rgb8;
 pub const CellExtent = cursor_presentation.CellExtent;
