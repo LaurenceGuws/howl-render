@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const c = @import("howl_render_c");
-const contract = @import("../text/contract.zig");
+const surface_root = @import("../surface.zig");
 const geometry_contract = @import("../geometry_contract.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const sprite_resource_store = @import("resource_store.zig");
@@ -242,7 +242,7 @@ pub fn Emitter(comptime limits: Limits) type {
             });
         }
 
-        fn appendPreparedClears(self: *Self, draws: []const contract.TextClearDraw) Error!void {
+        fn appendPreparedClears(self: *Self, draws: []const surface_root.TextClearDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -253,7 +253,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedBackgrounds(self: *Self, draws: []const contract.TextBackgroundDraw) Error!void {
+        fn appendPreparedBackgrounds(self: *Self, draws: []const surface_root.TextBackgroundDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -264,7 +264,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedDecorations(self: *Self, draws: []const contract.TextDecorationDraw) Error!void {
+        fn appendPreparedDecorations(self: *Self, draws: []const surface_root.TextDecorationDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -275,7 +275,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedCursors(self: *Self, draws: []const contract.TextCursorDraw) Error!void {
+        fn appendPreparedCursors(self: *Self, draws: []const surface_root.TextCursorDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -286,7 +286,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedFillCommand(self: *Self, x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: contract.Rgba8, kind: u8) Error!void {
+        fn appendPreparedFillCommand(self: *Self, x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: surface_root.Rgba8, kind: u8) Error!void {
             if (width_px == 0) return;
             if (height_px == 0) return;
             const clipped = clippedFillRect(self.surface_storage.render_px, x_px, y_px, width_px, height_px) orelse return;
@@ -715,7 +715,7 @@ const ByteRange = struct {
     end: u32,
 };
 
-fn packRgba(color: contract.Rgba8) u32 {
+fn packRgba(color: surface_root.Rgba8) u32 {
     return (@as(u32, color.r) << 24) |
         (@as(u32, color.g) << 16) |
         (@as(u32, color.b) << 8) |
@@ -734,7 +734,7 @@ fn gridSizeOut(size: geometry_contract.GridSize) c.HowlRenderGridSize {
     return .{ .cols = size.cols, .rows = size.rows };
 }
 
-fn lookupPreparedSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: contract.SpriteKey) error{MissingSprite}!PreparedSprite {
+fn lookupPreparedSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: surface_root.SpriteKey) error{MissingSprite}!PreparedSprite {
     for (prepared.text_surface.raster_plan.outputs) |output| {
         if (output.key.value != sprite_key.value) continue;
         return .{
@@ -766,7 +766,7 @@ fn packedStrideForOutput(output: rasterizer.RasterSpriteOutput) u32 {
     return @as(u32, output.width_px) * sprite_resource_store.bytesPerPixelForPrepared(output.color_mode);
 }
 
-fn visualBoundsForDraw(bounds: rasterizer.SpriteBounds, draw: contract.TextSpriteDraw) rasterizer.SpriteBounds {
+fn visualBoundsForDraw(bounds: rasterizer.SpriteBounds, draw: surface_root.TextSpriteDraw) rasterizer.SpriteBounds {
     if (bounds.width_px != 0) {
         if (bounds.height_px != 0) return bounds;
     }

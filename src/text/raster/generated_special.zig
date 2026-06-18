@@ -1,5 +1,5 @@
 const std = @import("std");
-const contract = @import("../contract.zig");
+const surface = @import("../../surface.zig");
 const special_glyphs = @import("../special_glyphs.zig");
 const special_block_braille = @import("special_block_braille.zig");
 const special_box = @import("special_box.zig");
@@ -14,7 +14,7 @@ pub fn rasterizeGeneratedSpecialAlpha(pixels: []u8, width_px: u16, height_px: u1
     });
 }
 
-pub fn rasterizeGeneratedSpecialAlphaWithMetrics(pixels: []u8, width_px: u16, height_px: u16, codepoint: u32, box_drawing: contract.BoxDrawingRasterMetrics) bool {
+pub fn rasterizeGeneratedSpecialAlphaWithMetrics(pixels: []u8, width_px: u16, height_px: u16, codepoint: u32, box_drawing: surface.BoxDrawingRasterMetrics) bool {
     std.debug.assert(pixels.len <= std.math.maxInt(u32));
     std.debug.assert(@as(u32, @intCast(pixels.len)) >= @as(u32, width_px) * @as(u32, height_px));
     if (!special_glyphs.isGeneratedSpecialSupported(codepoint)) return false;
@@ -28,7 +28,7 @@ pub fn rasterizeGeneratedSpecialAlphaWithMetrics(pixels: []u8, width_px: u16, he
     return false;
 }
 
-fn rasterizeSupportedGeneratedSpecialAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: contract.BoxDrawingRasterMetrics, family: GeneratedSpecialFamily) void {
+fn rasterizeSupportedGeneratedSpecialAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: surface.BoxDrawingRasterMetrics, family: GeneratedSpecialFamily) void {
     switch (family) {
         .box => special_box.rasterizeGeneratedBoxAlpha(pixels, width, height, codepoint, box_drawing),
         .powerline => special_powerline.rasterizeGeneratedPowerlineAlpha(pixels, width, height, codepoint, box_drawing),

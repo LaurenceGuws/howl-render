@@ -1,21 +1,21 @@
 const std = @import("std");
 const atlas_cache = @import("raster/atlas.zig");
 const cluster = @import("shape/cluster.zig");
-const contract = @import("contract.zig");
-const direct_scene = @import("direct_scene.zig");
-const font_session = @import("session.zig");
+const surface = @import("../surface.zig");
+const direct_scene = @import("../grid/direct.zig");
+const font_session = @import("../session/session.zig");
 const lane = @import("lane.zig");
 const prepare_counters = @import("prepare_counters.zig");
 const provider = @import("provider.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
-const scene = @import("scene.zig");
-const scene_damage = @import("scene_damage.zig");
-const scene_rects = @import("scene_rects.zig");
+const scene = @import("../scene.zig");
+const scene_damage = @import("../grid/damage.zig");
+const scene_rects = @import("../grid/rects.zig");
 const sprite_key = @import("raster/key.zig");
 
-const RenderableCell = contract.RenderableCell;
-const CellText = contract.CellText;
+const RenderableCell = surface.RenderableCell;
+const CellText = surface.CellText;
 const FontSession = font_session.FontSession;
 const FontFaceRecord = font_session.FontFaceRecord;
 const LookupGlyphResult = provider.LookupGlyphResult;
@@ -40,23 +40,23 @@ pub const Policy = enum {
 };
 
 pub const Source = union(enum) {
-    raw_cells: []const contract.CellInput,
+    raw_cells: []const surface.CellInput,
     inputs: []const cluster.CellTextInput,
     prepared: struct {
-        cells: []const contract.RenderableCell,
-        text_cache: contract.LineTextCache,
+        cells: []const surface.RenderableCell,
+        text_cache: surface.LineTextCache,
     },
 };
 
 pub const Scratch = struct {
-    missing: std.ArrayListUnmanaged(contract.MissingGlyph) = .{ .items = &.{}, .capacity = 0 },
-    sprite_draws: std.ArrayListUnmanaged(contract.TextSpriteDraw) = .{ .items = &.{}, .capacity = 0 },
-    background_draws: std.ArrayListUnmanaged(contract.TextBackgroundDraw) = .{ .items = &.{}, .capacity = 0 },
-    clear_draws: std.ArrayListUnmanaged(contract.TextClearDraw) = .{ .items = &.{}, .capacity = 0 },
-    decoration_draws: std.ArrayListUnmanaged(contract.TextDecorationDraw) = .{ .items = &.{}, .capacity = 0 },
-    cursor_draws: std.ArrayListUnmanaged(contract.TextCursorDraw) = .{ .items = &.{}, .capacity = 0 },
+    missing: std.ArrayListUnmanaged(surface.MissingGlyph) = .{ .items = &.{}, .capacity = 0 },
+    sprite_draws: std.ArrayListUnmanaged(surface.TextSpriteDraw) = .{ .items = &.{}, .capacity = 0 },
+    background_draws: std.ArrayListUnmanaged(surface.TextBackgroundDraw) = .{ .items = &.{}, .capacity = 0 },
+    clear_draws: std.ArrayListUnmanaged(surface.TextClearDraw) = .{ .items = &.{}, .capacity = 0 },
+    decoration_draws: std.ArrayListUnmanaged(surface.TextDecorationDraw) = .{ .items = &.{}, .capacity = 0 },
+    cursor_draws: std.ArrayListUnmanaged(surface.TextCursorDraw) = .{ .items = &.{}, .capacity = 0 },
     raster_reqs: std.ArrayListUnmanaged(raster_operation.RasterizeRequest) = .{ .items = &.{}, .capacity = 0 },
-    clear_row_colors: std.ArrayListUnmanaged(contract.Rgba8) = .{ .items = &.{}, .capacity = 0 },
+    clear_row_colors: std.ArrayListUnmanaged(surface.Rgba8) = .{ .items = &.{}, .capacity = 0 },
     clear_row_matches: std.ArrayListUnmanaged(bool) = .{ .items = &.{}, .capacity = 0 },
     background_merge_live: bool = false,
     background_merge_end_cell: u32 = 0,
@@ -113,10 +113,10 @@ pub fn prepare(
     driver: Driver,
     source: Source,
     policy: Policy,
-    grid_metrics: contract.GridMetrics,
+    grid_metrics: surface.GridMetrics,
     session: font_session.FontSession,
     damage_input: scene_damage.DamageInput,
-    cursor: ?contract.CursorPresentation,
+    cursor: ?surface.CursorPresentation,
     lane_report: *lane.LaneReport,
     rejected_complex_cells_out: ?*u64,
 ) !?Product {
@@ -186,7 +186,7 @@ fn appendVisible(
     driver: Driver,
     source: Source,
     damage: direct_scene.Damage,
-    grid_metrics: contract.GridMetrics,
+    grid_metrics: surface.GridMetrics,
     decoration_layout: scene_rects.RectDecorationLayout,
     session: font_session.FontSession,
     policy: Policy,
@@ -240,7 +240,7 @@ fn candidateDecision(policy: Policy, lane_report: *lane.LaneReport, candidate: C
     return action;
 }
 
-fn sourceCandidate(source: Source, idx: u32, damage: direct_scene.Damage, grid_metrics: contract.GridMetrics) ?Candidate {
+fn sourceCandidate(source: Source, idx: u32, damage: direct_scene.Damage, grid_metrics: surface.GridMetrics) ?Candidate {
     const item = sourceItem(source, idx) orelse return null;
     if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) return null;
     return .{ .item = item, .choice = lane.classifyRenderableCell(item.renderable, item.text) };
@@ -271,7 +271,7 @@ fn damageInput(damage: direct_scene.Damage) scene_damage.DamageInput {
     };
 }
 
-fn recordLane(lane_report: *lane.LaneReport, text: contract.CellText) void {
+fn recordLane(lane_report: *lane.LaneReport, text: surface.CellText) void {
     lane_report.visible_cells += 1;
     lane_report.normal_cells += 1;
     if (!blankText(text)) lane_report.normal_clusters += 1;
@@ -279,10 +279,10 @@ fn recordLane(lane_report: *lane.LaneReport, text: contract.CellText) void {
 
 fn appendRenderable(
     driver: Driver,
-    renderable: contract.RenderableCell,
-    text: contract.CellText,
+    renderable: surface.RenderableCell,
+    text: surface.CellText,
     damage: direct_scene.Damage,
-    grid_metrics: contract.GridMetrics,
+    grid_metrics: surface.GridMetrics,
     decoration_layout: scene_rects.RectDecorationLayout,
     session: font_session.FontSession,
     lane_report: *lane.LaneReport,
@@ -306,9 +306,9 @@ fn appendRenderable(
 
 fn renderableAppend(
     driver: Driver,
-    renderable: contract.RenderableCell,
-    text: contract.CellText,
-    grid_metrics: contract.GridMetrics,
+    renderable: surface.RenderableCell,
+    text: surface.CellText,
+    grid_metrics: surface.GridMetrics,
     session: font_session.FontSession,
     lane_report: *lane.LaneReport,
 ) !void {
@@ -318,7 +318,7 @@ fn renderableAppend(
     appendResolvedGlyph(driver, renderable, text, grid_metrics, session, lane_report, face);
 }
 
-fn resolveFaceOrAppendMissing(driver: Driver, renderable: contract.RenderableCell, text: contract.CellText, session: font_session.FontSession) ?font_session.FontFaceRecord {
+fn resolveFaceOrAppendMissing(driver: Driver, renderable: surface.RenderableCell, text: surface.CellText, session: font_session.FontSession) ?font_session.FontFaceRecord {
     const face = resolveFace(session, renderable, text) orelse {
         driver.scratch.missing.appendAssumeCapacity(.{ .codepoint = text.first_cp, .style = renderable.style, .presentation = renderable.presentation, .reason = .no_fallback_face });
         return null;
@@ -329,14 +329,14 @@ fn resolveFaceOrAppendMissing(driver: Driver, renderable: contract.RenderableCel
 const ResolvedGlyphKey = struct {
     lookup: provider.LookupGlyphResult,
     span: u8,
-    key: contract.SpriteKey,
+    key: surface.SpriteKey,
 };
 
 fn appendResolvedGlyph(
     driver: Driver,
-    renderable: contract.RenderableCell,
-    text: contract.CellText,
-    grid_metrics: contract.GridMetrics,
+    renderable: surface.RenderableCell,
+    text: surface.CellText,
+    grid_metrics: surface.GridMetrics,
     session: font_session.FontSession,
     lane_report: *lane.LaneReport,
     face: font_session.FontFaceRecord,
@@ -371,7 +371,7 @@ fn reserveAtlasOrAppendPendingRaster(driver: Driver, session: font_session.FontS
     return residency;
 }
 
-fn blankFastReturn(driver: Driver, text: contract.CellText) bool {
+fn blankFastReturn(driver: Driver, text: surface.CellText) bool {
     const sprite_draw_count = driver.scratch.sprite_draws.items.len;
     if (text.first_cp == 0 or text.first_cp == '\t') {
         std.debug.assert(driver.scratch.sprite_draws.items.len == sprite_draw_count);
@@ -382,8 +382,8 @@ fn blankFastReturn(driver: Driver, text: contract.CellText) bool {
 
 fn spriteAppend(
     driver: Driver,
-    renderable: contract.RenderableCell,
-    grid_metrics: contract.GridMetrics,
+    renderable: surface.RenderableCell,
+    grid_metrics: surface.GridMetrics,
     session: font_session.FontSession,
     lane_report: *lane.LaneReport,
     lookup: provider.LookupGlyphResult,
@@ -470,12 +470,12 @@ fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.L
     return .{ .damage = damage, .outputs = outputs, .outputs_owned = outputs_owned };
 }
 
-fn resolveFace(session: font_session.FontSession, cell: contract.RenderableCell, text: contract.CellText) ?font_session.FontFaceRecord {
+fn resolveFace(session: font_session.FontSession, cell: surface.RenderableCell, text: surface.CellText) ?font_session.FontFaceRecord {
     if (isPlainAsciiText(text)) return session.primary();
     return session.findStyle(cell.style, cell.presentation, text) orelse session.findFallback(cell.style, cell.presentation, text);
 }
 
-fn isPlainAsciiText(text: contract.CellText) bool {
+fn isPlainAsciiText(text: surface.CellText) bool {
     const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
     for (cps) |cp| {
         if (cp == ' ' or cp == '\t') continue;
@@ -489,14 +489,14 @@ fn count32(items: anytype) u32 {
     return @intCast(items.len);
 }
 
-fn blankText(text: contract.CellText) bool {
+fn blankText(text: surface.CellText) bool {
     for (text.codepoints) |cp| {
         if (cp != 0 and cp != ' ') return false;
     }
     return true;
 }
 
-fn testRenderableCell(first_cell: u32) contract.RenderableCell {
+fn testRenderableCell(first_cell: u32) surface.RenderableCell {
     return .{
         .text_id = .{ .value = 1 },
         .first_cell = first_cell,
@@ -508,7 +508,7 @@ fn testRenderableCell(first_cell: u32) contract.RenderableCell {
     };
 }
 
-fn testCellText(codepoint: u32, codepoints: []const u32) contract.CellText {
+fn testCellText(codepoint: u32, codepoints: []const u32) surface.CellText {
     return .{
         .id = .{ .value = 1 },
         .first_cp = codepoint,
@@ -602,7 +602,7 @@ test "direct normal renderable append missing face appends no fallback glyph and
     try renderableAppend(driver, testRenderableCell(0), testCellText(0x2603, snowman[0..]), .{ .cols = 1, .rows = 1 }, testFontSession(&faces), &lane_report);
 
     try std.testing.expectEqual(@as(usize, 1), scratch.missing.items.len);
-    try std.testing.expectEqual(contract.MissingGlyphReason.no_fallback_face, scratch.missing.items[0].reason);
+    try std.testing.expectEqual(surface.MissingGlyphReason.no_fallback_face, scratch.missing.items[0].reason);
     try std.testing.expectEqual(@as(usize, 0), scratch.sprite_draws.items.len);
     try std.testing.expectEqual(@as(usize, 0), scratch.raster_reqs.items.len);
     try std.testing.expectEqual(@as(u64, 0), lane_report.direct_normal_draws);

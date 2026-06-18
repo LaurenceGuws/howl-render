@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const c = @import("howl_render_c");
-const contract = @import("../text/contract.zig");
+const surface_root = @import("../surface.zig");
 const prepared_buffer = @import("compositor.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const realize = @import("realizer.zig");
@@ -505,10 +505,10 @@ test "render surface surface emitter realizes prepared fill surface equal to ful
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const clear = [_]contract.TextClearDraw{clearDraw(0, 0, 2, 1, rgba(0, 0, 0, 255))};
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
-    const decoration = [_]contract.TextDecorationDraw{decorationDraw(1, 0, 1, 1, rgba(0, 255, 0, 255))};
-    const cursor = [_]contract.TextCursorDraw{cursorDraw(0, 0, 2, 1, rgba(0, 0, 255, 128))};
+    const clear = [_]surface_root.TextClearDraw{clearDraw(0, 0, 2, 1, rgba(0, 0, 0, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const decoration = [_]surface_root.TextDecorationDraw{decorationDraw(1, 0, 1, 1, rgba(0, 255, 0, 255))};
+    const cursor = [_]surface_root.TextCursorDraw{cursorDraw(0, 0, 2, 1, rgba(0, 0, 255, 128))};
     const prepared = preparedSurface(.{
         .clear_draws = &clear,
         .background_draws = &background,
@@ -525,7 +525,7 @@ test "render surface surface emitter fresh emission initializes undefined storag
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1 });
     const oracle = try prepared_buffer.compose(allocator, null, &session, &prepared);
     defer allocator.free(oracle);
@@ -575,7 +575,7 @@ test "render surface surface emitter emits full prepared surface clear before fi
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1 });
     const PreparedEmitter = Emitter(.{});
     const emitter = try allocator.create(PreparedEmitter);
@@ -599,7 +599,7 @@ test "render surface surface emitter keeps partial prepared surface patch shaped
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1, .full_redraw = false });
     const PreparedEmitter = Emitter(.{});
     const emitter = try allocator.create(PreparedEmitter);
@@ -617,7 +617,7 @@ test "render surface surface emitter skips zero area prepared fills" {
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const background = [_]contract.TextBackgroundDraw{
+    const background = [_]surface_root.TextBackgroundDraw{
         backgroundDraw(0, 0, 0, 1, rgba(255, 0, 0, 255)),
         backgroundDraw(0, 0, 1, 0, rgba(0, 255, 0, 255)),
         backgroundDraw(0, 0, 1, 1, rgba(0, 0, 255, 255)),
@@ -642,7 +642,7 @@ test "render surface surface emitter clips prepared fills to surface" {
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const background = [_]contract.TextBackgroundDraw{
+    const background = [_]surface_root.TextBackgroundDraw{
         backgroundDraw(-1, 0, 2, 1, rgba(255, 0, 0, 255)),
         backgroundDraw(1, 0, 2, 1, rgba(0, 255, 0, 255)),
     };
@@ -670,7 +670,7 @@ test "render surface surface emitter coalesces adjacent prepared fill commands" 
     defer session.deinit();
 
     const color = rgba(10, 20, 30, 255);
-    const background = [_]contract.TextBackgroundDraw{
+    const background = [_]surface_root.TextBackgroundDraw{
         backgroundDraw(0, 0, 1, 1, color),
         backgroundDraw(1, 0, 2, 1, color),
         backgroundDraw(3, 0, 1, 1, color),
@@ -698,13 +698,13 @@ test "render surface surface emitter does not coalesce distinct prepared fills" 
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const background = [_]contract.TextBackgroundDraw{
+    const background = [_]surface_root.TextBackgroundDraw{
         backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255)),
         backgroundDraw(1, 0, 1, 1, rgba(4, 5, 6, 255)),
         backgroundDraw(3, 0, 1, 1, rgba(4, 5, 6, 255)),
         backgroundDraw(4, 1, 1, 1, rgba(4, 5, 6, 255)),
     };
-    const decoration = [_]contract.TextDecorationDraw{decorationDraw(0, 0, 1, 1, rgba(4, 5, 6, 255))};
+    const decoration = [_]surface_root.TextDecorationDraw{decorationDraw(0, 0, 1, 1, rgba(4, 5, 6, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .decoration_draws = &decoration, .width_px = 5, .height_px = 2 });
 
     const PreparedEmitter = Emitter(.{});
@@ -724,7 +724,7 @@ test "render surface surface emitter realizes prepared alpha sprite surface equa
     defer session.deinit();
 
     var sprite_bytes = [_]u8{ 255, 128 };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(11, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(11, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 11, 2, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
@@ -736,7 +736,7 @@ test "render surface surface emitter batches prepared alpha sprite glyph command
     defer session.deinit();
 
     var sprite_bytes = [_]u8{255};
-    var sprite_draws = [_]contract.TextSpriteDraw{
+    var sprite_draws = [_]surface_root.TextSpriteDraw{
         spriteDraw(111, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
         spriteDraw(111, 1, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
@@ -762,7 +762,7 @@ test "render surface surface emitter skips fully offscreen prepared alpha sprite
     defer session.deinit();
 
     var sprite_bytes = [_]u8{255};
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(114, 2, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(114, 2, 0, 1, 1, rgba(255, 255, 255, 255))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 114, 1, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 1, .height_px = 1 });
 
@@ -787,7 +787,7 @@ test "render surface surface emitter emits over command bound alpha draws with b
     defer session.deinit();
 
     const draws_len: usize = c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1;
-    const sprite_draws = try allocator.alloc(contract.TextSpriteDraw, draws_len);
+    const sprite_draws = try allocator.alloc(surface_root.TextSpriteDraw, draws_len);
     defer allocator.free(sprite_draws);
     for (sprite_draws, 0..) |*draw, index| {
         draw.* = spriteDraw(112, @intCast(index), 0, 1, 1, rgba(255, 255, 255, 255));
@@ -818,7 +818,7 @@ test "render surface surface emitter preserves command overflow after batched gl
     defer session.deinit();
 
     const draws_len: usize = c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX + 1;
-    const sprite_draws = try allocator.alloc(contract.TextSpriteDraw, draws_len);
+    const sprite_draws = try allocator.alloc(surface_root.TextSpriteDraw, draws_len);
     defer allocator.free(sprite_draws);
     for (sprite_draws, 0..) |*draw, index| {
         draw.* = spriteDraw(113, @intCast(index), 0, 1, 1, rgba(255, 255, 255, 255));
@@ -850,7 +850,7 @@ test "render surface surface emitter emits more than old alpha atlas entry cap" 
     var index: u32 = 0;
     while (index <= sprite_resource_store.persistent_sprite_resources_max) : (index += 1) {
         var sprite_bytes = [_]u8{@intCast((index % 251) + 1)};
-        var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(10_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+        var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(10_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
         var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 10_000 + index, 1, 1, .alpha, &sprite_bytes, .{})};
         const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 1, .height_px = 1 });
 
@@ -876,7 +876,7 @@ test "render surface surface emitter emits more than old alpha atlas hard cap" {
     var index: u32 = 0;
     while (index <= old_alpha_atlas_entry_limit) : (index += 1) {
         var sprite_bytes = [_]u8{@intCast((index % 251) + 1)};
-        var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(20_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+        var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(20_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
         var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 20_000 + index, 1, 1, .alpha, &sprite_bytes, .{})};
         const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 1, .height_px = 1 });
 
@@ -892,7 +892,7 @@ test "render surface surface emitter realizes prepared color sprite surface equa
     defer session.deinit();
 
     var sprite_bytes = [_]u8{ 0, 255, 0, 128 };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(12, 0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(12, 0, 0, 1, 1, rgba(255, 0, 0, 255))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 12, 1, 1, .color, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 1, .height_px = 1 });
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
@@ -907,7 +907,7 @@ test "render surface surface emitter realizes sprite visual bounds like oracle" 
         0, 200, 0,
         0, 100, 0,
     };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(13, 0, 0, 3, 2, rgba(0, 0, 255, 255))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(13, 0, 0, 3, 2, rgba(0, 0, 255, 255))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 13, 3, 2, .alpha, &sprite_bytes, .{ .x_px = 1, .y_px = 0, .width_px = 1, .height_px = 2 })};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 3, .height_px = 2 });
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
@@ -919,7 +919,7 @@ test "render surface surface emitter persists prepared sprite resource across su
     defer session.deinit();
 
     var sprite_bytes = [_]u8{ 255, 128 };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(31, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(31, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 31, 2, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
 
@@ -967,7 +967,7 @@ test "render surface surface emitter reused alpha atlas sprite skips uploads on 
     defer session.deinit();
 
     var sprite_bytes = [_]u8{ 255, 128 };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(32, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(32, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 32, 2, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
 
@@ -992,7 +992,7 @@ test "render surface surface emitter reused persistent color sprite skips upload
     defer session.deinit();
 
     var sprite_bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(33, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(33, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 33, 2, 1, .color, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
 
@@ -1017,10 +1017,10 @@ test "render surface surface emitter allocates distinct monotonic sprite resourc
     defer session.deinit();
 
     var first_bytes = [_]u8{255};
-    var first_draws = [_]contract.TextSpriteDraw{spriteDraw(41, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var first_draws = [_]surface_root.TextSpriteDraw{spriteDraw(41, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
     var first_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 41, 1, 1, .alpha, &first_bytes, .{})};
     var second_bytes = [_]u8{128};
-    var second_draws = [_]contract.TextSpriteDraw{spriteDraw(42, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var second_draws = [_]surface_root.TextSpriteDraw{spriteDraw(42, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
     var second_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 42, 1, 1, .alpha, &second_bytes, .{})};
     const first = preparedSurface(.{ .sprite_draws = &first_draws, .raster_outputs = &first_outputs, .width_px = 1, .height_px = 1 });
     const second = preparedSurface(.{ .sprite_draws = &second_draws, .raster_outputs = &second_outputs, .width_px = 1, .height_px = 1 });
@@ -1045,10 +1045,10 @@ test "render surface surface emitter allocates distinct resource for changed spr
     defer session.deinit();
 
     var first_bytes = [_]u8{255};
-    var first_draws = [_]contract.TextSpriteDraw{spriteDraw(43, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var first_draws = [_]surface_root.TextSpriteDraw{spriteDraw(43, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
     var first_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 43, 1, 1, .alpha, &first_bytes, .{})};
     var second_bytes = [_]u8{128};
-    var second_draws = [_]contract.TextSpriteDraw{spriteDraw(43, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var second_draws = [_]surface_root.TextSpriteDraw{spriteDraw(43, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
     var second_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 43, 1, 1, .alpha, &second_bytes, .{})};
     const first = preparedSurface(.{ .sprite_draws = &first_draws, .raster_outputs = &first_outputs, .width_px = 1, .height_px = 1 });
     const second = preparedSurface(.{ .sprite_draws = &second_draws, .raster_outputs = &second_outputs, .width_px = 1, .height_px = 1 });
@@ -1076,10 +1076,10 @@ test "render surface surface emitter allocates distinct resource for changed spr
     defer session.deinit();
 
     var first_bytes = [_]u8{255};
-    var first_draws = [_]contract.TextSpriteDraw{spriteDraw(44, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var first_draws = [_]surface_root.TextSpriteDraw{spriteDraw(44, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
     var first_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 44, 1, 1, .alpha, &first_bytes, .{})};
     var second_bytes = [_]u8{ 255, 128 };
-    var second_draws = [_]contract.TextSpriteDraw{spriteDraw(44, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var second_draws = [_]surface_root.TextSpriteDraw{spriteDraw(44, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
     var second_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 44, 2, 1, .alpha, &second_bytes, .{})};
     const first = preparedSurface(.{ .sprite_draws = &first_draws, .raster_outputs = &first_outputs, .width_px = 2, .height_px = 1 });
     const second = preparedSurface(.{ .sprite_draws = &second_draws, .raster_outputs = &second_outputs, .width_px = 2, .height_px = 1 });
@@ -1107,7 +1107,7 @@ test "render surface surface emitter failure preserves accepted persistent resou
     defer session.deinit();
 
     var bytes = [_]u8{ 255, 255 };
-    var draws = [_]contract.TextSpriteDraw{spriteDraw(51, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var draws = [_]surface_root.TextSpriteDraw{spriteDraw(51, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
     var outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 51, 2, 1, .alpha, &bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &draws, .raster_outputs = &outputs, .width_px = 2, .height_px = 1 });
 
@@ -1126,7 +1126,7 @@ test "render surface surface emitter fresh failure restores retained resource ad
 
     var alpha_bytes = [_]u8{255};
     var color_bytes = [_]u8{ 1, 2, 3, 4 };
-    var accepted_draws = [_]contract.TextSpriteDraw{
+    var accepted_draws = [_]surface_root.TextSpriteDraw{
         spriteDraw(52, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
         spriteDraw(53, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
@@ -1152,7 +1152,7 @@ test "render surface surface emitter fresh failure restores retained resource ad
 
     var fail_color_bytes = [_]u8{ 5, 6, 7, 8 };
     var fail_alpha_bytes = [_]u8{128};
-    var fail_draws = [_]contract.TextSpriteDraw{
+    var fail_draws = [_]surface_root.TextSpriteDraw{
         spriteDraw(54, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
         spriteDraw(55, 1, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
@@ -1185,7 +1185,7 @@ test "render surface surface emitter resource id exhaustion preserves accepted s
     defer session.deinit();
 
     var bytes = [_]u8{ 255, 255, 255, 255 };
-    var draws = [_]contract.TextSpriteDraw{spriteDraw(61, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var draws = [_]surface_root.TextSpriteDraw{spriteDraw(61, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
     var outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 61, 1, 1, .color, &bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &draws, .raster_outputs = &outputs, .width_px = 1, .height_px = 1 });
 
@@ -1207,7 +1207,7 @@ test "render surface surface emitter emits transient sprite beyond persistent bu
     defer session.deinit();
 
     var bytes = [_]u8{ 255, 255, 255, 255 };
-    var draws = [_]contract.TextSpriteDraw{spriteDraw(62, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var draws = [_]surface_root.TextSpriteDraw{spriteDraw(62, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
     var outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 62, 1, 1, .color, &bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &draws, .raster_outputs = &outputs, .width_px = 1, .height_px = 1 });
 
@@ -1234,7 +1234,7 @@ test "render surface surface emitter reports exact transient retire bound" {
 
     var first_bytes = [_]u8{ 255, 255, 255, 255 };
     var second_bytes = [_]u8{ 128, 128, 128, 255 };
-    var draws = [_]contract.TextSpriteDraw{
+    var draws = [_]surface_root.TextSpriteDraw{
         spriteDraw(63, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
         spriteDraw(64, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
@@ -1257,9 +1257,9 @@ test "render surface surface emitter rejects missing prepared sprite without mut
     var session = text_session.TextSession.init(allocator);
     defer session.deinit();
 
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
     var accepted_prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
-    var missing_sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(99, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var missing_sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(99, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
     var missing_prepared = preparedSurface(.{ .sprite_draws = &missing_sprite_draws, .width_px = 1, .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{});
@@ -1288,7 +1288,7 @@ test "render surface surface emitter realizes partial prepared surface equal to 
         1, 2, 3, 255,
         4, 5, 6, 255,
     };
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1, .full_redraw = false });
     try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, &base);
 }
@@ -1309,11 +1309,11 @@ fn expectPreparedEmissionEqualsCompose(allocator: std.mem.Allocator, session: *t
 }
 
 const PreparedOptions = struct {
-    clear_draws: []const contract.TextClearDraw = &.{},
-    background_draws: []const contract.TextBackgroundDraw = &.{},
-    sprite_draws: []const contract.TextSpriteDraw = &.{},
-    decoration_draws: []const contract.TextDecorationDraw = &.{},
-    cursor_draws: []const contract.TextCursorDraw = &.{},
+    clear_draws: []const surface_root.TextClearDraw = &.{},
+    background_draws: []const surface_root.TextBackgroundDraw = &.{},
+    sprite_draws: []const surface_root.TextSpriteDraw = &.{},
+    decoration_draws: []const surface_root.TextDecorationDraw = &.{},
+    cursor_draws: []const surface_root.TextCursorDraw = &.{},
     raster_outputs: []rasterizer.RasterSpriteOutput = &.{},
     width_px: u16,
     height_px: u16,
@@ -1352,23 +1352,23 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     };
 }
 
-fn clearDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextClearDraw {
+fn clearDraw(x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextClearDraw {
     return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = 0, .cell_span = 1 };
 }
 
-fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextBackgroundDraw {
+fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextBackgroundDraw {
     return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = 0, .cell_span = 1 };
 }
 
-fn decorationDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextDecorationDraw {
+fn decorationDraw(x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextDecorationDraw {
     return .{ .kind = .underline, .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = 0, .cell_span = 1 };
 }
 
-fn cursorDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextCursorDraw {
+fn cursorDraw(x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextCursorDraw {
     return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color };
 }
 
-fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextSpriteDraw {
+fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextSpriteDraw {
     return .{
         .sprite = .{ .slot = 0, .key = .{ .value = key } },
         .x_px = x,
@@ -1381,6 +1381,6 @@ fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: contract
     };
 }
 
-fn rgba(r: u8, g: u8, b: u8, a: u8) contract.Rgba8 {
+fn rgba(r: u8, g: u8, b: u8, a: u8) surface_root.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = a };
 }

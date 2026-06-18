@@ -1,11 +1,11 @@
 const std = @import("std");
 
-const cell_input = @import("cell_input.zig");
-const color = @import("color.zig");
-const effects = @import("effects.zig");
-const metrics = @import("metrics.zig");
-const scene_contract = @import("scene_contract.zig");
-const cursor_presentation = @import("cursor_presentation.zig");
+const cell_input = @import("cell/input.zig");
+const color = @import("cell/color.zig");
+const effects = @import("cell/effects.zig");
+const metrics = @import("text/metrics.zig");
+const scene_contract = @import("grid/contract.zig");
+const cursor_presentation = @import("cursor/presentation.zig");
 
 pub const Rgba8 = color.Rgba8;
 pub const SemanticColorKind = color.SemanticColorKind;

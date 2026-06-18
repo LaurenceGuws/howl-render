@@ -1,5 +1,5 @@
 const std = @import("std");
-const contract = @import("../contract.zig");
+const surface = @import("../../surface.zig");
 const font_resolver = @import("../resolver.zig");
 const shape_run = @import("run.zig");
 const sprite_key = @import("../raster/key.zig");
@@ -7,7 +7,7 @@ const symbol_map = @import("../symbol_map.zig");
 
 pub const OwnedGlyphGroups = struct {
     allocator: std.mem.Allocator,
-    groups: []contract.GlyphGroup,
+    groups: []surface.GlyphGroup,
     owned: bool = true,
 
     pub fn deinit(self: *OwnedGlyphGroups) void {
@@ -24,8 +24,8 @@ pub const GroupingPolicy = struct {
 pub fn groupShapedRunsWithPolicy(
     allocator: std.mem.Allocator,
     shaped_runs: []const shape_run.OwnedShapedRun,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
     policy: GroupingPolicy,
 ) !OwnedGlyphGroups {
     var count: u32 = 0;
@@ -40,7 +40,7 @@ pub fn groupShapedRunsWithPolicy(
         }
     }
 
-    const groups = try allocator.alloc(contract.GlyphGroup, @intCast(count));
+    const groups = try allocator.alloc(surface.GlyphGroup, @intCast(count));
     errdefer allocator.free(groups);
     var out_idx: u32 = 0;
 
@@ -87,7 +87,7 @@ fn applyGroupingPolicy(cell_span: u8, first_cell: u32, policy: GroupingPolicy) u
     return @intCast(@max(cursor_cell - first_cell, 1));
 }
 
-fn groupPlacement(glyphs: []const contract.GlyphInstance, cell_metrics: contract.CellMetrics, cell_span: u8) contract.GlyphPlacement {
+fn groupPlacement(glyphs: []const surface.GlyphInstance, cell_metrics: surface.CellMetrics, cell_span: u8) surface.GlyphPlacement {
     var advance_px: f32 = 0;
     for (glyphs) |glyph| advance_px += glyph.x_advance_px;
     const min_advance: f32 = @floatFromInt(@as(u32, @max(cell_span, 1)) * @as(u32, cell_metrics.cell_w_px));
@@ -97,10 +97,10 @@ fn groupPlacement(glyphs: []const contract.GlyphInstance, cell_metrics: contract
 pub fn groupSpriteRoutes(
     allocator: std.mem.Allocator,
     routes: []const font_resolver.SpriteRouteHit,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
 ) !OwnedGlyphGroups {
-    const groups = try allocator.alloc(contract.GlyphGroup, routes.len);
+    const groups = try allocator.alloc(surface.GlyphGroup, routes.len);
     errdefer allocator.free(groups);
     for (routes, 0..) |route, idx| {
         const cluster_idx = route.cluster_index;
@@ -120,12 +120,12 @@ pub fn groupSpriteRoutes(
     return .{ .allocator = allocator, .groups = groups };
 }
 
-pub fn concatGroups(allocator: std.mem.Allocator, font_groups: []const contract.GlyphGroup, sprite_groups: []const contract.GlyphGroup) !OwnedGlyphGroups {
-    const groups = try allocator.alloc(contract.GlyphGroup, font_groups.len + sprite_groups.len);
+pub fn concatGroups(allocator: std.mem.Allocator, font_groups: []const surface.GlyphGroup, sprite_groups: []const surface.GlyphGroup) !OwnedGlyphGroups {
+    const groups = try allocator.alloc(surface.GlyphGroup, font_groups.len + sprite_groups.len);
     errdefer allocator.free(groups);
     @memcpy(groups[0..font_groups.len], font_groups);
     @memcpy(groups[font_groups.len..], sprite_groups);
-    std.sort.block(contract.GlyphGroup, groups, {}, lessByCell);
+    std.sort.block(surface.GlyphGroup, groups, {}, lessByCell);
 
     var out_len: u32 = 0;
     var covered_until: u32 = 0;
@@ -138,11 +138,11 @@ pub fn concatGroups(allocator: std.mem.Allocator, font_groups: []const contract.
     return .{ .allocator = allocator, .groups = try allocator.realloc(groups, @intCast(out_len)) };
 }
 
-fn lessByCell(_: void, a: contract.GlyphGroup, b: contract.GlyphGroup) bool {
+fn lessByCell(_: void, a: surface.GlyphGroup, b: surface.GlyphGroup) bool {
     return a.first_cell < b.first_cell;
 }
 
-fn classifyFontGroup(cluster: contract.CellCluster, glyphs: []const contract.GlyphInstance, cell_span: u8) contract.GlyphGroupKind {
+fn classifyFontGroup(cluster: surface.CellCluster, glyphs: []const surface.GlyphInstance, cell_span: u8) surface.GlyphGroupKind {
     if (cluster.presentation == .emoji) return .emoji;
     if (cell_span > 1) return .ligature;
     if (glyphs.len > 1) return .ligature;
@@ -150,7 +150,7 @@ fn classifyFontGroup(cluster: contract.CellCluster, glyphs: []const contract.Gly
     return .normal;
 }
 
-fn cellSpanForClusterRange(clusters: []const contract.CellCluster, start_idx: u32, end_exclusive: u32) u8 {
+fn cellSpanForClusterRange(clusters: []const surface.CellCluster, start_idx: u32, end_exclusive: u32) u8 {
     std.debug.assert(start_idx < count32(clusters));
     const clamped_end = std.math.clamp(end_exclusive, start_idx + 1, clusterCount(clusters));
     const first = clusters[@intCast(start_idx)];
@@ -159,14 +159,14 @@ fn cellSpanForClusterRange(clusters: []const contract.CellCluster, start_idx: u3
     return @intCast(@max(end_cell - first.first_cell, 1));
 }
 
-fn classifySpriteRoute(route: contract.SpecialSpriteRoute) contract.GlyphGroupKind {
+fn classifySpriteRoute(route: surface.SpecialSpriteRoute) surface.GlyphGroupKind {
     return switch (route) {
         .blank => .normal,
         .box, .block, .braille, .powerline, .legacy_computing => .box_fallback,
     };
 }
 
-fn routeSpriteKey(route: contract.SpecialSpriteRoute, cluster: contract.CellCluster, cell_span: u8, cell_metrics: contract.CellMetrics) contract.SpriteKey {
+fn routeSpriteKey(route: surface.SpecialSpriteRoute, cluster: surface.CellCluster, cell_span: u8, cell_metrics: surface.CellMetrics) surface.SpriteKey {
     var h = std.hash.Wyhash.init(0x484f574c);
     const route_int: u8 = @intFromEnum(route);
     h.update(std.mem.asBytes(&route_int));
@@ -181,7 +181,7 @@ fn routeSpriteKey(route: contract.SpecialSpriteRoute, cluster: contract.CellClus
     return .{ .value = h.final() };
 }
 
-fn spriteRouteCellSpan(route: contract.SpecialSpriteRoute, clusters: []const contract.CellCluster, cluster_idx: u32) u8 {
+fn spriteRouteCellSpan(route: surface.SpecialSpriteRoute, clusters: []const surface.CellCluster, cluster_idx: u32) u8 {
     const cluster = clusters[@intCast(cluster_idx)];
     if (route != .powerline) return cluster.cell_span;
     var end_cell = cluster.first_cell + @as(u32, cluster.cell_span);
@@ -197,16 +197,16 @@ fn spriteRouteCellSpan(route: contract.SpecialSpriteRoute, clusters: []const con
     return @intCast(@min(span, std.math.maxInt(u8)));
 }
 
-fn boxDrawingRasterMetrics(cell_metrics: contract.CellMetrics) contract.BoxDrawingRasterMetrics {
+fn boxDrawingRasterMetrics(cell_metrics: surface.CellMetrics) surface.BoxDrawingRasterMetrics {
     const light = if (cell_metrics.box_thickness_px == 0) @as(u16, 2) else cell_metrics.box_thickness_px;
     return .{ .light_stroke_px = light, .heavy_stroke_px = @intCast(@min(@as(u32, light) * 2, std.math.maxInt(u16))) };
 }
 
-fn isPowerlineFollower(cluster: contract.CellCluster) bool {
+fn isPowerlineFollower(cluster: surface.CellCluster) bool {
     return cluster.first_cp == ' ' or cluster.first_cp == 0;
 }
 
-fn clusterCount(clusters: []const contract.CellCluster) u32 {
+fn clusterCount(clusters: []const surface.CellCluster) u32 {
     return @intCast(clusters.len);
 }
 
@@ -216,10 +216,10 @@ fn count32(items: anytype) u32 {
 }
 
 test "group shaped run creates one group per glyph cluster" {
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 4, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any },
     };
-    const text_cache = contract.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{'x'} }} };
+    const text_cache = surface.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{'x'} }} };
     var shaped = try shape_run.shapeRun(std.testing.allocator, .{ .run = .{
         .cluster_start = 0,
         .cluster_count = 1,
@@ -234,13 +234,13 @@ test "group shaped run creates one group per glyph cluster" {
 }
 
 test "grouping merges multiple glyphs for one cluster" {
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'i', .style = .regular, .presentation = .any },
     };
     const shaped_run = shape_run.OwnedShapedRun{
         .allocator = std.testing.allocator,
         .run = .{ .run = .{ .cluster_start = 0, .cluster_count = 1, .font = .{ .face_id = .{ .value = 1 }, .style = .regular, .presentation = .any } } },
-        .glyphs = try std.testing.allocator.dupe(contract.GlyphInstance, &.{
+        .glyphs = try std.testing.allocator.dupe(surface.GlyphInstance, &.{
             .{ .face_id = .{ .value = 1 }, .glyph_id = 10, .cluster_index = 0, .x_advance_px = 5 },
             .{ .face_id = .{ .value = 1 }, .glyph_id = 11, .cluster_index = 0, .x_offset_px = 1, .x_advance_px = 0 },
         }),
@@ -253,15 +253,15 @@ test "grouping merges multiple glyphs for one cluster" {
     defer groups.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(groups.groups));
     try std.testing.expectEqual(@as(u32, 2), count32(groups.groups[0].glyphs));
-    try std.testing.expectEqual(contract.GlyphGroupKind.ligature, groups.groups[0].kind);
+    try std.testing.expectEqual(surface.GlyphGroupKind.ligature, groups.groups[0].kind);
 }
 
 test "grouping classifies emoji icon and sprite route groups" {
-    const emoji_cluster = contract.CellCluster{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 2, .first_cp = 0x1f601, .style = .regular, .presentation = .emoji };
-    const icon_cluster = contract.CellCluster{ .text_id = .{ .value = 1 }, .first_cell = 2, .cell_span = 1, .first_cp = 0xe0b0, .style = .regular, .presentation = .any };
-    const glyphs = [_]contract.GlyphInstance{.{ .face_id = .{ .value = 1 }, .glyph_id = 1, .cluster_index = 0 }};
-    try std.testing.expectEqual(contract.GlyphGroupKind.emoji, classifyFontGroup(emoji_cluster, &glyphs, emoji_cluster.cell_span));
-    try std.testing.expectEqual(contract.GlyphGroupKind.icon, classifyFontGroup(icon_cluster, &glyphs, icon_cluster.cell_span));
+    const emoji_cluster = surface.CellCluster{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 2, .first_cp = 0x1f601, .style = .regular, .presentation = .emoji };
+    const icon_cluster = surface.CellCluster{ .text_id = .{ .value = 1 }, .first_cell = 2, .cell_span = 1, .first_cp = 0xe0b0, .style = .regular, .presentation = .any };
+    const glyphs = [_]surface.GlyphInstance{.{ .face_id = .{ .value = 1 }, .glyph_id = 1, .cluster_index = 0 }};
+    try std.testing.expectEqual(surface.GlyphGroupKind.emoji, classifyFontGroup(emoji_cluster, &glyphs, emoji_cluster.cell_span));
+    try std.testing.expectEqual(surface.GlyphGroupKind.icon, classifyFontGroup(icon_cluster, &glyphs, icon_cluster.cell_span));
 
     var sprite_groups = try groupSpriteRoutes(
         std.testing.allocator,
@@ -270,12 +270,12 @@ test "grouping classifies emoji icon and sprite route groups" {
         .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
     );
     defer sprite_groups.deinit();
-    try std.testing.expectEqual(contract.GlyphGroupKind.box_fallback, sprite_groups.groups[0].kind);
+    try std.testing.expectEqual(surface.GlyphGroupKind.box_fallback, sprite_groups.groups[0].kind);
     try std.testing.expect(sprite_groups.groups[0].sprite_key.value != 0);
 }
 
 test "powerline sprite route absorbs adjacent spacer cells" {
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 0xe0b0, .style = .regular, .presentation = .any },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = ' ', .style = .regular, .presentation = .any },
         .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any },
@@ -288,8 +288,8 @@ test "powerline sprite route absorbs adjacent spacer cells" {
 }
 
 test "powerline spacer absorption lets concat drop covered space group" {
-    const powerline = contract.GlyphGroup{ .first_cell = 0, .cell_span = 2, .glyphs = &.{}, .sprite_key = .{ .value = 1 }, .kind = .box_fallback };
-    const space = contract.GlyphGroup{ .first_cell = 1, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 2 }, .kind = .normal };
+    const powerline = surface.GlyphGroup{ .first_cell = 0, .cell_span = 2, .glyphs = &.{}, .sprite_key = .{ .value = 1 }, .kind = .box_fallback };
+    const space = surface.GlyphGroup{ .first_cell = 1, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 2 }, .kind = .normal };
     var merged = try concatGroups(std.testing.allocator, &.{space}, &.{powerline});
     defer merged.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(merged.groups));
@@ -298,10 +298,10 @@ test "powerline spacer absorption lets concat drop covered space group" {
 }
 
 test "grouping preserves multicell span as ligature-shaped group" {
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 2, .cell_span = 2, .first_cp = 'x', .style = .regular, .presentation = .any },
     };
-    const text_cache = contract.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{'x'} }} };
+    const text_cache = surface.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{'x'} }} };
     var shaped = try shape_run.shapeRun(std.testing.allocator, .{ .run = .{
         .cluster_start = 0,
         .cluster_count = 1,
@@ -311,20 +311,20 @@ test "grouping preserves multicell span as ligature-shaped group" {
     var groups = try groupShapedRunsWithPolicy(std.testing.allocator, &.{shaped}, &clusters, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{});
     defer groups.deinit();
     try std.testing.expectEqual(@as(u8, 2), groups.groups[0].cell_span);
-    try std.testing.expectEqual(contract.GlyphGroupKind.ligature, groups.groups[0].kind);
+    try std.testing.expectEqual(surface.GlyphGroupKind.ligature, groups.groups[0].kind);
 }
 
 test "grouping classifies multiple glyphs in one cell as ligature group" {
-    const cluster = contract.CellCluster{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any };
-    const glyphs = [_]contract.GlyphInstance{
+    const cluster = surface.CellCluster{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any };
+    const glyphs = [_]surface.GlyphInstance{
         .{ .face_id = .{ .value = 1 }, .glyph_id = 10, .cluster_index = 0 },
         .{ .face_id = .{ .value = 1 }, .glyph_id = 11, .cluster_index = 0 },
     };
-    try std.testing.expectEqual(contract.GlyphGroupKind.ligature, classifyFontGroup(cluster, &glyphs, cluster.cell_span));
+    try std.testing.expectEqual(surface.GlyphGroupKind.ligature, classifyFontGroup(cluster, &glyphs, cluster.cell_span));
 }
 
 test "concat drops groups covered by previous multicell group" {
-    const groups = [_]contract.GlyphGroup{
+    const groups = [_]surface.GlyphGroup{
         .{ .first_cell = 0, .cell_span = 2, .glyphs = &.{}, .sprite_key = .{ .value = 1 }, .kind = .ligature },
         .{ .first_cell = 1, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 2 }, .kind = .normal },
         .{ .first_cell = 2, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 3 }, .kind = .normal },
@@ -337,14 +337,14 @@ test "concat drops groups covered by previous multicell group" {
 }
 
 test "grouping infers multicell span from next cluster boundary" {
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'f', .style = .regular, .presentation = .any },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'i', .style = .regular, .presentation = .any },
     };
     const shaped_run = shape_run.OwnedShapedRun{
         .allocator = std.testing.allocator,
         .run = .{ .run = .{ .cluster_start = 0, .cluster_count = 2, .font = .{ .face_id = .{ .value = 1 }, .style = .regular, .presentation = .any } } },
-        .glyphs = try std.testing.allocator.dupe(contract.GlyphInstance, &.{
+        .glyphs = try std.testing.allocator.dupe(surface.GlyphInstance, &.{
             .{ .face_id = .{ .value = 1 }, .glyph_id = 20, .cluster_index = 0, .x_advance_px = 10 },
         }),
     };
@@ -356,18 +356,18 @@ test "grouping infers multicell span from next cluster boundary" {
     defer groups.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(groups.groups));
     try std.testing.expectEqual(@as(u8, 2), groups.groups[0].cell_span);
-    try std.testing.expectEqual(contract.GlyphGroupKind.ligature, groups.groups[0].kind);
+    try std.testing.expectEqual(surface.GlyphGroupKind.ligature, groups.groups[0].kind);
 }
 
 test "grouping policy can suppress ligature span across cursor" {
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'f', .style = .regular, .presentation = .any },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'i', .style = .regular, .presentation = .any },
     };
     const shaped_run = shape_run.OwnedShapedRun{
         .allocator = std.testing.allocator,
         .run = .{ .run = .{ .cluster_start = 0, .cluster_count = 2, .font = .{ .face_id = .{ .value = 1 }, .style = .regular, .presentation = .any } } },
-        .glyphs = try std.testing.allocator.dupe(contract.GlyphInstance, &.{
+        .glyphs = try std.testing.allocator.dupe(surface.GlyphInstance, &.{
             .{ .face_id = .{ .value = 1 }, .glyph_id = 20, .cluster_index = 0, .x_advance_px = 10 },
         }),
     };

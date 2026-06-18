@@ -1,7 +1,7 @@
 const std = @import("std");
-const contract = @import("../contract.zig");
+const surface = @import("../../surface.zig");
 
-pub fn hashGlyphSequence(face: contract.FontFaceId, glyphs: []const contract.GlyphInstance, cell_span: u8, cell_metrics: contract.CellMetrics) contract.SpriteKey {
+pub fn hashGlyphSequence(face: surface.FontFaceId, glyphs: []const surface.GlyphInstance, cell_span: u8, cell_metrics: surface.CellMetrics) surface.SpriteKey {
     var h = std.hash.Wyhash.init(0);
     h.update(std.mem.asBytes(&face.value));
     h.update(std.mem.asBytes(&cell_span));
@@ -15,7 +15,7 @@ pub fn hashGlyphSequence(face: contract.FontFaceId, glyphs: []const contract.Gly
     return .{ .value = h.final() };
 }
 
-pub fn hashGlyphLocal(face: contract.FontFaceId, glyph_id: u32, cell_span: u8, cell_metrics: contract.CellMetrics) contract.SpriteKey {
+pub fn hashGlyphLocal(face: surface.FontFaceId, glyph_id: u32, cell_span: u8, cell_metrics: surface.CellMetrics) surface.SpriteKey {
     var h = std.hash.Wyhash.init(0x474c5946484f574c);
     h.update(std.mem.asBytes(&face.value));
     h.update(std.mem.asBytes(&glyph_id));
@@ -27,7 +27,7 @@ pub fn hashGlyphLocal(face: contract.FontFaceId, glyph_id: u32, cell_span: u8, c
 }
 
 /// Returns a cache key for a generated undercurl sprite with fixed metrics.
-pub fn hashUndercurl(width_px: u16, height_px: u16, stroke_px: u16, amplitude_px: u16, period_px: u16, y_px: u16) contract.SpriteKey {
+pub fn hashUndercurl(width_px: u16, height_px: u16, stroke_px: u16, amplitude_px: u16, period_px: u16, y_px: u16) surface.SpriteKey {
     var h = std.hash.Wyhash.init(0x756e646572637572);
     h.update(std.mem.asBytes(&width_px));
     h.update(std.mem.asBytes(&height_px));
@@ -39,14 +39,14 @@ pub fn hashUndercurl(width_px: u16, height_px: u16, stroke_px: u16, amplitude_px
 }
 
 test "sprite key changes by face" {
-    const metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    const metrics = surface.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
     const a = hashGlyphSequence(.{ .value = 1 }, &.{}, 1, metrics);
     const b = hashGlyphSequence(.{ .value = 2 }, &.{}, 1, metrics);
     try std.testing.expect(a.value != b.value);
 }
 
 test "local glyph key changes by glyph id" {
-    const metrics = contract.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    const metrics = surface.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
     const a = hashGlyphLocal(.{ .value = 1 }, 10, 1, metrics);
     const b = hashGlyphLocal(.{ .value = 1 }, 11, 1, metrics);
     try std.testing.expect(a.value != b.value);

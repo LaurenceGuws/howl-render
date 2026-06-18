@@ -1,8 +1,8 @@
 const std = @import("std");
 const c = @import("howl_render_c");
 const geometry_contract = @import("geometry_contract.zig");
-const contract = @import("text/contract.zig");
-const text_cursor_trail = @import("text/cursor_trail.zig");
+const surface = @import("surface.zig");
+const text_cursor_trail = @import("cursor/trail.zig");
 
 pub const HostCursorCadenceRect = c.HowlRenderHostCursorTrailRect;
 
@@ -170,7 +170,7 @@ pub const CursorPresentation = struct {
 
 pub const CursorTrailTarget = struct {
     visible: bool,
-    extent: contract.CellExtent,
+    extent: surface.CellExtent,
 };
 
 fn updateBool(target: *bool, next: bool) bool {
@@ -211,7 +211,7 @@ fn targetFromTriggerRect(rect: c.HowlRenderHostCursorTrailRect, cell_px: geometr
     return .{ .left_px = left_px, .right_px = left_px + width_px, .top_px = top_px, .bottom_px = top_px + height_px, .visible = true };
 }
 
-fn mapTrailCursorShape(shape: u8) contract.CursorShape {
+fn mapTrailCursorShape(shape: u8) surface.CursorShape {
     return switch (shape) {
         c.HOWL_VT_CURSOR_SHAPE_UNDERLINE => .underline,
         c.HOWL_VT_CURSOR_SHAPE_BEAM => .beam,

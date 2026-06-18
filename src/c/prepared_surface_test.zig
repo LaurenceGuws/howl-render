@@ -90,7 +90,7 @@ test "render surface prepared ffi borrowed surface realizes explicit rgba oracle
     const allocator = std.testing.allocator;
     const session_owner = support.text_session_model_ns.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 2, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
-    const background = [_]support.text_contract_ns.TextBackgroundDraw{support.backgroundDraw(0, 0, 2, 1, support.rgba(1, 2, 3, 255))};
+    const background = [_]support.surface_ns.TextBackgroundDraw{support.backgroundDraw(0, 0, 2, 1, support.rgba(1, 2, 3, 255))};
     var prepared_surface_value = support.preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1 });
     const oracle = try support.prepared_buffer.compose(allocator, null, &session_owner.session, &prepared_surface_value);
     defer allocator.free(oracle);
@@ -110,7 +110,7 @@ test "render ffi prepared render-surface retrieval reports emission failure" {
     const session_owner = support.text_session_model_ns.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
     const draws_len: usize = c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1;
-    const background_draws = try allocator.alloc(support.text_contract_ns.TextBackgroundDraw, draws_len);
+    const background_draws = try allocator.alloc(support.surface_ns.TextBackgroundDraw, draws_len);
     defer allocator.free(background_draws);
     for (background_draws) |*draw| draw.* = support.backgroundDraw(0, 0, 1, 1, support.rgba(1, 2, 3, 255));
     var prepared_surface_value = support.preparedSurface(.{ .background_draws = background_draws, .width_px = 1, .height_px = 1 });

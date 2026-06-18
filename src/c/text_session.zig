@@ -3,7 +3,7 @@ const c = @import("howl_render_c");
 const handle_owner = @import("text_session_handle.zig");
 const surface_geometry = @import("surface_geometry.zig");
 const render_session = @import("../render_session.zig");
-const text_support = @import("../text/ft_hb/support.zig");
+const support = @import("../support/support.zig");
 
 pub fn init(config: c.HowlRenderTextConfig) callconv(.c) c.HowlRenderTextSessionHandle {
     if (config.surface_px.width == 0 or config.surface_px.height == 0) return null;
@@ -43,13 +43,13 @@ pub fn setFontPath(value: c.HowlRenderTextSessionHandle, ptr: ?[*]const u8, len:
 
 pub fn setFallbackFontPaths(value: c.HowlRenderTextSessionHandle, ptrs: ?[*]const ?[*]const u8, count: usize) callconv(.c) c_int {
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
-    if (count > text_support.max_fallback_fonts) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    const path_count = text_support.fallbackFontCount(@intCast(count)) orelse unreachable;
+    if (count > support.max_fallback_fonts) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    const path_count = support.fallbackFontCount(@intCast(count)) orelse unreachable;
     if (path_count > 0 and ptrs == null) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     const raw_paths = if (path_count == 0)
         &.{}
     else
-        ptrs.?[0..@intCast(text_support.fallbackFontLen(path_count))];
+        ptrs.?[0..@intCast(support.fallbackFontLen(path_count))];
     owner.setFallbackFontPathPtrs(raw_paths) catch |err| {
         return switch (err) {
             error.InvalidArgument => c.HOWL_RENDER_CALL_INVALID_ARGUMENT,

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const contract = @import("../contract.zig");
+const surface = @import("../../surface.zig");
 const special_glyphs = @import("../special_glyphs.zig");
 const special = @import("special.zig");
 const special_legacy_computing = @import("special_legacy_computing.zig");
@@ -468,7 +468,7 @@ test "generated special raster draws dashed box lines" {
 test "generated box connectors stop at stroke edges" {
     const width = 10;
     const height = 20;
-    const box = contract.BoxDrawingRasterMetrics{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
+    const box = surface.BoxDrawingRasterMetrics{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
     const h = centeredRange(height, height / 2, box.light_stroke_px);
     const v = centeredRange(width, width / 2, box.light_stroke_px);
 
@@ -489,7 +489,7 @@ test "generated box connectors stop at stroke edges" {
 test "generated tee connectors use centered light joins" {
     const width = 10;
     const height = 20;
-    const box = contract.BoxDrawingRasterMetrics{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
+    const box = surface.BoxDrawingRasterMetrics{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
     const h = centeredRange(height, height / 2, box.light_stroke_px);
     const v = centeredRange(width, width / 2, box.light_stroke_px);
 
@@ -566,7 +566,7 @@ test "generated special raster draws rounded box corners" {
 test "generated rounded corners align with straight box arms" {
     const width = 10;
     const height = 20;
-    const box = contract.BoxDrawingRasterMetrics{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
+    const box = surface.BoxDrawingRasterMetrics{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
     var corner = [_]u8{0} ** (width * height);
     var hline = [_]u8{0} ** (width * height);
     var vline = [_]u8{0} ** (width * height);

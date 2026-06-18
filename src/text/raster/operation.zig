@@ -1,13 +1,13 @@
 const std = @import("std");
-const contract = @import("../contract.zig");
+const surface = @import("../../surface.zig");
 
 pub const RasterizeRequest = struct {
     face_id: u32,
     glyph_id: u32,
     atlas_key: u64,
-    cell_metrics: contract.CellMetrics,
+    cell_metrics: surface.CellMetrics,
     cell_span: u8 = 1,
-    sprite_key: ?contract.SpriteKey = null,
+    sprite_key: ?surface.SpriteKey = null,
 };
 
 pub const RasterizeOutput = struct {

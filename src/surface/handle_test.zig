@@ -7,7 +7,7 @@ const render_surface_emitter = @import("emitter.zig");
 const render_surface_realizer = @import("realizer.zig");
 const render_session = @import("../render_session.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
-const contract = @import("../text/contract.zig");
+const surface_root = @import("../surface.zig");
 const test_support = @import("../c/test_support.zig");
 
 const PreparedHandle = prepared_handle.PreparedHandle;
@@ -17,7 +17,7 @@ test "create reports missing-sprite diagnostic without double free" {
     const session_owner = render_session.TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
-    var sprite_draws = [_]contract.TextSpriteDraw{.{
+    var sprite_draws = [_]surface_root.TextSpriteDraw{.{
         .sprite = .{ .slot = 0, .key = .{ .value = 1 } },
         .x_px = 0,
         .y_px = 0,
@@ -130,7 +130,7 @@ test "render surface prepared owner surface equals kitty dim rgba oracle" {
     defer session_owner.destroy();
 
     var sprite_bytes = [_]u8{ 255, 255 };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(21, 0, 0, 2, 1, rgba(255, 0, 0, 102))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(21, 0, 0, 2, 1, rgba(255, 0, 0, 102))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 21, 2, 1, .alpha, &sprite_bytes, .{})};
     var prepared = preparedSurface(.{
         .sprite_draws = &sprite_draws,
@@ -164,7 +164,7 @@ test "prepared handle fresh alpha atlas sprite emits zero uploads on second crea
     defer session_owner.destroy();
 
     var sprite_bytes = [_]u8{ 255, 128 };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(22, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(22, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 22, 2, 1, .alpha, &sprite_bytes, .{})};
     var first_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
     var second_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
@@ -186,7 +186,7 @@ test "prepared handle fresh persistent color sprite emits zero uploads on second
     defer session_owner.destroy();
 
     var sprite_bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
-    var sprite_draws = [_]contract.TextSpriteDraw{spriteDraw(23, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(23, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 23, 2, 1, .color, &sprite_bytes, .{})};
     var first_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
     var second_prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
@@ -209,7 +209,7 @@ test "render surface prepared owner partial surface equals explicit base rgba or
     defer session_owner.destroy();
 
     const base = [_]u8{ 1, 2, 3, 255, 4, 5, 6, 255 };
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255))};
     var prepared = preparedSurface(.{
         .background_draws = &background,
         .width_px = 2,
@@ -231,7 +231,7 @@ test "prepared handle releases render_surface payload with handle" {
     const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
     var prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
 
     const handle = try PreparedHandle.create(session_owner, &prepared);
@@ -247,7 +247,7 @@ test "prepared handle release is idempotent and stays not live" {
     const session_owner = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer session_owner.destroy();
 
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
     var prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
     const handle = try PreparedHandle.create(session_owner, &prepared);
 
@@ -266,7 +266,7 @@ test "prepared handle belongs to owning session only" {
     const owner_b = render_session.TextSessionOwner.create(allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
     defer owner_b.destroy();
 
-    const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
+    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
     var prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
     const handle = try PreparedHandle.create(owner_a, &prepared);
 
@@ -280,7 +280,7 @@ test "prepared handle reports missing surface when render_surface emission overf
     defer session_owner.destroy();
 
     const draws_len: usize = @intCast((render_surface_emitter.Limits{}).commands_max + 1);
-    const background_draws = try allocator.alloc(contract.TextBackgroundDraw, draws_len);
+    const background_draws = try allocator.alloc(surface_root.TextBackgroundDraw, draws_len);
     defer allocator.free(background_draws);
     for (background_draws) |*draw| draw.* = backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255));
     var prepared = preparedSurface(.{ .background_draws = background_draws, .width_px = 1, .height_px = 1 });
@@ -311,7 +311,7 @@ test "prepared handle allocation failure is reported in info" {
     {
         var session_owner = render_session.TextSessionOwner.create(probe_allocator_state.allocator(), .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
         defer session_owner.destroy();
-        const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
+        const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
         var prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
         const handle = try PreparedHandle.create(session_owner, &prepared);
         handle.release();
@@ -322,7 +322,7 @@ test "prepared handle allocation failure is reported in info" {
         var failing_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
         var session_owner = render_session.TextSessionOwner.create(failing_allocator_state.allocator(), .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse continue;
         defer session_owner.destroy();
-        const background = [_]contract.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
+        const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255))};
         var prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
         const handle = PreparedHandle.create(session_owner, &prepared) catch continue;
         if (handle.renderSurfaceEmissionFailure() != .allocation_failed) continue;
@@ -334,7 +334,7 @@ test "prepared handle allocation failure is reported in info" {
 
 fn ownedCommandOverflowPreparedSurface(allocator: std.mem.Allocator) !prepared_surface.PreparedSurface {
     const draws_len: usize = @intCast((render_surface_emitter.Limits{}).commands_max + 1);
-    const background_draws = try allocator.alloc(contract.TextBackgroundDraw, draws_len);
+    const background_draws = try allocator.alloc(surface_root.TextBackgroundDraw, draws_len);
     for (background_draws) |*draw| draw.* = backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255));
     return .{
         .allocator = allocator,
@@ -365,11 +365,11 @@ fn ownedCommandOverflowPreparedSurface(allocator: std.mem.Allocator) !prepared_s
 }
 
 const PreparedOptions = struct {
-    clear_draws: []const contract.TextClearDraw = &.{},
-    background_draws: []const contract.TextBackgroundDraw = &.{},
-    sprite_draws: []const contract.TextSpriteDraw = &.{},
-    decoration_draws: []const contract.TextDecorationDraw = &.{},
-    cursor_draws: []const contract.TextCursorDraw = &.{},
+    clear_draws: []const surface_root.TextClearDraw = &.{},
+    background_draws: []const surface_root.TextBackgroundDraw = &.{},
+    sprite_draws: []const surface_root.TextSpriteDraw = &.{},
+    decoration_draws: []const surface_root.TextDecorationDraw = &.{},
+    cursor_draws: []const surface_root.TextCursorDraw = &.{},
     raster_outputs: []rasterizer.RasterSpriteOutput = &.{},
     width_px: u16,
     height_px: u16,
@@ -405,14 +405,14 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     };
 }
 
-fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextBackgroundDraw {
+fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextBackgroundDraw {
     return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = 0, .cell_span = 1 };
 }
 
-fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: contract.Rgba8) contract.TextSpriteDraw {
+fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextSpriteDraw {
     return .{ .sprite = .{ .slot = 0, .key = .{ .value = key } }, .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = 0, .cell_span = 1 };
 }
 
-fn rgba(r: u8, g: u8, b: u8, a: u8) contract.Rgba8 {
+fn rgba(r: u8, g: u8, b: u8, a: u8) surface_root.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = a };
 }

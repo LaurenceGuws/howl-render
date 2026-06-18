@@ -1,7 +1,7 @@
 const std = @import("std");
 const prepared_surface = @import("prepared_surface.zig");
 const text_session = @import("../render_session.zig");
-const contract = @import("../text/contract.zig");
+const surface = @import("../surface.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 
 pub fn compose(allocator: std.mem.Allocator, base_pixels: ?[]const u8, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) ![]u8 {
@@ -89,7 +89,7 @@ fn basePixelsLenMatches(output_len: usize, base_len: usize) bool {
 const SpriteRaster = struct {
     pixels: []const u8,
     stride: u16,
-    color_mode: contract.SpriteColorMode,
+    color_mode: surface.SpriteColorMode,
     visual_bounds: rasterizer.SpriteBounds,
 };
 
@@ -119,7 +119,7 @@ fn drawColorSpan(pixels: []u8, width: u16, height: u16, span: anytype) void {
     }
 }
 
-fn drawDecorationSpan(pixels: []u8, width: u16, height: u16, span: []const contract.TextDecorationDraw) void {
+fn drawDecorationSpan(pixels: []u8, width: u16, height: u16, span: []const surface.TextDecorationDraw) void {
     for (span) |draw| {
         drawSolidRect(
             pixels,
@@ -141,7 +141,7 @@ fn drawSprites(pixels: []u8, width: u16, height: u16, session: *text_session.Tex
     }
 }
 
-fn lookupSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: contract.SpriteKey) !SpriteRaster {
+fn lookupSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: surface.SpriteKey) !SpriteRaster {
     for (prepared.text_surface.raster_plan.outputs) |output| {
         if (output.key.value != sprite_key.value) continue;
         const bounds = output.visualBounds();
@@ -175,7 +175,7 @@ fn packedStrideForOutput(output: rasterizer.RasterSpriteOutput) u16 {
     return @intCast(@as(u32, output.width_px) * @as(u32, channels));
 }
 
-fn drawSpriteInstance(pixels: []u8, width: u16, height: u16, draw: contract.TextSpriteDraw, sprite: SpriteRaster) void {
+fn drawSpriteInstance(pixels: []u8, width: u16, height: u16, draw: surface.TextSpriteDraw, sprite: SpriteRaster) void {
     const bounds = if (sprite.visual_bounds.width_px != 0 and
         sprite.visual_bounds.height_px != 0)
         sprite.visual_bounds
@@ -244,7 +244,7 @@ fn spriteIndex(sprite: SpriteRaster, src_x: u16, src_y: u16) u32 {
     };
 }
 
-fn drawSolidRect(pixels: []u8, width: u16, height: u16, x: i32, y: i32, rect_w: u16, rect_h: u16, color: contract.Rgba8) void {
+fn drawSolidRect(pixels: []u8, width: u16, height: u16, x: i32, y: i32, rect_w: u16, rect_h: u16, color: surface.Rgba8) void {
     var yy: u16 = 0;
     while (yy < rect_h) : (yy += 1) {
         const dst_y = y + @as(i32, yy);
@@ -294,7 +294,7 @@ test "compose preserves retained content outside partial updates" {
     defer allocator.free(base);
     @memset(base, 7);
 
-    var clear_draws = try allocator.alloc(contract.TextClearDraw, 1);
+    var clear_draws = try allocator.alloc(surface.TextClearDraw, 1);
     defer allocator.free(clear_draws);
     clear_draws[0] = .{
         .x_px = 0,
@@ -306,7 +306,7 @@ test "compose preserves retained content outside partial updates" {
         .cell_span = 2,
     };
 
-    var background_draws = try allocator.alloc(contract.TextBackgroundDraw, 1);
+    var background_draws = try allocator.alloc(surface.TextBackgroundDraw, 1);
     defer allocator.free(background_draws);
     background_draws[0] = .{
         .x_px = 0,
@@ -388,10 +388,10 @@ const ComposeTrace = struct {
 
 fn testPreparedSurface(
     allocator: std.mem.Allocator,
-    clear_draws: []const contract.TextClearDraw,
-    background_draws: []const contract.TextBackgroundDraw,
-    decoration_draws: []const contract.TextDecorationDraw,
-    cursor_draws: []const contract.TextCursorDraw,
+    clear_draws: []const surface.TextClearDraw,
+    background_draws: []const surface.TextBackgroundDraw,
+    decoration_draws: []const surface.TextDecorationDraw,
+    cursor_draws: []const surface.TextCursorDraw,
 ) prepared_surface.PreparedSurface {
     return .{
         .allocator = allocator,

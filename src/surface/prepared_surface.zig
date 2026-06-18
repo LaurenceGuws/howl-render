@@ -1,8 +1,8 @@
 const std = @import("std");
 const geometry_contract = @import("../geometry_contract.zig");
 const tokens = @import("../tokens.zig");
-const font_resolve = @import("../text/resolve.zig");
-const surface_preparer = @import("../text/surface_preparer.zig");
+const font_resolve = @import("../text/resolver.zig");
+const surface_preparer = @import("surface_preparer.zig");
 const render_surface_emitter = @import("emitter.zig");
 
 pub const PreparedInfo = struct {

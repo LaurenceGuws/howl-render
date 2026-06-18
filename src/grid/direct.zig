@@ -1,8 +1,8 @@
 const std = @import("std");
-const contract = @import("contract.zig");
-const scene = @import("scene.zig");
-const scene_damage = @import("scene_damage.zig");
-const scene_rects = @import("scene_rects.zig");
+const surface = @import("../surface.zig");
+const scene = @import("../scene.zig");
+const scene_damage = @import("damage.zig");
+const scene_rects = @import("rects.zig");
 
 pub const Damage = struct {
     full: bool,
@@ -35,39 +35,39 @@ pub fn borrowScene(allocator: std.mem.Allocator, damage: Damage, direct: anytype
 }
 
 pub fn appendBackground(
-    out: *std.ArrayListUnmanaged(contract.TextBackgroundDraw),
+    out: *std.ArrayListUnmanaged(surface.TextBackgroundDraw),
     merge_live: *bool,
     merge_end_cell: *u32,
-    cell: contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
+    cell: surface.RenderableCell,
+    cell_metrics: surface.CellMetrics,
+    grid_metrics: surface.GridMetrics,
     damage: Damage,
 ) void {
     scene_rects.appendBackgroundDrawCellUnmanaged(out, merge_live, merge_end_cell, cell, cell_metrics, grid_metrics, toSceneDamage(damage));
 }
 
 pub fn appendClears(
-    out: *std.ArrayListUnmanaged(contract.TextClearDraw),
-    clear_row_colors: []const contract.Rgba8,
+    out: *std.ArrayListUnmanaged(surface.TextClearDraw),
+    clear_row_colors: []const surface.Rgba8,
     clear_row_matches: []const bool,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
+    cell_metrics: surface.CellMetrics,
+    grid_metrics: surface.GridMetrics,
     damage: Damage,
 ) void {
     scene_rects.appendClearRowDrawsUnmanaged(out, clear_row_colors, clear_row_matches, cell_metrics, grid_metrics, toSceneDamage(damage));
 }
 
-pub fn appendCursor(out: *std.ArrayListUnmanaged(contract.TextCursorDraw), cursor: ?contract.CursorPresentation, cell_metrics: contract.CellMetrics, damage: Damage) void {
+pub fn appendCursor(out: *std.ArrayListUnmanaged(surface.TextCursorDraw), cursor: ?surface.CursorPresentation, cell_metrics: surface.CellMetrics, damage: Damage) void {
     scene_rects.appendCursorDrawsUnmanaged(out, cursor, toSceneDamage(damage), cell_metrics);
 }
 
-pub fn noteClearColor(clear_row_colors: []contract.Rgba8, clear_row_matches: []bool, cell: contract.RenderableCell, grid_metrics: contract.GridMetrics, damage: Damage) void {
+pub fn noteClearColor(clear_row_colors: []surface.Rgba8, clear_row_matches: []bool, cell: surface.RenderableCell, grid_metrics: surface.GridMetrics, damage: Damage) void {
     scene_rects.noteClearColorCell(clear_row_colors, clear_row_matches, cell, grid_metrics, toSceneDamage(damage));
 }
 
 pub fn appendDecorations(
-    out: *std.ArrayListUnmanaged(contract.TextDecorationDraw),
-    cell: contract.RenderableCell,
+    out: *std.ArrayListUnmanaged(surface.TextDecorationDraw),
+    cell: surface.RenderableCell,
     layout: scene_rects.RectDecorationLayout,
     damage: Damage,
 ) void {
@@ -75,15 +75,15 @@ pub fn appendDecorations(
 }
 
 pub fn appendRenderableRects(
-    background_draws: *std.ArrayListUnmanaged(contract.TextBackgroundDraw),
+    background_draws: *std.ArrayListUnmanaged(surface.TextBackgroundDraw),
     background_merge_live: *bool,
     background_merge_end_cell: *u32,
-    clear_row_colors: []contract.Rgba8,
+    clear_row_colors: []surface.Rgba8,
     clear_row_matches: []bool,
-    decoration_draws: *std.ArrayListUnmanaged(contract.TextDecorationDraw),
-    cell: contract.RenderableCell,
-    cell_metrics: contract.CellMetrics,
-    grid_metrics: contract.GridMetrics,
+    decoration_draws: *std.ArrayListUnmanaged(surface.TextDecorationDraw),
+    cell: surface.RenderableCell,
+    cell_metrics: surface.CellMetrics,
+    grid_metrics: surface.GridMetrics,
     decoration_layout: scene_rects.RectDecorationLayout,
     damage: Damage,
 ) void {

@@ -1,7 +1,7 @@
-const contract = @import("contract.zig");
+const surface = @import("../surface.zig");
 const special_glyphs = @import("special_glyphs.zig");
 
-pub fn builtinRoute(cp: u32) ?contract.SpecialSpriteRoute {
+pub fn builtinRoute(cp: u32) ?surface.SpecialSpriteRoute {
     if (cp == 0 or cp == '\t') return .blank;
     if (cp >= 0x2500 and cp <= 0x257f) return .box;
     if (cp >= 0x2580 and cp <= 0x259f) return .block;
@@ -20,38 +20,38 @@ pub fn isIconCodepoint(cp: u32) bool {
 }
 
 test "builtin route classifies box drawing" {
-    try @import("std").testing.expectEqual(contract.SpecialSpriteRoute.box, builtinRoute(0x2500).?);
+    try @import("std").testing.expectEqual(surface.SpecialSpriteRoute.box, builtinRoute(0x2500).?);
 }
 
 test "builtin route leaves kitty symbol-map powerline glyphs alone" {
-    try @import("std").testing.expectEqual(@as(?contract.SpecialSpriteRoute, null), builtinRoute(0xe0a0));
-    try @import("std").testing.expectEqual(@as(?contract.SpecialSpriteRoute, null), builtinRoute(0xe0c0));
+    try @import("std").testing.expectEqual(@as(?surface.SpecialSpriteRoute, null), builtinRoute(0xe0a0));
+    try @import("std").testing.expectEqual(@as(?surface.SpecialSpriteRoute, null), builtinRoute(0xe0c0));
 }
 
 test "builtin route classifies octant symbols" {
-    try @import("std").testing.expectEqual(contract.SpecialSpriteRoute.legacy_computing, builtinRoute(0x1cd00).?);
-    try @import("std").testing.expectEqual(contract.SpecialSpriteRoute.legacy_computing, builtinRoute(0x1fbe6).?);
+    try @import("std").testing.expectEqual(surface.SpecialSpriteRoute.legacy_computing, builtinRoute(0x1cd00).?);
+    try @import("std").testing.expectEqual(surface.SpecialSpriteRoute.legacy_computing, builtinRoute(0x1fbe6).?);
 }
 
 test "builtin route classifies kitty eight bars" {
-    try @import("std").testing.expectEqual(contract.SpecialSpriteRoute.legacy_computing, builtinRoute(0x1fb70).?);
+    try @import("std").testing.expectEqual(surface.SpecialSpriteRoute.legacy_computing, builtinRoute(0x1fb70).?);
 }
 
 test "builtin route classifies kitty legacy computing tail" {
-    try @import("std").testing.expectEqual(contract.SpecialSpriteRoute.legacy_computing, builtinRoute(0x1fbae).?);
+    try @import("std").testing.expectEqual(surface.SpecialSpriteRoute.legacy_computing, builtinRoute(0x1fbae).?);
 }
 
 test "builtin route classifies generated special sprite families" {
     const testing = @import("std").testing;
     for ([_]u32{ 0x1fb00, 0x1fb3b, 0x1fb3c, 0x1fb67, 0x1fb68, 0x1fb6f, 0x1fb70, 0x1fb7b, 0x1fb7c, 0x1fb8b, 0x1fb93, 0x1fba0, 0x1fbae, 0x1cd00, 0x1cde5, 0x1fbe6, 0xf5d0, 0xf60d }) |cp| {
-        try testing.expectEqual(contract.SpecialSpriteRoute.legacy_computing, builtinRoute(cp).?);
+        try testing.expectEqual(surface.SpecialSpriteRoute.legacy_computing, builtinRoute(cp).?);
     }
-    try testing.expectEqual(contract.SpecialSpriteRoute.powerline, builtinRoute(0xe0d6).?);
-    try testing.expectEqual(contract.SpecialSpriteRoute.powerline, builtinRoute(0xe0d7).?);
+    try testing.expectEqual(surface.SpecialSpriteRoute.powerline, builtinRoute(0xe0d6).?);
+    try testing.expectEqual(surface.SpecialSpriteRoute.powerline, builtinRoute(0xe0d7).?);
 }
 
 test "icon codepoint classification stays explicit" {
     try @import("std").testing.expect(isIconCodepoint(0xf101));
     try @import("std").testing.expect(!isIconCodepoint('A'));
-    try @import("std").testing.expectEqual(@as(?contract.SpecialSpriteRoute, null), builtinRoute(0xf101));
+    try @import("std").testing.expectEqual(@as(?surface.SpecialSpriteRoute, null), builtinRoute(0xf101));
 }

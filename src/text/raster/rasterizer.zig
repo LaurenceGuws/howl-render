@@ -1,19 +1,19 @@
 const std = @import("std");
-const contract = @import("../contract.zig");
+const surface = @import("../../surface.zig");
 const special_raster = @import("special.zig");
 
 pub const RasterSpriteRequest = struct {
-    key: contract.SpriteKey,
-    group: contract.GlyphGroup,
-    cell_metrics: contract.CellMetrics,
+    key: surface.SpriteKey,
+    group: surface.GlyphGroup,
+    cell_metrics: surface.CellMetrics,
 };
 
 pub const RasterSpriteOutput = struct {
     allocator: std.mem.Allocator,
-    key: contract.SpriteKey,
+    key: surface.SpriteKey,
     width_px: u16,
     height_px: u16,
-    color_mode: contract.SpriteColorMode = .alpha,
+    color_mode: surface.SpriteColorMode = .alpha,
     visual_bounds: SpriteBounds = .{},
     pixels: []u8,
 
@@ -79,18 +79,18 @@ pub const OwnedRasterPlan = struct {
     }
 };
 
-pub const RasterizeSpriteFn = *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!RasterSpriteOutput;
+pub const RasterizeSpriteFn = *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, req: surface.SpriteRasterRequest) anyerror!RasterSpriteOutput;
 
 pub const Rasterizer = struct {
     ctx: *anyopaque,
     rasterize_sprite: RasterizeSpriteFn,
 
-    pub fn rasterize(self: Rasterizer, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) !RasterSpriteOutput {
+    pub fn rasterize(self: Rasterizer, allocator: std.mem.Allocator, req: surface.SpriteRasterRequest) !RasterSpriteOutput {
         return self.rasterize_sprite(self.ctx, allocator, req);
     }
 };
 
-pub fn requestForGroup(group: contract.GlyphGroup, cell_metrics: contract.CellMetrics) contract.SpriteRasterRequest {
+pub fn requestForGroup(group: surface.GlyphGroup, cell_metrics: surface.CellMetrics) surface.SpriteRasterRequest {
     const width_px = spriteWidthPx(group.cell_span, cell_metrics.cell_w_px);
     return .{
         .key = group.sprite_key,
@@ -104,12 +104,12 @@ pub fn requestForGroup(group: contract.GlyphGroup, cell_metrics: contract.CellMe
     };
 }
 
-fn boxDrawingRasterMetrics(cell_metrics: contract.CellMetrics) contract.BoxDrawingRasterMetrics {
+fn boxDrawingRasterMetrics(cell_metrics: surface.CellMetrics) surface.BoxDrawingRasterMetrics {
     const light = if (cell_metrics.box_thickness_px == 0) @as(u16, 2) else cell_metrics.box_thickness_px;
     return .{ .light_stroke_px = light, .heavy_stroke_px = @intCast(@min(@as(u32, light) * 2, std.math.maxInt(u16))) };
 }
 
-pub fn appendPendingRequest(allocator: std.mem.Allocator, requests: *std.ArrayList(contract.SpriteRasterRequest), pending: bool, req: contract.SpriteRasterRequest) !void {
+pub fn appendPendingRequest(allocator: std.mem.Allocator, requests: *std.ArrayList(surface.SpriteRasterRequest), pending: bool, req: surface.SpriteRasterRequest) !void {
     if (!pending) return;
     std.debug.assert(req.width_px > 0);
     std.debug.assert(req.height_px > 0);
@@ -140,25 +140,25 @@ fn spriteWidthPx(cell_span: u8, cell_w_px: u16) u16 {
     return @intCast(@as(u32, @max(cell_span, 1)) * @as(u32, cell_w_px));
 }
 
-fn requestColorMode(kind: contract.GlyphGroupKind) contract.SpriteColorMode {
+fn requestColorMode(kind: surface.GlyphGroupKind) surface.SpriteColorMode {
     return if (kind == .emoji) .color else .alpha;
 }
 
-fn appendUniqueRequest(allocator: std.mem.Allocator, requests: *std.ArrayList(contract.SpriteRasterRequest), req: contract.SpriteRasterRequest) !void {
+fn appendUniqueRequest(allocator: std.mem.Allocator, requests: *std.ArrayList(surface.SpriteRasterRequest), req: surface.SpriteRasterRequest) !void {
     std.debug.assert(req.width_px > 0);
     std.debug.assert(req.height_px > 0);
     if (hasRequestKey(requests.items, req.key)) return;
     try requests.append(allocator, req);
 }
 
-fn hasRequestKey(requests: []const contract.SpriteRasterRequest, key: contract.SpriteKey) bool {
+fn hasRequestKey(requests: []const surface.SpriteRasterRequest, key: surface.SpriteKey) bool {
     for (requests) |existing| {
         if (existing.key.value == key.value) return true;
     }
     return false;
 }
 
-pub fn placeholderRaster(allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) !RasterSpriteOutput {
+pub fn placeholderRaster(allocator: std.mem.Allocator, req: surface.SpriteRasterRequest) !RasterSpriteOutput {
     const bytes = pixelCount(req.width_px, req.height_px);
     const pixels = try allocator.alloc(u8, @intCast(bytes));
     @memset(pixels, 0);
@@ -177,11 +177,11 @@ pub fn defaultRasterizer() Rasterizer {
     return .{ .ctx = undefined, .rasterize_sprite = placeholderRasterThunk };
 }
 
-fn placeholderRasterThunk(_: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!RasterSpriteOutput {
+fn placeholderRasterThunk(_: *anyopaque, allocator: std.mem.Allocator, req: surface.SpriteRasterRequest) anyerror!RasterSpriteOutput {
     return placeholderRaster(allocator, req);
 }
 
-pub fn rasterizeRequestsWithRasterizer(allocator: std.mem.Allocator, raster: Rasterizer, requests: []const contract.SpriteRasterRequest) !OwnedRasterPlan {
+pub fn rasterizeRequestsWithRasterizer(allocator: std.mem.Allocator, raster: Rasterizer, requests: []const surface.SpriteRasterRequest) !OwnedRasterPlan {
     const outputs = try allocator.alloc(RasterSpriteOutput, requests.len);
     errdefer allocator.free(outputs);
 
@@ -217,7 +217,7 @@ fn count32(items: anytype) u32 {
 }
 
 test "raster request preserves group key and dimensions" {
-    const group = contract.GlyphGroup{ .first_cell = 0, .cell_span = 2, .glyphs = &.{}, .sprite_key = .{ .value = 42 }, .kind = .normal };
+    const group = surface.GlyphGroup{ .first_cell = 0, .cell_span = 2, .glyphs = &.{}, .sprite_key = .{ .value = 42 }, .kind = .normal };
     const req = requestForGroup(group, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     try std.testing.expectEqual(@as(u64, 42), req.key.value);
     try std.testing.expectEqual(@as(u16, 16), req.width_px);
@@ -229,24 +229,24 @@ test "raster request preserves group key and dimensions" {
 }
 
 test "raster request preserves configured box drawing thickness" {
-    const group = contract.GlyphGroup{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 43 }, .kind = .box_fallback };
+    const group = surface.GlyphGroup{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 43 }, .kind = .box_fallback };
     const req = requestForGroup(group, .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 3 });
     try std.testing.expectEqual(@as(u16, 3), req.box_drawing.light_stroke_px);
     try std.testing.expectEqual(@as(u16, 6), req.box_drawing.heavy_stroke_px);
 }
 
 test "raster plan creates one output per request" {
-    const group = contract.GlyphGroup{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 5 }, .kind = .emoji };
+    const group = surface.GlyphGroup{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 5 }, .kind = .emoji };
     const req = requestForGroup(group, .{ .cell_w_px = 10, .cell_h_px = 20, .baseline_px = 15 });
     var plan = try rasterizeRequestsWithRasterizer(std.testing.allocator, defaultRasterizer(), &.{req});
     defer plan.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(plan.outputs));
-    try std.testing.expectEqual(contract.SpriteColorMode.color, plan.outputs[0].color_mode);
+    try std.testing.expectEqual(surface.SpriteColorMode.color, plan.outputs[0].color_mode);
     try std.testing.expectEqual(pixelCount(10, 20), count32(plan.outputs[0].pixels));
 }
 
 test "pending raster requests dedupe by sprite key" {
-    var requests = std.ArrayList(contract.SpriteRasterRequest).empty;
+    var requests = std.ArrayList(surface.SpriteRasterRequest).empty;
     defer requests.deinit(std.testing.allocator);
     const req = requestForGroup(
         .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 5 }, .kind = .normal },
@@ -262,14 +262,14 @@ test "raster plan uses injected rasterizer" {
     const Stub = struct {
         hits: u8 = 0,
 
-        fn raster(ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!RasterSpriteOutput {
+        fn raster(ctx: *anyopaque, allocator: std.mem.Allocator, req: surface.SpriteRasterRequest) anyerror!RasterSpriteOutput {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             self.hits += 1;
             return placeholderRaster(allocator, req);
         }
     };
     var stub = Stub{};
-    const group = contract.GlyphGroup{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 6 }, .kind = .normal };
+    const group = surface.GlyphGroup{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 6 }, .kind = .normal };
     const req = requestForGroup(group, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     var plan = try rasterizeRequestsWithRasterizer(std.testing.allocator, .{ .ctx = &stub, .rasterize_sprite = Stub.raster }, &.{req});
     defer plan.deinit();

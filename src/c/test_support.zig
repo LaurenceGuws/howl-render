@@ -12,7 +12,7 @@ const prepared_handle_model = @import("../surface/handle.zig");
 const prepared_surface_model = @import("../surface/prepared_surface.zig");
 const render_surface_emitter_model = @import("../surface/emitter.zig");
 const render_surface_realizer = @import("../surface/realizer.zig");
-const text_contract = @import("../text/contract.zig");
+const surface = @import("../surface.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 const text_session_model = @import("../render_session.zig");
 
@@ -27,7 +27,7 @@ pub const prepared_handle_model_ns = prepared_handle_model;
 pub const prepared_surface_model_ns = prepared_surface_model;
 pub const render_surface_emitter_model_ns = render_surface_emitter_model;
 pub const realizer = render_surface_realizer;
-pub const text_contract_ns = text_contract;
+pub const surface_ns = surface;
 pub const text_rasterizer = rasterizer;
 pub const text_session_model_ns = text_session_model;
 
@@ -117,7 +117,7 @@ pub fn destroyRenderState(render_state: c.HowlVtRenderStateHandle) void {
     c.howl_vt_render_state_deinit(render_state);
 }
 
-pub fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: text_contract.SpriteColorMode, pixels: []u8, visual_bounds: rasterizer.SpriteBounds) rasterizer.RasterSpriteOutput {
+pub fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: surface.SpriteColorMode, pixels: []u8, visual_bounds: rasterizer.SpriteBounds) rasterizer.RasterSpriteOutput {
     return .{ .allocator = allocator, .key = .{ .value = key }, .width_px = width_px, .height_px = height_px, .color_mode = color_mode, .visual_bounds = visual_bounds, .pixels = pixels };
 }
 
@@ -138,11 +138,11 @@ pub fn expectPrepareHandleFailedWithNullOutput(handle: c.HowlRenderTextSessionHa
 }
 
 pub const PreparedOptions = struct {
-    clear_draws: []const text_contract.TextClearDraw = &.{},
-    background_draws: []const text_contract.TextBackgroundDraw = &.{},
-    sprite_draws: []const text_contract.TextSpriteDraw = &.{},
-    decoration_draws: []const text_contract.TextDecorationDraw = &.{},
-    cursor_draws: []const text_contract.TextCursorDraw = &.{},
+    clear_draws: []const surface.TextClearDraw = &.{},
+    background_draws: []const surface.TextBackgroundDraw = &.{},
+    sprite_draws: []const surface.TextSpriteDraw = &.{},
+    decoration_draws: []const surface.TextDecorationDraw = &.{},
+    cursor_draws: []const surface.TextCursorDraw = &.{},
     raster_outputs: []rasterizer.RasterSpriteOutput = &.{},
     width_px: u16,
     height_px: u16,
@@ -165,10 +165,10 @@ pub fn preparedSurface(options: PreparedOptions) prepared_surface_model.Prepared
     };
 }
 
-pub fn rgba(r: u8, g: u8, b: u8, a: u8) text_contract.Rgba8 {
+pub fn rgba(r: u8, g: u8, b: u8, a: u8) surface.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = a };
 }
 
-pub fn backgroundDraw(x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: text_contract.Rgba8) text_contract.TextBackgroundDraw {
+pub fn backgroundDraw(x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: surface.Rgba8) surface.TextBackgroundDraw {
     return .{ .x_px = x_px, .y_px = y_px, .width_px = width_px, .height_px = height_px, .color = color, .first_cell = 0, .cell_span = 1 };
 }

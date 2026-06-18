@@ -1,7 +1,7 @@
 const std = @import("std");
-const contract = @import("../contract.zig");
+const surface = @import("../../surface.zig");
 
-pub fn requestForUndercurl(key: contract.SpriteKey, width_px: u16, height_px: u16, decoration: contract.DecorationSpriteRaster) contract.SpriteRasterRequest {
+pub fn requestForUndercurl(key: surface.SpriteKey, width_px: u16, height_px: u16, decoration: surface.DecorationSpriteRaster) surface.SpriteRasterRequest {
     std.debug.assert(width_px > 0);
     std.debug.assert(height_px > 0);
     return .{
@@ -15,7 +15,7 @@ pub fn requestForUndercurl(key: contract.SpriteKey, width_px: u16, height_px: u1
     };
 }
 
-pub fn rasterizeUndercurlAlpha(pixels: []u8, width_px: u16, height_px: u16, decoration: contract.DecorationSpriteRaster) void {
+pub fn rasterizeUndercurlAlpha(pixels: []u8, width_px: u16, height_px: u16, decoration: surface.DecorationSpriteRaster) void {
     @memset(pixels, 0);
     const width = @max(width_px, 1);
     const height = @max(height_px, 1);

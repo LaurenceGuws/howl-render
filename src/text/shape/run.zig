@@ -1,23 +1,23 @@
 const std = @import("std");
-const contract = @import("../contract.zig");
-const cluster_shape = @import("./cluster.zig");
+const surface = @import("../../surface.zig");
+const cluster_shape = @import("cluster.zig");
 
 pub const ShapeRunRequest = struct {
-    run: contract.ResolvedRun,
-    clusters: []const contract.CellCluster,
+    run: surface.ResolvedRun,
+    clusters: []const surface.CellCluster,
 };
 
 pub const ShapeRunResult = struct {
-    glyphs: []const contract.GlyphInstance,
+    glyphs: []const surface.GlyphInstance,
 };
 
 pub const ShapeRunFn = *const fn (
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    text_cache: contract.LineTextCache,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    run: surface.ResolvedRun,
+    text_cache: surface.LineTextCache,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
 ) anyerror!OwnedShapedRun;
 
 pub const Shaper = struct {
@@ -27,10 +27,10 @@ pub const Shaper = struct {
     pub fn shapeRun(
         self: Shaper,
         allocator: std.mem.Allocator,
-        run: contract.ResolvedRun,
-        text_cache: contract.LineTextCache,
-        clusters: []const contract.CellCluster,
-        cell_metrics: contract.CellMetrics,
+        run: surface.ResolvedRun,
+        text_cache: surface.LineTextCache,
+        clusters: []const surface.CellCluster,
+        cell_metrics: surface.CellMetrics,
     ) !OwnedShapedRun {
         return self.shape_run(self.ctx, allocator, run, text_cache, clusters, cell_metrics);
     }
@@ -38,8 +38,8 @@ pub const Shaper = struct {
 
 pub const OwnedShapedRun = struct {
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    glyphs: []contract.GlyphInstance,
+    run: surface.ResolvedRun,
+    glyphs: []surface.GlyphInstance,
 
     pub fn deinit(self: *OwnedShapedRun) void {
         self.allocator.free(self.glyphs);
@@ -63,7 +63,7 @@ pub const OwnedShapedRuns = struct {
 
 pub const OwnedProvisionalRuns = struct {
     allocator: std.mem.Allocator,
-    runs: []contract.ResolvedRun,
+    runs: []surface.ResolvedRun,
 
     pub fn deinit(self: *OwnedProvisionalRuns) void {
         self.allocator.free(self.runs);
@@ -72,7 +72,7 @@ pub const OwnedProvisionalRuns = struct {
 };
 
 pub const RetainedProvisionalRunScratch = struct {
-    runs: []contract.ResolvedRun = &.{},
+    runs: []surface.ResolvedRun = &.{},
     max_runs: u32 = 0,
 
     pub fn deinit(self: *RetainedProvisionalRunScratch, allocator: std.mem.Allocator) void {
@@ -82,7 +82,7 @@ pub const RetainedProvisionalRunScratch = struct {
 
     pub fn configure(self: *RetainedProvisionalRunScratch, allocator: std.mem.Allocator, max_runs: u32) !void {
         if (max_runs <= self.max_runs) return;
-        const runs = try allocator.alloc(contract.ResolvedRun, @intCast(max_runs));
+        const runs = try allocator.alloc(surface.ResolvedRun, @intCast(max_runs));
         if (self.runs.len > 0) allocator.free(self.runs);
         self.runs = runs;
         self.max_runs = max_runs;
@@ -97,9 +97,9 @@ pub fn emptyResult() ShapeRunResult {
     return .{ .glyphs = &.{} };
 }
 
-pub fn buildProvisionalRuns(allocator: std.mem.Allocator, clusters: []const contract.CellCluster, face_id: contract.FontFaceId) !OwnedProvisionalRuns {
+pub fn buildProvisionalRuns(allocator: std.mem.Allocator, clusters: []const surface.CellCluster, face_id: surface.FontFaceId) !OwnedProvisionalRuns {
     if (clusters.len == 0) {
-        return .{ .allocator = allocator, .runs = try allocator.alloc(contract.ResolvedRun, 0) };
+        return .{ .allocator = allocator, .runs = try allocator.alloc(surface.ResolvedRun, 0) };
     }
 
     var scratch = RetainedProvisionalRunScratch{};
@@ -108,9 +108,9 @@ pub fn buildProvisionalRuns(allocator: std.mem.Allocator, clusters: []const cont
     return buildProvisionalRunsScratch(allocator, &scratch, clusters, face_id);
 }
 
-pub fn buildProvisionalRunsScratch(allocator: std.mem.Allocator, scratch: *RetainedProvisionalRunScratch, clusters: []const contract.CellCluster, face_id: contract.FontFaceId) !OwnedProvisionalRuns {
+pub fn buildProvisionalRunsScratch(allocator: std.mem.Allocator, scratch: *RetainedProvisionalRunScratch, clusters: []const surface.CellCluster, face_id: surface.FontFaceId) !OwnedProvisionalRuns {
     if (clusters.len == 0) {
-        return .{ .allocator = allocator, .runs = try allocator.alloc(contract.ResolvedRun, 0) };
+        return .{ .allocator = allocator, .runs = try allocator.alloc(surface.ResolvedRun, 0) };
     }
     try scratch.require(count32(clusters));
 
@@ -128,16 +128,16 @@ pub fn buildProvisionalRunsScratch(allocator: std.mem.Allocator, scratch: *Retai
     scratch.runs[@intCast(run_count)] = resolvedRun(start, @intCast(clusters.len - start), face_id, prev.style, prev.presentation);
     run_count += 1;
 
-    return .{ .allocator = allocator, .runs = try allocator.dupe(contract.ResolvedRun, scratch.runs[0..@intCast(run_count)]) };
+    return .{ .allocator = allocator, .runs = try allocator.dupe(surface.ResolvedRun, scratch.runs[0..@intCast(run_count)]) };
 }
 
 pub fn shapeResolvedRunsWithShaper(
     allocator: std.mem.Allocator,
     shaper: Shaper,
-    runs: []const contract.ResolvedRun,
-    text_cache: contract.LineTextCache,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    runs: []const surface.ResolvedRun,
+    text_cache: surface.LineTextCache,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
 ) !OwnedShapedRuns {
     const shaped = try allocator.alloc(OwnedShapedRun, runs.len);
     errdefer allocator.free(shaped);
@@ -162,23 +162,23 @@ pub fn defaultShaper() Shaper {
 fn shapeRunThunk(
     _: *anyopaque,
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    text_cache: contract.LineTextCache,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    run: surface.ResolvedRun,
+    text_cache: surface.LineTextCache,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
 ) anyerror!OwnedShapedRun {
     return shapeRun(allocator, run, text_cache, clusters, cell_metrics);
 }
 
 pub fn shapeRun(
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    text_cache: contract.LineTextCache,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    run: surface.ResolvedRun,
+    text_cache: surface.LineTextCache,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
 ) !OwnedShapedRun {
     const window = runClusterWindow(run, clusters);
-    const glyphs = try allocator.alloc(contract.GlyphInstance, @intCast(window.end - window.start));
+    const glyphs = try allocator.alloc(surface.GlyphInstance, @intCast(window.end - window.start));
     errdefer allocator.free(glyphs);
 
     for (clusters[@intCast(window.start)..@intCast(window.end)], 0..) |cluster, idx| {
@@ -196,13 +196,13 @@ pub fn shapeRun(
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-fn textForCluster(text_cache: contract.LineTextCache, cluster: contract.CellCluster) contract.CellText {
+fn textForCluster(text_cache: surface.LineTextCache, cluster: surface.CellCluster) surface.CellText {
     const idx = cluster.text_id.value;
     std.debug.assert(idx < count32(text_cache.texts));
     return text_cache.texts[@intCast(idx)];
 }
 
-fn resolvedRun(cluster_start: u32, cluster_count: u32, face_id: contract.FontFaceId, style: contract.FontStyle, presentation: contract.TextPresentation) contract.ResolvedRun {
+fn resolvedRun(cluster_start: u32, cluster_count: u32, face_id: surface.FontFaceId, style: surface.FontStyle, presentation: surface.TextPresentation) surface.ResolvedRun {
     return .{ .run = .{
         .cluster_start = cluster_start,
         .cluster_count = cluster_count,
@@ -219,7 +219,7 @@ const RunClusterWindow = struct {
     end: u32,
 };
 
-fn runClusterWindow(run: contract.ResolvedRun, clusters: []const contract.CellCluster) RunClusterWindow {
+fn runClusterWindow(run: surface.ResolvedRun, clusters: []const surface.CellCluster) RunClusterWindow {
     const start = run.run.cluster_start;
     const count = run.run.cluster_count;
     const clusters_len = clusterCount(clusters);
@@ -230,7 +230,7 @@ fn runClusterWindow(run: contract.ResolvedRun, clusters: []const contract.CellCl
     return .{ .start = start, .end = start + count };
 }
 
-fn clusterCount(clusters: []const contract.CellCluster) u32 {
+fn clusterCount(clusters: []const surface.CellCluster) u32 {
     return @intCast(clusters.len);
 }
 
@@ -240,15 +240,15 @@ fn count32(items: anytype) u32 {
 }
 
 test "stub shaper emits one glyph per cluster with run face" {
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'a', .style = .regular, .presentation = .any },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'b', .style = .regular, .presentation = .any },
     };
-    const text_cache = contract.LineTextCache{ .texts = &.{
+    const text_cache = surface.LineTextCache{ .texts = &.{
         .{ .id = .{ .value = 0 }, .first_cp = 'a', .codepoints = &.{'a'} },
         .{ .id = .{ .value = 1 }, .first_cp = 'b', .codepoints = &.{'b'} },
     } };
-    const run = contract.ResolvedRun{ .run = .{
+    const run = surface.ResolvedRun{ .run = .{
         .cluster_start = 0,
         .cluster_count = 2,
         .font = .{ .face_id = .{ .value = 9 }, .style = .regular, .presentation = .any },
@@ -262,9 +262,9 @@ test "stub shaper emits one glyph per cluster with run face" {
 
 test "cell inputs build text cache renderable cells clusters and runs" {
     const allocator = std.testing.allocator;
-    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]contract.CellInput{
+    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]surface.CellInput{
         .{ .codepoint = 'A', .fg = white, .bg = black },
         .{ .codepoint = 'B', .fg = white, .bg = black },
         .{ .codepoint = 'C', .fg = white, .bg = black, .continuation = true },
@@ -283,15 +283,15 @@ test "cell inputs build text cache renderable cells clusters and runs" {
     try std.testing.expectEqual(@as(u32, 2), count32(clusters.clusters));
     try std.testing.expectEqual(@as(u32, 1), count32(runs.runs));
     try std.testing.expectEqual(@as(u32, 2), runs.runs[0].run.cluster_count);
-    try std.testing.expectEqual(contract.SemanticColorKind.default, renderable.cells[0].semantic_fg.kind);
-    try std.testing.expectEqual(contract.SemanticColorKind.default, renderable.cells[0].semantic_bg.kind);
+    try std.testing.expectEqual(surface.SemanticColorKind.default, renderable.cells[0].semantic_fg.kind);
+    try std.testing.expectEqual(surface.SemanticColorKind.default, renderable.cells[0].semantic_bg.kind);
 }
 
 test "cell inputs preserve style and presentation into renderables clusters and runs" {
     const allocator = std.testing.allocator;
-    const white = contract.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = contract.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]contract.CellInput{
+    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]surface.CellInput{
         .{ .codepoint = 'A', .style = .bold, .presentation = .text, .fg = white, .bg = black },
         .{ .codepoint = 'B', .style = .italic, .presentation = .emoji, .fg = white, .bg = black },
     };
@@ -305,21 +305,21 @@ test "cell inputs preserve style and presentation into renderables clusters and 
     var runs = try buildProvisionalRuns(allocator, clusters.clusters, .{ .value = 9 });
     defer runs.deinit();
 
-    try std.testing.expectEqual(contract.FontStyle.bold, renderable.cells[0].style);
-    try std.testing.expectEqual(contract.TextPresentation.text, renderable.cells[0].presentation);
-    try std.testing.expectEqual(contract.FontStyle.italic, renderable.cells[1].style);
-    try std.testing.expectEqual(contract.TextPresentation.emoji, renderable.cells[1].presentation);
+    try std.testing.expectEqual(surface.FontStyle.bold, renderable.cells[0].style);
+    try std.testing.expectEqual(surface.TextPresentation.text, renderable.cells[0].presentation);
+    try std.testing.expectEqual(surface.FontStyle.italic, renderable.cells[1].style);
+    try std.testing.expectEqual(surface.TextPresentation.emoji, renderable.cells[1].presentation);
 
-    try std.testing.expectEqual(contract.FontStyle.bold, clusters.clusters[0].style);
-    try std.testing.expectEqual(contract.TextPresentation.text, clusters.clusters[0].presentation);
-    try std.testing.expectEqual(contract.FontStyle.italic, clusters.clusters[1].style);
-    try std.testing.expectEqual(contract.TextPresentation.emoji, clusters.clusters[1].presentation);
+    try std.testing.expectEqual(surface.FontStyle.bold, clusters.clusters[0].style);
+    try std.testing.expectEqual(surface.TextPresentation.text, clusters.clusters[0].presentation);
+    try std.testing.expectEqual(surface.FontStyle.italic, clusters.clusters[1].style);
+    try std.testing.expectEqual(surface.TextPresentation.emoji, clusters.clusters[1].presentation);
 
     try std.testing.expectEqual(@as(usize, 2), runs.runs.len);
-    try std.testing.expectEqual(contract.FontStyle.bold, runs.runs[0].run.font.style);
-    try std.testing.expectEqual(contract.TextPresentation.text, runs.runs[0].run.font.presentation);
-    try std.testing.expectEqual(contract.FontStyle.italic, runs.runs[1].run.font.style);
-    try std.testing.expectEqual(contract.TextPresentation.emoji, runs.runs[1].run.font.presentation);
+    try std.testing.expectEqual(surface.FontStyle.bold, runs.runs[0].run.font.style);
+    try std.testing.expectEqual(surface.TextPresentation.text, runs.runs[0].run.font.presentation);
+    try std.testing.expectEqual(surface.FontStyle.italic, runs.runs[1].run.font.style);
+    try std.testing.expectEqual(surface.TextPresentation.emoji, runs.runs[1].run.font.presentation);
 }
 
 test "retained provisional run scratch bounds run planning" {
@@ -327,7 +327,7 @@ test "retained provisional run scratch bounds run planning" {
     var scratch = RetainedProvisionalRunScratch{};
     defer scratch.deinit(allocator);
     try scratch.configure(allocator, 1);
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'A', .style = .bold, .presentation = .text },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'B', .style = .italic, .presentation = .emoji },
     };
@@ -336,11 +336,11 @@ test "retained provisional run scratch bounds run planning" {
 }
 
 test "stub shaper advances wide clusters by their terminal span" {
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 2, .first_cp = 0x4f60, .style = .regular, .presentation = .any },
     };
-    const text_cache = contract.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 0x4f60, .codepoints = &.{0x4f60} }} };
-    const run = contract.ResolvedRun{ .run = .{
+    const text_cache = surface.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 0x4f60, .codepoints = &.{0x4f60} }} };
+    const run = surface.ResolvedRun{ .run = .{
         .cluster_start = 0,
         .cluster_count = 1,
         .font = .{ .face_id = .{ .value = 9 }, .style = .regular, .presentation = .any },
@@ -351,15 +351,15 @@ test "stub shaper advances wide clusters by their terminal span" {
 }
 
 test "stub shaper accepts run that ends exactly at cluster slice end" {
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'a', .style = .regular, .presentation = .any },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 2, .first_cp = 0x4f60, .style = .regular, .presentation = .any },
     };
-    const text_cache = contract.LineTextCache{ .texts = &.{
+    const text_cache = surface.LineTextCache{ .texts = &.{
         .{ .id = .{ .value = 0 }, .first_cp = 'a', .codepoints = &.{'a'} },
         .{ .id = .{ .value = 1 }, .first_cp = 0x4f60, .codepoints = &.{0x4f60} },
     } };
-    const run = contract.ResolvedRun{ .run = .{
+    const run = surface.ResolvedRun{ .run = .{
         .cluster_start = 1,
         .cluster_count = 1,
         .font = .{ .face_id = .{ .value = 3 }, .style = .regular, .presentation = .any },

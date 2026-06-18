@@ -1,25 +1,25 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const contract = @import("../contract.zig");
-const render_session = @import("../../render_session.zig");
-const provider = @import("../provider.zig");
-const shape_run = @import("../shape/run.zig");
-const font_resolve = @import("../resolve.zig");
-const text_paths = @import("../paths.zig");
-const geometry_contract = @import("../../geometry_contract.zig");
-const text_cache = @import("cache.zig");
-const c_api = @import("c_api.zig");
-const loaded_faces = @import("loaded_faces.zig");
+const surface = @import("../surface.zig");
+const render_session = @import("../render_session.zig");
+const provider = @import("../text/provider.zig");
+const shape_run = @import("../text/shape/run.zig");
+const font_resolve = @import("../text/resolver.zig");
+const font_paths = @import("../text/font_paths.zig");
+const geometry_contract = @import("../geometry_contract.zig");
+const text_cache = @import("../text/cache.zig");
+const c_api = @import("../text/c_api.zig");
+const loaded_faces = @import("../text/loaded_faces.zig");
 
 pub const c = c_api.c;
 pub const FtLibrary = c_api.FtLibrary;
 pub const FtFace = c_api.FtFace;
 pub const HbFont = c_api.HbFont;
 pub const primary_face_id: u32 = 1;
-pub const FallbackFontCount = text_paths.FallbackFontCount;
-pub const max_fallback_fonts: FallbackFontCount = text_paths.max_fallback_fonts;
-pub const fallbackFontCount = text_paths.fallbackFontCount;
-pub const fallbackFontLen = text_paths.fallbackFontLen;
+pub const FallbackFontCount = font_paths.FallbackFontCount;
+pub const max_fallback_fonts: FallbackFontCount = font_paths.max_fallback_fonts;
+pub const fallbackFontCount = font_paths.fallbackFontCount;
+pub const fallbackFontLen = font_paths.fallbackFontLen;
 pub const ShapingFace = loaded_faces.ShapingFace;
 pub const LoadedFaces = loaded_faces.LoadedFaces;
 
@@ -49,7 +49,7 @@ pub const FtHbSupport = struct {
     shape_input_codepoints: []u32 = &.{},
     shape_input_cluster_map: []u32 = &.{},
     max_shape_input_codepoints: u32 = 0,
-    cached_cell_metrics: contract.CellMetrics = undefined,
+    cached_cell_metrics: surface.CellMetrics = undefined,
     cached_cell_metrics_font_px: u16 = 0,
     cached_cell_metrics_valid: bool = false,
     fallback_font_paths: [max_fallback_fonts]?[:0]const u8 = [_]?[:0]const u8{null} ** max_fallback_fonts,
@@ -101,7 +101,7 @@ const ClusterWindow = struct {
     start: u32,
     end: u32,
 
-    fn init(run: contract.ResolvedRun, clusters_len: u32) ClusterWindow {
+    fn init(run: surface.ResolvedRun, clusters_len: u32) ClusterWindow {
         const start = run.run.cluster_start;
         const end = @min(start + run.run.cluster_count, clusters_len);
         return .{ .start = start, .end = end };
@@ -115,7 +115,7 @@ const ClusterWindow = struct {
         return self.end - self.start;
     }
 
-    fn slice(self: ClusterWindow, clusters: []const contract.CellCluster) []const contract.CellCluster {
+    fn slice(self: ClusterWindow, clusters: []const surface.CellCluster) []const surface.CellCluster {
         return clusters[@intCast(self.start)..@intCast(self.end)];
     }
 };
@@ -125,7 +125,7 @@ const ShapeRunInput = struct {
     cluster_map: []u32,
 };
 
-pub fn providerHasCodepointWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, codepoint: u32) bool {
+pub fn providerHasCodepointWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: surface.FontFaceId, codepoint: u32) bool {
     if (useDeterministicTestTextFallback(state, config)) return codepoint != 0;
     if (!ensureFaceForId(state, config, face_id)) return false;
     state.ft_mutex.lock();
@@ -135,7 +135,7 @@ pub fn providerHasCodepointWithConfig(state: *FtHbSupport, config: render_sessio
     return glyphAcceptedLocked(shaped_face.face, glyph_id, codepoint);
 }
 
-pub fn providerHasCellTextWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, text: contract.CellText) bool {
+pub fn providerHasCellTextWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: surface.FontFaceId, text: surface.CellText) bool {
     if (face_id.value == primary_face_id and isPlainAsciiText(text)) {
         return ensurePrimaryFontWithConfig(state, config);
     }
@@ -152,7 +152,7 @@ pub fn providerHasCellTextWithConfig(state: *FtHbSupport, config: render_session
     return result;
 }
 
-fn uncachedProviderHasCellText(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, text: contract.CellText) bool {
+fn uncachedProviderHasCellText(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: surface.FontFaceId, text: surface.CellText) bool {
     for (text.codepoints) |cp| {
         if (cp == 0xfe0e or cp == 0xfe0f) continue;
         if (!providerHasCodepointWithConfig(state, config, face_id, cp)) return false;
@@ -160,7 +160,7 @@ fn uncachedProviderHasCellText(state: *FtHbSupport, config: render_session.TextS
     return true;
 }
 
-fn isPlainAsciiText(text: contract.CellText) bool {
+fn isPlainAsciiText(text: surface.CellText) bool {
     const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
     for (cps) |cp| {
         if (cp == ' ' or cp == '\t') continue;
@@ -173,13 +173,13 @@ pub fn providerShapeRunWithConfig(
     state: *FtHbSupport,
     config: render_session.TextSessionConfig,
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    text_cache_view: contract.LineTextCache,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    run: surface.ResolvedRun,
+    text_cache_view: surface.LineTextCache,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
 ) anyerror!shape_run.OwnedShapedRun {
     const window = ClusterWindow.init(run, @intCast(clusters.len));
-    if (window.empty()) return .{ .allocator = allocator, .run = run, .glyphs = try allocator.alloc(contract.GlyphInstance, 0) };
+    if (window.empty()) return .{ .allocator = allocator, .run = run, .glyphs = try allocator.alloc(surface.GlyphInstance, 0) };
     state.resolve_counters.shape_requests += 1;
     if (state.active_resolve) |obs| obs.counters.shape_requests += 1;
     const shape_key = text_cache.ShapeRunKey{
@@ -211,10 +211,10 @@ fn shapeRunViaProviderOrFallback(
     state: *FtHbSupport,
     config: render_session.TextSessionConfig,
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    text_cache_view: contract.LineTextCache,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    run: surface.ResolvedRun,
+    text_cache_view: surface.LineTextCache,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
     window: ClusterWindow,
 ) anyerror!shape_run.OwnedShapedRun {
     const input = try gatherShapeRunInput(state, text_cache_view, clusters, window);
@@ -239,9 +239,9 @@ fn shapeRunViaProviderOrFallback(
 fn shapeRunViaProvider(
     state: *FtHbSupport,
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    run: surface.ResolvedRun,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
     buffer: ?*c.hb_buffer_t,
     cluster_map: []const u32,
 ) anyerror!?shape_run.OwnedShapedRun {
@@ -261,10 +261,10 @@ fn shapePlainAsciiRun(
     state: *FtHbSupport,
     config: render_session.TextSessionConfig,
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    text_cache_view: contract.LineTextCache,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    run: surface.ResolvedRun,
+    text_cache_view: surface.LineTextCache,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
     window: ClusterWindow,
 ) anyerror!?shape_run.OwnedShapedRun {
     if (run.features_id != 0) return null;
@@ -278,7 +278,7 @@ fn shapePlainAsciiRun(
         if (!isPlainAsciiCodepoint(cluster.first_cp)) return null;
     }
     if (!ensureFaceForId(state, config, run.run.font.face_id)) return null;
-    const glyphs = try allocator.alloc(contract.GlyphInstance, window.len());
+    const glyphs = try allocator.alloc(surface.GlyphInstance, window.len());
     var keep_glyphs = false;
     defer if (!keep_glyphs) allocator.free(glyphs);
     state.ft_mutex.lock();
@@ -301,7 +301,7 @@ fn shapePlainAsciiRun(
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-pub fn providerGlyphIdWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, codepoint: u32) u32 {
+pub fn providerGlyphIdWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: surface.FontFaceId, codepoint: u32) u32 {
     if (useDeterministicTestTextFallback(state, config)) return codepoint;
     if (!ensureFaceForId(state, config, face_id)) return 0;
     state.ft_mutex.lock();
@@ -312,7 +312,7 @@ pub fn providerGlyphIdWithConfig(state: *FtHbSupport, config: render_session.Tex
     return glyph_id;
 }
 
-pub fn providerGlyphAdvanceWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, glyph_id: u32, cell_metrics: contract.CellMetrics) f32 {
+pub fn providerGlyphAdvanceWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: surface.FontFaceId, glyph_id: u32, cell_metrics: surface.CellMetrics) f32 {
     const fallback: f32 = @floatFromInt(cell_metrics.cell_w_px);
     if (glyph_id == 0) return fallback;
     if (!ensureFaceForId(state, config, face_id)) return fallback;
@@ -325,9 +325,9 @@ pub fn providerGlyphAdvanceWithConfig(state: *FtHbSupport, config: render_sessio
 pub fn providerLookupGlyphWithConfig(
     state: *FtHbSupport,
     config: render_session.TextSessionConfig,
-    face_id: contract.FontFaceId,
+    face_id: surface.FontFaceId,
     codepoint: u32,
-    cell_metrics: contract.CellMetrics,
+    cell_metrics: surface.CellMetrics,
 ) provider.LookupGlyphResult {
     const key = text_cache.GlyphCellKey{
         .face_id = face_id.value,
@@ -344,7 +344,7 @@ pub fn providerLookupGlyphWithConfig(
     return result;
 }
 
-fn uncachedProviderLookupGlyph(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) provider.LookupGlyphResult {
+fn uncachedProviderLookupGlyph(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: surface.FontFaceId, codepoint: u32, cell_metrics: surface.CellMetrics) provider.LookupGlyphResult {
     const glyph_id = providerGlyphIdWithConfig(state, config, face_id, codepoint);
     return .{ .glyph_id = glyph_id, .advance_px = providerGlyphAdvanceWithConfig(state, config, face_id, glyph_id, cell_metrics) };
 }
@@ -408,7 +408,7 @@ pub fn ensureFallbackFaceWithConfig(state: *FtHbSupport, config: render_session.
     );
 }
 
-pub fn deriveCellMetricsWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig) contract.CellMetrics {
+pub fn deriveCellMetricsWithConfig(state: *FtHbSupport, config: render_session.TextSessionConfig) surface.CellMetrics {
     const font_size_px = config.font_size_px;
     if (state.cached_cell_metrics_valid and state.cached_cell_metrics_font_px == font_size_px) {
         return state.cached_cell_metrics;
@@ -441,7 +441,7 @@ pub fn deriveCellMetricsWithConfig(state: *FtHbSupport, config: render_session.T
     return metrics;
 }
 
-pub fn configuredCellMetrics(state: *FtHbSupport, config: render_session.TextSessionConfig) contract.CellMetrics {
+pub fn configuredCellMetrics(state: *FtHbSupport, config: render_session.TextSessionConfig) surface.CellMetrics {
     return deriveCellMetricsWithConfig(state, config);
 }
 
@@ -454,7 +454,7 @@ pub fn computeBaselineFromFace(face: FtFace, cell_h: u16) i32 {
     return baselineFromFaceMetrics(faceMetricsInput(face, 1), cell_h);
 }
 
-pub fn acquireShapingFaceFromStateLocked(state: *FtHbSupport, face_id: contract.FontFaceId) ?ShapingFace {
+pub fn acquireShapingFaceFromStateLocked(state: *FtHbSupport, face_id: surface.FontFaceId) ?ShapingFace {
     return state.loaded_faces.acquireShapingFaceLocked(face_id, state.fallback_font_paths_len);
 }
 
@@ -462,7 +462,7 @@ pub fn shapeGlyphId(hb_font: ?HbFont, face: FtFace, codepoint: u21) c_uint {
     return c_api.shapeGlyphId(hb_font, face, codepoint);
 }
 
-fn ensureFaceForId(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId) bool {
+fn ensureFaceForId(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: surface.FontFaceId) bool {
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
     return state.loaded_faces.ensureFaceForIdLocked(
@@ -490,12 +490,12 @@ fn fallbackProviderShapeRun(
     state: *FtHbSupport,
     config: render_session.TextSessionConfig,
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    run: surface.ResolvedRun,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
     window: ClusterWindow,
 ) anyerror!shape_run.OwnedShapedRun {
-    const glyphs = try allocator.alloc(contract.GlyphInstance, window.len());
+    const glyphs = try allocator.alloc(surface.GlyphInstance, window.len());
     errdefer allocator.free(glyphs);
     for (window.slice(clusters), 0..) |cluster, idx| {
         const glyph_id = providerGlyphIdWithConfig(state, config, run.run.font.face_id, cluster.first_cp);
@@ -509,7 +509,7 @@ fn fallbackProviderShapeRun(
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-fn providerGlyphVisualWidth(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: contract.FontFaceId, glyph_id: u32) f32 {
+fn providerGlyphVisualWidth(state: *FtHbSupport, config: render_session.TextSessionConfig, face_id: surface.FontFaceId, glyph_id: u32) f32 {
     if (glyph_id == 0) return 0;
     if (!ensureFaceForId(state, config, face_id)) return 0;
     state.ft_mutex.lock();
@@ -518,7 +518,7 @@ fn providerGlyphVisualWidth(state: *FtHbSupport, config: render_session.TextSess
     return glyphVisualWidthPxLocked(shaped_face.face, glyph_id);
 }
 
-fn textForCluster(text_cache_view: contract.LineTextCache, cluster: contract.CellCluster) contract.CellText {
+fn textForCluster(text_cache_view: surface.LineTextCache, cluster: surface.CellCluster) surface.CellText {
     const idx = cluster.text_id.value;
     if (idx < count32(text_cache_view.texts)) return text_cache_view.texts[@intCast(idx)];
     return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
@@ -549,7 +549,7 @@ fn isPlainAsciiCodepoint(cp: u32) bool {
     return cp >= 0x20 and cp < 0x7f;
 }
 
-fn glyphAdvanceFromFace(config: render_session.TextSessionConfig, face: FtFace, glyph_id: u32, cell_metrics: contract.CellMetrics) f32 {
+fn glyphAdvanceFromFace(config: render_session.TextSessionConfig, face: FtFace, glyph_id: u32, cell_metrics: surface.CellMetrics) f32 {
     if (!setFacePixelHeight(config, face)) return @floatFromInt(cell_metrics.cell_w_px);
     if (c.FT_Load_Glyph(face, glyph_id, c.FT_LOAD_DEFAULT) != 0) return @floatFromInt(cell_metrics.cell_w_px);
     if (face.*.glyph == null) return @floatFromInt(cell_metrics.cell_w_px);
@@ -560,11 +560,11 @@ fn setFacePixelHeight(config: render_session.TextSessionConfig, face: FtFace) bo
     return c.FT_Set_Pixel_Sizes(face, 0, @max(config.font_size_px, 1)) == 0;
 }
 
-fn cellMetricsFromFace(face: FtFace, font_size_px: u16) contract.CellMetrics {
+fn cellMetricsFromFace(face: FtFace, font_size_px: u16) surface.CellMetrics {
     return cellMetricsFromFaceMetrics(faceMetricsInput(face, font_size_px));
 }
 
-fn faceMetricsInput(face: FtFace, font_size_px: u16) contract.FaceMetrics26Dot6 {
+fn faceMetricsInput(face: FtFace, font_size_px: u16) surface.FaceMetrics26Dot6 {
     const metrics = face.*.size.*.metrics;
     return .{
         .ascender = @intCast(metrics.ascender),
@@ -588,7 +588,7 @@ fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
     return if (max_advance > 0) max_advance else fallback_advance;
 }
 
-fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window: ClusterWindow) !ShapeRunInput {
+fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: surface.LineTextCache, clusters: []const surface.CellCluster, window: ClusterWindow) !ShapeRunInput {
     const required = shapeRunInputCodepointCount(text_cache_view, clusters, window);
     if (required > state.max_shape_input_codepoints) return error.ShapeRunInputOverflow;
     var count: u32 = 0;
@@ -607,7 +607,7 @@ fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: contract.LineTextCa
     };
 }
 
-fn shapeRunInputCodepointCount(text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window: ClusterWindow) u32 {
+fn shapeRunInputCodepointCount(text_cache_view: surface.LineTextCache, clusters: []const surface.CellCluster, window: ClusterWindow) u32 {
     var total: u32 = 0;
     for (window.slice(clusters)) |cluster| {
         const text = textForCluster(text_cache_view, cluster);
@@ -619,16 +619,16 @@ fn shapeRunInputCodepointCount(text_cache_view: contract.LineTextCache, clusters
 
 fn buildProviderShapedRun(
     allocator: std.mem.Allocator,
-    run: contract.ResolvedRun,
-    clusters: []const contract.CellCluster,
-    cell_metrics: contract.CellMetrics,
+    run: surface.ResolvedRun,
+    clusters: []const surface.CellCluster,
+    cell_metrics: surface.CellMetrics,
     face: FtFace,
     infos: [*c]c.hb_glyph_info_t,
     positions: [*c]c.hb_glyph_position_t,
     glyph_count: c_uint,
     cluster_map: []const u32,
 ) !shape_run.OwnedShapedRun {
-    const glyphs = try allocator.alloc(contract.GlyphInstance, glyph_count);
+    const glyphs = try allocator.alloc(surface.GlyphInstance, glyph_count);
     errdefer allocator.free(glyphs);
     for (glyphs, 0..) |*glyph, idx| {
         const info = infos[idx];
@@ -656,7 +656,7 @@ fn useDeterministicTestTextFallback(state: *FtHbSupport, config: render_session.
     return builtin.is_test and config.font_path == null and state.fallback_font_paths_len == 0;
 }
 
-fn defaultCellMetrics(font_px: u16) contract.CellMetrics {
+fn defaultCellMetrics(font_px: u16) surface.CellMetrics {
     const h = @max(font_px, 1);
     return .{
         .cell_w_px = @max(@divFloor(h, 2), 1),
@@ -676,7 +676,7 @@ pub const testing = struct {
         cluster_map: []u32,
     };
 
-    pub fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: contract.LineTextCache, clusters: []const contract.CellCluster, window_start: u32, window_end: u32) !GatherShapeRunInput {
+    pub fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: surface.LineTextCache, clusters: []const surface.CellCluster, window_start: u32, window_end: u32) !GatherShapeRunInput {
         const input = try @import("support.zig").gatherShapeRunInput(state, text_cache_view, clusters, .{ .start = window_start, .end = window_end });
         return .{
             .codepoints = input.codepoints,
@@ -685,7 +685,7 @@ pub const testing = struct {
     }
 };
 
-fn baselineFromFaceMetrics(input: contract.FaceMetrics26Dot6, cell_h: u16) i32 {
+fn baselineFromFaceMetrics(input: surface.FaceMetrics26Dot6, cell_h: u16) i32 {
     const raw = @divTrunc(input.ascender, 64);
     return std.math.clamp(raw, 1, @as(i32, @intCast(@max(cell_h, 1))));
 }
@@ -695,7 +695,7 @@ fn advancePx(value_26_6: i32, fallback_cell_w: u16) f32 {
     return @as(f32, @floatFromInt(value_26_6)) / 64.0;
 }
 
-fn cellMetricsFromFaceMetrics(input: contract.FaceMetrics26Dot6) contract.CellMetrics {
+fn cellMetricsFromFaceMetrics(input: surface.FaceMetrics26Dot6) surface.CellMetrics {
     const cell_h: u16 = @intCast(@max(@divTrunc(input.height + 63, 64), @as(i32, input.fallback_font_px)));
     const fallback_w = @max(@divFloor(input.fallback_font_px, 2), 1);
     const cell_w: u16 = @intCast(@max(@divTrunc(input.max_advance + 63, 64), @as(i32, fallback_w)));

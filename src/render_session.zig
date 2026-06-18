@@ -8,23 +8,22 @@ const geometry_contract = @import("geometry_contract.zig");
 const prepared_surface = @import("surface/prepared_surface.zig");
 const submitted_surface = @import("submitted_surface.zig");
 const sprite_resource_store = @import("surface/resource_store.zig");
-const contract = @import("text/contract.zig");
-const font_resolve = @import("text/resolve.zig");
-const text_paths = @import("text/paths.zig");
-const surface_preparer = @import("text/surface_preparer.zig");
-const font_session = @import("text/session.zig");
-const ft_hb_provider = @import("text/ft_hb/provider.zig");
+const surface = @import("surface.zig");
+const font_resolver = @import("text/resolver.zig");
+const font_paths = @import("text/font_paths.zig");
+const surface_preparer = @import("surface/surface_preparer.zig");
+const font_session = @import("session/session.zig");
 const provider = @import("text/provider.zig");
 const atlas_cache = @import("text/raster/atlas.zig");
 const rasterizer = @import("text/raster/rasterizer.zig");
 const shape_run = @import("text/shape/run.zig");
-const text_support = @import("text/ft_hb/support.zig");
-const text_glyph_raster = @import("text/ft_hb/glyph_raster.zig");
-const text_raster_operation = @import("text/raster/operation.zig");
+const support = @import("support/support.zig");
+const glyph_raster = @import("text/glyph_raster.zig");
+const raster_operation = @import("text/raster/operation.zig");
 const cursor_presentation_mod = @import("cursor_presentation.zig");
 const c = @import("howl_render_c");
 
-const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
+const max_font_faces = support.fallbackFontLen(support.max_fallback_fonts) + 1;
 const ft_hb_face_text_cache_entry_cap: u32 = 4096;
 const ft_hb_glyph_cell_cache_entry_cap: u32 = 4096;
 const ft_hb_shape_run_cache_entry_cap: u32 = 64;
@@ -94,12 +93,12 @@ const RenderStateToken = struct {
 const CursorPresentationFacts = cursor_presentation_mod.PresentationFacts;
 
 const RenderStateTextInput = struct {
-    cells: []const contract.CellInput,
-    grid: contract.GridMetrics,
+    cells: []const surface.CellInput,
+    grid: surface.GridMetrics,
     dirty_rows: []const bool,
     dirty_cols_start: []const u16,
     dirty_cols_end: []const u16,
-    cursor: ?contract.CursorPresentation,
+    cursor: ?surface.CursorPresentation,
 };
 
 const RenderStateColors = struct {
@@ -110,11 +109,11 @@ const RenderStateColors = struct {
     palette: [256]c.HowlVtRgb8,
 };
 
-fn colorFromRgb(value: c.HowlVtRgb8) contract.Rgba8 {
+fn colorFromRgb(value: c.HowlVtRgb8) surface.Rgba8 {
     return .{ .r = value.r, .g = value.g, .b = value.b, .a = 255 };
 }
 
-fn colorFromValue(value: c.HowlVtColor, colors: RenderStateColors, foreground: bool) contract.Rgba8 {
+fn colorFromValue(value: c.HowlVtColor, colors: RenderStateColors, foreground: bool) surface.Rgba8 {
     return switch (value.kind) {
         0 => if (foreground) colorFromRgb(colors.foreground) else colorFromRgb(colors.background),
         1 => colorFromRgb(colors.palette[@intCast(value.value & 0xff)]),
@@ -123,7 +122,7 @@ fn colorFromValue(value: c.HowlVtColor, colors: RenderStateColors, foreground: b
     };
 }
 
-fn semanticColor(value: c.HowlVtColor) contract.SemanticColor {
+fn semanticColor(value: c.HowlVtColor) surface.SemanticColor {
     return switch (value.kind) {
         0 => .{ .kind = .default },
         1 => .{ .kind = .indexed, .value = value.value & 0xff },
@@ -132,7 +131,7 @@ fn semanticColor(value: c.HowlVtColor) contract.SemanticColor {
     };
 }
 
-fn underlineStyle(value: u8) contract.UnderlineStyle {
+fn underlineStyle(value: u8) surface.UnderlineStyle {
     return switch (value) {
         1 => .double,
         2 => .curly,
@@ -142,14 +141,14 @@ fn underlineStyle(value: u8) contract.UnderlineStyle {
     };
 }
 
-fn fontStyle(cell: c.HowlVtRenderStateCell) contract.FontStyle {
+fn fontStyle(cell: c.HowlVtRenderStateCell) surface.FontStyle {
     if (cell.attrs.bold != 0 and cell.attrs.italic != 0) return .bold_italic;
     if (cell.attrs.bold != 0) return .bold;
     if (cell.attrs.italic != 0) return .italic;
     return .regular;
 }
 
-fn presentation(cell: c.HowlVtRenderStateCell) contract.TextPresentation {
+fn presentation(cell: c.HowlVtRenderStateCell) surface.TextPresentation {
     for (cell.combining[0..cell.combining_len]) |cp| {
         if (cp == 0xfe0f) return .emoji;
         if (cp == 0xfe0e) return .text;
@@ -157,13 +156,13 @@ fn presentation(cell: c.HowlVtRenderStateCell) contract.TextPresentation {
     return .any;
 }
 
-fn mapCell(cell: c.HowlVtRenderStateCell, colors: RenderStateColors, selected: bool, highlighted: bool) contract.CellInput {
+fn mapCell(cell: c.HowlVtRenderStateCell, colors: RenderStateColors, selected: bool, highlighted: bool) surface.CellInput {
     std.debug.assert(cell.combining_len <= cell.combining.len);
     const default_fg = cell.fg_color.kind == 0;
     const default_bg = cell.bg_color.kind == 0;
     const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
     const visible_flags = cell.flags.continuation != 0 or cell.attrs.inverse != 0 or cell.attrs.underline != 0 or cell.attrs.strikethrough != 0 or cell.attrs.invisible != 0 or selected or highlighted;
-    var out = contract.CellInput{
+    var out = surface.CellInput{
         .codepoint = @intCast(cell.codepoint),
         .combining_len = cell.combining_len,
         .combining = cell.combining,
@@ -249,15 +248,15 @@ fn readRenderStateColors(state: c.HowlVtRenderStateHandle) !RenderStateColors {
     };
 }
 
-fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateColors, facts: CursorPresentationFacts) !?contract.CursorPresentation {
+fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateColors, facts: CursorPresentationFacts) !?surface.CursorPresentation {
     const has_viewport = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE) != 0;
     if (!has_viewport) return null;
     const row = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y);
     const col = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_X);
     const visible = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VISIBLE) != 0;
-    var trail_rects = [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } }} ** contract.max_cursor_trail_rects;
+    var trail_rects = [_]surface.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } }} ** surface.max_cursor_trail_rects;
     var trail_count: u16 = 0;
-    while (trail_count < @min(facts.cursor_trail_count, contract.max_cursor_trail_rects)) : (trail_count += 1) {
+    while (trail_count < @min(facts.cursor_trail_count, surface.max_cursor_trail_rects)) : (trail_count += 1) {
         const rect = facts.cursor_trail_rects[trail_count];
         trail_rects[trail_count] = .{ .extent = .{ .row = rect.row, .col = rect.col, .rows = rect.rows, .cols = rect.cols }, .opacity = rect.opacity, .color = .{ .r = rect.color.r, .g = rect.color.g, .b = rect.color.b } };
     }
@@ -276,7 +275,7 @@ fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateC
         .default_foreground = .{ .r = colors.foreground.r, .g = colors.foreground.g, .b = colors.foreground.b },
         .default_background = .{ .r = colors.background.r, .g = colors.background.g, .b = colors.background.b },
         .primary_extent = .{ .row = row, .col = col, .rows = 1, .cols = if (try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL) != 0) 2 else 1 },
-        .extra_cursors = [_]contract.ExtraCursorPresentation{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .shape = .none, .mode = .point, .shape_follows_main = false, .color_follows_main = false, .cursor_color = .{ .kind = .default, .value = 0 }, .text_color = .{ .kind = .default, .value = 0 } }} ** 256,
+        .extra_cursors = [_]surface.ExtraCursorPresentation{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .shape = .none, .mode = .point, .shape_follows_main = false, .color_follows_main = false, .cursor_color = .{ .kind = .default, .value = 0 }, .text_color = .{ .kind = .default, .value = 0 } }} ** 256,
         .extra_cursor_count = 0,
         .trail = .{ .rects = trail_rects, .count = trail_count },
     };
@@ -286,11 +285,11 @@ fn rgbValue(value: c.HowlVtRgb8) u32 {
     return (@as(u32, value.r) << 16) | (@as(u32, value.g) << 8) | value.b;
 }
 
-fn cursorColor(value: c.HowlVtColor) contract.CursorColor {
+fn cursorColor(value: c.HowlVtColor) surface.CursorColor {
     return .{ .kind = @enumFromInt(value.kind), .value = value.value };
 }
 
-fn cursorShape(value: u8) contract.CursorShape {
+fn cursorShape(value: u8) surface.CursorShape {
     return switch (value) {
         c.HOWL_VT_CURSOR_SHAPE_UNDERLINE => .underline,
         c.HOWL_VT_CURSOR_SHAPE_BEAM => .beam,
@@ -302,10 +301,10 @@ fn cursorShape(value: u8) contract.CursorShape {
 
 pub const TextSession = struct {
     allocator: std.mem.Allocator,
-    text_state: text_support.FtHbSupport,
+    text_state: support.FtHbSupport,
     mutex: ThreadMutex = .{},
     text_preparer: ?surface_preparer.TextSurfacePreparer = null,
-    cell_input_scratch: []contract.CellInput = &.{},
+    cell_input_scratch: []surface.CellInput = &.{},
     dirty_rows_scratch: []bool = &.{},
     dirty_cols_start_scratch: []u16 = &.{},
     dirty_cols_end_scratch: []u16 = &.{},
@@ -331,7 +330,7 @@ pub const TextSession = struct {
     pub fn init(allocator: std.mem.Allocator) TextSession {
         return .{
             .allocator = allocator,
-            .text_state = text_support.FtHbSupport.init(allocator),
+            .text_state = support.FtHbSupport.init(allocator),
         };
     }
 
@@ -363,7 +362,7 @@ pub const TextSession = struct {
         defer self.mutex.unlock();
         if (render_px.width == 0 or render_px.height == 0) return error.InvalidSurfaceSize;
         if (grid_px.width == 0 or grid_px.height == 0) return error.InvalidGridSize;
-        const cell_px = text_support.deriveCellSize(&self.text_state, config);
+        const cell_px = support.deriveCellSize(&self.text_state, config);
         const layout = geometry_contract.SurfaceLayout{ .cell_px = cell_px, .grid = geometry_mod.deriveGridSize(grid_px, cell_px) };
         std.debug.assert(layout.cell_px.width != 0);
         std.debug.assert(layout.cell_px.height != 0);
@@ -375,10 +374,10 @@ pub const TextSession = struct {
     pub fn isValidFont(self: *TextSession, config: TextSessionConfig) bool {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        if (text_support.ensurePrimaryFontWithConfig(&self.text_state, config)) return true;
-        var i: text_support.FallbackFontCount = 0;
+        if (support.ensurePrimaryFontWithConfig(&self.text_state, config)) return true;
+        var i: support.FallbackFontCount = 0;
         while (i < self.text_state.fallback_font_paths_len) : (i += 1) {
-            if (text_support.ensureFallbackFaceWithConfig(&self.text_state, config, i) != null) return true;
+            if (support.ensureFallbackFaceWithConfig(&self.text_state, config, i) != null) return true;
         }
         return false;
     }
@@ -388,7 +387,7 @@ pub const TextSession = struct {
         var context = TextContext{ .session = self, .session_config = prepare.config };
         lockMutex(&self.mutex);
         errdefer self.mutex.unlock();
-        var resolve: font_resolve.ResolveObservability = .{};
+        var resolve: font_resolver.ResolveObservability = .{};
         const read = try self.readRenderState(prepare.render_state, prepare.request.token.damage_kind == .full, prepare.cursor_presentation);
         const options: surface_preparer.PrepareOptions = .{ .scene = .{
             .cursor = read.cursor,
@@ -428,7 +427,7 @@ pub const TextSession = struct {
         }
     }
 
-    pub fn atlasRaster(self: *TextSession, key: contract.SpriteKey) ?atlas_cache.StoredRaster {
+    pub fn atlasRaster(self: *TextSession, key: surface.SpriteKey) ?atlas_cache.StoredRaster {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         const preparer = self.text_preparer orelse return null;
@@ -438,9 +437,9 @@ pub const TextSession = struct {
     fn ownPreparedSurface(
         allocator: std.mem.Allocator,
         prepare: PrepareInput,
-        grid: contract.GridMetrics,
+        grid: surface.GridMetrics,
         prepared: surface_preparer.OwnedPreparedTextSurface,
-        resolve: font_resolve.ResolveObservability,
+        resolve: font_resolver.ResolveObservability,
     ) prepared_surface.PreparedSurface {
         return .{
             .allocator = allocator,
@@ -468,13 +467,13 @@ pub const TextSession = struct {
     }
 
     fn maxResolveClusters(context: *TextContext) u32 {
-        const cell_px = text_support.deriveCellSize(&context.session.text_state, context.session_config);
+        const cell_px = support.deriveCellSize(&context.session.text_state, context.session_config);
         const grid = geometry_mod.deriveGridSize(context.session_config.surface_px, cell_px);
         return @as(u32, @max(grid.cols, 1)) * @as(u32, @max(grid.rows, 1));
     }
 
-    fn ftHbCapacity(context: *TextContext) text_support.FtHbCapacity {
-        const cell_px = text_support.deriveCellSize(&context.session.text_state, context.session_config);
+    fn ftHbCapacity(context: *TextContext) support.FtHbCapacity {
+        const cell_px = support.deriveCellSize(&context.session.text_state, context.session_config);
         const grid = geometry_mod.deriveGridSize(context.session_config.surface_px, cell_px);
         const cols = @as(u32, @max(grid.cols, 1));
         const visible_cells = cols * @as(u32, @max(grid.rows, 1));
@@ -489,7 +488,7 @@ pub const TextSession = struct {
 
     fn ensureCellInputScratchCapacity(self: *TextSession, cell_count: usize) !void {
         if (self.cell_input_scratch.len >= cell_count) return;
-        const scratch = try self.allocator.alloc(contract.CellInput, cell_count);
+        const scratch = try self.allocator.alloc(surface.CellInput, cell_count);
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
         self.cell_input_scratch = scratch;
     }
@@ -562,7 +561,7 @@ pub const TextSession = struct {
         };
     }
 
-    fn ftHbSource(context: *TextContext) ft_hb_provider.FtHbSource {
+    fn ftHbSource(context: *TextContext) provider.FtHbSource {
         return .{
             .ctx = context,
             .has_codepoint = providerHasCodepointThunk,
@@ -573,61 +572,61 @@ pub const TextSession = struct {
         };
     }
 
-    fn fontSession(context: *TextContext, faces: []font_session.FontFaceRecord, active_resolve: ?*font_resolve.ResolveObservability) font_session.FontSession {
+    fn fontSession(context: *TextContext, faces: []font_session.FontFaceRecord, active_resolve: ?*font_resolver.ResolveObservability) font_session.FontSession {
         context.session.text_state.active_resolve = active_resolve;
-        var len: text_support.FallbackFontCount = 0;
-        std.debug.assert(context.session.text_state.fallback_font_paths_len <= text_support.max_fallback_fonts);
-        if (count32(faces) > text_support.fallbackFontLen(len)) {
-            faces[@intCast(text_support.fallbackFontLen(len))] = .{ .id = .{ .value = text_support.primary_face_id }, .role = .primary, .coverage = .all };
+        var len: support.FallbackFontCount = 0;
+        std.debug.assert(context.session.text_state.fallback_font_paths_len <= support.max_fallback_fonts);
+        if (count32(faces) > support.fallbackFontLen(len)) {
+            faces[@intCast(support.fallbackFontLen(len))] = .{ .id = .{ .value = support.primary_face_id }, .role = .primary, .coverage = .all };
             len += 1;
         }
-        var i: text_support.FallbackFontCount = 0;
-        while (i < context.session.text_state.fallback_font_paths_len and text_support.fallbackFontLen(len) < count32(faces)) : (i += 1) {
+        var i: support.FallbackFontCount = 0;
+        while (i < context.session.text_state.fallback_font_paths_len and support.fallbackFontLen(len) < count32(faces)) : (i += 1) {
             if (context.session.text_state.fallback_font_paths[i] == null) continue;
-            faces[@intCast(text_support.fallbackFontLen(len))] = .{ .id = .{ .value = i + 2 }, .role = .fallback, .coverage = .all };
+            faces[@intCast(support.fallbackFontLen(len))] = .{ .id = .{ .value = i + 2 }, .role = .fallback, .coverage = .all };
             len += 1;
         }
         return .{
-            .primary_face = .{ .value = text_support.primary_face_id },
-            .faces = faces[0..@intCast(text_support.fallbackFontLen(len))],
+            .primary_face = .{ .value = support.primary_face_id },
+            .faces = faces[0..@intCast(support.fallbackFontLen(len))],
             .provider = .{ .ctx = context, .has_cell_text = providerHasCellTextThunk },
-            .metrics = text_support.deriveCellMetricsWithConfig(&context.session.text_state, context.session_config),
+            .metrics = support.deriveCellMetricsWithConfig(&context.session.text_state, context.session_config),
         };
     }
 
-    fn providerHasCodepointThunk(ctx: *anyopaque, face_id: contract.FontFaceId, codepoint: u32) bool {
+    fn providerHasCodepointThunk(ctx: *anyopaque, face_id: surface.FontFaceId, codepoint: u32) bool {
         const context: *TextContext = @ptrCast(@alignCast(ctx));
-        return text_support.providerHasCodepointWithConfig(&context.session.text_state, context.session_config, face_id, codepoint);
+        return support.providerHasCodepointWithConfig(&context.session.text_state, context.session_config, face_id, codepoint);
     }
 
-    fn providerHasCellTextThunk(ctx: *anyopaque, face_id: contract.FontFaceId, text_value: contract.CellText) bool {
+    fn providerHasCellTextThunk(ctx: *anyopaque, face_id: surface.FontFaceId, text_value: surface.CellText) bool {
         const context: *TextContext = @ptrCast(@alignCast(ctx));
-        return text_support.providerHasCellTextWithConfig(&context.session.text_state, context.session_config, face_id, text_value);
+        return support.providerHasCellTextWithConfig(&context.session.text_state, context.session_config, face_id, text_value);
     }
 
     fn providerShapeRunThunk(
         ctx: *anyopaque,
         allocator: std.mem.Allocator,
-        run: contract.ResolvedRun,
-        text_cache_view: contract.LineTextCache,
-        clusters: []const contract.CellCluster,
-        cell_metrics: contract.CellMetrics,
+        run: surface.ResolvedRun,
+        text_cache_view: surface.LineTextCache,
+        clusters: []const surface.CellCluster,
+        cell_metrics: surface.CellMetrics,
     ) anyerror!shape_run.OwnedShapedRun {
         const context: *TextContext = @ptrCast(@alignCast(ctx));
-        return text_support.providerShapeRunWithConfig(&context.session.text_state, context.session_config, allocator, run, text_cache_view, clusters, cell_metrics);
+        return support.providerShapeRunWithConfig(&context.session.text_state, context.session_config, allocator, run, text_cache_view, clusters, cell_metrics);
     }
 
-    fn providerRasterizeSpriteThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: contract.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
+    fn providerRasterizeSpriteThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: surface.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
         const context: *TextContext = @ptrCast(@alignCast(ctx));
-        return text_glyph_raster.providerRasterizeSpriteWithConfig(&context.session.text_state, context.session_config, allocator, req);
+        return glyph_raster.providerRasterizeSpriteWithConfig(&context.session.text_state, context.session_config, allocator, req);
     }
 
-    fn providerLookupGlyphThunk(ctx: *anyopaque, face_id: contract.FontFaceId, codepoint: u32, cell_metrics: contract.CellMetrics) provider.LookupGlyphResult {
+    fn providerLookupGlyphThunk(ctx: *anyopaque, face_id: surface.FontFaceId, codepoint: u32, cell_metrics: surface.CellMetrics) provider.LookupGlyphResult {
         const context: *TextContext = @ptrCast(@alignCast(ctx));
-        return text_support.providerLookupGlyphWithConfig(&context.session.text_state, context.session_config, face_id, codepoint, cell_metrics);
+        return support.providerLookupGlyphWithConfig(&context.session.text_state, context.session_config, face_id, codepoint, cell_metrics);
     }
 
-    fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: text_raster_operation.RasterizeRequest) anyerror!text_raster_operation.RasterizeOutput {
+    fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: raster_operation.RasterizeRequest) anyerror!raster_operation.RasterizeOutput {
         const context: *TextContext = @ptrCast(@alignCast(ctx));
         const width = @as(u16, @intCast(@as(u32, @max(req.cell_span, 1)) * @as(u32, @max(req.cell_metrics.cell_w_px, 1))));
         const height = @max(req.cell_metrics.cell_h_px, 1);
@@ -635,14 +634,14 @@ pub const TextSession = struct {
         const alpha = try allocator.alloc(u8, @intCast(alpha_len));
         errdefer allocator.free(alpha);
         @memset(alpha, 0);
-        _ = text_glyph_raster.rasterizeProviderGlyphWithConfig(&context.session.text_state, context.session_config, alpha, width, height, req.cell_metrics.baseline_px, .{ .value = req.face_id }, req.glyph_id, 0, 0, 0);
+        _ = glyph_raster.rasterizeProviderGlyphWithConfig(&context.session.text_state, context.session_config, alpha, width, height, req.cell_metrics.baseline_px, .{ .value = req.face_id }, req.glyph_id, 0, 0, 0);
         return .{
             .allocator = allocator,
             .width_px = width,
             .height_px = height,
             .bearing_x_px = 0,
             .bearing_y_px = 0,
-            .advance_px = text_support.providerGlyphAdvanceWithConfig(&context.session.text_state, context.session_config, .{ .value = req.face_id }, req.glyph_id, req.cell_metrics),
+            .advance_px = support.providerGlyphAdvanceWithConfig(&context.session.text_state, context.session_config, .{ .value = req.face_id }, req.glyph_id, req.cell_metrics),
             .alpha_mask = alpha,
         };
     }
@@ -662,7 +661,7 @@ pub const TextSessionOwner = struct {
     submitted: submitted_surface.SubmittedSurface,
     cursor_presentation: cursor_presentation_mod.CursorPresentation = .{},
     config: TextSessionConfig,
-    font_paths: text_paths.FontPaths,
+    font_paths: font_paths.FontPaths,
     render_surface_sprite_resources: sprite_resource_store.SpriteResourceStore = .init(),
 
     pub const SubmitPreparedResult = union(enum) {
@@ -690,7 +689,7 @@ pub const TextSessionOwner = struct {
             .geometry = .{},
             .submitted = .{},
             .config = config,
-            .font_paths = text_paths.FontPaths.init(allocator),
+            .font_paths = font_paths.FontPaths.init(allocator),
         };
         return owner;
     }
@@ -748,7 +747,7 @@ pub const TextSessionOwner = struct {
     }
 
     pub fn invalidateTextState(self: *TextSessionOwner) void {
-        text_support.resetLoadedFace(&self.session.text_state);
+        support.resetLoadedFace(&self.session.text_state);
         self.session.text_state.face_text_cache.clear();
         self.session.text_state.shape_run_cache.clear();
         self.session.text_state.glyph_cell_cache.clear();
@@ -924,7 +923,7 @@ pub const testing = struct {
         return session.ensureCellInputScratchCapacity(cell_count);
     }
 
-    pub fn ftHbCapacity(session: *TextSession, session_config: TextSessionConfig) text_support.FtHbCapacity {
+    pub fn ftHbCapacity(session: *TextSession, session_config: TextSessionConfig) support.FtHbCapacity {
         const context = TextSession.TextContext{
             .session = session,
             .session_config = session_config,
@@ -1008,7 +1007,7 @@ test "render session owner stores configured cursor theme inputs" {
         .cursor_trail_decay_fast_s = 0.2,
         .cursor_trail_decay_slow_s = 0.6,
         .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** contract.max_cursor_trail_rects,
+        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** surface.max_cursor_trail_rects,
         .now_ns = 1234,
     });
 

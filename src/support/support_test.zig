@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const test_font_options = @import("test_font_options");
-const contract = @import("../contract.zig");
-const render_session = @import("../../render_session.zig");
+const surface = @import("../surface.zig");
+const render_session = @import("../render_session.zig");
 const support = @import("support.zig");
 
 const InjectedTestFontPaths = struct {
@@ -72,11 +72,11 @@ test "shape run input assembly reuses retained bounded buffers" {
         .max_glyphs_per_run = 2,
     });
 
-    const text_cache_view = contract.LineTextCache{ .texts = &.{
+    const text_cache_view = surface.LineTextCache{ .texts = &.{
         .{ .id = .{ .value = 0 }, .first_cp = 'a', .codepoints = &.{'a'} },
         .{ .id = .{ .value = 1 }, .first_cp = 'b', .codepoints = &.{'b'} },
     } };
-    const clusters = [_]contract.CellCluster{
+    const clusters = [_]surface.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'a', .style = .regular, .presentation = .any },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'b', .style = .regular, .presentation = .any },
     };
@@ -89,7 +89,7 @@ test "shape run input assembly reuses retained bounded buffers" {
     try std.testing.expectEqual(first.codepoints.ptr, second.codepoints.ptr);
     try std.testing.expectEqual(first.cluster_map.ptr, second.cluster_map.ptr);
 
-    const overflow_text_cache = contract.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{ 'x', 0x0332, 0x0308 } }} };
-    const overflow_clusters = [_]contract.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any }};
+    const overflow_text_cache = surface.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{ 'x', 0x0332, 0x0308 } }} };
+    const overflow_clusters = [_]surface.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any }};
     try std.testing.expectError(error.ShapeRunInputOverflow, support.testing.gatherShapeRunInput(&state, overflow_text_cache, &overflow_clusters, 0, 1));
 }

@@ -1,6 +1,6 @@
 const std = @import("std");
-const color = @import("color.zig");
-const effects = @import("effects.zig");
+const color = @import("../cell/color.zig");
+const effects = @import("../cell/effects.zig");
 
 pub const FontFaceId = struct {
     value: u32,
