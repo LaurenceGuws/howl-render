@@ -13,17 +13,6 @@ pub fn lockMutex(mutex: *ThreadMutex) void {
     std.Io.Threaded.mutexLock(&mutex.state);
 }
 
-pub const SubmitDecision = union(enum) {
-    submit: tokens.PreparedSurfaceToken,
-    stale: tokens.SnapshotToken,
-    needs_full_prepare: tokens.FullPrepareReason,
-    idle,
-};
-
-pub const SubmittedWorkState = struct {
-    submit_pending: bool,
-};
-
 pub const SubmittedSurface = struct {
     mutex: ThreadMutex = .{},
     submitted_token: ?tokens.SubmittedSurfaceToken = null,
@@ -44,13 +33,6 @@ pub const SubmittedSurface = struct {
         std.debug.assert(submitted.token.snapshot_seq != 0);
         if (self.submitted_token) |prior| std.debug.assert(!prior.token.isNewerThan(submitted.token));
         self.submitted_token = submitted;
-    }
-
-    pub fn workState(self: *const SubmittedSurface) SubmittedWorkState {
-        const submitted_owner: *SubmittedSurface = @constCast(self);
-        lockMutex(&submitted_owner.mutex);
-        defer submitted_owner.mutex.unlock();
-        return .{ .submit_pending = false };
     }
 
     pub fn submittedToken(self: *const SubmittedSurface) ?tokens.SnapshotToken {
@@ -75,15 +57,6 @@ pub const SubmittedSurface = struct {
             .geometry_epoch = token.geometry_epoch,
             .damage_base_seq = 0,
             .damage_kind = .full,
-        };
-    }
-
-    pub fn fullPrepareReason(validation: tokens.SubmitValidation) tokens.FullPrepareReason {
-        return switch (validation) {
-            .valid => unreachable,
-            .stale_geometry => .geometry_changed,
-            .missing_retained_base => .retained_base_missing,
-            .stale_retained_base => .retained_base_stale,
         };
     }
 
@@ -134,10 +107,9 @@ test "submitted owner reports stale submit when newer snapshot already won" {
     try std.testing.expect(stale);
 }
 
-test "submitted owner has no vt surface state" {
+test "submitted surface starts without submitted token" {
     var submitted = SubmittedSurface{};
     try std.testing.expect(submitted.submittedToken() == null);
-    try std.testing.expect(!submitted.workState().submit_pending);
 }
 
 test "submitted surface token monotonicity keeps latest submission" {

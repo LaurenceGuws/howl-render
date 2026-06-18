@@ -1,17 +1,5 @@
 const std = @import("std");
 
-const ThreadMutex = struct {
-    state: std.Io.Mutex = .init,
-
-    pub fn unlock(self: *ThreadMutex) void {
-        std.Io.Threaded.mutexUnlock(&self.state);
-    }
-};
-
-fn lockMutex(mutex: *ThreadMutex) void {
-    std.Io.Threaded.mutexLock(&mutex.state);
-}
-
 pub const DamageKind = enum(u2) {
     none = 0,
     partial = 1,
@@ -58,27 +46,6 @@ pub const PreparedSurfaceToken = struct {
     }
 };
 
-pub fn PreparedSurfaceTokenWith(comptime Payload: type) type {
-    return struct {
-        const Self = @This();
-
-        header: PreparedSurfaceToken,
-        payload: Payload,
-
-        pub fn token(self: Self) SnapshotToken {
-            return self.header.token;
-        }
-
-        pub fn requiresRetainedBase(self: Self) bool {
-            return self.header.requiresRetainedBase();
-        }
-
-        pub fn validateAgainst(self: Self, submitted: SubmittedSurfaceToken) SubmitValidation {
-            return validatePreparedSurfaceToken(self.header, submitted);
-        }
-    };
-}
-
 pub const SubmittedSurfaceToken = struct {
     token: SnapshotToken,
     atlas_epoch: u64 = 0,
@@ -97,61 +64,6 @@ pub fn validatePreparedSurfaceToken(prepared: PreparedSurfaceToken, submitted: S
     if (prepared.token.geometry_epoch != submitted.token.geometry_epoch) return .stale_geometry;
     if (prepared.required_base_seq != submitted.token.snapshot_seq) return .stale_retained_base;
     return .valid;
-}
-
-pub const RenderResult = union(enum) {
-    presentable: SubmittedSurfaceToken,
-    stale: SnapshotToken,
-    needs_full_prepare: FullPrepareReason,
-    surface_lost: SurfaceLostReason,
-};
-
-pub const FullPrepareReason = enum {
-    retained_base_missing,
-    retained_base_stale,
-    geometry_changed,
-};
-
-pub const SurfaceLostReason = enum {
-    surface_invalidated,
-    execution_state_lost,
-    surface_closed,
-};
-
-pub fn LatestMailbox(comptime T: type) type {
-    return struct {
-        const Self = @This();
-
-        mutex: ThreadMutex = .{},
-        item: ?T = null,
-
-        pub fn publish(self: *Self, item: T) void {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            self.item = item;
-        }
-
-        pub fn takeLatest(self: *Self) ?T {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            const item = self.item orelse return null;
-            self.item = null;
-            return item;
-        }
-
-        pub fn hasPending(self: *Self) bool {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            return self.item != null;
-        }
-
-        pub fn dropAtOrBefore(self: *Self, token: SnapshotToken) void {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
-            const item = self.item orelse return;
-            if (!item.token.isNewerThan(token)) self.item = null;
-        }
-    };
 }
 
 test "snapshot token classifies retained-base damage" {
@@ -195,36 +107,4 @@ test "prepared full surface token validates across geometry change" {
     };
 
     try std.testing.expectEqual(SubmitValidation.valid, validatePreparedSurfaceToken(prepared, submitted));
-}
-
-test "prepared surface token payload keeps validation in the header" {
-    const Payload = struct { scene_id: u32 };
-    const Prepared = PreparedSurfaceTokenWith(Payload);
-    const submitted = SubmittedSurfaceToken{
-        .token = .{ .snapshot_seq = 4, .dirty_epoch = 4, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
-    };
-    const prepared = Prepared{
-        .header = .{
-            .token = .{ .snapshot_seq = 5, .dirty_epoch = 5, .geometry_epoch = 2, .damage_base_seq = 4, .damage_kind = .partial },
-            .required_base_seq = 4,
-        },
-        .payload = .{ .scene_id = 42 },
-    };
-
-    try std.testing.expectEqual(@as(u32, 42), prepared.payload.scene_id);
-    try std.testing.expectEqual(SubmitValidation.valid, prepared.validateAgainst(submitted));
-}
-
-test "latest mailbox drops stale work" {
-    const Mailbox = LatestMailbox(u32);
-    var mailbox = Mailbox{};
-
-    try std.testing.expect(!mailbox.hasPending());
-    mailbox.publish(10);
-    mailbox.publish(20);
-    try std.testing.expect(mailbox.hasPending());
-
-    const item = mailbox.takeLatest() orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(u32, 20), item);
-    try std.testing.expect(mailbox.takeLatest() == null);
 }

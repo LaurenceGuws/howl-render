@@ -12,7 +12,6 @@ pub const SemanticColorKind = color.SemanticColorKind;
 pub const SemanticColor = color.SemanticColor;
 
 pub const UnderlineStyle = effects.UnderlineStyle;
-pub const BackendCaps = effects.BackendCaps;
 pub const FontStyle = effects.FontStyle;
 pub const TextPresentation = effects.TextPresentation;
 pub const DecorationKind = effects.DecorationKind;

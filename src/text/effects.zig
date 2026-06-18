@@ -8,13 +8,6 @@ pub const UnderlineStyle = enum {
     dashed,
 };
 
-pub const BackendCaps = struct {
-    has_freetype: bool = false,
-    has_harfbuzz: bool = false,
-    has_fontconfig: bool = false,
-    has_discovery: bool = false,
-};
-
 pub const FontStyle = enum(u2) {
     regular = 0,
     bold = 1,
@@ -35,14 +28,6 @@ pub const DecorationKind = enum(u3) {
     undercurl,
     strikethrough,
 };
-
-test "effect defaults are deterministic" {
-    const caps = BackendCaps{};
-    try std.testing.expect(!caps.has_freetype);
-    try std.testing.expect(!caps.has_harfbuzz);
-    try std.testing.expect(!caps.has_fontconfig);
-    try std.testing.expect(!caps.has_discovery);
-}
 
 test "effect enum values stay stable" {
     try std.testing.expectEqual(@as(u2, 0), @intFromEnum(FontStyle.regular));
