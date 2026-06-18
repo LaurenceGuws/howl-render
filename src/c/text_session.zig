@@ -59,36 +59,7 @@ pub fn setFallbackFontPaths(value: c.HowlRenderTextSessionHandle, ptrs: ?[*]cons
     return c.HOWL_RENDER_CALL_OK;
 }
 
-pub const HostCursorCadenceRect = extern struct {
-    row: u16,
-    col: u16,
-    rows: u16,
-    cols: u16,
-    opacity: u8,
-    reserved0: u8,
-    reserved1: u16,
-    color: c.HowlVtRgb8,
-};
-
-pub const HostCursorCadence = extern struct {
-    focused: u8,
-    cursor_opacity: u8,
-    text_blink_opacity: u8,
-    effective_shape: u8,
-    cursor_color: c.HowlVtColor,
-    cursor_text_color: c.HowlVtColor,
-    cursor_trail_color: c.HowlVtColor,
-    cursor_beam_thickness: f32,
-    cursor_underline_thickness: f32,
-    cursor_trail_decay_fast_s: f32,
-    cursor_trail_decay_slow_s: f32,
-    cursor_trail_count: u16,
-    reserved0: u16 = 0,
-    cursor_trail_rects: [c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX]HostCursorCadenceRect,
-    now_ns: u64,
-};
-
-pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const HostCursorCadence) callconv(.c) c_int {
+pub fn setCursorCadence(value: c.HowlRenderTextSessionHandle, cadence: ?*const c.HowlRenderHostCursorCadence) callconv(.c) c_int {
     const owner = handle_owner.textSessionOwner(value) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const host_cadence = cadence orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     if (host_cadence.effective_shape > 4) return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
@@ -144,7 +115,7 @@ test "text session cadence accepts hollow host shape and rejects out-of-range sh
     defer deinit(handle);
     try std.testing.expect(handle != null);
 
-    var cadence = std.mem.zeroes(HostCursorCadence);
+    var cadence = std.mem.zeroes(c.HowlRenderHostCursorCadence);
     cadence.focused = 1;
     cadence.cursor_opacity = 255;
     cadence.text_blink_opacity = 255;
