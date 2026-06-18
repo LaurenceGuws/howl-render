@@ -1,5 +1,5 @@
 pub const max_extra_cursors = 256;
-pub const max_cursor_trail_rects = 16;
+pub const max_cursor_trail_rects = @import("howl_render_c").HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX;
 
 pub const ColorKind = enum(u8) {
     default = 0,

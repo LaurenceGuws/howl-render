@@ -24,8 +24,6 @@ const text_raster_operation = @import("text/raster/operation.zig");
 const cursor_presentation_mod = @import("cursor_presentation.zig");
 const c = @import("howl_render_c");
 
-const max_cursor_trail_rects = 16;
-
 const max_font_faces = text_support.fallbackFontLen(text_support.max_fallback_fonts) + 1;
 const ft_hb_face_text_cache_entry_cap: u32 = 4096;
 const ft_hb_glyph_cell_cache_entry_cap: u32 = 4096;
@@ -257,9 +255,9 @@ fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateC
     const row = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y);
     const col = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_X);
     const visible = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VISIBLE) != 0;
-    var trail_rects = [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } }} ** max_cursor_trail_rects;
+    var trail_rects = [_]contract.CursorTrailRect{.{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } }} ** contract.max_cursor_trail_rects;
     var trail_count: u16 = 0;
-    while (trail_count < @min(facts.cursor_trail_count, max_cursor_trail_rects)) : (trail_count += 1) {
+    while (trail_count < @min(facts.cursor_trail_count, contract.max_cursor_trail_rects)) : (trail_count += 1) {
         const rect = facts.cursor_trail_rects[trail_count];
         trail_rects[trail_count] = .{ .extent = .{ .row = rect.row, .col = rect.col, .rows = rect.rows, .cols = rect.cols }, .opacity = rect.opacity, .color = .{ .r = rect.color.r, .g = rect.color.g, .b = rect.color.b } };
     }
@@ -1010,7 +1008,7 @@ test "render session owner stores configured cursor theme inputs" {
         .cursor_trail_decay_fast_s = 0.2,
         .cursor_trail_decay_slow_s = 0.6,
         .cursor_trail_count = 0,
-        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
+        .cursor_trail_rects = [_]TextSessionOwner.HostCursorCadenceRect{std.mem.zeroes(TextSessionOwner.HostCursorCadenceRect)} ** contract.max_cursor_trail_rects,
         .now_ns = 1234,
     });
 
