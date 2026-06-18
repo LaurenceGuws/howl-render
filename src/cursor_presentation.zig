@@ -135,7 +135,7 @@ pub const CursorPresentation = struct {
         } else {
             self.cursor_trail.setTarget(target);
         }
-        _ = self.cursor_trail.update(.{ .decay_fast_s = self.cursor_trail_decay_fast_s, .decay_slow_s = self.cursor_trail_decay_slow_s }, self.cadence_now_ns, target.visible);
+        _ = self.cursor_trail.update(self.cursor_trail_decay_fast_s, self.cursor_trail_decay_slow_s, self.cadence_now_ns, target.visible);
         self.cursor_trail_rects = [_]HostCursorCadenceRect{std.mem.zeroes(HostCursorCadenceRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX;
         self.cursor_trail_count = if (self.cursor_trail.needs_render) 1 else 0;
         if (self.cursor_trail_count != 0) self.cursor_trail_rects[0] = self.cursorTrailRect();

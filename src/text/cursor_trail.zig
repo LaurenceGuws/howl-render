@@ -10,11 +10,6 @@ pub const Target = struct {
     visible: bool,
 };
 
-pub const Config = struct {
-    decay_fast_s: f32,
-    decay_slow_s: f32,
-};
-
 pub const CursorTrail = struct {
     needs_render: bool = false,
     updated_at_ns: u64 = 0,
@@ -45,21 +40,21 @@ pub const CursorTrail = struct {
         self.edge_y = .{ target.top_px, target.bottom_px };
     }
 
-    pub fn update(self: *CursorTrail, config: Config, now_ns: u64, cursor_visible: bool) bool {
-        std.debug.assert(config.decay_fast_s > 0);
-        std.debug.assert(config.decay_slow_s > 0);
+    pub fn update(self: *CursorTrail, decay_fast_s: f32, decay_slow_s: f32, now_ns: u64, cursor_visible: bool) bool {
+        std.debug.assert(decay_fast_s > 0);
+        std.debug.assert(decay_slow_s > 0);
         const previous_needs_render = self.needs_render;
         if (self.updated_at_ns < now_ns) {
             const dt_s = @as(f32, @floatFromInt(now_ns - self.updated_at_ns)) / @as(f32, @floatFromInt(std.time.ns_per_s));
-            self.updateCorners(config, dt_s);
-            self.updateOpacity(config, dt_s, cursor_visible);
+            self.updateCorners(decay_fast_s, decay_slow_s, dt_s);
+            self.updateOpacity(decay_slow_s, dt_s, cursor_visible);
         }
         self.updateNeedsRender();
         self.updated_at_ns = now_ns;
         return self.needs_render or previous_needs_render;
     }
 
-    fn updateCorners(self: *CursorTrail, config: Config, dt_s: f32) void {
+    fn updateCorners(self: *CursorTrail, decay_fast_s: f32, decay_slow_s: f32, dt_s: f32) void {
         const cursor_center_x = (self.edge_x[0] + self.edge_x[1]) * 0.5;
         const cursor_center_y = (self.edge_y[0] + self.edge_y[1]) * 0.5;
         const cursor_diag_half = norm(self.edge_x[1] - self.edge_x[0], self.edge_y[1] - self.edge_y[0]) * 0.5;
@@ -85,15 +80,18 @@ pub const CursorTrail = struct {
 
         for (0..4) |index| {
             if (dx[index] == 0 and dy[index] == 0) continue;
-            const decay = if (min_dot == max_dot) config.decay_slow_s else config.decay_slow_s + (config.decay_fast_s - config.decay_slow_s) * (dot[index] - min_dot) / (max_dot - min_dot);
+            const decay = if (min_dot == max_dot)
+                decay_slow_s
+            else
+                decay_slow_s + (decay_fast_s - decay_slow_s) * (dot[index] - min_dot) / (max_dot - min_dot);
             const step = 1.0 - @exp2(-10.0 * dt_s / decay);
             self.corner_x[index] += dx[index] * step;
             self.corner_y[index] += dy[index] * step;
         }
     }
 
-    fn updateOpacity(self: *CursorTrail, config: Config, dt_s: f32, cursor_visible: bool) void {
-        const delta = dt_s / config.decay_slow_s;
+    fn updateOpacity(self: *CursorTrail, decay_slow_s: f32, dt_s: f32, cursor_visible: bool) void {
+        const delta = dt_s / decay_slow_s;
         self.opacity = if (cursor_visible) @min(self.opacity + delta, 1) else @max(self.opacity - delta, 0);
     }
 
@@ -140,7 +138,7 @@ test "cursor trail corners ease toward target" {
     trail.snapToTarget(.{ .left_px = 0, .right_px = 8, .top_px = 0, .bottom_px = 16, .visible = true }, 1);
     trail.setTarget(.{ .left_px = 32, .right_px = 40, .top_px = 0, .bottom_px = 16, .visible = true });
 
-    try std.testing.expect(trail.update(.{ .decay_fast_s = 0.1, .decay_slow_s = 0.4 }, 1 + 16 * std.time.ns_per_ms, true));
+    try std.testing.expect(trail.update(0.1, 0.4, 1 + 16 * std.time.ns_per_ms, true));
     try std.testing.expect(trail.needs_render);
     try std.testing.expect(trail.corner_x[0] > 8);
     try std.testing.expect(trail.corner_x[0] < 40);
@@ -153,7 +151,7 @@ test "cursor trail settles and returns one final render" {
 
     var now_ns: u64 = 1;
     var index: u8 = 0;
-    while (index < 80 and trail.update(.{ .decay_fast_s = 0.1, .decay_slow_s = 0.4 }, now_ns + 16 * std.time.ns_per_ms, true)) : (index += 1) {
+    while (index < 80 and trail.update(0.1, 0.4, now_ns + 16 * std.time.ns_per_ms, true)) : (index += 1) {
         now_ns += 16 * std.time.ns_per_ms;
     }
     try std.testing.expect(!trail.needs_render);
@@ -165,7 +163,7 @@ test "cursor trail opacity follows cursor visibility" {
     trail.snapToTarget(.{ .left_px = 0, .right_px = 8, .top_px = 0, .bottom_px = 16, .visible = true }, 1);
     try std.testing.expectEqual(@as(f32, 1), trail.opacity);
 
-    _ = trail.update(.{ .decay_fast_s = 0.1, .decay_slow_s = 0.4 }, 1 + 100 * std.time.ns_per_ms, false);
+    _ = trail.update(0.1, 0.4, 1 + 100 * std.time.ns_per_ms, false);
     try std.testing.expect(trail.opacity < 1);
     try std.testing.expect(trail.opacity > 0);
 }
