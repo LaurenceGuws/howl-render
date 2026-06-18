@@ -1,8 +1,7 @@
 const std = @import("std");
 
 const test_font_options = @import("test_font_options");
-const surface = @import("../surface.zig");
-const render_session = @import("../render_session.zig");
+const render = @import("../libhowl_render.zig");
 const support = @import("support.zig");
 
 const InjectedTestFontPaths = struct {
@@ -25,20 +24,22 @@ test "provider loads fallback face for symbol glyph with primary present" {
     const symbol_path = try std.Io.Dir.cwd().realPathFileAlloc(io, font_paths.symbol_path, std.testing.allocator);
     defer std.testing.allocator.free(symbol_path);
 
-    const owner = render_session.TextSessionOwner.create(std.heap.c_allocator, .{ .surface_px = .{ .width = 1, .height = 1 } }) orelse return error.OutOfMemory;
-    defer owner.destroy();
+    var state = support.FtHbSupport.init(std.heap.c_allocator);
+    defer state.deinit();
+    const primary_z = try std.heap.c_allocator.dupeZ(u8, primary_path);
+    defer std.heap.c_allocator.free(primary_z);
+    const symbol_z = try std.heap.c_allocator.dupeZ(u8, symbol_path);
+    defer std.heap.c_allocator.free(symbol_z);
+    state.fallback_font_paths[0] = symbol_z;
+    state.fallback_font_paths_len = 1;
+    const config = support.TextConfig{ .surface_px = .{ .width = 1, .height = 1 }, .font_path = primary_z };
 
-    owner.setOwnedFontPath(try std.heap.c_allocator.dupeZ(u8, primary_path));
-    var fallbacks = std.ArrayList([:0]u8).empty;
-    fallbacks.append(std.heap.c_allocator, try std.heap.c_allocator.dupeZ(u8, symbol_path)) catch return error.OutOfMemory;
-    owner.adoptFallbackFontPaths(&fallbacks);
-
-    try std.testing.expect(!support.providerHasCodepointWithConfig(&owner.session.text_state, owner.config, .{ .value = support.primary_face_id }, 0xebfc));
-    try std.testing.expect(support.providerHasCodepointWithConfig(&owner.session.text_state, owner.config, .{ .value = 2 }, 0xebfc));
-    try std.testing.expect(support.providerGlyphIdWithConfig(&owner.session.text_state, owner.config, .{ .value = 2 }, 0xebfc) != 0);
-    try std.testing.expect(!support.providerHasCodepointWithConfig(&owner.session.text_state, owner.config, .{ .value = support.primary_face_id }, 0xf117));
-    try std.testing.expect(support.providerHasCodepointWithConfig(&owner.session.text_state, owner.config, .{ .value = 2 }, 0xf117));
-    try std.testing.expect(support.providerGlyphIdWithConfig(&owner.session.text_state, owner.config, .{ .value = 2 }, 0xf117) != 0);
+    try std.testing.expect(!support.providerHasCodepointWithConfig(&state, config, .{ .value = support.primary_face_id }, 0xebfc));
+    try std.testing.expect(support.providerHasCodepointWithConfig(&state, config, .{ .value = 2 }, 0xebfc));
+    try std.testing.expect(support.providerGlyphIdWithConfig(&state, config, .{ .value = 2 }, 0xebfc) != 0);
+    try std.testing.expect(!support.providerHasCodepointWithConfig(&state, config, .{ .value = support.primary_face_id }, 0xf117));
+    try std.testing.expect(support.providerHasCodepointWithConfig(&state, config, .{ .value = 2 }, 0xf117));
+    try std.testing.expect(support.providerGlyphIdWithConfig(&state, config, .{ .value = 2 }, 0xf117) != 0);
 }
 
 test "ft hb state configures explicit retained cache and input capacities" {
@@ -72,11 +73,11 @@ test "shape run input assembly reuses retained bounded buffers" {
         .max_glyphs_per_run = 2,
     });
 
-    const text_cache_view = surface.LineTextCache{ .texts = &.{
+    const text_cache_view = render.LineTextCache{ .texts = &.{
         .{ .id = .{ .value = 0 }, .first_cp = 'a', .codepoints = &.{'a'} },
         .{ .id = .{ .value = 1 }, .first_cp = 'b', .codepoints = &.{'b'} },
     } };
-    const clusters = [_]surface.CellCluster{
+    const clusters = [_]render.CellCluster{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'a', .style = .regular, .presentation = .any },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'b', .style = .regular, .presentation = .any },
     };
@@ -89,7 +90,7 @@ test "shape run input assembly reuses retained bounded buffers" {
     try std.testing.expectEqual(first.codepoints.ptr, second.codepoints.ptr);
     try std.testing.expectEqual(first.cluster_map.ptr, second.cluster_map.ptr);
 
-    const overflow_text_cache = surface.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{ 'x', 0x0332, 0x0308 } }} };
-    const overflow_clusters = [_]surface.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any }};
+    const overflow_text_cache = render.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{ 'x', 0x0332, 0x0308 } }} };
+    const overflow_clusters = [_]render.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any }};
     try std.testing.expectError(error.ShapeRunInputOverflow, support.testing.gatherShapeRunInput(&state, overflow_text_cache, &overflow_clusters, 0, 1));
 }

@@ -1,5 +1,5 @@
 const std = @import("std");
-const surface = @import("../surface.zig");
+const render = @import("../libhowl_render.zig");
 const scene = @import("../scene.zig");
 const scene_damage = @import("damage.zig");
 const scene_rects = @import("rects.zig");
@@ -35,39 +35,39 @@ pub fn borrowScene(allocator: std.mem.Allocator, damage: Damage, direct: anytype
 }
 
 pub fn appendBackground(
-    out: *std.ArrayListUnmanaged(surface.TextBackgroundDraw),
+    out: *std.ArrayListUnmanaged(render.TextBackgroundDraw),
     merge_live: *bool,
     merge_end_cell: *u32,
-    cell: surface.RenderableCell,
-    cell_metrics: surface.CellMetrics,
-    grid_metrics: surface.GridMetrics,
+    cell: render.RenderableCell,
+    cell_metrics: render.CellMetrics,
+    grid_metrics: render.GridMetrics,
     damage: Damage,
 ) void {
     scene_rects.appendBackgroundDrawCellUnmanaged(out, merge_live, merge_end_cell, cell, cell_metrics, grid_metrics, toSceneDamage(damage));
 }
 
 pub fn appendClears(
-    out: *std.ArrayListUnmanaged(surface.TextClearDraw),
-    clear_row_colors: []const surface.Rgba8,
+    out: *std.ArrayListUnmanaged(render.TextClearDraw),
+    clear_row_colors: []const render.Rgba8,
     clear_row_matches: []const bool,
-    cell_metrics: surface.CellMetrics,
-    grid_metrics: surface.GridMetrics,
+    cell_metrics: render.CellMetrics,
+    grid_metrics: render.GridMetrics,
     damage: Damage,
 ) void {
     scene_rects.appendClearRowDrawsUnmanaged(out, clear_row_colors, clear_row_matches, cell_metrics, grid_metrics, toSceneDamage(damage));
 }
 
-pub fn appendCursor(out: *std.ArrayListUnmanaged(surface.TextCursorDraw), cursor: ?surface.CursorPresentation, cell_metrics: surface.CellMetrics, damage: Damage) void {
+pub fn appendCursor(out: *std.ArrayListUnmanaged(render.TextCursorDraw), cursor: ?render.CursorPresentation, cell_metrics: render.CellMetrics, damage: Damage) void {
     scene_rects.appendCursorDrawsUnmanaged(out, cursor, toSceneDamage(damage), cell_metrics);
 }
 
-pub fn noteClearColor(clear_row_colors: []surface.Rgba8, clear_row_matches: []bool, cell: surface.RenderableCell, grid_metrics: surface.GridMetrics, damage: Damage) void {
+pub fn noteClearColor(clear_row_colors: []render.Rgba8, clear_row_matches: []bool, cell: render.RenderableCell, grid_metrics: render.GridMetrics, damage: Damage) void {
     scene_rects.noteClearColorCell(clear_row_colors, clear_row_matches, cell, grid_metrics, toSceneDamage(damage));
 }
 
 pub fn appendDecorations(
-    out: *std.ArrayListUnmanaged(surface.TextDecorationDraw),
-    cell: surface.RenderableCell,
+    out: *std.ArrayListUnmanaged(render.TextDecorationDraw),
+    cell: render.RenderableCell,
     layout: scene_rects.RectDecorationLayout,
     damage: Damage,
 ) void {
@@ -75,15 +75,15 @@ pub fn appendDecorations(
 }
 
 pub fn appendRenderableRects(
-    background_draws: *std.ArrayListUnmanaged(surface.TextBackgroundDraw),
+    background_draws: *std.ArrayListUnmanaged(render.TextBackgroundDraw),
     background_merge_live: *bool,
     background_merge_end_cell: *u32,
-    clear_row_colors: []surface.Rgba8,
+    clear_row_colors: []render.Rgba8,
     clear_row_matches: []bool,
-    decoration_draws: *std.ArrayListUnmanaged(surface.TextDecorationDraw),
-    cell: surface.RenderableCell,
-    cell_metrics: surface.CellMetrics,
-    grid_metrics: surface.GridMetrics,
+    decoration_draws: *std.ArrayListUnmanaged(render.TextDecorationDraw),
+    cell: render.RenderableCell,
+    cell_metrics: render.CellMetrics,
+    grid_metrics: render.GridMetrics,
     decoration_layout: scene_rects.RectDecorationLayout,
     damage: Damage,
 ) void {

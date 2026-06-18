@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @import("howl_render_c");
-const surface = @import("../surface.zig");
+const render = @import("../libhowl_render.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 
 const ResourceId = c.HowlRenderResourceId;
@@ -25,12 +25,12 @@ pub const Error = error{
 };
 
 pub const PreparedSprite = struct {
-    key: surface.SpriteKey,
+    key: render.SpriteKey,
     pixels: []const u8,
     width_px: u16,
     height_px: u16,
     stride_bytes: u32,
-    color_mode: surface.SpriteColorMode,
+    color_mode: render.SpriteColorMode,
     visual_bounds: rasterizer.SpriteBounds,
 };
 
@@ -77,7 +77,7 @@ pub const SpriteResourceStore = struct {
     };
 
     const Entry = struct {
-        key: surface.SpriteKey,
+        key: render.SpriteKey,
         bytes_hash: u64,
         bytes_offset: u32,
         bytes_count: u32,
@@ -88,7 +88,7 @@ pub const SpriteResourceStore = struct {
     };
 
     const AtlasEntry = struct {
-        key: surface.SpriteKey,
+        key: render.SpriteKey,
         bytes_hash: u64,
         width_px: u16,
         height_px: u16,
@@ -414,7 +414,7 @@ pub const SpriteResourceStore = struct {
         return rect_value;
     }
 
-    fn nextResource(self: *SpriteResourceStore, color_mode: surface.SpriteColorMode) Error!ResourceId {
+    fn nextResource(self: *SpriteResourceStore, color_mode: render.SpriteColorMode) Error!ResourceId {
         if (self.value_next == 0) return error.ResourceBoundOverflow;
         const resource = ResourceId{
             .value = self.value_next,
@@ -431,14 +431,14 @@ pub const SpriteResourceStore = struct {
     }
 };
 
-pub fn uploadFormatForPrepared(color_mode: surface.SpriteColorMode) u32 {
+pub fn uploadFormatForPrepared(color_mode: render.SpriteColorMode) u32 {
     return switch (color_mode) {
         .alpha => c.HOWL_RENDER_UPLOAD_ALPHA8,
         .color => c.HOWL_RENDER_UPLOAD_RGBA8,
     };
 }
 
-pub fn bytesPerPixelForPrepared(color_mode: surface.SpriteColorMode) u32 {
+pub fn bytesPerPixelForPrepared(color_mode: render.SpriteColorMode) u32 {
     return switch (color_mode) {
         .alpha => 1,
         .color => 4,
@@ -489,12 +489,12 @@ fn hashPreparedSpriteBytes(sprite: PreparedSprite, bounds: rasterizer.SpriteBoun
     return hasher.final();
 }
 
-fn preparedUploadStride(color_mode: surface.SpriteColorMode, width_px: u16) Error!u32 {
+fn preparedUploadStride(color_mode: render.SpriteColorMode, width_px: u16) Error!u32 {
     const bytes_per_pixel = bytesPerPixelForPrepared(color_mode);
     return std.math.mul(u32, width_px, bytes_per_pixel) catch error.ResourceBoundOverflow;
 }
 
-fn preparedBytesCount(color_mode: surface.SpriteColorMode, width_px: u16, height_px: u16) Error!u32 {
+fn preparedBytesCount(color_mode: render.SpriteColorMode, width_px: u16, height_px: u16) Error!u32 {
     const upload_stride = try preparedUploadStride(color_mode, width_px);
     return std.math.mul(u32, upload_stride, height_px) catch error.ResourceBoundOverflow;
 }

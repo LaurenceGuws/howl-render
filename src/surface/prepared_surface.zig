@@ -1,6 +1,6 @@
 const std = @import("std");
-const geometry_contract = @import("../geometry_contract.zig");
-const tokens = @import("../tokens.zig");
+const geometry = @import("../geometry.zig");
+const event = @import("../event.zig");
 const font_resolve = @import("../text/resolver.zig");
 const surface_preparer = @import("surface_preparer.zig");
 const render_surface_emitter = @import("emitter.zig");
@@ -10,9 +10,9 @@ pub const PreparedInfo = struct {
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
-    render_px: geometry_contract.PixelSize,
-    cell_px: geometry_contract.CellSize,
-    grid: geometry_contract.GridSize,
+    render_px: geometry.PixelSize,
+    cell_px: geometry.CellSize,
+    grid: geometry.GridSize,
     damage_kind: u8,
 };
 
@@ -22,11 +22,11 @@ pub const PreparedBuffer = struct {
 
 pub const PreparedSurface = struct {
     allocator: std.mem.Allocator,
-    request: tokens.RenderRequest,
+    request: event.RenderRequest,
     geometry_epoch: u64,
-    render_px: geometry_contract.PixelSize,
-    cell_px: geometry_contract.CellSize,
-    grid: geometry_contract.GridSize,
+    render_px: geometry.PixelSize,
+    cell_px: geometry.CellSize,
+    grid: geometry.GridSize,
     text_surface: surface_preparer.OwnedPreparedTextSurface,
     resolve: font_resolve.ResolveObservability = .{},
     render_surface_emission_failure: render_surface_emitter.RenderSurfaceEmissionFailure = .none,
@@ -36,13 +36,13 @@ pub const PreparedSurface = struct {
         self.* = undefined;
     }
 
-    pub fn damageKind(self: *const PreparedSurface) tokens.DamageKind {
+    pub fn damageKind(self: *const PreparedSurface) event.DamageKind {
         self.assertValid();
         if (self.text_surface.scene.scene.full_redraw) return .full;
         return .partial;
     }
 
-    pub fn preparedSurfaceToken(self: *const PreparedSurface) tokens.PreparedSurfaceToken {
+    pub fn preparedSurfaceToken(self: *const PreparedSurface) event.PreparedSurfaceToken {
         self.assertValid();
         const damage_kind = self.damageKind();
         const damage_base_seq = if (damage_kind == .partial)
@@ -97,13 +97,13 @@ pub const PreparedSurface = struct {
     }
 };
 
-test "prepared surface owner stays separate from geometry contracts" {
-    const pixels = geometry_contract.SurfacePixels{
+test "prepared surface owner stays separate from geometry" {
+    const pixels = geometry.SurfacePixels{
         .render_width = 0,
         .render_height = -2,
         .grid_width = 80,
         .grid_height = 24,
     };
     try std.testing.expectEqual(@as(u16, 1), pixels.renderWidth());
-    try std.testing.expect(@This().PreparedSurface != geometry_contract.SurfacePixels);
+    try std.testing.expect(@This().PreparedSurface != geometry.SurfacePixels);
 }

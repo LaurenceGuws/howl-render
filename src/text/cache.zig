@@ -1,5 +1,5 @@
 const std = @import("std");
-const surface = @import("../surface.zig");
+const render = @import("../libhowl_render.zig");
 const shape_run = @import("shape/run.zig");
 
 pub const FaceTextKey = struct {
@@ -125,10 +125,10 @@ pub const ShapeRunCache = struct {
         self.used_slots = 0;
     }
 
-    pub fn getOwnedRun(self: *const ShapeRunCache, allocator: std.mem.Allocator, key: ShapeRunKey, run: surface.ResolvedRun) !?shape_run.OwnedShapedRun {
+    pub fn getOwnedRun(self: *const ShapeRunCache, allocator: std.mem.Allocator, key: ShapeRunKey, run: render.ResolvedRun) !?shape_run.OwnedShapedRun {
         const slot_index = self.map.get(key) orelse return null;
         const cached = self.slotGlyphs(slot_index);
-        const glyphs = try allocator.alloc(surface.GlyphInstance, cached.len);
+        const glyphs = try allocator.alloc(render.GlyphInstance, cached.len);
         for (cached, 0..) |glyph, idx| {
             glyphs[idx] = .{
                 .face_id = run.run.font.face_id,
@@ -225,7 +225,7 @@ fn glyphStorageLen(capacity: u32, max_glyphs_per_run: u32) usize {
     return @intCast(total);
 }
 
-pub fn hashCellText(text: surface.CellText) u64 {
+pub fn hashCellText(text: render.CellText) u64 {
     var hasher = std.hash.Wyhash.init(0x54455854);
     const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
     const len: u32 = @intCast(cps.len);
@@ -234,7 +234,7 @@ pub fn hashCellText(text: surface.CellText) u64 {
     return hasher.final();
 }
 
-pub fn hashRunText(text_cache: surface.LineTextCache, clusters: []const surface.CellCluster) u64 {
+pub fn hashRunText(text_cache: render.LineTextCache, clusters: []const render.CellCluster) u64 {
     var hasher = std.hash.Wyhash.init(0x52554e54);
     const len: u32 = @intCast(clusters.len);
     hasher.update(std.mem.asBytes(&len));
@@ -249,7 +249,7 @@ pub fn hashRunText(text_cache: surface.LineTextCache, clusters: []const surface.
     return hasher.final();
 }
 
-fn textForCluster(text_cache: surface.LineTextCache, cluster: surface.CellCluster) surface.CellText {
+fn textForCluster(text_cache: render.LineTextCache, cluster: render.CellCluster) render.CellText {
     const idx = cluster.text_id.value;
     if (idx < count32(text_cache.texts)) return text_cache.texts[@intCast(idx)];
     return .{ .id = cluster.text_id, .first_cp = cluster.first_cp, .codepoints = &.{cluster.first_cp} };
@@ -268,21 +268,21 @@ test "shape run cache keeps retained bounded storage" {
     try std.testing.expectEqual(@as(usize, 2), cache.slots.len);
     try std.testing.expectEqual(@as(usize, 6), cache.glyph_storage.len);
 
-    const run_a = surface.ResolvedRun{ .run = .{ .cluster_start = 4, .cluster_count = 2, .font = .{ .face_id = .{ .value = 7 }, .style = .regular, .presentation = .any } } };
-    const glyphs_a = try std.testing.allocator.alloc(surface.GlyphInstance, 2);
+    const run_a = render.ResolvedRun{ .run = .{ .cluster_start = 4, .cluster_count = 2, .font = .{ .face_id = .{ .value = 7 }, .style = .regular, .presentation = .any } } };
+    const glyphs_a = try std.testing.allocator.alloc(render.GlyphInstance, 2);
     defer std.testing.allocator.free(glyphs_a);
     glyphs_a[0] = .{ .face_id = .{ .value = 7 }, .glyph_id = 11, .cluster_index = 4, .x_advance_px = 8 };
     glyphs_a[1] = .{ .face_id = .{ .value = 7 }, .glyph_id = 12, .cluster_index = 5, .x_advance_px = 8 };
     try cache.putRun(.{ .face_id = 7, .run_hash = 1, .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .allocator = std.testing.allocator, .run = run_a, .glyphs = glyphs_a });
 
-    const glyphs_b = try std.testing.allocator.alloc(surface.GlyphInstance, 4);
+    const glyphs_b = try std.testing.allocator.alloc(render.GlyphInstance, 4);
     defer std.testing.allocator.free(glyphs_b);
     try std.testing.expectError(
         error.CachedRunTooLarge,
         cache.putRun(.{ .face_id = 7, .run_hash = 2, .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .allocator = std.testing.allocator, .run = run_a, .glyphs = glyphs_b }),
     );
 
-    const glyphs_c = try std.testing.allocator.alloc(surface.GlyphInstance, 1);
+    const glyphs_c = try std.testing.allocator.alloc(render.GlyphInstance, 1);
     defer std.testing.allocator.free(glyphs_c);
     glyphs_c[0] = .{ .face_id = .{ .value = 7 }, .glyph_id = 13, .cluster_index = 4, .x_advance_px = 8 };
     try cache.putRun(.{ .face_id = 7, .run_hash = 3, .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .allocator = std.testing.allocator, .run = run_a, .glyphs = glyphs_c });

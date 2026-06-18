@@ -1,12 +1,11 @@
 const std = @import("std");
 
 const c = @import("howl_render_c");
-const surface_root = @import("../surface.zig");
-const geometry_contract = @import("../geometry_contract.zig");
+const render = @import("../libhowl_render.zig");
+const geometry = @import("../geometry.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const sprite_resource_store = @import("resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
-const text_session = @import("../render_session.zig");
 
 const ResourceId = c.HowlRenderResourceId;
 const Rect = c.HowlRenderSurfaceRect;
@@ -117,10 +116,10 @@ pub fn Emitter(comptime limits: Limits) type {
             return &self.surface_storage;
         }
 
-        pub fn emitPrepared(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
+        pub fn emitPrepared(self: *Self, resources: *SpriteResourceStore, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
             var next = self.*;
             var next_resources = resources.*;
-            try next.appendPreparedPass(&next_resources, session, prepared);
+            try next.appendPreparedPass(&next_resources, prepared);
             next.assertReadyToPublish();
             self.* = next;
             resources.* = next_resources;
@@ -130,24 +129,24 @@ pub fn Emitter(comptime limits: Limits) type {
             return &self.surface_storage;
         }
 
-        pub fn emitPreparedFresh(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
+        pub fn emitPreparedFresh(self: *Self, resources: *SpriteResourceStore, prepared: *const prepared_surface.PreparedSurface) Error!*const Surface {
             const resource_rollback = resources.admissionRollback();
             errdefer resources.restoreAdmission(resource_rollback);
-            try self.appendPreparedPass(resources, session, prepared);
+            try self.appendPreparedPass(resources, prepared);
             self.assertReadyToPublish();
             self.publishSurface();
             self.assertPublishedSurface();
             return &self.surface_storage;
         }
 
-        fn appendPreparedPass(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!void {
+        fn appendPreparedPass(self: *Self, resources: *SpriteResourceStore, prepared: *const prepared_surface.PreparedSurface) Error!void {
             self.resetPrepared(prepared);
             try self.appendFullDamage(pixelSizeOut(prepared.render_px));
             try self.appendPreparedFullRedrawClear(prepared);
             try self.appendPreparedClears(prepared.text_surface.scene.scene.clear_draws);
             try self.appendPreparedBackgrounds(prepared.text_surface.scene.scene.background_draws);
             try self.appendPreparedDecorations(prepared.text_surface.scene.scene.decoration_draws);
-            try self.appendPreparedSprites(resources, session, prepared);
+            try self.appendPreparedSprites(resources, prepared);
             try self.appendPreparedCursors(prepared.text_surface.scene.scene.cursor_draws);
         }
 
@@ -242,7 +241,7 @@ pub fn Emitter(comptime limits: Limits) type {
             });
         }
 
-        fn appendPreparedClears(self: *Self, draws: []const surface_root.TextClearDraw) Error!void {
+        fn appendPreparedClears(self: *Self, draws: []const render.TextClearDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -253,7 +252,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedBackgrounds(self: *Self, draws: []const surface_root.TextBackgroundDraw) Error!void {
+        fn appendPreparedBackgrounds(self: *Self, draws: []const render.TextBackgroundDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -264,7 +263,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedDecorations(self: *Self, draws: []const surface_root.TextDecorationDraw) Error!void {
+        fn appendPreparedDecorations(self: *Self, draws: []const render.TextDecorationDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -275,7 +274,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedCursors(self: *Self, draws: []const surface_root.TextCursorDraw) Error!void {
+        fn appendPreparedCursors(self: *Self, draws: []const render.TextCursorDraw) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,
@@ -286,7 +285,7 @@ pub fn Emitter(comptime limits: Limits) type {
             );
         }
 
-        fn appendPreparedFillCommand(self: *Self, x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: surface_root.Rgba8, kind: u8) Error!void {
+        fn appendPreparedFillCommand(self: *Self, x_px: i32, y_px: i32, width_px: u16, height_px: u16, color: render.Rgba8, kind: u8) Error!void {
             if (width_px == 0) return;
             if (height_px == 0) return;
             const clipped = clippedFillRect(self.surface_storage.render_px, x_px, y_px, width_px, height_px) orelse return;
@@ -349,10 +348,9 @@ pub fn Emitter(comptime limits: Limits) type {
             return true;
         }
 
-        fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) Error!void {
+        fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, prepared: *const prepared_surface.PreparedSurface) Error!void {
             for (prepared.text_surface.scene.scene.sprite_draws) |draw| {
                 const sprite = lookupPreparedSprite(
-                    session,
                     prepared,
                     draw.sprite.key,
                 ) catch |err| {
@@ -715,26 +713,26 @@ const ByteRange = struct {
     end: u32,
 };
 
-fn packRgba(color: surface_root.Rgba8) u32 {
+fn packRgba(color: render.Rgba8) u32 {
     return (@as(u32, color.r) << 24) |
         (@as(u32, color.g) << 16) |
         (@as(u32, color.b) << 8) |
         @as(u32, color.a);
 }
 
-fn pixelSizeOut(size: geometry_contract.PixelSize) c.HowlRenderPixelSize {
+fn pixelSizeOut(size: geometry.PixelSize) c.HowlRenderPixelSize {
     return .{ .width = size.width, .height = size.height };
 }
 
-fn cellSizeOut(size: geometry_contract.CellSize) c.HowlRenderCellSize {
+fn cellSizeOut(size: geometry.CellSize) c.HowlRenderCellSize {
     return .{ .width = size.width, .height = size.height };
 }
 
-fn gridSizeOut(size: geometry_contract.GridSize) c.HowlRenderGridSize {
+fn gridSizeOut(size: geometry.GridSize) c.HowlRenderGridSize {
     return .{ .cols = size.cols, .rows = size.rows };
 }
 
-fn lookupPreparedSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: surface_root.SpriteKey) error{MissingSprite}!PreparedSprite {
+fn lookupPreparedSprite(prepared: *const prepared_surface.PreparedSurface, sprite_key: render.SpriteKey) error{MissingSprite}!PreparedSprite {
     for (prepared.text_surface.raster_plan.outputs) |output| {
         if (output.key.value != sprite_key.value) continue;
         return .{
@@ -747,26 +745,14 @@ fn lookupPreparedSprite(session: *text_session.TextSession, prepared: *const pre
             .visual_bounds = output.visualBounds(),
         };
     }
-    const cached = session.atlasRaster(sprite_key) orelse return error.MissingSprite;
-    return .{
-        .key = sprite_key,
-        .pixels = cached.pixels,
-        .width_px = cached.width_px,
-        .height_px = cached.height_px,
-        .stride_bytes = switch (cached.color_mode) {
-            .alpha => cached.width_px,
-            .color => @as(u32, cached.width_px) * 4,
-        },
-        .color_mode = cached.color_mode,
-        .visual_bounds = cached.visual_bounds,
-    };
+    return error.MissingSprite;
 }
 
 fn packedStrideForOutput(output: rasterizer.RasterSpriteOutput) u32 {
     return @as(u32, output.width_px) * sprite_resource_store.bytesPerPixelForPrepared(output.color_mode);
 }
 
-fn visualBoundsForDraw(bounds: rasterizer.SpriteBounds, draw: surface_root.TextSpriteDraw) rasterizer.SpriteBounds {
+fn visualBoundsForDraw(bounds: rasterizer.SpriteBounds, draw: render.TextSpriteDraw) rasterizer.SpriteBounds {
     if (bounds.width_px != 0) {
         if (bounds.height_px != 0) return bounds;
     }

@@ -1,6 +1,34 @@
+const color = @import("../cell/color.zig");
+
 pub const max_extra_cursors = 256;
 pub const max_cursor_trail_rects = @import("howl_render_c").HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX;
 
+pub const CursorFillRect = struct {
+    x_px: i32,
+    y_px: i32,
+    width_px: u16,
+    height_px: u16,
+    color: color.Rgba8,
+    first_cell: u32,
+    cell_span: u8,
+};
+
+pub const CursorTextRecolorSpan = struct {
+    first_cell: u32,
+    cell_span: u8,
+    color: color.Rgba8,
+};
+
+pub const CursorTrailDrawRect = struct {
+    x_px: i32,
+    y_px: i32,
+    width_px: u16,
+    height_px: u16,
+    opacity: u8,
+    color: color.Rgba8,
+    first_cell: u32,
+    cell_span: u8,
+};
 pub const ColorKind = enum(u8) {
     default = 0,
     indexed = 1,

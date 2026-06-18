@@ -1,15 +1,13 @@
 const std = @import("std");
 
 const c = @import("howl_render_c");
-const surface_root = @import("../surface.zig");
+const render = @import("../libhowl_render.zig");
 const prepared_buffer = @import("compositor.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const realize = @import("realizer.zig");
 const render_surface_emitter = @import("emitter.zig");
 const sprite_resource_store = @import("resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
-const text_session = @import("../render_session.zig");
-const test_support = @import("../c/test_support.zig");
 
 const GlyphRef = c.HowlRenderGlyphRef;
 const Limits = render_surface_emitter.Limits;
@@ -74,6 +72,10 @@ fn glyphRefForTest(glyph_id: u32) GlyphRef {
         .glyph_id = glyph_id,
         .color_rgba = 0xffffffff,
     };
+}
+
+fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px: u16, color_mode: render.SpriteColorMode, pixels: []u8, visual_bounds: rasterizer.SpriteBounds) rasterizer.RasterSpriteOutput {
+    return .{ .allocator = allocator, .key = .{ .value = key }, .width_px = width_px, .height_px = height_px, .color_mode = color_mode, .visual_bounds = visual_bounds, .pixels = pixels };
 }
 
 fn fillResourcesForTest(resources: *sprite_resource_store.SpriteResourceStore, count: u32) void {
@@ -502,13 +504,11 @@ test "render surface surface emitter leaves oracle path independent after emissi
 
 test "render surface surface emitter realizes prepared fill surface equal to full rgba oracle" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
-    const clear = [_]surface_root.TextClearDraw{clearDraw(0, 0, 2, 1, rgba(0, 0, 0, 255))};
-    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
-    const decoration = [_]surface_root.TextDecorationDraw{decorationDraw(1, 0, 1, 1, rgba(0, 255, 0, 255))};
-    const cursor = [_]surface_root.TextCursorDraw{cursorDraw(0, 0, 2, 1, rgba(0, 0, 255, 128))};
+    const clear = [_]render.TextClearDraw{clearDraw(0, 0, 2, 1, rgba(0, 0, 0, 255))};
+    const background = [_]render.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const decoration = [_]render.TextDecorationDraw{decorationDraw(1, 0, 1, 1, rgba(0, 255, 0, 255))};
+    const cursor = [_]render.TextCursorDraw{cursorDraw(0, 0, 2, 1, rgba(0, 0, 255, 128))};
     const prepared = preparedSurface(.{
         .clear_draws = &clear,
         .background_draws = &background,
@@ -517,22 +517,20 @@ test "render surface surface emitter realizes prepared fill surface equal to ful
         .width_px = 2,
         .height_px = 1,
     });
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter fresh emission initializes undefined storage before publish" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
-    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const background = [_]render.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1 });
-    const oracle = try prepared_buffer.compose(allocator, null, &session, &prepared);
+    const oracle = try prepared_buffer.compose(allocator, null, &prepared);
     defer allocator.free(oracle);
 
     var emitter: Emitter(.{}) = undefined;
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPreparedFresh(&resources, &session, &prepared);
+    const surface = try emitter.emitPreparedFresh(&resources, &prepared);
 
     try std.testing.expectEqual(@as(@TypeOf(surface.surface_version), c.HOWL_RENDER_SURFACE_VERSION), surface.surface_version);
     try std.testing.expectEqual(@as(u64, 1), surface.token.snapshot_seq);
@@ -572,17 +570,15 @@ test "render surface surface emitter fresh emission initializes undefined storag
 
 test "render surface surface emitter emits full prepared surface clear before fills" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
-    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const background = [_]render.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1 });
     const PreparedEmitter = Emitter(.{});
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
@@ -591,22 +587,20 @@ test "render surface surface emitter emits full prepared surface clear before fi
     try std.testing.expectEqual(@as(u16, 2), surface.commands.ptr[0].rect.width_px);
     try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[0].rect.height_px);
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter keeps partial prepared surface patch shaped" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
-    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const background = [_]render.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1, .full_redraw = false });
     const PreparedEmitter = Emitter(.{});
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[0].kind);
@@ -614,10 +608,8 @@ test "render surface surface emitter keeps partial prepared surface patch shaped
 
 test "render surface surface emitter skips zero area prepared fills" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
-    const background = [_]surface_root.TextBackgroundDraw{
+    const background = [_]render.TextBackgroundDraw{
         backgroundDraw(0, 0, 0, 1, rgba(255, 0, 0, 255)),
         backgroundDraw(0, 0, 1, 0, rgba(0, 255, 0, 255)),
         backgroundDraw(0, 0, 1, 1, rgba(0, 0, 255, 255)),
@@ -628,7 +620,7 @@ test "render surface surface emitter skips zero area prepared fills" {
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
@@ -639,10 +631,8 @@ test "render surface surface emitter skips zero area prepared fills" {
 
 test "render surface surface emitter clips prepared fills to surface" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
-    const background = [_]surface_root.TextBackgroundDraw{
+    const background = [_]render.TextBackgroundDraw{
         backgroundDraw(-1, 0, 2, 1, rgba(255, 0, 0, 255)),
         backgroundDraw(1, 0, 2, 1, rgba(0, 255, 0, 255)),
     };
@@ -652,7 +642,7 @@ test "render surface surface emitter clips prepared fills to surface" {
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 3), surface.commands.count);
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
@@ -661,16 +651,14 @@ test "render surface surface emitter clips prepared fills to surface" {
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[2].kind);
     try std.testing.expectEqual(@as(i32, 1), surface.commands.ptr[2].rect.x_px);
     try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[2].rect.width_px);
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter coalesces adjacent prepared fill commands" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     const color = rgba(10, 20, 30, 255);
-    const background = [_]surface_root.TextBackgroundDraw{
+    const background = [_]render.TextBackgroundDraw{
         backgroundDraw(0, 0, 1, 1, color),
         backgroundDraw(1, 0, 2, 1, color),
         backgroundDraw(3, 0, 1, 1, color),
@@ -682,7 +670,7 @@ test "render surface surface emitter coalesces adjacent prepared fill commands" 
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
@@ -690,21 +678,19 @@ test "render surface surface emitter coalesces adjacent prepared fill commands" 
     try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[1].rect.y_px);
     try std.testing.expectEqual(@as(u16, 4), surface.commands.ptr[1].rect.width_px);
     try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[1].rect.height_px);
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter does not coalesce distinct prepared fills" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
-    const background = [_]surface_root.TextBackgroundDraw{
+    const background = [_]render.TextBackgroundDraw{
         backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255)),
         backgroundDraw(1, 0, 1, 1, rgba(4, 5, 6, 255)),
         backgroundDraw(3, 0, 1, 1, rgba(4, 5, 6, 255)),
         backgroundDraw(4, 1, 1, 1, rgba(4, 5, 6, 255)),
     };
-    const decoration = [_]surface_root.TextDecorationDraw{decorationDraw(0, 0, 1, 1, rgba(4, 5, 6, 255))};
+    const decoration = [_]render.TextDecorationDraw{decorationDraw(0, 0, 1, 1, rgba(4, 5, 6, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .decoration_draws = &decoration, .width_px = 5, .height_px = 2 });
 
     const PreparedEmitter = Emitter(.{});
@@ -712,35 +698,31 @@ test "render surface surface emitter does not coalesce distinct prepared fills" 
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 6), surface.commands.count);
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter realizes prepared alpha sprite surface equal to full rgba oracle" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var sprite_bytes = [_]u8{ 255, 128 };
-    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(11, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 11, 2, 1, .alpha, &sprite_bytes, .{})};
+    var sprite_draws = [_]render.TextSpriteDraw{spriteDraw(11, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 11, 2, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter batches prepared alpha sprite glyph commands" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var sprite_bytes = [_]u8{255};
-    var sprite_draws = [_]surface_root.TextSpriteDraw{
+    var sprite_draws = [_]render.TextSpriteDraw{
         spriteDraw(111, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
         spriteDraw(111, 1, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 111, 1, 1, .alpha, &sprite_bytes, .{})};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 111, 1, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{ .commands_max = 2, .glyph_refs_max = 2 });
@@ -748,22 +730,20 @@ test "render surface surface emitter batches prepared alpha sprite glyph command
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
     try std.testing.expectEqual(@as(u32, 2), surface.commands.ptr[1].glyphs.count);
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter skips fully offscreen prepared alpha sprites" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var sprite_bytes = [_]u8{255};
-    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(114, 2, 0, 1, 1, rgba(255, 255, 255, 255))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 114, 1, 1, .alpha, &sprite_bytes, .{})};
+    var sprite_draws = [_]render.TextSpriteDraw{spriteDraw(114, 2, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 114, 1, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 1, .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{ .commands_max = 2, .glyph_refs_max = 2 });
@@ -771,29 +751,27 @@ test "render surface surface emitter skips fully offscreen prepared alpha sprite
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 0), surface.creates.count);
     try std.testing.expectEqual(@as(u32, 0), surface.uploads.count);
     try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
     try std.testing.expectEqual(@as(u32, 0), resources.atlas_count);
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter emits over command bound alpha draws with batched glyph runs" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     const draws_len: usize = c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1;
-    const sprite_draws = try allocator.alloc(surface_root.TextSpriteDraw, draws_len);
+    const sprite_draws = try allocator.alloc(render.TextSpriteDraw, draws_len);
     defer allocator.free(sprite_draws);
     for (sprite_draws, 0..) |*draw, index| {
         draw.* = spriteDraw(112, @intCast(index), 0, 1, 1, rgba(255, 255, 255, 255));
     }
     var sprite_bytes = [_]u8{255};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 112, 1, 1, .alpha, &sprite_bytes, .{})};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 112, 1, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = sprite_draws, .raster_outputs = &raster_outputs, .width_px = @intCast(draws_len), .height_px = 1 });
 
     const glyphs_max: u32 = c.HOWL_RENDER_SURFACE_COMMANDS_MAX + 1;
@@ -802,7 +780,7 @@ test "render surface surface emitter emits over command bound alpha draws with b
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
 
     const commands_expected = std.math.divCeil(u32, glyphs_max, c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX) catch unreachable;
     try std.testing.expectEqual(commands_expected + 1, surface.commands.count);
@@ -814,17 +792,15 @@ test "render surface surface emitter emits over command bound alpha draws with b
 
 test "render surface surface emitter preserves command overflow after batched glyph runs" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     const draws_len: usize = c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX + 1;
-    const sprite_draws = try allocator.alloc(surface_root.TextSpriteDraw, draws_len);
+    const sprite_draws = try allocator.alloc(render.TextSpriteDraw, draws_len);
     defer allocator.free(sprite_draws);
     for (sprite_draws, 0..) |*draw, index| {
         draw.* = spriteDraw(113, @intCast(index), 0, 1, 1, rgba(255, 255, 255, 255));
     }
     var sprite_bytes = [_]u8{255};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 113, 1, 1, .alpha, &sprite_bytes, .{})};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 113, 1, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = sprite_draws, .raster_outputs = &raster_outputs, .width_px = @intCast(draws_len), .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{ .commands_max = 1, .glyph_refs_max = draws_len });
@@ -832,15 +808,13 @@ test "render surface surface emitter preserves command overflow after batched gl
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    try std.testing.expectError(error.CommandBoundOverflow, emitter.emitPrepared(&resources, &session, &prepared));
+    try std.testing.expectError(error.CommandBoundOverflow, emitter.emitPrepared(&resources, &prepared));
     try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
     try std.testing.expectEqual(@as(u32, 0), resources.atlas_count);
 }
 
 test "render surface surface emitter emits more than old alpha atlas entry cap" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     const PreparedEmitter = Emitter(.{});
     const emitter = try allocator.create(PreparedEmitter);
@@ -850,11 +824,11 @@ test "render surface surface emitter emits more than old alpha atlas entry cap" 
     var index: u32 = 0;
     while (index <= sprite_resource_store.persistent_sprite_resources_max) : (index += 1) {
         var sprite_bytes = [_]u8{@intCast((index % 251) + 1)};
-        var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(10_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
-        var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 10_000 + index, 1, 1, .alpha, &sprite_bytes, .{})};
+        var sprite_draws = [_]render.TextSpriteDraw{spriteDraw(10_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+        var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 10_000 + index, 1, 1, .alpha, &sprite_bytes, .{})};
         const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 1, .height_px = 1 });
 
-        const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+        const surface = try emitter.emitPrepared(&resources, &prepared);
         try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
         try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
         try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
@@ -864,8 +838,6 @@ test "render surface surface emitter emits more than old alpha atlas entry cap" 
 
 test "render surface surface emitter emits more than old alpha atlas hard cap" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     const old_alpha_atlas_entry_limit: u32 = 1024;
     const PreparedEmitter = Emitter(.{});
@@ -876,11 +848,11 @@ test "render surface surface emitter emits more than old alpha atlas hard cap" {
     var index: u32 = 0;
     while (index <= old_alpha_atlas_entry_limit) : (index += 1) {
         var sprite_bytes = [_]u8{@intCast((index % 251) + 1)};
-        var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(20_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
-        var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 20_000 + index, 1, 1, .alpha, &sprite_bytes, .{})};
+        var sprite_draws = [_]render.TextSpriteDraw{spriteDraw(20_000 + index, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+        var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 20_000 + index, 1, 1, .alpha, &sprite_bytes, .{})};
         const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 1, .height_px = 1 });
 
-        const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+        const surface = try emitter.emitPrepared(&resources, &prepared);
         try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
     }
     try std.testing.expectEqual(old_alpha_atlas_entry_limit + 1, resources.atlas_count);
@@ -888,39 +860,33 @@ test "render surface surface emitter emits more than old alpha atlas hard cap" {
 
 test "render surface surface emitter realizes prepared color sprite surface equal to full rgba oracle" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var sprite_bytes = [_]u8{ 0, 255, 0, 128 };
-    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(12, 0, 0, 1, 1, rgba(255, 0, 0, 255))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 12, 1, 1, .color, &sprite_bytes, .{})};
+    var sprite_draws = [_]render.TextSpriteDraw{spriteDraw(12, 0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 12, 1, 1, .color, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 1, .height_px = 1 });
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter realizes sprite visual bounds like oracle" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var sprite_bytes = [_]u8{
         0, 200, 0,
         0, 100, 0,
     };
-    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(13, 0, 0, 3, 2, rgba(0, 0, 255, 255))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 13, 3, 2, .alpha, &sprite_bytes, .{ .x_px = 1, .y_px = 0, .width_px = 1, .height_px = 2 })};
+    var sprite_draws = [_]render.TextSpriteDraw{spriteDraw(13, 0, 0, 3, 2, rgba(0, 0, 255, 255))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 13, 3, 2, .alpha, &sprite_bytes, .{ .x_px = 1, .y_px = 0, .width_px = 1, .height_px = 2 })};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 3, .height_px = 2 });
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, null);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
 test "render surface surface emitter persists prepared sprite resource across surfaces" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var sprite_bytes = [_]u8{ 255, 128 };
-    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(31, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 31, 2, 1, .alpha, &sprite_bytes, .{})};
+    var sprite_draws = [_]render.TextSpriteDraw{spriteDraw(31, 0, 0, 2, 1, rgba(255, 0, 0, 128))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 31, 2, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{});
@@ -928,7 +894,7 @@ test "render surface surface emitter persists prepared sprite resource across su
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface1 = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface1 = try emitter.emitPrepared(&resources, &prepared);
     try std.testing.expectEqual(@as(u32, 1), surface1.creates.count);
     try std.testing.expectEqual(@as(u32, 1), surface1.uploads.count);
     try std.testing.expectEqual(@as(u32, 2), surface1.commands.count);
@@ -941,14 +907,14 @@ test "render surface surface emitter persists prepared sprite resource across su
     defer allocator.destroy(retained);
     retained.count = 0;
     retained.bytes_count = 0;
-    const oracle = try prepared_buffer.compose(allocator, null, &session, &prepared);
+    const oracle = try prepared_buffer.compose(allocator, null, &prepared);
     defer allocator.free(oracle);
     const realized1 = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized1);
     try realize.realizeRetained(surface1, realized1, null, retained);
     try std.testing.expectEqualSlices(u8, oracle, realized1);
 
-    const surface2 = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface2 = try emitter.emitPrepared(&resources, &prepared);
     try std.testing.expectEqual(@as(u32, 0), surface2.creates.count);
     try std.testing.expectEqual(@as(u32, 0), surface2.uploads.count);
     try std.testing.expectEqual(@as(u32, 2), surface2.commands.count);
@@ -963,12 +929,10 @@ test "render surface surface emitter persists prepared sprite resource across su
 
 test "render surface surface emitter reused alpha atlas sprite skips uploads on second emission" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var sprite_bytes = [_]u8{ 255, 128 };
-    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(32, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 32, 2, 1, .alpha, &sprite_bytes, .{})};
+    var sprite_draws = [_]render.TextSpriteDraw{spriteDraw(32, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 32, 2, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{});
@@ -977,23 +941,21 @@ test "render surface surface emitter reused alpha atlas sprite skips uploads on 
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
 
-    const first_surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const first_surface = try emitter.emitPrepared(&resources, &prepared);
     try std.testing.expectEqual(@as(u32, 1), first_surface.uploads.count);
     try std.testing.expectEqual(@as(u32, 2), emitter.upload_bytes_count);
 
-    const second_surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const second_surface = try emitter.emitPrepared(&resources, &prepared);
     try std.testing.expectEqual(@as(u32, 0), second_surface.uploads.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.upload_bytes_count);
 }
 
 test "render surface surface emitter reused persistent color sprite skips uploads on second emission" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var sprite_bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
-    var sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(33, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
-    var raster_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 33, 2, 1, .color, &sprite_bytes, .{})};
+    var sprite_draws = [_]render.TextSpriteDraw{spriteDraw(33, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 33, 2, 1, .color, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 2, .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{});
@@ -1002,26 +964,24 @@ test "render surface surface emitter reused persistent color sprite skips upload
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
 
-    const first_surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const first_surface = try emitter.emitPrepared(&resources, &prepared);
     try std.testing.expectEqual(@as(u32, 1), first_surface.uploads.count);
     try std.testing.expectEqual(@as(u32, 8), emitter.upload_bytes_count);
 
-    const second_surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const second_surface = try emitter.emitPrepared(&resources, &prepared);
     try std.testing.expectEqual(@as(u32, 0), second_surface.uploads.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.upload_bytes_count);
 }
 
 test "render surface surface emitter allocates distinct monotonic sprite resources" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var first_bytes = [_]u8{255};
-    var first_draws = [_]surface_root.TextSpriteDraw{spriteDraw(41, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
-    var first_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 41, 1, 1, .alpha, &first_bytes, .{})};
+    var first_draws = [_]render.TextSpriteDraw{spriteDraw(41, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var first_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 41, 1, 1, .alpha, &first_bytes, .{})};
     var second_bytes = [_]u8{128};
-    var second_draws = [_]surface_root.TextSpriteDraw{spriteDraw(42, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
-    var second_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 42, 1, 1, .alpha, &second_bytes, .{})};
+    var second_draws = [_]render.TextSpriteDraw{spriteDraw(42, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var second_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 42, 1, 1, .alpha, &second_bytes, .{})};
     const first = preparedSurface(.{ .sprite_draws = &first_draws, .raster_outputs = &first_outputs, .width_px = 1, .height_px = 1 });
     const second = preparedSurface(.{ .sprite_draws = &second_draws, .raster_outputs = &second_outputs, .width_px = 1, .height_px = 1 });
 
@@ -1030,9 +990,9 @@ test "render surface surface emitter allocates distinct monotonic sprite resourc
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface1 = try emitter.emitPrepared(&resources, &session, &first);
+    const surface1 = try emitter.emitPrepared(&resources, &first);
     const first_resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
-    const surface2 = try emitter.emitPrepared(&resources, &session, &second);
+    const surface2 = try emitter.emitPrepared(&resources, &second);
     const second_resource = surface2.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
     try std.testing.expectEqual(first_resource.value, second_resource.value);
@@ -1041,15 +1001,13 @@ test "render surface surface emitter allocates distinct monotonic sprite resourc
 
 test "render surface surface emitter allocates distinct resource for changed sprite bytes" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var first_bytes = [_]u8{255};
-    var first_draws = [_]surface_root.TextSpriteDraw{spriteDraw(43, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
-    var first_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 43, 1, 1, .alpha, &first_bytes, .{})};
+    var first_draws = [_]render.TextSpriteDraw{spriteDraw(43, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var first_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 43, 1, 1, .alpha, &first_bytes, .{})};
     var second_bytes = [_]u8{128};
-    var second_draws = [_]surface_root.TextSpriteDraw{spriteDraw(43, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
-    var second_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 43, 1, 1, .alpha, &second_bytes, .{})};
+    var second_draws = [_]render.TextSpriteDraw{spriteDraw(43, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var second_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 43, 1, 1, .alpha, &second_bytes, .{})};
     const first = preparedSurface(.{ .sprite_draws = &first_draws, .raster_outputs = &first_outputs, .width_px = 1, .height_px = 1 });
     const second = preparedSurface(.{ .sprite_draws = &second_draws, .raster_outputs = &second_outputs, .width_px = 1, .height_px = 1 });
 
@@ -1058,9 +1016,9 @@ test "render surface surface emitter allocates distinct resource for changed spr
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface1 = try emitter.emitPrepared(&resources, &session, &first);
+    const surface1 = try emitter.emitPrepared(&resources, &first);
     const first_resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
-    const surface2 = try emitter.emitPrepared(&resources, &session, &second);
+    const surface2 = try emitter.emitPrepared(&resources, &second);
     const second_resource = surface2.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
     try std.testing.expectEqual(first_resource.value, second_resource.value);
@@ -1072,15 +1030,13 @@ test "render surface surface emitter allocates distinct resource for changed spr
 
 test "render surface surface emitter allocates distinct resource for changed sprite dimensions" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var first_bytes = [_]u8{255};
-    var first_draws = [_]surface_root.TextSpriteDraw{spriteDraw(44, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
-    var first_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 44, 1, 1, .alpha, &first_bytes, .{})};
+    var first_draws = [_]render.TextSpriteDraw{spriteDraw(44, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var first_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 44, 1, 1, .alpha, &first_bytes, .{})};
     var second_bytes = [_]u8{ 255, 128 };
-    var second_draws = [_]surface_root.TextSpriteDraw{spriteDraw(44, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
-    var second_outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 44, 2, 1, .alpha, &second_bytes, .{})};
+    var second_draws = [_]render.TextSpriteDraw{spriteDraw(44, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var second_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 44, 2, 1, .alpha, &second_bytes, .{})};
     const first = preparedSurface(.{ .sprite_draws = &first_draws, .raster_outputs = &first_outputs, .width_px = 2, .height_px = 1 });
     const second = preparedSurface(.{ .sprite_draws = &second_draws, .raster_outputs = &second_outputs, .width_px = 2, .height_px = 1 });
 
@@ -1089,9 +1045,9 @@ test "render surface surface emitter allocates distinct resource for changed spr
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface1 = try emitter.emitPrepared(&resources, &session, &first);
+    const surface1 = try emitter.emitPrepared(&resources, &first);
     const first_resource = surface1.commands.ptr[1].glyphs.ptr[0].atlas_resource;
-    const surface2 = try emitter.emitPrepared(&resources, &session, &second);
+    const surface2 = try emitter.emitPrepared(&resources, &second);
     const second_resource = surface2.commands.ptr[1].glyphs.ptr[0].atlas_resource;
     try std.testing.expectEqual(@as(u64, 1), first_resource.value);
     try std.testing.expectEqual(first_resource.value, second_resource.value);
@@ -1103,17 +1059,15 @@ test "render surface surface emitter allocates distinct resource for changed spr
 
 test "render surface surface emitter failure preserves accepted persistent resource state" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var bytes = [_]u8{ 255, 255 };
-    var draws = [_]surface_root.TextSpriteDraw{spriteDraw(51, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
-    var outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 51, 2, 1, .alpha, &bytes, .{})};
+    var draws = [_]render.TextSpriteDraw{spriteDraw(51, 0, 0, 2, 1, rgba(255, 255, 255, 255))};
+    var outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 51, 2, 1, .alpha, &bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &draws, .raster_outputs = &outputs, .width_px = 2, .height_px = 1 });
 
     var emitter = Emitter(.{ .commands_max = 1, .glyph_refs_max = 1, .upload_bytes_max = 1 }).init();
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    try std.testing.expectError(error.UploadBytesOverflow, emitter.emitPrepared(&resources, &session, &prepared));
+    try std.testing.expectError(error.UploadBytesOverflow, emitter.emitPrepared(&resources, &prepared));
     try std.testing.expectEqual(@as(u32, 0), resources.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.surface().creates.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
@@ -1121,24 +1075,22 @@ test "render surface surface emitter failure preserves accepted persistent resou
 
 test "render surface surface emitter fresh failure restores retained resource admission state" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var alpha_bytes = [_]u8{255};
     var color_bytes = [_]u8{ 1, 2, 3, 4 };
-    var accepted_draws = [_]surface_root.TextSpriteDraw{
+    var accepted_draws = [_]render.TextSpriteDraw{
         spriteDraw(52, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
         spriteDraw(53, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
     var accepted_outputs = [_]rasterizer.RasterSpriteOutput{
-        test_support.rasterOutput(allocator, 52, 1, 1, .alpha, &alpha_bytes, .{}),
-        test_support.rasterOutput(allocator, 53, 1, 1, .color, &color_bytes, .{}),
+        rasterOutput(allocator, 52, 1, 1, .alpha, &alpha_bytes, .{}),
+        rasterOutput(allocator, 53, 1, 1, .color, &color_bytes, .{}),
     };
     const accepted = preparedSurface(.{ .sprite_draws = &accepted_draws, .raster_outputs = &accepted_outputs, .width_px = 2, .height_px = 1 });
 
     var accepted_emitter = Emitter(.{}).init();
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const accepted_surface = try accepted_emitter.emitPreparedFresh(&resources, &session, &accepted);
+    const accepted_surface = try accepted_emitter.emitPreparedFresh(&resources, &accepted);
     try std.testing.expectEqual(@as(u32, 2), accepted_surface.uploads.count);
     try std.testing.expectEqual(@as(u32, 1), resources.count);
     try std.testing.expectEqual(@as(u32, 4), resources.bytes_count);
@@ -1152,18 +1104,18 @@ test "render surface surface emitter fresh failure restores retained resource ad
 
     var fail_color_bytes = [_]u8{ 5, 6, 7, 8 };
     var fail_alpha_bytes = [_]u8{128};
-    var fail_draws = [_]surface_root.TextSpriteDraw{
+    var fail_draws = [_]render.TextSpriteDraw{
         spriteDraw(54, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
         spriteDraw(55, 1, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
     var fail_outputs = [_]rasterizer.RasterSpriteOutput{
-        test_support.rasterOutput(allocator, 54, 1, 1, .color, &fail_color_bytes, .{}),
-        test_support.rasterOutput(allocator, 55, 1, 1, .alpha, &fail_alpha_bytes, .{}),
+        rasterOutput(allocator, 54, 1, 1, .color, &fail_color_bytes, .{}),
+        rasterOutput(allocator, 55, 1, 1, .alpha, &fail_alpha_bytes, .{}),
     };
     const failing = preparedSurface(.{ .sprite_draws = &fail_draws, .raster_outputs = &fail_outputs, .width_px = 2, .height_px = 1 });
 
     var failing_emitter = Emitter(.{ .commands_max = 2, .glyph_refs_max = 2, .creates_max = 2, .uploads_max = 2, .upload_bytes_max = 5 }).init();
-    try std.testing.expectError(error.CommandBoundOverflow, failing_emitter.emitPreparedFresh(&resources, &session, &failing));
+    try std.testing.expectError(error.CommandBoundOverflow, failing_emitter.emitPreparedFresh(&resources, &failing));
     try std.testing.expectEqual(rollback.count, resources.count);
     try std.testing.expectEqual(rollback.bytes_count, resources.bytes_count);
     try std.testing.expectEqual(rollback.value_next, resources.value_next);
@@ -1181,12 +1133,10 @@ test "render surface surface emitter fresh failure restores retained resource ad
 
 test "render surface surface emitter resource id exhaustion preserves accepted state" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var bytes = [_]u8{ 255, 255, 255, 255 };
-    var draws = [_]surface_root.TextSpriteDraw{spriteDraw(61, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
-    var outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 61, 1, 1, .color, &bytes, .{})};
+    var draws = [_]render.TextSpriteDraw{spriteDraw(61, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 61, 1, 1, .color, &bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &draws, .raster_outputs = &outputs, .width_px = 1, .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{});
@@ -1195,7 +1145,7 @@ test "render surface surface emitter resource id exhaustion preserves accepted s
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
     resources.value_next = 0;
-    try std.testing.expectError(error.ResourceBoundOverflow, emitter.emitPrepared(&resources, &session, &prepared));
+    try std.testing.expectError(error.ResourceBoundOverflow, emitter.emitPrepared(&resources, &prepared));
     try std.testing.expectEqual(@as(u32, 0), resources.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.surface().creates.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
@@ -1203,12 +1153,10 @@ test "render surface surface emitter resource id exhaustion preserves accepted s
 
 test "render surface surface emitter emits transient sprite beyond persistent budget" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var bytes = [_]u8{ 255, 255, 255, 255 };
-    var draws = [_]surface_root.TextSpriteDraw{spriteDraw(62, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
-    var outputs = [_]rasterizer.RasterSpriteOutput{test_support.rasterOutput(allocator, 62, 1, 1, .color, &bytes, .{})};
+    var draws = [_]render.TextSpriteDraw{spriteDraw(62, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 62, 1, 1, .color, &bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = &draws, .raster_outputs = &outputs, .width_px = 1, .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{});
@@ -1217,7 +1165,7 @@ test "render surface surface emitter emits transient sprite beyond persistent bu
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
     fillResourcesForTest(&resources, sprite_resource_store.persistent_sprite_resources_max);
-    const surface = try emitter.emitPrepared(&resources, &session, &prepared);
+    const surface = try emitter.emitPrepared(&resources, &prepared);
     try std.testing.expectEqual(sprite_resource_store.persistent_sprite_resources_max, resources.count);
     try std.testing.expectEqual(@as(u32, 1), surface.creates.count);
     try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
@@ -1229,37 +1177,33 @@ test "render surface surface emitter emits transient sprite beyond persistent bu
 
 test "render surface surface emitter reports exact transient retire bound" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var first_bytes = [_]u8{ 255, 255, 255, 255 };
     var second_bytes = [_]u8{ 128, 128, 128, 255 };
-    var draws = [_]surface_root.TextSpriteDraw{
+    var draws = [_]render.TextSpriteDraw{
         spriteDraw(63, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
         spriteDraw(64, 0, 0, 1, 1, rgba(255, 255, 255, 255)),
     };
     var outputs = [_]rasterizer.RasterSpriteOutput{
-        test_support.rasterOutput(allocator, 63, 1, 1, .color, &first_bytes, .{}),
-        test_support.rasterOutput(allocator, 64, 1, 1, .color, &second_bytes, .{}),
+        rasterOutput(allocator, 63, 1, 1, .color, &first_bytes, .{}),
+        rasterOutput(allocator, 64, 1, 1, .color, &second_bytes, .{}),
     };
     const prepared = preparedSurface(.{ .sprite_draws = &draws, .raster_outputs = &outputs, .width_px = 1, .height_px = 1 });
 
     var emitter = Emitter(.{ .commands_max = 3, .glyph_refs_max = 3, .retires_max = 1 }).init();
     var resources = sprite_resource_store.SpriteResourceStore.init();
     fillResourcesForTest(&resources, sprite_resource_store.persistent_sprite_resources_max);
-    try std.testing.expectError(error.RetireBoundOverflow, emitter.emitPrepared(&resources, &session, &prepared));
+    try std.testing.expectError(error.RetireBoundOverflow, emitter.emitPrepared(&resources, &prepared));
     try std.testing.expectEqual(sprite_resource_store.persistent_sprite_resources_max, resources.count);
     try std.testing.expectEqual(@as(u32, 0), emitter.surface().commands.count);
 }
 
 test "render surface surface emitter rejects missing prepared sprite without mutating accepted surface" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
-    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
+    const background = [_]render.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
     var accepted_prepared = preparedSurface(.{ .background_draws = &background, .width_px = 1, .height_px = 1 });
-    var missing_sprite_draws = [_]surface_root.TextSpriteDraw{spriteDraw(99, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
+    var missing_sprite_draws = [_]render.TextSpriteDraw{spriteDraw(99, 0, 0, 1, 1, rgba(255, 255, 255, 255))};
     var missing_prepared = preparedSurface(.{ .sprite_draws = &missing_sprite_draws, .width_px = 1, .height_px = 1 });
 
     const PreparedEmitter = Emitter(.{});
@@ -1267,11 +1211,11 @@ test "render surface surface emitter rejects missing prepared sprite without mut
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const accepted_surface = try emitter.emitPrepared(&resources, &session, &accepted_prepared);
-    try std.testing.expectError(error.MissingPreparedSprite, emitter.emitPrepared(&resources, &session, &missing_prepared));
+    const accepted_surface = try emitter.emitPrepared(&resources, &accepted_prepared);
+    try std.testing.expectError(error.MissingPreparedSprite, emitter.emitPrepared(&resources, &missing_prepared));
     try std.testing.expectEqual(accepted_surface, emitter.surface());
 
-    const oracle = try prepared_buffer.compose(allocator, null, &session, &accepted_prepared);
+    const oracle = try prepared_buffer.compose(allocator, null, &accepted_prepared);
     defer allocator.free(oracle);
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
@@ -1281,20 +1225,18 @@ test "render surface surface emitter rejects missing prepared sprite without mut
 
 test "render surface surface emitter realizes partial prepared surface equal to full rgba oracle" {
     const allocator = std.testing.allocator;
-    var session = text_session.TextSession.init(allocator);
-    defer session.deinit();
 
     var base = [_]u8{
         1, 2, 3, 255,
         4, 5, 6, 255,
     };
-    const background = [_]surface_root.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255))};
+    const background = [_]render.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255))};
     const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1, .full_redraw = false });
-    try expectPreparedEmissionEqualsCompose(allocator, &session, &prepared, &base);
+    try expectPreparedEmissionEqualsCompose(allocator, &prepared, &base);
 }
 
-fn expectPreparedEmissionEqualsCompose(allocator: std.mem.Allocator, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, base_pixels: ?[]const u8) !void {
-    const oracle = try prepared_buffer.compose(allocator, base_pixels, session, prepared);
+fn expectPreparedEmissionEqualsCompose(allocator: std.mem.Allocator, prepared: *const prepared_surface.PreparedSurface, base_pixels: ?[]const u8) !void {
+    const oracle = try prepared_buffer.compose(allocator, base_pixels, prepared);
     defer allocator.free(oracle);
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
@@ -1303,17 +1245,17 @@ fn expectPreparedEmissionEqualsCompose(allocator: std.mem.Allocator, session: *t
     defer allocator.destroy(emitter);
     emitter.* = .{};
     var resources = sprite_resource_store.SpriteResourceStore.init();
-    const surface = try emitter.emitPrepared(&resources, session, prepared);
+    const surface = try emitter.emitPrepared(&resources, prepared);
     try realize.realize(surface, realized, base_pixels);
     try std.testing.expectEqualSlices(u8, oracle, realized);
 }
 
 const PreparedOptions = struct {
-    clear_draws: []const surface_root.TextClearDraw = &.{},
-    background_draws: []const surface_root.TextBackgroundDraw = &.{},
-    sprite_draws: []const surface_root.TextSpriteDraw = &.{},
-    decoration_draws: []const surface_root.TextDecorationDraw = &.{},
-    cursor_draws: []const surface_root.TextCursorDraw = &.{},
+    clear_draws: []const render.TextClearDraw = &.{},
+    background_draws: []const render.TextBackgroundDraw = &.{},
+    sprite_draws: []const render.TextSpriteDraw = &.{},
+    decoration_draws: []const render.TextDecorationDraw = &.{},
+    cursor_draws: []const render.TextCursorDraw = &.{},
     raster_outputs: []rasterizer.RasterSpriteOutput = &.{},
     width_px: u16,
     height_px: u16,
@@ -1352,23 +1294,23 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     };
 }
 
-fn clearDraw(x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextClearDraw {
+fn clearDraw(x: i32, y: i32, width: u16, height: u16, color: render.Rgba8) render.TextClearDraw {
     return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = 0, .cell_span = 1 };
 }
 
-fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextBackgroundDraw {
+fn backgroundDraw(x: i32, y: i32, width: u16, height: u16, color: render.Rgba8) render.TextBackgroundDraw {
     return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = 0, .cell_span = 1 };
 }
 
-fn decorationDraw(x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextDecorationDraw {
+fn decorationDraw(x: i32, y: i32, width: u16, height: u16, color: render.Rgba8) render.TextDecorationDraw {
     return .{ .kind = .underline, .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color, .first_cell = 0, .cell_span = 1 };
 }
 
-fn cursorDraw(x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextCursorDraw {
+fn cursorDraw(x: i32, y: i32, width: u16, height: u16, color: render.Rgba8) render.TextCursorDraw {
     return .{ .x_px = x, .y_px = y, .width_px = width, .height_px = height, .color = color };
 }
 
-fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: surface_root.Rgba8) surface_root.TextSpriteDraw {
+fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: render.Rgba8) render.TextSpriteDraw {
     return .{
         .sprite = .{ .slot = 0, .key = .{ .value = key } },
         .x_px = x,
@@ -1381,6 +1323,6 @@ fn spriteDraw(key: u64, x: i32, y: i32, width: u16, height: u16, color: surface_
     };
 }
 
-fn rgba(r: u8, g: u8, b: u8, a: u8) surface_root.Rgba8 {
+fn rgba(r: u8, g: u8, b: u8, a: u8) render.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = a };
 }

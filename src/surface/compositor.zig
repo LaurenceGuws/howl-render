@@ -1,10 +1,9 @@
 const std = @import("std");
 const prepared_surface = @import("prepared_surface.zig");
-const text_session = @import("../render_session.zig");
-const surface = @import("../surface.zig");
+const render = @import("../libhowl_render.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 
-pub fn compose(allocator: std.mem.Allocator, base_pixels: ?[]const u8, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) ![]u8 {
+pub fn compose(allocator: std.mem.Allocator, base_pixels: ?[]const u8, prepared: *const prepared_surface.PreparedSurface) ![]u8 {
     const width = prepared.render_px.width;
     const height = prepared.render_px.height;
     std.debug.assert(width > 0);
@@ -19,7 +18,6 @@ pub fn compose(allocator: std.mem.Allocator, base_pixels: ?[]const u8, session: 
         .pixels = pixels,
         .width = width,
         .height = height,
-        .session = session,
         .prepared = prepared,
     };
     try composePreparedSurface(&composer, prepared);
@@ -38,7 +36,6 @@ const Composer = struct {
     pixels: []u8,
     width: u16,
     height: u16,
-    session: *text_session.TextSession,
     prepared: *const prepared_surface.PreparedSurface,
 
     fn clear(self: *Composer) !void {
@@ -54,7 +51,7 @@ const Composer = struct {
     }
 
     fn sprites(self: *Composer) !void {
-        try drawSprites(self.pixels, self.width, self.height, self.session, self.prepared);
+        try drawSprites(self.pixels, self.width, self.height, self.prepared);
     }
 
     fn cursor(self: *Composer) !void {
@@ -77,7 +74,7 @@ fn seedSurfacePixels(pixels: []u8, base_pixels: ?[]const u8) void {
         return;
     };
     // Partial prepared surfaces are realized here against the render-owned
-    // retained base. Hosts only ever consume one complete prepared surface.
+    // retained base. Hosts only ever consume one complete prepared render.
     std.debug.assert(basePixelsLenMatches(pixels.len, base.len));
     @memcpy(pixels, base);
 }
@@ -89,7 +86,7 @@ fn basePixelsLenMatches(output_len: usize, base_len: usize) bool {
 const SpriteRaster = struct {
     pixels: []const u8,
     stride: u16,
-    color_mode: surface.SpriteColorMode,
+    color_mode: render.SpriteColorMode,
     visual_bounds: rasterizer.SpriteBounds,
 };
 
@@ -119,7 +116,7 @@ fn drawColorSpan(pixels: []u8, width: u16, height: u16, span: anytype) void {
     }
 }
 
-fn drawDecorationSpan(pixels: []u8, width: u16, height: u16, span: []const surface.TextDecorationDraw) void {
+fn drawDecorationSpan(pixels: []u8, width: u16, height: u16, span: []const render.TextDecorationDraw) void {
     for (span) |draw| {
         drawSolidRect(
             pixels,
@@ -134,14 +131,14 @@ fn drawDecorationSpan(pixels: []u8, width: u16, height: u16, span: []const surfa
     }
 }
 
-fn drawSprites(pixels: []u8, width: u16, height: u16, session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface) !void {
+fn drawSprites(pixels: []u8, width: u16, height: u16, prepared: *const prepared_surface.PreparedSurface) !void {
     for (prepared.text_surface.scene.scene.sprite_draws) |draw| {
-        const sprite = try lookupSprite(session, prepared, draw.sprite.key);
+        const sprite = try lookupSprite(prepared, draw.sprite.key);
         drawSpriteInstance(pixels, width, height, draw, sprite);
     }
 }
 
-fn lookupSprite(session: *text_session.TextSession, prepared: *const prepared_surface.PreparedSurface, sprite_key: surface.SpriteKey) !SpriteRaster {
+fn lookupSprite(prepared: *const prepared_surface.PreparedSurface, sprite_key: render.SpriteKey) !SpriteRaster {
     for (prepared.text_surface.raster_plan.outputs) |output| {
         if (output.key.value != sprite_key.value) continue;
         const bounds = output.visualBounds();
@@ -153,18 +150,7 @@ fn lookupSprite(session: *text_session.TextSession, prepared: *const prepared_su
             .visual_bounds = bounds,
         };
     }
-    const cached = session.atlasRaster(sprite_key) orelse return error.MissingSprite;
-    const stride: u16 = switch (cached.color_mode) {
-        .alpha => cached.width_px,
-        .color => @intCast(@as(u32, cached.width_px) * 4),
-    };
-    std.debug.assert(cached.pixels.len >= @as(u32, stride) * cached.height_px);
-    return .{
-        .pixels = cached.pixels,
-        .stride = stride,
-        .color_mode = cached.color_mode,
-        .visual_bounds = cached.visual_bounds,
-    };
+    return error.MissingSprite;
 }
 
 fn packedStrideForOutput(output: rasterizer.RasterSpriteOutput) u16 {
@@ -175,7 +161,7 @@ fn packedStrideForOutput(output: rasterizer.RasterSpriteOutput) u16 {
     return @intCast(@as(u32, output.width_px) * @as(u32, channels));
 }
 
-fn drawSpriteInstance(pixels: []u8, width: u16, height: u16, draw: surface.TextSpriteDraw, sprite: SpriteRaster) void {
+fn drawSpriteInstance(pixels: []u8, width: u16, height: u16, draw: render.TextSpriteDraw, sprite: SpriteRaster) void {
     const bounds = if (sprite.visual_bounds.width_px != 0 and
         sprite.visual_bounds.height_px != 0)
         sprite.visual_bounds
@@ -244,7 +230,7 @@ fn spriteIndex(sprite: SpriteRaster, src_x: u16, src_y: u16) u32 {
     };
 }
 
-fn drawSolidRect(pixels: []u8, width: u16, height: u16, x: i32, y: i32, rect_w: u16, rect_h: u16, color: surface.Rgba8) void {
+fn drawSolidRect(pixels: []u8, width: u16, height: u16, x: i32, y: i32, rect_w: u16, rect_h: u16, color: render.Rgba8) void {
     var yy: u16 = 0;
     while (yy < rect_h) : (yy += 1) {
         const dst_y = y + @as(i32, yy);
@@ -286,15 +272,12 @@ pub const testing = struct {
 };
 
 test "compose preserves retained content outside partial updates" {
-    var session = text_session.TextSession.init(std.heap.c_allocator);
-    defer session.deinit();
-
     const allocator = std.testing.allocator;
     const base = try allocator.alloc(u8, 4 * 4 * 4);
     defer allocator.free(base);
     @memset(base, 7);
 
-    var clear_draws = try allocator.alloc(surface.TextClearDraw, 1);
+    var clear_draws = try allocator.alloc(render.TextClearDraw, 1);
     defer allocator.free(clear_draws);
     clear_draws[0] = .{
         .x_px = 0,
@@ -306,7 +289,7 @@ test "compose preserves retained content outside partial updates" {
         .cell_span = 2,
     };
 
-    var background_draws = try allocator.alloc(surface.TextBackgroundDraw, 1);
+    var background_draws = try allocator.alloc(render.TextBackgroundDraw, 1);
     defer allocator.free(background_draws);
     background_draws[0] = .{
         .x_px = 0,
@@ -346,7 +329,7 @@ test "compose preserves retained content outside partial updates" {
         },
     };
 
-    const pixels = try compose(allocator, base, &session, &prepared);
+    const pixels = try compose(allocator, base, &prepared);
     defer allocator.free(pixels);
 
     try std.testing.expectEqual(@as(u8, 90), pixels[0]);
@@ -388,10 +371,10 @@ const ComposeTrace = struct {
 
 fn testPreparedSurface(
     allocator: std.mem.Allocator,
-    clear_draws: []const surface.TextClearDraw,
-    background_draws: []const surface.TextBackgroundDraw,
-    decoration_draws: []const surface.TextDecorationDraw,
-    cursor_draws: []const surface.TextCursorDraw,
+    clear_draws: []const render.TextClearDraw,
+    background_draws: []const render.TextBackgroundDraw,
+    decoration_draws: []const render.TextDecorationDraw,
+    cursor_draws: []const render.TextCursorDraw,
 ) prepared_surface.PreparedSurface {
     return .{
         .allocator = allocator,

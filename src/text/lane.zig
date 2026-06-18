@@ -1,5 +1,5 @@
 const std = @import("std");
-const surface = @import("../surface.zig");
+const render = @import("../libhowl_render.zig");
 const symbol_map = @import("symbol_map.zig");
 
 pub const TextLane = enum(u1) {
@@ -108,7 +108,7 @@ pub const LaneReport = struct {
     direct_normal_raster_misses: u64 = 0,
     legacy: LegacyPathReport = .{},
 
-    pub fn init(text_cache: surface.LineTextCache, cells: []const surface.RenderableCell, clusters: []const surface.CellCluster) LaneReport {
+    pub fn init(text_cache: render.LineTextCache, cells: []const render.RenderableCell, clusters: []const render.CellCluster) LaneReport {
         var report = LaneReport{};
         for (cells) |cell| report.recordRenderableCell(cell, textForRenderableCell(text_cache, cell));
         for (clusters) |cluster| report.recordCluster(cells, cluster, textForCluster(text_cache, cluster));
@@ -128,40 +128,40 @@ pub const LaneReport = struct {
             self.legacy.scene_sprite_draws.normal == 0;
     }
 
-    pub fn recordLegacyResolvedRun(self: *LaneReport, text_cache: surface.LineTextCache, clusters: []const surface.CellCluster, run: surface.ResolvedRun) void {
+    pub fn recordLegacyResolvedRun(self: *LaneReport, text_cache: render.LineTextCache, clusters: []const render.CellCluster, run: render.ResolvedRun) void {
         recordLegacyRunClusters(&self.legacy.resolved_clusters, text_cache, &.{}, clusters, run);
     }
 
-    pub fn recordLegacyShapedRun(self: *LaneReport, text_cache: surface.LineTextCache, clusters: []const surface.CellCluster, run: surface.ResolvedRun) void {
+    pub fn recordLegacyShapedRun(self: *LaneReport, text_cache: render.LineTextCache, clusters: []const render.CellCluster, run: render.ResolvedRun) void {
         recordLegacyRunClusters(&self.legacy.shaped_clusters, text_cache, &.{}, clusters, run);
     }
 
     pub fn recordLegacyResolvedRunWithCells(
         self: *LaneReport,
-        text_cache: surface.LineTextCache,
-        cells: []const surface.RenderableCell,
-        clusters: []const surface.CellCluster,
-        run: surface.ResolvedRun,
+        text_cache: render.LineTextCache,
+        cells: []const render.RenderableCell,
+        clusters: []const render.CellCluster,
+        run: render.ResolvedRun,
     ) void {
         recordLegacyRunClusters(&self.legacy.resolved_clusters, text_cache, cells, clusters, run);
     }
 
     pub fn recordLegacyShapedRunWithCells(
         self: *LaneReport,
-        text_cache: surface.LineTextCache,
-        cells: []const surface.RenderableCell,
-        clusters: []const surface.CellCluster,
-        run: surface.ResolvedRun,
+        text_cache: render.LineTextCache,
+        cells: []const render.RenderableCell,
+        clusters: []const render.CellCluster,
+        run: render.ResolvedRun,
     ) void {
         recordLegacyRunClusters(&self.legacy.shaped_clusters, text_cache, cells, clusters, run);
     }
 
-    pub fn recordLegacyGroup(self: *LaneReport, text_cache: surface.LineTextCache, cells: []const surface.RenderableCell, group: surface.GlyphGroup) void {
+    pub fn recordLegacyGroup(self: *LaneReport, text_cache: render.LineTextCache, cells: []const render.RenderableCell, group: render.GlyphGroup) void {
         const choice = classifyRenderableCell(cellForFirstCell(cells, group.first_cell), textForFirstCell(text_cache, cells, group.first_cell));
         recordLegacyChoice(&self.legacy.grouped_groups, choice);
     }
 
-    pub fn recordLegacySceneSpriteDraw(self: *LaneReport, text_cache: surface.LineTextCache, cells: []const surface.RenderableCell, draw: surface.TextSpriteDraw) void {
+    pub fn recordLegacySceneSpriteDraw(self: *LaneReport, text_cache: render.LineTextCache, cells: []const render.RenderableCell, draw: render.TextSpriteDraw) void {
         const choice = classifyRenderableCell(cellForFirstCell(cells, draw.first_cell), textForFirstCell(text_cache, cells, draw.first_cell));
         recordLegacyChoice(&self.legacy.scene_sprite_draws, choice);
     }
@@ -174,7 +174,7 @@ pub const LaneReport = struct {
         std.debug.assert(self.normal_clusters + self.complex_clusters <= self.visible_cells);
     }
 
-    fn recordRenderableCell(self: *LaneReport, cell: surface.RenderableCell, text: surface.CellText) void {
+    fn recordRenderableCell(self: *LaneReport, cell: render.RenderableCell, text: render.CellText) void {
         const choice = classifyRenderableCell(cell, text);
         self.visible_cells += 1;
         switch (choice.lane) {
@@ -186,7 +186,7 @@ pub const LaneReport = struct {
         }
     }
 
-    fn recordCluster(self: *LaneReport, cells: []const surface.RenderableCell, cluster: surface.CellCluster, text: surface.CellText) void {
+    fn recordCluster(self: *LaneReport, cells: []const render.RenderableCell, cluster: render.CellCluster, text: render.CellText) void {
         const choice = classifyClusterInCells(cells, cluster, text);
         switch (choice.lane) {
             .normal => self.normal_clusters += 1,
@@ -205,40 +205,40 @@ pub const LaneReport = struct {
     }
 };
 
-pub fn normalRenderableCell(cell: surface.RenderableCell, text: surface.CellText) bool {
+pub fn normalRenderableCell(cell: render.RenderableCell, text: render.CellText) bool {
     assertTextInvariants(text);
     return classifyRenderable(cell, text) == .normal;
 }
 
-pub fn complexRenderableCellReason(cell: surface.RenderableCell, text: surface.CellText) ?ComplexLaneReason {
+pub fn complexRenderableCellReason(cell: render.RenderableCell, text: render.CellText) ?ComplexLaneReason {
     assertTextInvariants(text);
     return classifyRenderable(cell, text).complexReason();
 }
 
-pub fn classifyRenderable(cell: surface.RenderableCell, text: surface.CellText) RenderableClass {
+pub fn classifyRenderable(cell: render.RenderableCell, text: render.CellText) RenderableClass {
     assertTextInvariants(text);
     return renderableClass(cell, text);
 }
 
-pub fn classifyRenderableCell(cell: surface.RenderableCell, text: surface.CellText) LaneClass {
+pub fn classifyRenderableCell(cell: render.RenderableCell, text: render.CellText) LaneClass {
     const class = classifyRenderable(cell, text);
     const choice = if (class == .normal) LaneClass.normal() else LaneClass.complex(class.complexReason().?);
     choice.assertValid();
     return choice;
 }
 
-pub fn normalCluster(cluster: surface.CellCluster, text: surface.CellText) bool {
+pub fn normalCluster(cluster: render.CellCluster, text: render.CellText) bool {
     assertTextInvariants(text);
     return complexClusterReason(cluster, text) == null;
 }
 
-pub fn complexClusterReason(cluster: surface.CellCluster, text: surface.CellText) ?ComplexLaneReason {
+pub fn complexClusterReason(cluster: render.CellCluster, text: render.CellText) ?ComplexLaneReason {
     assertTextInvariants(text);
     const class = textClass(text, cluster.presentation) orelse return null;
     return class.complexReason();
 }
 
-pub fn classifyCluster(cluster: surface.CellCluster, text: surface.CellText) LaneClass {
+pub fn classifyCluster(cluster: render.CellCluster, text: render.CellText) LaneClass {
     const normal = normalCluster(cluster, text);
     const complex_reason = complexClusterReason(cluster, text);
     std.debug.assert(normal != (complex_reason != null));
@@ -247,7 +247,7 @@ pub fn classifyCluster(cluster: surface.CellCluster, text: surface.CellText) Lan
     return choice;
 }
 
-pub fn classifyClusterInCells(cells: []const surface.RenderableCell, cluster: surface.CellCluster, text: surface.CellText) LaneClass {
+pub fn classifyClusterInCells(cells: []const render.RenderableCell, cluster: render.CellCluster, text: render.CellText) LaneClass {
     if (renderableCellForFirstCell(cells, cluster.first_cell)) |cell| {
         std.debug.assert(cell.text_id.value == cluster.text_id.value);
         const choice = classifyRenderableCell(cell, text);
@@ -257,20 +257,20 @@ pub fn classifyClusterInCells(cells: []const surface.RenderableCell, cluster: su
     return classifyCluster(cluster, text);
 }
 
-fn normalText(text: surface.CellText, presentation: surface.TextPresentation) bool {
+fn normalText(text: render.CellText, presentation: render.TextPresentation) bool {
     const route = symbol_map.builtinRoute(text.first_cp);
     return text.codepoints.len == 1 and
         presentation != .emoji and
         (route == null or route.? == .blank);
 }
 
-fn renderableClass(cell: surface.RenderableCell, text: surface.CellText) RenderableClass {
+fn renderableClass(cell: render.RenderableCell, text: render.CellText) RenderableClass {
     if (textClass(text, cell.presentation)) |class| return class;
     if (cell.underline and cell.underline_style == .curly) return .curly_underline;
     return .normal;
 }
 
-fn textClass(text: surface.CellText, presentation: surface.TextPresentation) ?RenderableClass {
+fn textClass(text: render.CellText, presentation: render.TextPresentation) ?RenderableClass {
     if (presentation == .emoji) return .emoji_presentation;
     if (symbol_map.builtinRoute(text.first_cp)) |route| {
         if (route != .blank) return .special_sprite;
@@ -280,17 +280,17 @@ fn textClass(text: surface.CellText, presentation: surface.TextPresentation) ?Re
     return null;
 }
 
-fn assertTextInvariants(text: surface.CellText) void {
+fn assertTextInvariants(text: render.CellText) void {
     std.debug.assert(text.codepoints.len > 0);
     std.debug.assert(text.codepoints[0] == text.first_cp);
 }
 
 fn recordLegacyRunClusters(
     counts: *LegacyStageCounts,
-    text_cache: surface.LineTextCache,
-    cells: []const surface.RenderableCell,
-    clusters: []const surface.CellCluster,
-    run: surface.ResolvedRun,
+    text_cache: render.LineTextCache,
+    cells: []const render.RenderableCell,
+    clusters: []const render.CellCluster,
+    run: render.ResolvedRun,
 ) void {
     const window = runClusterWindow(run, clusters);
     for (clusters[@intCast(window.start)..@intCast(window.end)]) |cluster| {
@@ -304,7 +304,7 @@ const RunClusterWindow = struct {
     end: u32,
 };
 
-fn runClusterWindow(run: surface.ResolvedRun, clusters: []const surface.CellCluster) RunClusterWindow {
+fn runClusterWindow(run: render.ResolvedRun, clusters: []const render.CellCluster) RunClusterWindow {
     const start = run.run.cluster_start;
     const count = run.run.cluster_count;
     const clusters_len = clusterCount(clusters);
@@ -322,23 +322,23 @@ fn recordLegacyChoice(counts: *LegacyStageCounts, choice: LaneClass) void {
     }
 }
 
-fn textForRenderableCell(text_cache: surface.LineTextCache, cell: surface.RenderableCell) surface.CellText {
+fn textForRenderableCell(text_cache: render.LineTextCache, cell: render.RenderableCell) render.CellText {
     const idx = cell.text_id.value;
     std.debug.assert(idx < count32(text_cache.texts));
     return text_cache.texts[@intCast(idx)];
 }
 
-fn textForCluster(text_cache: surface.LineTextCache, cluster: surface.CellCluster) surface.CellText {
+fn textForCluster(text_cache: render.LineTextCache, cluster: render.CellCluster) render.CellText {
     const idx = cluster.text_id.value;
     std.debug.assert(idx < count32(text_cache.texts));
     return text_cache.texts[@intCast(idx)];
 }
 
-fn cellForFirstCell(cells: []const surface.RenderableCell, first_cell: u32) surface.RenderableCell {
+fn cellForFirstCell(cells: []const render.RenderableCell, first_cell: u32) render.RenderableCell {
     return renderableCellForFirstCell(cells, first_cell) orelse unreachable;
 }
 
-fn renderableCellForFirstCell(cells: []const surface.RenderableCell, first_cell: u32) ?surface.RenderableCell {
+fn renderableCellForFirstCell(cells: []const render.RenderableCell, first_cell: u32) ?render.RenderableCell {
     var lo: u32 = 0;
     var hi = count32(cells);
     while (lo < hi) {
@@ -357,7 +357,7 @@ fn renderableCellForFirstCell(cells: []const surface.RenderableCell, first_cell:
     return null;
 }
 
-fn clusterCount(clusters: []const surface.CellCluster) u32 {
+fn clusterCount(clusters: []const render.CellCluster) u32 {
     return @intCast(clusters.len);
 }
 
@@ -366,13 +366,13 @@ fn count32(items: anytype) u32 {
     return @intCast(items.len);
 }
 
-fn textForFirstCell(text_cache: surface.LineTextCache, cells: []const surface.RenderableCell, first_cell: u32) surface.CellText {
+fn textForFirstCell(text_cache: render.LineTextCache, cells: []const render.RenderableCell, first_cell: u32) render.CellText {
     return textForRenderableCell(text_cache, cellForFirstCell(cells, first_cell));
 }
 
 test "lane classifies single-codepoint text as normal" {
-    const text = surface.CellText{ .id = .{ .value = 1 }, .first_cp = 'A', .codepoints = &.{'A'} };
-    const cell = surface.RenderableCell{
+    const text = render.CellText{ .id = .{ .value = 1 }, .first_cp = 'A', .codepoints = &.{'A'} };
+    const cell = render.RenderableCell{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -387,8 +387,8 @@ test "lane classifies single-codepoint text as normal" {
 }
 
 test "lane keeps wide single-codepoint text in normal lane" {
-    const text = surface.CellText{ .id = .{ .value = 2 }, .first_cp = 0x4f60, .codepoints = &.{0x4f60} };
-    const cluster = surface.CellCluster{
+    const text = render.CellText{ .id = .{ .value = 2 }, .first_cp = 0x4f60, .codepoints = &.{0x4f60} };
+    const cluster = render.CellCluster{
         .text_id = text.id,
         .first_cell = 4,
         .cell_span = 2,
@@ -401,8 +401,8 @@ test "lane keeps wide single-codepoint text in normal lane" {
 }
 
 test "lane marks multi-codepoint text as complex" {
-    const text = surface.CellText{ .id = .{ .value = 3 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
-    const cluster = surface.CellCluster{
+    const text = render.CellText{ .id = .{ .value = 3 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
+    const cluster = render.CellCluster{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -416,8 +416,8 @@ test "lane marks multi-codepoint text as complex" {
 }
 
 test "lane marks emoji presentation as complex" {
-    const text = surface.CellText{ .id = .{ .value = 4 }, .first_cp = 0x1f642, .codepoints = &.{0x1f642} };
-    const cluster = surface.CellCluster{
+    const text = render.CellText{ .id = .{ .value = 4 }, .first_cp = 0x1f642, .codepoints = &.{0x1f642} };
+    const cluster = render.CellCluster{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -431,8 +431,8 @@ test "lane marks emoji presentation as complex" {
 }
 
 test "lane marks generated sprite routes as complex" {
-    const text = surface.CellText{ .id = .{ .value = 5 }, .first_cp = 0x2500, .codepoints = &.{0x2500} };
-    const cell = surface.RenderableCell{
+    const text = render.CellText{ .id = .{ .value = 5 }, .first_cp = 0x2500, .codepoints = &.{0x2500} };
+    const cell = render.RenderableCell{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -448,8 +448,8 @@ test "lane marks generated sprite routes as complex" {
 
 test "lane marks shared and fallback special sprite routes as complex" {
     for ([_]u32{ 0x2500, 0x257f, 0x2580, 0x259f, 0x2801, 0x28ff, 0xe0b0, 0xe0bf, 0xe0d6, 0xe0d7, 0x1fb00, 0x1fb3b, 0x1fb3c, 0x1fb67, 0x1fb68, 0x1fb6f, 0x1fb70, 0x1fb7b, 0x1fb7c, 0x1fb8b, 0x1fb8c, 0x1fb93, 0x1fb9f, 0x1fba0, 0x1fbae, 0x1cd00, 0x1cde5, 0x1fbe6, 0x1fbe7, 0xf5d0, 0xf60d }) |cp| {
-        const text = surface.CellText{ .id = .{ .value = 10 }, .first_cp = cp, .codepoints = &.{cp} };
-        const cell = surface.RenderableCell{
+        const text = render.CellText{ .id = .{ .value = 10 }, .first_cp = cp, .codepoints = &.{cp} };
+        const cell = render.RenderableCell{
             .text_id = text.id,
             .first_cell = 0,
             .cell_span = 1,
@@ -465,8 +465,8 @@ test "lane marks shared and fallback special sprite routes as complex" {
 }
 
 test "lane marks icon codepoints as complex" {
-    const text = surface.CellText{ .id = .{ .value = 9 }, .first_cp = 0xf101, .codepoints = &.{0xf101} };
-    const cell = surface.RenderableCell{
+    const text = render.CellText{ .id = .{ .value = 9 }, .first_cp = 0xf101, .codepoints = &.{0xf101} };
+    const cell = render.RenderableCell{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -481,8 +481,8 @@ test "lane marks icon codepoints as complex" {
 }
 
 test "lane marks curly underline cells as complex" {
-    const text = surface.CellText{ .id = .{ .value = 7 }, .first_cp = 'u', .codepoints = &.{'u'} };
-    const cell = surface.RenderableCell{
+    const text = render.CellText{ .id = .{ .value = 7 }, .first_cp = 'u', .codepoints = &.{'u'} };
+    const cell = render.RenderableCell{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -499,8 +499,8 @@ test "lane marks curly underline cells as complex" {
 }
 
 test "lane keeps blank route in normal lane" {
-    const text = surface.CellText{ .id = .{ .value = 6 }, .first_cp = 0, .codepoints = &.{0} };
-    const cell = surface.RenderableCell{
+    const text = render.CellText{ .id = .{ .value = 6 }, .first_cp = 0, .codepoints = &.{0} };
+    const cell = render.RenderableCell{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -514,8 +514,8 @@ test "lane keeps blank route in normal lane" {
 }
 
 test "lane report allows visible blank cells without clusters" {
-    const text = surface.CellText{ .id = .{ .value = 0 }, .first_cp = 0, .codepoints = &.{0} };
-    const cell = surface.RenderableCell{
+    const text = render.CellText{ .id = .{ .value = 0 }, .first_cp = 0, .codepoints = &.{0} };
+    const cell = render.RenderableCell{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -531,8 +531,8 @@ test "lane report allows visible blank cells without clusters" {
 }
 
 test "lane report flags legacy leakage for normal runs" {
-    const text = surface.CellText{ .id = .{ .value = 0 }, .first_cp = 'A', .codepoints = &.{'A'} };
-    const cell = surface.RenderableCell{
+    const text = render.CellText{ .id = .{ .value = 0 }, .first_cp = 'A', .codepoints = &.{'A'} };
+    const cell = render.RenderableCell{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -541,7 +541,7 @@ test "lane report flags legacy leakage for normal runs" {
         .fg = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
         .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
     };
-    const cluster = surface.CellCluster{
+    const cluster = render.CellCluster{
         .text_id = text.id,
         .first_cell = 0,
         .cell_span = 1,
@@ -575,9 +575,9 @@ test "lane report flags legacy leakage for normal runs" {
 }
 
 test "lane legacy run accounting accepts exact end-bound run" {
-    const text_a = surface.CellText{ .id = .{ .value = 0 }, .first_cp = 'A', .codepoints = &.{'A'} };
-    const text_b = surface.CellText{ .id = .{ .value = 1 }, .first_cp = 'B', .codepoints = &.{'B'} };
-    const cells = [_]surface.RenderableCell{
+    const text_a = render.CellText{ .id = .{ .value = 0 }, .first_cp = 'A', .codepoints = &.{'A'} };
+    const text_b = render.CellText{ .id = .{ .value = 1 }, .first_cp = 'B', .codepoints = &.{'B'} };
+    const cells = [_]render.RenderableCell{
         .{
             .text_id = text_a.id,
             .first_cell = 0,
@@ -597,7 +597,7 @@ test "lane legacy run accounting accepts exact end-bound run" {
             .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
         },
     };
-    const clusters = [_]surface.CellCluster{
+    const clusters = [_]render.CellCluster{
         .{ .text_id = text_a.id, .first_cell = 0, .cell_span = 1, .first_cp = 'A', .style = .regular, .presentation = .any },
         .{ .text_id = text_b.id, .first_cell = 1, .cell_span = 1, .first_cp = 'B', .style = .regular, .presentation = .any },
     };

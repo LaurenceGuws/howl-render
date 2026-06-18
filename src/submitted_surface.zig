@@ -1,5 +1,5 @@
 const std = @import("std");
-const tokens = @import("tokens.zig");
+const event = @import("event.zig");
 
 pub const ThreadMutex = struct {
     state: std.Io.Mutex = .init,
@@ -15,19 +15,19 @@ pub fn lockMutex(mutex: *ThreadMutex) void {
 
 pub const SubmittedSurface = struct {
     mutex: ThreadMutex = .{},
-    submitted_token: ?tokens.SubmittedSurfaceToken = null,
+    submitted_token: ?event.SubmittedSurfaceToken = null,
 
-    pub fn validatePrepared(self: *const SubmittedSurface, prepared: tokens.PreparedSurfaceToken) tokens.SubmitValidation {
+    pub fn validatePrepared(self: *const SubmittedSurface, prepared: event.PreparedSurfaceToken) event.SubmitValidation {
         const submitted_owner: *SubmittedSurface = @constCast(self);
         lockMutex(&submitted_owner.mutex);
         defer submitted_owner.mutex.unlock();
         const submitted = self.submitted_token orelse {
             return if (prepared.requiresRetainedBase()) .missing_retained_base else .valid;
         };
-        return tokens.validatePreparedSurfaceToken(prepared, submitted);
+        return event.validatePreparedSurfaceToken(prepared, submitted);
     }
 
-    pub fn acceptSubmitted(self: *SubmittedSurface, submitted: tokens.SubmittedSurfaceToken) void {
+    pub fn acceptSubmitted(self: *SubmittedSurface, submitted: event.SubmittedSurfaceToken) void {
         lockMutex(&self.mutex);
         defer self.mutex.unlock();
         std.debug.assert(submitted.token.snapshot_seq != 0);
@@ -35,14 +35,14 @@ pub const SubmittedSurface = struct {
         self.submitted_token = submitted;
     }
 
-    pub fn submittedToken(self: *const SubmittedSurface) ?tokens.SnapshotToken {
+    pub fn submittedToken(self: *const SubmittedSurface) ?event.SnapshotToken {
         const submitted_owner: *SubmittedSurface = @constCast(self);
         lockMutex(&submitted_owner.mutex);
         defer submitted_owner.mutex.unlock();
         return if (self.submitted_token) |submitted| submitted.token else null;
     }
 
-    pub fn prepareTokenForRetainedState(token: tokens.SnapshotToken, submitted_token: ?tokens.SnapshotToken) tokens.SnapshotToken {
+    pub fn prepareTokenForRetainedState(token: event.SnapshotToken, submitted_token: ?event.SnapshotToken) event.SnapshotToken {
         if (!token.requiresRetainedBase()) return token;
         const submitted = submitted_token orelse return forceFull(token);
         if (submitted.geometry_epoch != token.geometry_epoch) return forceFull(token);
@@ -50,7 +50,7 @@ pub const SubmittedSurface = struct {
         return token;
     }
 
-    pub fn forceFull(token: tokens.SnapshotToken) tokens.SnapshotToken {
+    pub fn forceFull(token: event.SnapshotToken) event.SnapshotToken {
         return .{
             .snapshot_seq = token.snapshot_seq,
             .dirty_epoch = token.dirty_epoch,
@@ -60,7 +60,7 @@ pub const SubmittedSurface = struct {
         };
     }
 
-    pub fn isStalePrepared(self: *const SubmittedSurface, latest_token: ?tokens.SnapshotToken, token: tokens.SnapshotToken) bool {
+    pub fn isStalePrepared(self: *const SubmittedSurface, latest_token: ?event.SnapshotToken, token: event.SnapshotToken) bool {
         _ = self;
         const latest = latest_token orelse return false;
         return latest.isNewerThan(token);
@@ -77,12 +77,12 @@ test "submitted owner validates retained base before GPU mutation" {
         .required_base_seq = 1,
     });
 
-    try std.testing.expectEqual(tokens.SubmitValidation.valid, validation);
+    try std.testing.expectEqual(event.SubmitValidation.valid, validation);
 }
 
 test "submitted owner keeps submitted identity as retained base only" {
     var submitted = SubmittedSurface{};
-    const token = tokens.SubmittedSurfaceToken{
+    const token = event.SubmittedSurfaceToken{
         .token = .{ .snapshot_seq = 7, .dirty_epoch = 9, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
         .atlas_epoch = 11,
         .surface_epoch = 13,

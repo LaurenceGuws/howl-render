@@ -261,7 +261,7 @@ pub const MissingGlyph = struct {
     reason: MissingGlyphReason,
 };
 
-test "scene contract defaults stay deterministic" {
+test "grid scene defaults stay deterministic" {
     const cluster = TextCluster{ .grapheme_utf8 = "a", .first_cp = 97 };
     try std.testing.expectEqual(@as(u8, 1), cluster.cell_span);
     const text = CellText{ .id = .{ .value = 1 }, .first_cp = 'A', .codepoints = &.{'A'} };

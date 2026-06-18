@@ -3,17 +3,9 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "howl_vt.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef struct HowlRenderTextSession HowlRenderTextSession;
-typedef struct HowlRenderPreparedSurfaceObject HowlRenderPreparedSurfaceObject;
-
-typedef HowlRenderTextSession *HowlRenderTextSessionHandle;
-typedef HowlRenderPreparedSurfaceObject *HowlRenderRdrSfcHandle;
 
 #define HOWL_RENDER_MAX_FALLBACK_FONTS 24
 
@@ -51,44 +43,6 @@ typedef enum {
     HOWL_RENDER_CALL_INVALID_ARGUMENT = -2,
     HOWL_RENDER_CALL_FAILED = -3,
 } HowlRenderCallStatus;
-
-typedef enum {
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_OK = 0,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_HANDLE = -1,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_ARGUMENT = -2,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_COMMAND_BOUND_OVERFLOW = 1,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_CREATE_BOUND_OVERFLOW = 2,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_DAMAGE_BOUND_OVERFLOW = 3,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RETIRE_BOUND_OVERFLOW = 4,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_RESOURCE_BOUND_OVERFLOW = 5,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BOUND_OVERFLOW = 6,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_UPLOAD_BYTES_OVERFLOW = 7,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_INVALID_PREPARED_SPRITE = 8,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_MISSING_PREPARED_SPRITE = 9,
-    HOWL_RENDER_PREPARED_SURFACE_RENDER_SURFACE_ALLOCATION_FAILED = 10,
-} HowlRenderPreparedSurfaceRenderSurfaceStatus;
-
-typedef enum {
-    HOWL_RENDER_PREPARE_IDLE = 0,
-    HOWL_RENDER_PREPARE_READY = 1,
-    HOWL_RENDER_PREPARE_FAILED = -3,
-} HowlRenderPrepareStatus;
-
-typedef enum {
-    HOWL_RENDER_SUBMIT_IDLE = 0,
-    HOWL_RENDER_SUBMIT_RENDERED = 1,
-    HOWL_RENDER_SUBMIT_STALE = 2,
-    HOWL_RENDER_SUBMIT_NEEDS_PREPARE = 3,
-    HOWL_RENDER_SUBMIT_FAILED = -3,
-} HowlRenderSubmitStatus;
-
-typedef enum {
-    HOWL_RENDER_SUBMIT_DECISION_IDLE = 0,
-    HOWL_RENDER_SUBMIT_DECISION_SUBMIT = 1,
-    HOWL_RENDER_SUBMIT_DECISION_STALE = 2,
-    HOWL_RENDER_SUBMIT_DECISION_NEEDS_PREPARE = 3,
-    HOWL_RENDER_SUBMIT_DECISION_FAILED = -3,
-} HowlRenderSubmitDecisionStatus;
 
 typedef enum {
     HOWL_RENDER_DAMAGE_NONE = 0,
@@ -331,156 +285,11 @@ typedef struct {
 } HowlRenderGeometryResponse;
 
 typedef struct {
-    int32_t status;
-    uint8_t source_pending;
-    uint8_t prepare_pending;
-    uint8_t submit_pending;
-    uint8_t animation_pending;
-} HowlRenderSessionWorkState;
-
-typedef struct {
-    uint64_t snapshot_seq;
-    uint64_t dirty_epoch;
-    uint64_t geometry_epoch;
-    uint64_t damage_base_seq;
-    uint8_t damage_kind;
-    uint8_t reserved0;
-    uint16_t reserved1;
-} HowlRenderPrepareRequest;
-
-typedef struct {
-    uint16_t row;
-    uint16_t col;
-    uint16_t rows;
-    uint16_t cols;
-    uint8_t opacity;
-    uint8_t reserved0;
-    uint16_t reserved1;
-    HowlVtRgb8 color;
-} HowlRenderHostCursorTrailRect;
-
-typedef struct {
-    uint8_t focused;
-    uint8_t cursor_opacity;
-    uint8_t text_blink_opacity;
-    uint8_t effective_shape;
-    HowlVtColor cursor_color;
-    HowlVtColor cursor_text_color;
-    HowlVtColor cursor_trail_color;
-    float cursor_beam_thickness;
-    float cursor_underline_thickness;
-    float cursor_trail_decay_fast_s;
-    float cursor_trail_decay_slow_s;
-    uint16_t cursor_trail_count;
-    uint16_t reserved0;
-    HowlRenderHostCursorTrailRect cursor_trail_rects[HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX];
-    uint64_t now_ns;
-} HowlRenderHostCursorCadence;
-
-typedef struct {
     uint64_t host_surface_id;
     uint16_t width;
     uint16_t height;
 } HowlRenderHostSurface;
 
-typedef struct {
-    int32_t status;
-    uint64_t snapshot_seq;
-    uint64_t dirty_epoch;
-    uint64_t geometry_epoch;
-    uint64_t required_base_seq;
-    HowlRenderPixelSize render_px;
-    HowlRenderCellSize cell_px;
-    HowlRenderGridSize grid;
-    uint8_t damage_kind;
-    uint8_t reserved0;
-    uint16_t reserved1;
-} HowlRenderPreparedSurfaceInfo;
-
-typedef struct {
-    HowlRenderHostSurface host_surface;
-} HowlRenderSubmitExecution;
-
-typedef struct {
-    int32_t status;
-    uint8_t damage_kind;
-    uint8_t reserved0;
-    uint16_t reserved1;
-    HowlRenderHostSurface host_surface;
-} HowlRenderSubmitResult;
-
-typedef struct {
-    HowlRenderPixelSize surface_px;
-    uint16_t font_size_px;
-    uint16_t reserved0;
-} HowlRenderTextConfig;
-
-HowlRenderTextSessionHandle howl_render_text_session_init(HowlRenderTextConfig config);
-void howl_render_text_session_deinit(HowlRenderTextSessionHandle handle);
-int howl_render_text_session_set_font_size_px(
-    HowlRenderTextSessionHandle handle,
-    uint16_t font_size_px
-);
-int howl_render_text_session_set_font_path(
-    HowlRenderTextSessionHandle handle,
-    const uint8_t *ptr,
-    size_t len
-);
-int howl_render_text_session_set_fallback_font_paths(
-    HowlRenderTextSessionHandle handle,
-    const uint8_t *const *ptrs,
-    size_t count
-);
-int howl_render_text_session_set_cursor_cadence(
-    HowlRenderTextSessionHandle handle,
-    const HowlRenderHostCursorCadence *cadence
-);
-int howl_render_text_session_is_valid_font(HowlRenderTextSessionHandle handle);
-HowlRenderLayoutResult howl_render_text_session_derive_layout(
-    HowlRenderTextSessionHandle handle,
-    HowlRenderPixelSize render_px,
-    HowlRenderPixelSize grid_px
-);
-HowlRenderGeometryResponse howl_render_text_session_sync_geometry(
-    HowlRenderTextSessionHandle handle,
-    HowlRenderGeometry geometry
-);
-HowlRenderPrepareStatus howl_render_text_session_prepare_handle(
-    HowlRenderTextSessionHandle text_session_handle,
-    HowlRenderPrepareRequest prepare_request,
-    HowlRenderRdrSfcHandle *rdr_sfc_handle_out
-);
-HowlRenderPrepareStatus howl_render_text_session_take_prepare_request(
-    HowlRenderTextSessionHandle handle,
-    HowlVtRenderStateHandle render_state,
-    HowlRenderPrepareRequest *prepare_request_out
-);
-HowlRenderSubmitDecisionStatus howl_render_text_session_take_submit_handle(
-    HowlRenderTextSessionHandle handle,
-    HowlRenderRdrSfcHandle *rdr_sfc_handle_out
-);
-HowlRenderSubmitStatus howl_render_text_session_submit_handle(
-    HowlRenderTextSessionHandle text_session_handle,
-    HowlRenderRdrSfcHandle rdr_sfc_handle,
-    const HowlRenderSubmitExecution *execution_in,
-    HowlRenderSubmitResult *result_out
-);
-int howl_render_text_session_work_state(
-    HowlRenderTextSessionHandle handle,
-    HowlRenderSessionWorkState *work_state_out
-);
-
-void howl_render_rdr_sfc_release(
-    HowlRenderRdrSfcHandle rdr_sfc_handle
-);
-int howl_render_rdr_sfc_describe(
-    HowlRenderRdrSfcHandle rdr_sfc_handle,
-    HowlRenderPreparedSurfaceInfo *info_out
-);
-HowlRenderPreparedSurfaceRenderSurfaceStatus howl_render_rdr_sfc_render_surface(
-    HowlRenderRdrSfcHandle rdr_sfc_handle,
-    const HowlRenderSurface **surface_out
-);
 #ifdef __cplusplus
 }
 #endif

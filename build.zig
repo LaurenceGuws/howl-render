@@ -96,8 +96,8 @@ pub fn build(b: *std.Build) void {
     const test_build_step = b.step("test:build", "Build render tests");
     const unit_test_step = b.step("test:unit", "Run render unit tests");
     const unit_test_build_step = b.step("test:unit:build", "Build render unit tests");
-    const abi_test_step = b.step("test:abi", "Run shipped render ABI contract tests");
-    const abi_test_build_step = b.step("test:abi:build", "Build shipped render ABI contract tests");
+    const abi_test_step = b.step("test:abi", "Run shipped render ABI tests");
+    const abi_test_build_step = b.step("test:abi:build", "Build shipped render ABI tests");
     unit_test_build_step.dependOn(&unit_tests.step);
     unit_test_step.dependOn(&run_unit_tests.step);
     abi_test_build_step.dependOn(&abi_tests.step);
@@ -145,6 +145,7 @@ pub fn build(b: *std.Build) void {
     benchmark_mod.addIncludePath(perf_freetype_lib.getEmittedIncludeTree());
     benchmark_mod.linkLibrary(perf_harfbuzz_lib);
     benchmark_mod.addIncludePath(perf_harfbuzz_lib.getEmittedIncludeTree());
+    benchmark_mod.linkLibrary(howl_vt_lib);
 
     const benchmark_exe = b.addExecutable(.{
         .name = "render_benchmark",

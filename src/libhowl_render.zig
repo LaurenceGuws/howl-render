@@ -1,26 +1,77 @@
-const text_session = @import("c/text_session.zig");
-const surface_geometry = @import("c/surface_geometry.zig");
-const prepared_surface = @import("c/prepared_surface.zig");
-const prepare_request = @import("c/prepare_request.zig");
-const submission = @import("c/submission.zig");
-const work_state = @import("c/work_state.zig");
+const std = @import("std");
 
-comptime {
-    @export(&text_session.init, .{ .name = "howl_render_text_session_init" });
-    @export(&text_session.deinit, .{ .name = "howl_render_text_session_deinit" });
-    @export(&text_session.setFontSize, .{ .name = "howl_render_text_session_set_font_size_px" });
-    @export(&text_session.setFontPath, .{ .name = "howl_render_text_session_set_font_path" });
-    @export(&text_session.setFallbackFontPaths, .{ .name = "howl_render_text_session_set_fallback_font_paths" });
-    @export(&text_session.setCursorCadence, .{ .name = "howl_render_text_session_set_cursor_cadence" });
-    @export(&text_session.isValidFont, .{ .name = "howl_render_text_session_is_valid_font" });
-    @export(&surface_geometry.deriveLayout, .{ .name = "howl_render_text_session_derive_layout" });
-    @export(&surface_geometry.syncGeometry, .{ .name = "howl_render_text_session_sync_geometry" });
-    @export(&prepared_surface.prepareHandle, .{ .name = "howl_render_text_session_prepare_handle" });
-    @export(&prepare_request.takePrepareRequest, .{ .name = "howl_render_text_session_take_prepare_request" });
-    @export(&submission.takeSubmitHandle, .{ .name = "howl_render_text_session_take_submit_handle" });
-    @export(&submission.submitHandle, .{ .name = "howl_render_text_session_submit_handle" });
-    @export(&work_state.workState, .{ .name = "howl_render_text_session_work_state" });
-    @export(&prepared_surface.release, .{ .name = "howl_render_rdr_sfc_release" });
-    @export(&prepared_surface.describe, .{ .name = "howl_render_rdr_sfc_describe" });
-    @export(&prepared_surface.renderSurface, .{ .name = "howl_render_rdr_sfc_render_surface" });
+const cell_input = @import("cell/input.zig");
+const color = @import("cell/color.zig");
+const effects = @import("cell/effects.zig");
+const metrics = @import("text/metrics.zig");
+const scene_grid = @import("grid/scene.zig");
+const cursor_presentation = @import("cursor/presentation.zig");
+
+pub const Rgba8 = color.Rgba8;
+pub const SemanticColorKind = color.SemanticColorKind;
+pub const SemanticColor = color.SemanticColor;
+
+pub const UnderlineStyle = effects.UnderlineStyle;
+pub const FontStyle = effects.FontStyle;
+pub const TextPresentation = effects.TextPresentation;
+pub const DecorationKind = effects.DecorationKind;
+
+pub const FontMetrics = metrics.FontMetrics;
+pub const FaceMetrics26Dot6 = metrics.FaceMetrics26Dot6;
+pub const DecorationGeometry = metrics.DecorationGeometry;
+pub const CursorGeometry = metrics.CursorGeometry;
+pub const CellMetrics = metrics.CellMetrics;
+pub const GridMetrics = metrics.GridMetrics;
+
+pub const CellInput = cell_input.CellInput;
+pub const max_extra_cursors = cursor_presentation.max_extra_cursors;
+pub const max_cursor_trail_rects = cursor_presentation.max_cursor_trail_rects;
+pub const CursorColor = cursor_presentation.CursorColor;
+pub const Rgb8 = cursor_presentation.Rgb8;
+pub const CellExtent = cursor_presentation.CellExtent;
+pub const CursorShape = cursor_presentation.CursorShape;
+pub const ExtraCursorMode = cursor_presentation.ExtraCursorMode;
+pub const ExtraCursorPresentation = cursor_presentation.ExtraCursorPresentation;
+pub const CursorTrailRect = cursor_presentation.CursorTrailRect;
+pub const CursorTrailSource = cursor_presentation.CursorTrailSource;
+pub const CursorPresentation = cursor_presentation.CursorPresentation;
+
+pub const FontFaceId = scene_grid.FontFaceId;
+pub const CellTextId = scene_grid.CellTextId;
+pub const SpriteKey = scene_grid.SpriteKey;
+pub const CellText = scene_grid.CellText;
+pub const LineTextCache = scene_grid.LineTextCache;
+pub const RenderableCell = scene_grid.RenderableCell;
+pub const CellCluster = scene_grid.CellCluster;
+pub const RunFont = scene_grid.RunFont;
+pub const TextRun = scene_grid.TextRun;
+pub const ResolvedRun = scene_grid.ResolvedRun;
+pub const GlyphInstance = scene_grid.GlyphInstance;
+pub const GlyphPlacement = scene_grid.GlyphPlacement;
+pub const GlyphGroupKind = scene_grid.GlyphGroupKind;
+pub const GlyphGroup = scene_grid.GlyphGroup;
+pub const SpriteColorMode = scene_grid.SpriteColorMode;
+pub const SpritePosition = scene_grid.SpritePosition;
+pub const TextSpriteDraw = scene_grid.TextSpriteDraw;
+pub const TextBackgroundDraw = scene_grid.TextBackgroundDraw;
+pub const TextClearDraw = scene_grid.TextClearDraw;
+pub const TextCursorDraw = scene_grid.TextCursorDraw;
+pub const TextDecorationDraw = scene_grid.TextDecorationDraw;
+pub const SpriteRasterKind = scene_grid.SpriteRasterKind;
+pub const DecorationSpriteRaster = scene_grid.DecorationSpriteRaster;
+pub const BoxDrawingRasterMetrics = scene_grid.BoxDrawingRasterMetrics;
+pub const SpriteRasterRequest = scene_grid.SpriteRasterRequest;
+pub const TextScene = scene_grid.TextScene;
+pub const SpecialSpriteRoute = scene_grid.SpecialSpriteRoute;
+pub const TextCluster = scene_grid.TextCluster;
+pub const ShapedGlyph = scene_grid.ShapedGlyph;
+pub const ShapedRun = scene_grid.ShapedRun;
+pub const MissingGlyphReason = scene_grid.MissingGlyphReason;
+pub const MissingGlyph = scene_grid.MissingGlyph;
+
+test "render root re-exports owner modules only" {
+    const cell = CellInput{ .codepoint = 'a', .fg = .{ .r = 1, .g = 2, .b = 3, .a = 255 }, .bg = .{ .r = 4, .g = 5, .b = 6, .a = 255 } };
+    cell.assertValid();
+    const scene = TextScene{ .sprite_draws = &.{}, .missing = &.{} };
+    try std.testing.expect(scene.full_redraw);
 }

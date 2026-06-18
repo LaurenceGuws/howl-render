@@ -1,7 +1,7 @@
 const std = @import("std");
-const surface = @import("../surface.zig");
+const render = @import("../libhowl_render.zig");
 
-pub const FontFaceId = surface.FontFaceId;
+pub const FontFaceId = render.FontFaceId;
 
 pub const FontFaceRole = enum(u3) {
     primary,
@@ -15,11 +15,11 @@ pub const FontFaceRole = enum(u3) {
 pub const FontFaceRecord = struct {
     id: FontFaceId,
     role: FontFaceRole,
-    style: surface.FontStyle = .regular,
-    presentation: surface.TextPresentation = .any,
+    style: render.FontStyle = .regular,
+    presentation: render.TextPresentation = .any,
     coverage: Coverage = .all,
 
-    pub fn hasCellText(self: FontFaceRecord, text: surface.CellText) bool {
+    pub fn hasCellText(self: FontFaceRecord, text: render.CellText) bool {
         for (text.codepoints) |cp| {
             if (isNonRenderingCodepoint(cp)) continue;
             if (!covers(self.coverage, cp)) return false;
@@ -28,13 +28,13 @@ pub const FontFaceRecord = struct {
     }
 };
 
-pub const HasCellTextFn = *const fn (ctx: *anyopaque, face_id: FontFaceId, text: surface.CellText) bool;
+pub const HasCellTextFn = *const fn (ctx: *anyopaque, face_id: FontFaceId, text: render.CellText) bool;
 
 pub const FaceProvider = struct {
     ctx: *anyopaque,
     has_cell_text: HasCellTextFn,
 
-    pub fn hasCellText(self: FaceProvider, face_id: FontFaceId, text: surface.CellText) bool {
+    pub fn hasCellText(self: FaceProvider, face_id: FontFaceId, text: render.CellText) bool {
         return self.has_cell_text(self.ctx, face_id, text);
     }
 };
@@ -57,7 +57,7 @@ pub const FontSession = struct {
     primary_face: FontFaceId = .{ .value = 1 },
     faces: []const FontFaceRecord = &.{},
     provider: ?FaceProvider = null,
-    metrics: surface.CellMetrics = .{ .cell_w_px = 1, .cell_h_px = 1, .baseline_px = 1 },
+    metrics: render.CellMetrics = .{ .cell_w_px = 1, .cell_h_px = 1, .baseline_px = 1 },
 
     pub fn primary(self: FontSession) FontFaceRecord {
         for (self.faces) |face| {
@@ -69,7 +69,7 @@ pub const FontSession = struct {
         return .{ .id = self.primary_face, .role = .primary };
     }
 
-    pub fn findStyle(self: FontSession, style: surface.FontStyle, presentation: surface.TextPresentation, text: surface.CellText) ?FontFaceRecord {
+    pub fn findStyle(self: FontSession, style: render.FontStyle, presentation: render.TextPresentation, text: render.CellText) ?FontFaceRecord {
         if (self.findText(.style, style, presentation, text)) |face| return face;
         return validPrimary(self, self.primary(), text);
     }
@@ -78,11 +78,11 @@ pub const FontSession = struct {
         return self.find(.symbol, .regular, .any, cp);
     }
 
-    pub fn findFallback(self: FontSession, style: surface.FontStyle, presentation: surface.TextPresentation, text: surface.CellText) ?FontFaceRecord {
+    pub fn findFallback(self: FontSession, style: render.FontStyle, presentation: render.TextPresentation, text: render.CellText) ?FontFaceRecord {
         return self.findText(.fallback, style, presentation, text) orelse self.findText(.fallback, .regular, .any, text);
     }
 
-    fn find(self: FontSession, role: FontFaceRole, style: surface.FontStyle, presentation: surface.TextPresentation, cp: u32) ?FontFaceRecord {
+    fn find(self: FontSession, role: FontFaceRole, style: render.FontStyle, presentation: render.TextPresentation, cp: u32) ?FontFaceRecord {
         for (self.faces) |face| {
             if (face.role != role) continue;
             if (face.style != style and face.style != .regular) continue;
@@ -93,7 +93,7 @@ pub const FontSession = struct {
         return null;
     }
 
-    fn findText(self: FontSession, role: FontFaceRole, style: surface.FontStyle, presentation: surface.TextPresentation, text: surface.CellText) ?FontFaceRecord {
+    fn findText(self: FontSession, role: FontFaceRole, style: render.FontStyle, presentation: render.TextPresentation, text: render.CellText) ?FontFaceRecord {
         for (self.faces) |face| {
             if (face.role != role) continue;
             if (face.style != style and face.style != .regular) continue;
@@ -104,13 +104,13 @@ pub const FontSession = struct {
         return null;
     }
 
-    pub fn hasCellText(self: FontSession, face: FontFaceRecord, text: surface.CellText) bool {
+    pub fn hasCellText(self: FontSession, face: FontFaceRecord, text: render.CellText) bool {
         if (self.provider) |provider| return provider.hasCellText(face.id, text);
         return face.hasCellText(text);
     }
 };
 
-fn validPrimary(self: FontSession, face: FontFaceRecord, text: surface.CellText) ?FontFaceRecord {
+fn validPrimary(self: FontSession, face: FontFaceRecord, text: render.CellText) ?FontFaceRecord {
     return if (self.hasCellText(face, text)) face else null;
 }
 
@@ -138,7 +138,7 @@ test "font session resolves symbol and fallback records by coverage" {
     };
     const session = FontSession{ .faces = &faces };
     try std.testing.expectEqual(@as(u32, 2), session.findSymbol(0xe0b0).?.id.value);
-    const snowman = surface.CellText{ .id = .{ .value = 1 }, .first_cp = 0x2603, .codepoints = &.{0x2603} };
+    const snowman = render.CellText{ .id = .{ .value = 1 }, .first_cp = 0x2603, .codepoints = &.{0x2603} };
     try std.testing.expectEqual(@as(u32, 3), session.findFallback(.regular, .any, snowman).?.id.value);
 }
 
@@ -148,8 +148,8 @@ test "font session validates all rendering codepoints in cell text" {
         .{ .id = .{ .value = 3 }, .role = .fallback, .coverage = .all },
     };
     const session = FontSession{ .faces = &faces };
-    const combining = surface.CellText{ .id = .{ .value = 1 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
-    const emoji_presentation = surface.CellText{ .id = .{ .value = 2 }, .first_cp = 'x', .codepoints = &.{ 'x', 0xfe0f } };
+    const combining = render.CellText{ .id = .{ .value = 1 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
+    const emoji_presentation = render.CellText{ .id = .{ .value = 2 }, .first_cp = 'x', .codepoints = &.{ 'x', 0xfe0f } };
     try std.testing.expect(session.findStyle(.regular, .any, combining) == null);
     try std.testing.expectEqual(@as(u32, 3), session.findFallback(.regular, .any, combining).?.id.value);
     try std.testing.expectEqual(@as(u32, 2), session.findStyle(.regular, .any, emoji_presentation).?.id.value);
@@ -162,7 +162,7 @@ test "font session primary lookup preserves configured face without synthetic co
         .{ .id = .{ .value = 3 }, .role = .fallback, .coverage = .all },
     };
     const session = FontSession{ .primary_face = .{ .value = 2 }, .faces = &faces };
-    const combining = surface.CellText{ .id = .{ .value = 1 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
+    const combining = render.CellText{ .id = .{ .value = 1 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
     try std.testing.expectEqual(@as(u32, 2), session.primary().id.value);
     try std.testing.expect(session.findStyle(.regular, .any, combining) == null);
     try std.testing.expectEqual(@as(u32, 3), session.findFallback(.regular, .any, combining).?.id.value);
@@ -170,7 +170,7 @@ test "font session primary lookup preserves configured face without synthetic co
 
 test "font session provider can reject static coverage hits" {
     const Provider = struct {
-        fn has(ctx: *anyopaque, face_id: FontFaceId, text: surface.CellText) bool {
+        fn has(ctx: *anyopaque, face_id: FontFaceId, text: render.CellText) bool {
             _ = ctx;
             if (face_id.value == 1 and text.codepoints.len > 1) return false;
             return true;
@@ -182,7 +182,7 @@ test "font session provider can reject static coverage hits" {
     };
     var dummy: u8 = 0;
     const session = FontSession{ .faces = &faces, .provider = .{ .ctx = &dummy, .has_cell_text = Provider.has } };
-    const sequence = surface.CellText{ .id = .{ .value = 1 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
+    const sequence = render.CellText{ .id = .{ .value = 1 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
     try std.testing.expect(session.findStyle(.regular, .any, sequence) == null);
     try std.testing.expectEqual(@as(u32, 2), session.findFallback(.regular, .any, sequence).?.id.value);
 }

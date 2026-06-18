@@ -1,40 +1,17 @@
 const std = @import("std");
-const surface = @import("surface.zig");
+const render = @import("libhowl_render.zig");
 const scene_damage = @import("grid/damage.zig");
 const scene_rects = @import("grid/rects.zig");
 const atlas_cache = @import("text/raster/atlas.zig");
 const rasterizer = @import("text/raster/rasterizer.zig");
 const sprite_key = @import("text/raster/key.zig");
+const cursor_presentation = @import("cursor/presentation.zig");
 
-pub const TextScene = surface.TextScene;
-pub const TextSpriteDraw = surface.TextSpriteDraw;
-
-pub const CursorFillRect = struct {
-    x_px: i32,
-    y_px: i32,
-    width_px: u16,
-    height_px: u16,
-    color: surface.Rgba8,
-    first_cell: u32,
-    cell_span: u8,
-};
-
-pub const CursorTextRecolorSpan = struct {
-    first_cell: u32,
-    cell_span: u8,
-    color: surface.Rgba8,
-};
-
-pub const CursorTrailRect = struct {
-    x_px: i32,
-    y_px: i32,
-    width_px: u16,
-    height_px: u16,
-    opacity: u8,
-    color: surface.Rgba8,
-    first_cell: u32,
-    cell_span: u8,
-};
+pub const TextScene = render.TextScene;
+pub const TextSpriteDraw = render.TextSpriteDraw;
+pub const CursorFillRect = cursor_presentation.CursorFillRect;
+pub const CursorTextRecolorSpan = cursor_presentation.CursorTextRecolorSpan;
+pub const CursorTrailRect = cursor_presentation.CursorTrailDrawRect;
 
 pub fn empty() TextScene {
     return .{ .clear_draws = &.{}, .background_draws = &.{}, .sprite_draws = &.{}, .decoration_draws = &.{}, .cursor_draws = &.{}, .missing = &.{} };
@@ -44,14 +21,14 @@ const kitty_dim_opacity_numerator: u16 = 2;
 const kitty_dim_opacity_denominator: u16 = 5;
 
 pub const BuildOptions = struct {
-    cursor: ?surface.CursorPresentation = null,
+    cursor: ?render.CursorPresentation = null,
     damage: scene_damage.DamageInput = .{},
 };
 
 pub const OwnedTextScene = struct {
     allocator: std.mem.Allocator,
-    scene: surface.TextScene,
-    cursor_presentation: ?surface.CursorPresentation = null,
+    scene: render.TextScene,
+    cursor_presentation: ?render.CursorPresentation = null,
     cursor_fill_rects: []const CursorFillRect = &.{},
     cursor_text_recolor_spans: []const CursorTextRecolorSpan = &.{},
     cursor_trail_rects: []const CursorTrailRect = &.{},
@@ -76,8 +53,8 @@ pub const OwnedTextScene = struct {
 
 pub const BorrowedTextScene = struct {
     allocator: std.mem.Allocator,
-    scene: surface.TextScene,
-    cursor_presentation: ?surface.CursorPresentation = null,
+    scene: render.TextScene,
+    cursor_presentation: ?render.CursorPresentation = null,
     cursor_fill_rects: []const CursorFillRect = &.{},
     cursor_text_recolor_spans: []const CursorTextRecolorSpan = &.{},
     cursor_trail_rects: []const CursorTrailRect = &.{},
@@ -90,11 +67,11 @@ pub const BorrowedTextScene = struct {
 };
 
 pub const RetainedScratch = struct {
-    sprite_draws: std.ArrayList(surface.TextSpriteDraw) = .empty,
-    background_draws: std.ArrayList(surface.TextBackgroundDraw) = .empty,
-    clear_draws: std.ArrayList(surface.TextClearDraw) = .empty,
-    decoration_draws: std.ArrayList(surface.TextDecorationDraw) = .empty,
-    cursor_draws: std.ArrayList(surface.TextCursorDraw) = .empty,
+    sprite_draws: std.ArrayList(render.TextSpriteDraw) = .empty,
+    background_draws: std.ArrayList(render.TextBackgroundDraw) = .empty,
+    clear_draws: std.ArrayList(render.TextClearDraw) = .empty,
+    decoration_draws: std.ArrayList(render.TextDecorationDraw) = .empty,
+    cursor_draws: std.ArrayList(render.TextCursorDraw) = .empty,
     cursor_fill_rects: std.ArrayList(CursorFillRect) = .empty,
     cursor_text_recolor_spans: std.ArrayList(CursorTextRecolorSpan) = .empty,
     cursor_trail_rects: std.ArrayList(CursorTrailRect) = .empty,
@@ -133,11 +110,11 @@ pub const RetainedScratch = struct {
 
 pub fn buildSceneWithOptions(
     allocator: std.mem.Allocator,
-    cells: []const surface.RenderableCell,
-    groups: []const surface.GlyphGroup,
-    missing: []const surface.MissingGlyph,
-    cell_metrics: surface.CellMetrics,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    groups: []const render.GlyphGroup,
+    missing: []const render.MissingGlyph,
+    cell_metrics: render.CellMetrics,
+    grid_metrics: render.GridMetrics,
     options: BuildOptions,
 ) !OwnedTextScene {
     var cache = try atlas_cache.OwnedAtlasCache.init(allocator, @intCast(groups.len + cells.len));
@@ -147,11 +124,11 @@ pub fn buildSceneWithOptions(
 
 pub fn buildSceneWithAtlasCacheOptions(
     allocator: std.mem.Allocator,
-    cells: []const surface.RenderableCell,
-    groups: []const surface.GlyphGroup,
-    missing: []const surface.MissingGlyph,
-    cell_metrics: surface.CellMetrics,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    groups: []const render.GlyphGroup,
+    missing: []const render.MissingGlyph,
+    cell_metrics: render.CellMetrics,
+    grid_metrics: render.GridMetrics,
     cache: *atlas_cache.OwnedAtlasCache,
     options: BuildOptions,
 ) !OwnedTextScene {
@@ -166,11 +143,11 @@ pub fn buildSceneWithAtlasCacheOptions(
 pub fn buildBorrowedSceneWithAtlasCacheOptions(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
-    cells: []const surface.RenderableCell,
-    groups: []const surface.GlyphGroup,
-    missing: []const surface.MissingGlyph,
-    cell_metrics: surface.CellMetrics,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    groups: []const render.GlyphGroup,
+    missing: []const render.MissingGlyph,
+    cell_metrics: render.CellMetrics,
+    grid_metrics: render.GridMetrics,
     cache: *atlas_cache.OwnedAtlasCache,
     options: BuildOptions,
 ) !BorrowedTextScene {
@@ -189,13 +166,13 @@ pub fn buildBorrowedSceneWithAtlasCacheOptions(
 fn appendSceneAssemblyPopulation(
     assembly: *SceneAssembly,
     cache: *atlas_cache.OwnedAtlasCache,
-    cells: []const surface.RenderableCell,
-    groups: []const surface.GlyphGroup,
-    missing: []const surface.MissingGlyph,
-    cell_metrics: surface.CellMetrics,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    groups: []const render.GlyphGroup,
+    missing: []const render.MissingGlyph,
+    cell_metrics: render.CellMetrics,
+    grid_metrics: render.GridMetrics,
     damage: scene_damage.NormalizedDamage,
-    cursor: ?surface.CursorPresentation,
+    cursor: ?render.CursorPresentation,
 ) !void {
     try assembly.missing.appendSlice(assembly.allocator, missing);
 
@@ -232,17 +209,17 @@ const DrawCapacities = struct {
 const SceneAssembly = struct {
     allocator: std.mem.Allocator,
     retained_scratch: ?*RetainedScratch = null,
-    cursor_presentation: ?surface.CursorPresentation = null,
-    sprite_draws: std.ArrayList(surface.TextSpriteDraw) = .empty,
-    background_draws: std.ArrayList(surface.TextBackgroundDraw) = .empty,
-    clear_draws: std.ArrayList(surface.TextClearDraw) = .empty,
-    decoration_draws: std.ArrayList(surface.TextDecorationDraw) = .empty,
-    cursor_draws: std.ArrayList(surface.TextCursorDraw) = .empty,
+    cursor_presentation: ?render.CursorPresentation = null,
+    sprite_draws: std.ArrayList(render.TextSpriteDraw) = .empty,
+    background_draws: std.ArrayList(render.TextBackgroundDraw) = .empty,
+    clear_draws: std.ArrayList(render.TextClearDraw) = .empty,
+    decoration_draws: std.ArrayList(render.TextDecorationDraw) = .empty,
+    cursor_draws: std.ArrayList(render.TextCursorDraw) = .empty,
     cursor_fill_rects: std.ArrayList(CursorFillRect) = .empty,
     cursor_text_recolor_spans: std.ArrayList(CursorTextRecolorSpan) = .empty,
     cursor_trail_rects: std.ArrayList(CursorTrailRect) = .empty,
-    raster_requests: std.ArrayList(surface.SpriteRasterRequest) = .empty,
-    missing: std.ArrayList(surface.MissingGlyph) = .empty,
+    raster_requests: std.ArrayList(render.SpriteRasterRequest) = .empty,
+    missing: std.ArrayList(render.MissingGlyph) = .empty,
 
     fn adoptRetainedScratch(self: *SceneAssembly, scratch: *RetainedScratch) void {
         self.retained_scratch = scratch;
@@ -332,7 +309,7 @@ const SceneAssembly = struct {
         };
     }
 
-    fn appendRasterizedSpriteDraw(self: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, req: surface.SpriteRasterRequest, draw: SpriteDrawInput) !void {
+    fn appendRasterizedSpriteDraw(self: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, req: render.SpriteRasterRequest, draw: SpriteDrawInput) !void {
         std.debug.assert(draw.width_px > 0);
         std.debug.assert(draw.height_px > 0);
         const residency = cache.reserveRequest(req);
@@ -353,13 +330,13 @@ const SceneAssembly = struct {
     fn appendUndercurl(
         self: *SceneAssembly,
         cache: *atlas_cache.OwnedAtlasCache,
-        cell: surface.RenderableCell,
+        cell: render.RenderableCell,
         x: i32,
         row_y: i32,
         width: u16,
-        deco: surface.DecorationGeometry,
-        cell_metrics: surface.CellMetrics,
-        color: surface.Rgba8,
+        deco: render.DecorationGeometry,
+        cell_metrics: render.CellMetrics,
+        color: render.Rgba8,
     ) !void {
         const cell_h = @max(cell_metrics.cell_h_px, 1);
         const underline_position: u16 = @intCast(std.math.clamp(deco.underline_y_px, 0, @as(i32, @intCast(cell_h - 1))));
@@ -374,7 +351,7 @@ const SceneAssembly = struct {
         var y_px: u16 = @intCast(@min(@as(u32, position_base) + @as(u32, amplitude) * 2, @as(u32, cell_h - 1)));
         if (y_px + amplitude > cell_h - 1) y_px = saturatingSub(cell_h - 1, amplitude);
         const period: u16 = @max(saturatingSub(cell_metrics.cell_w_px, 1), 1);
-        const decoration = surface.DecorationSpriteRaster{ .stroke_px = stroke, .amplitude_px = amplitude, .period_px = period, .y_px = y_px };
+        const decoration = render.DecorationSpriteRaster{ .stroke_px = stroke, .amplitude_px = amplitude, .period_px = period, .y_px = y_px };
         const key = sprite_key.hashUndercurl(width, cell_h, stroke, amplitude, period, y_px);
         const req = rasterizer.requestForUndercurl(key, width, cell_h, decoration);
         try self.appendRasterizedSpriteDraw(cache, req, .{
@@ -390,12 +367,12 @@ const SceneAssembly = struct {
 };
 
 fn drawCapacities(
-    cells: []const surface.RenderableCell,
-    groups: []const surface.GlyphGroup,
-    cell_metrics: surface.CellMetrics,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    groups: []const render.GlyphGroup,
+    cell_metrics: render.CellMetrics,
+    grid_metrics: render.GridMetrics,
     damage: scene_damage.NormalizedDamage,
-    cursor: ?surface.CursorPresentation,
+    cursor: ?render.CursorPresentation,
 ) DrawCapacities {
     return .{
         .sprite_draws = countGroupSpriteDraws(groups, grid_metrics, damage) + countCurlyUnderlineSprites(cells, grid_metrics, damage),
@@ -409,7 +386,7 @@ fn drawCapacities(
     };
 }
 
-fn emptyExtraCursorPresentation() surface.ExtraCursorPresentation {
+fn emptyExtraCursorPresentation() render.ExtraCursorPresentation {
     return .{
         .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 },
         .shape = .none,
@@ -421,11 +398,11 @@ fn emptyExtraCursorPresentation() surface.ExtraCursorPresentation {
     };
 }
 
-fn emptyCursorTrailRect() surface.CursorTrailRect {
+fn emptyCursorTrailRect() render.CursorTrailRect {
     return .{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .opacity = 0, .color = .{ .r = 0, .g = 0, .b = 0 } };
 }
 
-fn testCursorPresentation(shape: surface.CursorShape, col: u16, row: u16, rgb: surface.Rgba8) surface.CursorPresentation {
+fn testCursorPresentation(shape: render.CursorShape, col: u16, row: u16, rgb: render.Rgba8) render.CursorPresentation {
     return .{
         .focused = true,
         .visible = true,
@@ -438,13 +415,13 @@ fn testCursorPresentation(shape: surface.CursorShape, col: u16, row: u16, rgb: s
         .default_foreground = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b },
         .default_background = .{ .r = 0, .g = 0, .b = 0 },
         .primary_extent = .{ .row = row, .col = col, .rows = 1, .cols = 1 },
-        .extra_cursors = [_]surface.ExtraCursorPresentation{emptyExtraCursorPresentation()} ** surface.max_extra_cursors,
+        .extra_cursors = [_]render.ExtraCursorPresentation{emptyExtraCursorPresentation()} ** render.max_extra_cursors,
         .extra_cursor_count = 0,
-        .trail = .{ .rects = [_]surface.CursorTrailRect{emptyCursorTrailRect()} ** surface.max_cursor_trail_rects, .count = 0 },
+        .trail = .{ .rects = [_]render.CursorTrailRect{emptyCursorTrailRect()} ** render.max_cursor_trail_rects, .count = 0 },
     };
 }
 
-fn countGroupSpriteDraws(groups: []const surface.GlyphGroup, grid_metrics: surface.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
+fn countGroupSpriteDraws(groups: []const render.GlyphGroup, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
     var count: usize = 0;
     for (groups) |group| {
         if (classifyGroupLead(damage, grid_metrics, group) != .draw) continue;
@@ -453,7 +430,7 @@ fn countGroupSpriteDraws(groups: []const surface.GlyphGroup, grid_metrics: surfa
     return count;
 }
 
-fn countCurlyUnderlineSprites(cells: []const surface.RenderableCell, grid_metrics: surface.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
+fn countCurlyUnderlineSprites(cells: []const render.RenderableCell, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
     var count: usize = 0;
     for (cells) |cell| {
         if (cell.continuation) continue;
@@ -465,7 +442,7 @@ fn countCurlyUnderlineSprites(cells: []const surface.RenderableCell, grid_metric
     return count;
 }
 
-fn classifyIconSpan(group: surface.GlyphGroup, cell_metrics: surface.CellMetrics, grid_metrics: surface.GridMetrics, next_group_cell: ?u32) IconSpan {
+fn classifyIconSpan(group: render.GlyphGroup, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, next_group_cell: ?u32) IconSpan {
     if (group.kind != .icon) return .keep_kind;
     if (cell_metrics.cell_w_px == 0) return .keep_zero_width;
     const desired = desiredIconCells(group, cell_metrics.cell_w_px);
@@ -484,8 +461,8 @@ const SpriteDrawInput = struct {
     y_px: i32,
     width_px: u16,
     height_px: u16,
-    placement: surface.GlyphPlacement = .{},
-    color: surface.Rgba8,
+    placement: render.GlyphPlacement = .{},
+    color: render.Rgba8,
     first_cell: u32,
     cell_span: u8,
 };
@@ -503,7 +480,7 @@ const IconSpan = enum(u3) {
     expand,
 };
 
-fn classifyGroupLead(damage: scene_damage.NormalizedDamage, grid_metrics: surface.GridMetrics, group: surface.GlyphGroup) GroupLead {
+fn classifyGroupLead(damage: scene_damage.NormalizedDamage, grid_metrics: render.GridMetrics, group: render.GlyphGroup) GroupLead {
     if (!scene_damage.includeSpan(damage, grid_metrics, group.first_cell, group.cell_span)) return .skip;
     return .draw;
 }
@@ -511,10 +488,10 @@ fn classifyGroupLead(damage: scene_damage.NormalizedDamage, grid_metrics: surfac
 fn appendGroupSpriteDraws(
     assembly: *SceneAssembly,
     cache: *atlas_cache.OwnedAtlasCache,
-    cells: []const surface.RenderableCell,
-    groups: []const surface.GlyphGroup,
-    cell_metrics: surface.CellMetrics,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    groups: []const render.GlyphGroup,
+    cell_metrics: render.CellMetrics,
+    grid_metrics: render.GridMetrics,
     damage: scene_damage.NormalizedDamage,
 ) !void {
     const cols = @max(@as(u32, grid_metrics.cols), 1);
@@ -542,7 +519,7 @@ fn appendGroupSpriteDraws(
     }
 }
 
-fn appendCurlyUnderlineSprites(assembly: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, cells: []const surface.RenderableCell, cell_metrics: surface.CellMetrics, grid_metrics: surface.GridMetrics, damage: scene_damage.NormalizedDamage) !void {
+fn appendCurlyUnderlineSprites(assembly: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) !void {
     const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     for (cells) |cell| {
@@ -563,21 +540,21 @@ fn saturatingSub(a: u16, b: u16) u16 {
     return if (a > b) a - b else 0;
 }
 
-pub fn spriteDrawColor(cell: surface.RenderableCell) surface.Rgba8 {
+pub fn spriteDrawColor(cell: render.RenderableCell) render.Rgba8 {
     return textStyleColor(cell.fg, cell.dim, cell.invisible);
 }
 
-pub fn underlineDrawColor(cell: surface.RenderableCell) surface.Rgba8 {
+pub fn underlineDrawColor(cell: render.RenderableCell) render.Rgba8 {
     const base = if (cell.underline_color.a == 0) cell.fg else cell.underline_color;
     return textStyleColor(base, cell.dim, cell.invisible);
 }
 
-fn spriteColorForGroup(cells: []const surface.RenderableCell, first_cell: u32) surface.Rgba8 {
+fn spriteColorForGroup(cells: []const render.RenderableCell, first_cell: u32) render.Rgba8 {
     if (findCellByFirstCell(cells, first_cell)) |cell| return spriteDrawColor(cell);
     return .{ .r = 255, .g = 255, .b = 255, .a = 255 };
 }
 
-fn textStyleColor(color: surface.Rgba8, dim: bool, invisible: bool) surface.Rgba8 {
+fn textStyleColor(color: render.Rgba8, dim: bool, invisible: bool) render.Rgba8 {
     if (invisible) return .{ .r = color.r, .g = color.g, .b = color.b, .a = 0 };
     if (!dim) return color;
     return .{
@@ -588,7 +565,7 @@ fn textStyleColor(color: surface.Rgba8, dim: bool, invisible: bool) surface.Rgba
     };
 }
 
-fn findCellByFirstCell(cells: []const surface.RenderableCell, first_cell: u32) ?surface.RenderableCell {
+fn findCellByFirstCell(cells: []const render.RenderableCell, first_cell: u32) ?render.RenderableCell {
     var lo: u32 = 0;
     var hi = count32(cells);
     while (lo < hi) {
@@ -605,7 +582,7 @@ fn findCellByFirstCell(cells: []const surface.RenderableCell, first_cell: u32) ?
     return null;
 }
 
-fn iconGroupWithAvailableSpace(group: surface.GlyphGroup, cell_metrics: surface.CellMetrics, grid_metrics: surface.GridMetrics, next_group_cell: ?u32) surface.GlyphGroup {
+fn iconGroupWithAvailableSpace(group: render.GlyphGroup, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, next_group_cell: ?u32) render.GlyphGroup {
     if (classifyIconSpan(group, cell_metrics, grid_metrics, next_group_cell) != .expand) return group;
 
     const desired = desiredIconCells(group, cell_metrics.cell_w_px);
@@ -624,7 +601,7 @@ fn iconGroupWithAvailableSpace(group: surface.GlyphGroup, cell_metrics: surface.
     return out;
 }
 
-fn desiredIconCells(group: surface.GlyphGroup, cell_w: u16) u8 {
+fn desiredIconCells(group: render.GlyphGroup, cell_w: u16) u8 {
     const max_cells: u8 = 5;
     const advance = @max(group.placement.advance_px, @as(f32, @floatFromInt(cell_w)));
     const raw = @as(u32, @intFromFloat(std.math.ceil(advance / @as(f32, @floatFromInt(cell_w)))));
@@ -642,7 +619,7 @@ fn count16(items: anytype) u16 {
 }
 
 test "scene builds ordered sprite draws from groups" {
-    const cell = surface.RenderableCell{
+    const cell = render.RenderableCell{
         .text_id = .{ .value = 0 },
         .first_cell = 3,
         .cell_span = 1,
@@ -651,7 +628,7 @@ test "scene builds ordered sprite draws from groups" {
         .fg = .{ .r = 9, .g = 8, .b = 7, .a = 255 },
         .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
     };
-    const group = surface.GlyphGroup{
+    const group = render.GlyphGroup{
         .first_cell = 0,
         .cell_span = 2,
         .glyphs = &.{},
@@ -669,7 +646,7 @@ test "scene builds ordered sprite draws from groups" {
 }
 
 test "scene emits background draws from non-continuation cells" {
-    const cells = [_]surface.RenderableCell{
+    const cells = [_]render.RenderableCell{
         .{
             .text_id = .{ .value = 0 },
             .first_cell = 0,
@@ -698,8 +675,8 @@ test "scene emits background draws from non-continuation cells" {
 }
 
 test "scene merges adjacent same-color background cells on one row" {
-    const bg = surface.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
-    const cells = [_]surface.RenderableCell{
+    const bg = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
+    const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg, .bg = bg },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg, .bg = bg },
         .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg, .bg = bg },
@@ -712,9 +689,9 @@ test "scene merges adjacent same-color background cells on one row" {
 }
 
 test "scene keeps distinct background spans across color changes" {
-    const bg_a = surface.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
-    const bg_b = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cells = [_]surface.RenderableCell{
+    const bg_a = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
+    const bg_b = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg_a, .bg = bg_a },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg_a, .bg = bg_a },
         .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg_b, .bg = bg_b },
@@ -729,9 +706,9 @@ test "scene keeps distinct background spans across color changes" {
 }
 
 test "scene emits explicit clears for transparent default backgrounds on partial damage" {
-    const transparent_bg = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 0 };
-    const fg = surface.Rgba8{ .r = 200, .g = 200, .b = 200, .a = 255 };
-    const cells = [_]surface.RenderableCell{
+    const transparent_bg = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 0 };
+    const fg = render.Rgba8{ .r = 200, .g = 200, .b = 200, .a = 255 };
+    const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = fg, .bg = transparent_bg },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = fg, .bg = transparent_bg },
     };
@@ -754,8 +731,8 @@ test "scene emits explicit clears for transparent default backgrounds on partial
 }
 
 test "scene cursor draws emit shared cursor geometry" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cell_metrics = surface.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cell_metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
     const underline_cursor = testCursorPresentation(.underline, 2, 1, color);
     const underline = try scene_rects.cursorDraws(std.testing.allocator, underline_cursor, cell_metrics);
     defer std.testing.allocator.free(underline);
@@ -771,7 +748,7 @@ test "scene cursor draws emit shared cursor geometry" {
 }
 
 test "scene build options include cursor draws" {
-    const color = surface.Rgba8{ .r = 7, .g = 8, .b = 9, .a = 255 };
+    const color = render.Rgba8{ .r = 7, .g = 8, .b = 9, .a = 255 };
     var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4 }, .{
         .cursor = testCursorPresentation(.beam, 3, 2, color),
     });
@@ -800,7 +777,7 @@ test "scene stores cursor presentation owner" {
 }
 
 test "scene cursor primitive metadata uses grid width for non-zero-row multicell beam" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     var cursor = testCursorPresentation(.beam, 2, 1, color);
     cursor.primary_extent.cols = 3;
     cursor.primary_extent.rows = 2;
@@ -811,7 +788,7 @@ test "scene cursor primitive metadata uses grid width for non-zero-row multicell
 }
 
 test "scene cursor primitive metadata uses full covered extent for hollow edges" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     var cursor = testCursorPresentation(.hollow, 4, 2, color);
     cursor.primary_extent.cols = 2;
     cursor.primary_extent.rows = 3;
@@ -825,7 +802,7 @@ test "scene cursor primitive metadata uses full covered extent for hollow edges"
 }
 
 test "scene cursor trail primitive metadata uses grid width and full extent" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     var cursor = testCursorPresentation(.beam, 0, 0, color);
     cursor.visible = false;
     cursor.trail.count = 1;
@@ -838,7 +815,7 @@ test "scene cursor trail primitive metadata uses grid width and full extent" {
 }
 
 test "hidden cursor emits trail primitives only" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     var cursor = testCursorPresentation(.block, 1, 1, color);
     cursor.visible = false;
     cursor.trail.count = 1;
@@ -852,14 +829,14 @@ test "hidden cursor emits trail primitives only" {
 }
 
 test "scene damage filters clean rows" {
-    const color = surface.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
-    const cells = [_]surface.RenderableCell{
+    const color = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
+    const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = color },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = color },
         .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = color },
         .{ .text_id = .{ .value = 3 }, .first_cell = 3, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = color },
     };
-    const groups = [_]surface.GlyphGroup{
+    const groups = [_]render.GlyphGroup{
         .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 1 }, .kind = .normal },
         .{ .first_cell = 3, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 2 }, .kind = .normal },
     };
@@ -885,7 +862,7 @@ test "scene damage filters clean rows" {
 }
 
 test "scene emits shared-geometry decoration draws from cells" {
-    const cells = [_]surface.RenderableCell{.{
+    const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 1,
         .cell_span = 2,
@@ -900,16 +877,16 @@ test "scene emits shared-geometry decoration draws from cells" {
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 4, .rows = 1 }, .{});
     defer owned.deinit();
     try std.testing.expectEqual(@as(u32, 2), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(surface.DecorationKind.underline, owned.scene.decoration_draws[0].kind);
+    try std.testing.expectEqual(render.DecorationKind.underline, owned.scene.decoration_draws[0].kind);
     try std.testing.expectEqual(@as(i32, 8), owned.scene.decoration_draws[0].x_px);
     try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[0].width_px);
     try std.testing.expectEqual(@as(u8, 9), owned.scene.decoration_draws[0].color.r);
-    try std.testing.expectEqual(surface.DecorationKind.strikethrough, owned.scene.decoration_draws[1].kind);
+    try std.testing.expectEqual(render.DecorationKind.strikethrough, owned.scene.decoration_draws[1].kind);
 }
 
 test "scene merges contiguous straight underline spans" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cells = [_]surface.RenderableCell{
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 }, .underline = true },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 }, .underline = true },
         .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 }, .underline = true },
@@ -922,10 +899,10 @@ test "scene merges contiguous straight underline spans" {
 }
 
 test "scene double underline count and geometry stay aligned" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cell_metrics = surface.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 };
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cell_metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 };
     const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
-    const cells = [_]surface.RenderableCell{.{
+    const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
         .cell_span = 2,
@@ -941,8 +918,8 @@ test "scene double underline count and geometry stay aligned" {
 
     try std.testing.expectEqual(@as(usize, 2), scene_rects.countUnderlineDecorationDraws(cell_metrics.cell_w_px * 2, deco.underline_h_px, .double));
     try std.testing.expectEqual(@as(u32, 2), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(surface.DecorationKind.underline, owned.scene.decoration_draws[0].kind);
-    try std.testing.expectEqual(surface.DecorationKind.underline, owned.scene.decoration_draws[1].kind);
+    try std.testing.expectEqual(render.DecorationKind.underline, owned.scene.decoration_draws[0].kind);
+    try std.testing.expectEqual(render.DecorationKind.underline, owned.scene.decoration_draws[1].kind);
     try std.testing.expectEqual(@as(i32, 12), owned.scene.decoration_draws[0].y_px);
     try std.testing.expectEqual(@as(i32, 14), owned.scene.decoration_draws[1].y_px);
     try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[0].width_px);
@@ -950,8 +927,8 @@ test "scene double underline count and geometry stay aligned" {
 }
 
 test "scene emits undercurl sprite for curly underline" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cells = [_]surface.RenderableCell{.{
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
         .cell_span = 4,
@@ -968,16 +945,16 @@ test "scene emits undercurl sprite for curly underline" {
     try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.decoration_draws));
     try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.sprite_draws));
     try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.raster_requests));
-    try std.testing.expectEqual(surface.SpriteRasterKind.undercurl, owned.scene.raster_requests[0].kind);
+    try std.testing.expectEqual(render.SpriteRasterKind.undercurl, owned.scene.raster_requests[0].kind);
     try std.testing.expectEqual(@as(u16, 32), owned.scene.sprite_draws[0].width_px);
     try std.testing.expect(owned.scene.raster_requests[0].decoration.amplitude_px >= 1);
 }
 
 test "scene dotted underline geometry stays aligned with counted capacity" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cell_metrics = surface.CellMetrics{ .cell_w_px = 9, .cell_h_px = 16, .baseline_px = 13 };
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cell_metrics = render.CellMetrics{ .cell_w_px = 9, .cell_h_px = 16, .baseline_px = 13 };
     const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
-    const cells = [_]surface.RenderableCell{.{
+    const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
         .cell_span = 2,
@@ -995,7 +972,7 @@ test "scene dotted underline geometry stays aligned with counted capacity" {
     try std.testing.expectEqual(scene_rects.countUnderlineDecorationDraws(width_px, deco.underline_h_px, .dotted), owned.scene.decoration_draws.len);
     try std.testing.expectEqual(@as(u32, 9), count32(owned.scene.decoration_draws));
     for (owned.scene.decoration_draws, 0..) |draw, index| {
-        try std.testing.expectEqual(surface.DecorationKind.underline_dotted, draw.kind);
+        try std.testing.expectEqual(render.DecorationKind.underline_dotted, draw.kind);
         try std.testing.expectEqual(@as(i32, @intCast(index * 2)), draw.x_px);
         try std.testing.expectEqual(deco.underline_y_px, draw.y_px);
         try std.testing.expectEqual(deco.underline_h_px, draw.height_px);
@@ -1004,10 +981,10 @@ test "scene dotted underline geometry stays aligned with counted capacity" {
 }
 
 test "scene dashed underline geometry stays aligned with counted capacity" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cell_metrics = surface.CellMetrics{ .cell_w_px = 17, .cell_h_px = 16, .baseline_px = 13 };
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cell_metrics = render.CellMetrics{ .cell_w_px = 17, .cell_h_px = 16, .baseline_px = 13 };
     const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
-    const cells = [_]surface.RenderableCell{.{
+    const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
         .cell_span = 1,
@@ -1023,7 +1000,7 @@ test "scene dashed underline geometry stays aligned with counted capacity" {
 
     try std.testing.expectEqual(scene_rects.countUnderlineDecorationDraws(cell_metrics.cell_w_px, deco.underline_h_px, .dashed), owned.scene.decoration_draws.len);
     try std.testing.expectEqual(@as(u32, 3), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(surface.DecorationKind.underline_dashed, owned.scene.decoration_draws[0].kind);
+    try std.testing.expectEqual(render.DecorationKind.underline_dashed, owned.scene.decoration_draws[0].kind);
     try std.testing.expectEqual(@as(i32, 0), owned.scene.decoration_draws[0].x_px);
     try std.testing.expectEqual(@as(u16, 5), owned.scene.decoration_draws[0].width_px);
     try std.testing.expectEqual(@as(i32, 7), owned.scene.decoration_draws[1].x_px);
@@ -1031,15 +1008,15 @@ test "scene dashed underline geometry stays aligned with counted capacity" {
     try std.testing.expectEqual(@as(i32, 14), owned.scene.decoration_draws[2].x_px);
     try std.testing.expectEqual(@as(u16, 3), owned.scene.decoration_draws[2].width_px);
     for (owned.scene.decoration_draws) |draw| {
-        try std.testing.expectEqual(surface.DecorationKind.underline_dashed, draw.kind);
+        try std.testing.expectEqual(render.DecorationKind.underline_dashed, draw.kind);
         try std.testing.expectEqual(deco.underline_y_px, draw.y_px);
         try std.testing.expectEqual(deco.underline_h_px, draw.height_px);
     }
 }
 
 test "scene merges contiguous strikethrough spans" {
-    const color = surface.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
-    const cells = [_]surface.RenderableCell{
+    const color = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
+    const cells = [_]render.RenderableCell{
         .{
             .text_id = .{ .value = 0 },
             .first_cell = 0,
@@ -1064,12 +1041,12 @@ test "scene merges contiguous strikethrough spans" {
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 2, .rows = 1 }, .{});
     defer owned.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(surface.DecorationKind.strikethrough, owned.scene.decoration_draws[0].kind);
+    try std.testing.expectEqual(render.DecorationKind.strikethrough, owned.scene.decoration_draws[0].kind);
     try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[0].width_px);
 }
 
 test "scene carries group placement offsets into sprite draw" {
-    const group = surface.GlyphGroup{
+    const group = render.GlyphGroup{
         .first_cell = 1,
         .cell_span = 1,
         .glyphs = &.{},
@@ -1085,14 +1062,14 @@ test "scene carries group placement offsets into sprite draw" {
 }
 
 test "scene extends wide icon groups into available blank cells" {
-    const color = surface.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cells = [_]surface.RenderableCell{
+    const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
+    const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
         .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
     };
-    const glyph = surface.GlyphInstance{ .face_id = .{ .value = 1 }, .glyph_id = 7, .cluster_index = 0, .x_advance_px = 16 };
-    const icon = surface.GlyphGroup{
+    const glyph = render.GlyphInstance{ .face_id = .{ .value = 1 }, .glyph_id = 7, .cluster_index = 0, .x_advance_px = 16 };
+    const icon = render.GlyphGroup{
         .first_cell = 0,
         .cell_span = 1,
         .glyphs = &.{glyph},
@@ -1100,7 +1077,7 @@ test "scene extends wide icon groups into available blank cells" {
         .sprite_key = .{ .value = 7 },
         .kind = .icon,
     };
-    const next = surface.GlyphGroup{ .first_cell = 2, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 9 }, .kind = .normal };
+    const next = render.GlyphGroup{ .first_cell = 2, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 9 }, .kind = .normal };
     var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{ icon, next }, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 3, .rows = 1 }, .{});
     defer owned.deinit();
     try std.testing.expectEqual(@as(u16, 16), owned.scene.sprite_draws[0].width_px);
@@ -1109,7 +1086,7 @@ test "scene extends wide icon groups into available blank cells" {
 }
 
 test "scene positions sprite draws by grid columns" {
-    const group = surface.GlyphGroup{
+    const group = render.GlyphGroup{
         .first_cell = 7,
         .cell_span = 1,
         .glyphs = &.{},
@@ -1123,7 +1100,7 @@ test "scene positions sprite draws by grid columns" {
 }
 
 test "scene reuses atlas slots for repeated sprite keys" {
-    const groups = [_]surface.GlyphGroup{
+    const groups = [_]render.GlyphGroup{
         .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 7 }, .kind = .normal },
         .{ .first_cell = 1, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 7 }, .kind = .normal },
     };
@@ -1137,7 +1114,7 @@ test "scene reuses atlas slots for repeated sprite keys" {
 }
 
 test "scene does not request raster for cache hit" {
-    const group = surface.GlyphGroup{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 21 }, .kind = .normal };
+    const group = render.GlyphGroup{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 21 }, .kind = .normal };
     var cache = try atlas_cache.OwnedAtlasCache.init(std.testing.allocator, 8);
     defer cache.deinit();
     _ = cache.reserve(group.sprite_key, false);
@@ -1148,13 +1125,13 @@ test "scene does not request raster for cache hit" {
 }
 
 test "borrowed scene reuses retained draw list storage" {
-    const fg = surface.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
-    const bg = surface.Rgba8{ .r = 4, .g = 5, .b = 6, .a = 255 };
-    const cells = [_]surface.RenderableCell{
+    const fg = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
+    const bg = render.Rgba8{ .r = 4, .g = 5, .b = 6, .a = 255 };
+    const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = fg, .bg = bg, .underline = true, .underline_style = .straight },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = fg, .bg = bg },
     };
-    const groups = [_]surface.GlyphGroup{
+    const groups = [_]render.GlyphGroup{
         .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .placement = .{}, .sprite_key = .{ .value = 7 }, .kind = .normal },
     };
     var cache = try atlas_cache.OwnedAtlasCache.init(std.testing.allocator, 8);
@@ -1200,12 +1177,12 @@ test "borrowed scene reuses retained draw list storage" {
 }
 
 test "text scene applies kitty dim opacity at render-time for sprite draws" {
-    const dim_fg = surface.Rgba8{ .r = 100, .g = 150, .b = 200, .a = 255 };
-    const transparent_bg = surface.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
-    const groups = [_]surface.GlyphGroup{
+    const dim_fg = render.Rgba8{ .r = 100, .g = 150, .b = 200, .a = 255 };
+    const transparent_bg = render.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
+    const groups = [_]render.GlyphGroup{
         .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 1 }, .kind = .normal },
     };
-    const cells = [_]surface.RenderableCell{
+    const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .dim = true, .fg = dim_fg, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .invisible = true, .fg = .{ .r = 7, .g = 8, .b = 9, .a = 255 }, .bg = transparent_bg },
     };

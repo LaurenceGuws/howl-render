@@ -1,5 +1,5 @@
 const std = @import("std");
-const surface = @import("../surface.zig");
+const render = @import("../libhowl_render.zig");
 const font_paths = @import("font_paths.zig");
 const c_api = @import("c_api.zig");
 
@@ -74,7 +74,7 @@ pub const LoadedFaces = struct {
 
     pub fn ensureFaceForIdLocked(
         self: *LoadedFaces,
-        face_id: surface.FontFaceId,
+        face_id: render.FontFaceId,
         font_path: ?[:0]const u8,
         font_size_px: u16,
         fallback_font_paths: *const [max_fallback_fonts]?[:0]const u8,
@@ -86,7 +86,7 @@ pub const LoadedFaces = struct {
         return self.ensureFallbackFaceLocked(fallback_index, fallback_font_paths, fallback_font_paths_len, font_size_px) != null;
     }
 
-    pub fn acquireShapingFaceLocked(self: *LoadedFaces, face_id: surface.FontFaceId, fallback_font_paths_len: u8) ?ShapingFace {
+    pub fn acquireShapingFaceLocked(self: *LoadedFaces, face_id: render.FontFaceId, fallback_font_paths_len: u8) ?ShapingFace {
         if (face_id.value == primary_face_id) {
             const face = self.ft_face orelse return null;
             return .{ .face = face, .hb_font = self.hb_font, .owns_face = false };

@@ -3,35 +3,6 @@ const c = @import("howl_render_c");
 
 test {
     std.testing.refAllDecls(@import("libhowl_render.zig"));
-    _ = @import("c/text_session_test.zig");
-    _ = @import("c/surface_geometry_test.zig");
-    _ = @import("c/prepare_request_test.zig");
-    _ = @import("c/prepared_surface_test.zig");
-    _ = @import("c/submission_test.zig");
-}
-
-test "render c header translation exports shipped entrypoints" {
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_init"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_deinit"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_set_font_size_px"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_set_font_path"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_set_fallback_font_paths"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_set_cursor_cadence"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_is_valid_font"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_derive_layout"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_sync_geometry"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_prepare_handle"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_take_prepare_request"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_take_submit_handle"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_submit_handle"));
-    try std.testing.expect(@hasDecl(c, "howl_render_text_session_work_state"));
-    try std.testing.expect(@hasDecl(c, "howl_render_rdr_sfc_release"));
-    try std.testing.expect(@hasDecl(c, "howl_render_rdr_sfc_describe"));
-    try std.testing.expect(@hasDecl(c, "howl_render_rdr_sfc_render_surface"));
-    try std.testing.expect(!@hasDecl(c, "howl_render_text_session_set_cursor_blink_visible"));
-    try std.testing.expect(!@hasDecl(c, "howl_render_text_session_accept_submitted"));
-    try std.testing.expect(!@hasDecl(c, "howl_render_text_session_submit"));
-    try std.testing.expect(!@hasDecl(c, "HowlRenderPreparedSurfaceToken"));
 }
 
 test "render c enum values remain stable" {
@@ -39,56 +10,7 @@ test "render c enum values remain stable" {
     try std.testing.expectEqual(@as(c_int, -1), c.HOWL_RENDER_CALL_MISSING_HANDLE);
     try std.testing.expectEqual(@as(c_int, -2), c.HOWL_RENDER_CALL_INVALID_ARGUMENT);
     try std.testing.expectEqual(@as(c_int, -3), c.HOWL_RENDER_CALL_FAILED);
-    try std.testing.expectEqual(@as(c_int, 0), c.HOWL_RENDER_PREPARE_IDLE);
-    try std.testing.expectEqual(@as(c_int, 1), c.HOWL_RENDER_PREPARE_READY);
-    try std.testing.expectEqual(@as(c_int, -3), c.HOWL_RENDER_PREPARE_FAILED);
-    try std.testing.expectEqual(@as(c_int, 0), c.HOWL_RENDER_SUBMIT_IDLE);
-    try std.testing.expectEqual(@as(c_int, 1), c.HOWL_RENDER_SUBMIT_RENDERED);
-    try std.testing.expectEqual(@as(c_int, 2), c.HOWL_RENDER_SUBMIT_STALE);
-    try std.testing.expectEqual(@as(c_int, 3), c.HOWL_RENDER_SUBMIT_NEEDS_PREPARE);
-    try std.testing.expectEqual(@as(c_int, -3), c.HOWL_RENDER_SUBMIT_FAILED);
-    try std.testing.expectEqual(@as(c_int, 0), c.HOWL_RENDER_SUBMIT_DECISION_IDLE);
-    try std.testing.expectEqual(@as(c_int, 1), c.HOWL_RENDER_SUBMIT_DECISION_SUBMIT);
-    try std.testing.expectEqual(@as(c_int, 2), c.HOWL_RENDER_SUBMIT_DECISION_STALE);
-    try std.testing.expectEqual(@as(c_int, 3), c.HOWL_RENDER_SUBMIT_DECISION_NEEDS_PREPARE);
-    try std.testing.expectEqual(@as(c_int, -3), c.HOWL_RENDER_SUBMIT_DECISION_FAILED);
     try std.testing.expectEqual(@as(c_int, 0), c.HOWL_RENDER_DAMAGE_NONE);
     try std.testing.expectEqual(@as(c_int, 1), c.HOWL_RENDER_DAMAGE_PARTIAL);
     try std.testing.expectEqual(@as(c_int, 3), c.HOWL_RENDER_DAMAGE_FULL);
-}
-
-test "render c struct sizes remain stable" {
-    try std.testing.expectEqual(@as(usize, 40), @sizeOf(c.HowlRenderPrepareRequest));
-    try std.testing.expectEqual(@as(usize, 16), @sizeOf(c.HowlRenderHostSurface));
-    try std.testing.expectEqual(@as(usize, 16), @sizeOf(c.HowlRenderHostCursorTrailRect));
-    try std.testing.expectEqual(@as(usize, 312), @sizeOf(c.HowlRenderHostCursorCadence));
-    try std.testing.expectEqual(@as(usize, 24), @sizeOf(c.HowlRenderSubmitResult));
-    try std.testing.expectEqual(@as(usize, 8), @sizeOf(c.HowlRenderSessionWorkState));
-}
-
-test "render c cursor cadence layout remains stable" {
-    try std.testing.expectEqual(@as(usize, 0), @offsetOf(c.HowlRenderHostCursorTrailRect, "row"));
-    try std.testing.expectEqual(@as(usize, 2), @offsetOf(c.HowlRenderHostCursorTrailRect, "col"));
-    try std.testing.expectEqual(@as(usize, 4), @offsetOf(c.HowlRenderHostCursorTrailRect, "rows"));
-    try std.testing.expectEqual(@as(usize, 6), @offsetOf(c.HowlRenderHostCursorTrailRect, "cols"));
-    try std.testing.expectEqual(@as(usize, 8), @offsetOf(c.HowlRenderHostCursorTrailRect, "opacity"));
-    try std.testing.expectEqual(@as(usize, 9), @offsetOf(c.HowlRenderHostCursorTrailRect, "reserved0"));
-    try std.testing.expectEqual(@as(usize, 10), @offsetOf(c.HowlRenderHostCursorTrailRect, "reserved1"));
-    try std.testing.expectEqual(@as(usize, 12), @offsetOf(c.HowlRenderHostCursorTrailRect, "color"));
-
-    try std.testing.expectEqual(@as(usize, 0), @offsetOf(c.HowlRenderHostCursorCadence, "focused"));
-    try std.testing.expectEqual(@as(usize, 1), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_opacity"));
-    try std.testing.expectEqual(@as(usize, 2), @offsetOf(c.HowlRenderHostCursorCadence, "text_blink_opacity"));
-    try std.testing.expectEqual(@as(usize, 3), @offsetOf(c.HowlRenderHostCursorCadence, "effective_shape"));
-    try std.testing.expectEqual(@as(usize, 4), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_color"));
-    try std.testing.expectEqual(@as(usize, 12), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_text_color"));
-    try std.testing.expectEqual(@as(usize, 20), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_trail_color"));
-    try std.testing.expectEqual(@as(usize, 28), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_beam_thickness"));
-    try std.testing.expectEqual(@as(usize, 32), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_underline_thickness"));
-    try std.testing.expectEqual(@as(usize, 36), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_trail_decay_fast_s"));
-    try std.testing.expectEqual(@as(usize, 40), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_trail_decay_slow_s"));
-    try std.testing.expectEqual(@as(usize, 44), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_trail_count"));
-    try std.testing.expectEqual(@as(usize, 46), @offsetOf(c.HowlRenderHostCursorCadence, "reserved0"));
-    try std.testing.expectEqual(@as(usize, 48), @offsetOf(c.HowlRenderHostCursorCadence, "cursor_trail_rects"));
-    try std.testing.expectEqual(@as(usize, 304), @offsetOf(c.HowlRenderHostCursorCadence, "now_ns"));
 }

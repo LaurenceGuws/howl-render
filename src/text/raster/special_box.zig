@@ -1,7 +1,7 @@
 const std = @import("std");
-const surface = @import("../../surface.zig");
+const render = @import("../../libhowl_render.zig");
 
-pub fn rasterizeGeneratedBoxAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: surface.BoxDrawingRasterMetrics) void {
+pub fn rasterizeGeneratedBoxAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: render.BoxDrawingRasterMetrics) void {
     switch (codepoint) {
         0x2504 => rasterizeDashedBoxLine(pixels, width, height, .horizontal, box_drawing.light_stroke_px, 2),
         0x2505 => rasterizeDashedBoxLine(pixels, width, height, .horizontal, box_drawing.heavy_stroke_px, 2),
@@ -176,7 +176,7 @@ pub fn lineSpecHalf(cp: u32) ?BoxLines {
     };
 }
 
-pub fn rasterizeBoxLines(pixels: []u8, width: u16, height: u16, lines: BoxLines, box_drawing: surface.BoxDrawingRasterMetrics) void {
+pub fn rasterizeBoxLines(pixels: []u8, width: u16, height: u16, lines: BoxLines, box_drawing: render.BoxDrawingRasterMetrics) void {
     const light = @max(box_drawing.light_stroke_px, 1);
     const heavy = @max(box_drawing.heavy_stroke_px, light);
 
@@ -301,7 +301,7 @@ pub fn rasterizeDashedBoxLine(pixels: []u8, width: u16, height: u16, axis: BoxLi
     }
 }
 
-pub fn rasterizeRoundedCorner(pixels: []u8, width: u16, height: u16, corner: RoundedCorner, box_drawing: surface.BoxDrawingRasterMetrics) void {
+pub fn rasterizeRoundedCorner(pixels: []u8, width: u16, height: u16, corner: RoundedCorner, box_drawing: render.BoxDrawingRasterMetrics) void {
     const stroke_u = @max(box_drawing.light_stroke_px, 1);
     const stroke = @as(f64, @floatFromInt(stroke_u));
     const hori = centeredRange(height, height / 2, stroke_u);
@@ -371,7 +371,7 @@ pub fn snapRoundedCornerConnections(pixels: []u8, width: u16, height: u16, corne
     }
 }
 
-pub fn rasterizeCrossLine(pixels: []u8, width: u16, height: u16, left: bool, box_drawing: surface.BoxDrawingRasterMetrics) void {
+pub fn rasterizeCrossLine(pixels: []u8, width: u16, height: u16, left: bool, box_drawing: render.BoxDrawingRasterMetrics) void {
     const line_w = @as(f64, @floatFromInt(@max(box_drawing.light_stroke_px, 1)));
     const x1: f64 = if (left) 0 else @floatFromInt(width - 1);
     const y1: f64 = 0;

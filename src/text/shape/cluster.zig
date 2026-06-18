@@ -1,5 +1,5 @@
 const std = @import("std");
-const surface = @import("../../surface.zig");
+const render = @import("../../libhowl_render.zig");
 const scene_damage = @import("../../grid/damage.zig");
 const lane = @import("../lane.zig");
 
@@ -9,17 +9,17 @@ const blank_codepoints = [_]u32{0};
 
 pub const CellTextInput = struct {
     codepoints: []const u32,
-    semantic_fg: surface.SemanticColor = .{},
-    semantic_bg: surface.SemanticColor = .{},
-    fg: surface.Rgba8,
-    bg: surface.Rgba8,
+    semantic_fg: render.SemanticColor = .{},
+    semantic_bg: render.SemanticColor = .{},
+    fg: render.Rgba8,
+    bg: render.Rgba8,
     underline_color_set: bool = false,
-    semantic_underline_color: surface.SemanticColor = .{},
-    underline_color: surface.Rgba8 = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
-    style: surface.FontStyle = .regular,
-    presentation: surface.TextPresentation = .any,
+    semantic_underline_color: render.SemanticColor = .{},
+    underline_color: render.Rgba8 = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+    style: render.FontStyle = .regular,
+    presentation: render.TextPresentation = .any,
     underline: bool = false,
-    underline_style: surface.UnderlineStyle = .straight,
+    underline_style: render.UnderlineStyle = .straight,
     strikethrough: bool = false,
     cell_span: u8 = 1,
     continuation: bool = false,
@@ -27,11 +27,11 @@ pub const CellTextInput = struct {
 
 pub const OwnedLineTextCache = struct {
     allocator: std.mem.Allocator,
-    texts: []surface.CellText,
+    texts: []render.CellText,
     codepoints: []u32,
     owned: bool = true,
 
-    pub fn view(self: OwnedLineTextCache) surface.LineTextCache {
+    pub fn view(self: OwnedLineTextCache) render.LineTextCache {
         return .{ .texts = self.texts };
     }
 
@@ -46,7 +46,7 @@ pub const OwnedLineTextCache = struct {
 
 pub const OwnedRenderableCells = struct {
     allocator: std.mem.Allocator,
-    cells: []surface.RenderableCell,
+    cells: []render.RenderableCell,
     owned: bool = true,
 
     pub fn deinit(self: *OwnedRenderableCells) void {
@@ -57,7 +57,7 @@ pub const OwnedRenderableCells = struct {
 
 pub const OwnedClusters = struct {
     allocator: std.mem.Allocator,
-    clusters: []surface.CellCluster,
+    clusters: []render.CellCluster,
     owned: bool = true,
 
     pub fn deinit(self: *OwnedClusters) void {
@@ -68,8 +68,8 @@ pub const OwnedClusters = struct {
 
 pub const ComplexSelection = struct {
     allocator: std.mem.Allocator,
-    cells: []surface.RenderableCell,
-    clusters: []surface.CellCluster,
+    cells: []render.RenderableCell,
+    clusters: []render.CellCluster,
 
     pub fn deinit(self: *ComplexSelection) void {
         self.allocator.free(self.cells);
@@ -90,15 +90,15 @@ pub const SparseCells = struct {
 };
 
 pub const RenderableText = struct {
-    renderable: surface.RenderableCell,
-    text: surface.CellText,
+    renderable: render.RenderableCell,
+    text: render.CellText,
     inline_codepoints: [4]u32 = [_]u32{0} ** 4,
 };
 
 pub const RetainedScratch = struct {
-    renderable: []surface.RenderableCell = &.{},
-    clusters: []surface.CellCluster = &.{},
-    texts: []surface.CellText = &.{},
+    renderable: []render.RenderableCell = &.{},
+    clusters: []render.CellCluster = &.{},
+    texts: []render.CellText = &.{},
     codepoints: []u32 = &.{},
     max_items: u32 = 0,
     max_codepoints: u32 = 0,
@@ -119,11 +119,11 @@ pub const RetainedScratch = struct {
     fn configureItems(self: *RetainedScratch, allocator: std.mem.Allocator, max_items: u32) !void {
         if (max_items <= self.max_items) return;
         const capacity: usize = @intCast(max_items);
-        const renderable = try allocator.alloc(surface.RenderableCell, capacity);
+        const renderable = try allocator.alloc(render.RenderableCell, capacity);
         errdefer allocator.free(renderable);
-        const clusters = try allocator.alloc(surface.CellCluster, capacity);
+        const clusters = try allocator.alloc(render.CellCluster, capacity);
         errdefer allocator.free(clusters);
-        const texts = try allocator.alloc(surface.CellText, capacity);
+        const texts = try allocator.alloc(render.CellText, capacity);
         errdefer allocator.free(texts);
 
         if (self.renderable.len > 0) allocator.free(self.renderable);
@@ -150,7 +150,7 @@ pub const RetainedScratch = struct {
     }
 };
 
-pub fn singleCodepointText(id: u32, cp: u32) surface.CellText {
+pub fn singleCodepointText(id: u32, cp: u32) render.CellText {
     return .{
         .id = .{ .value = id },
         .first_cp = cp,
@@ -158,7 +158,7 @@ pub fn singleCodepointText(id: u32, cp: u32) surface.CellText {
     };
 }
 
-pub fn clusterForCell(text: surface.CellText, first_cell: u32, span: u8, style: surface.FontStyle) surface.CellCluster {
+pub fn clusterForCell(text: render.CellText, first_cell: u32, span: u8, style: render.FontStyle) render.CellCluster {
     return .{
         .text_id = text.id,
         .first_cell = first_cell,
@@ -169,10 +169,10 @@ pub fn clusterForCell(text: surface.CellText, first_cell: u32, span: u8, style: 
     };
 }
 
-pub fn buildLineTextCacheFromCells(allocator: std.mem.Allocator, cells: []const surface.CellInput) !OwnedLineTextCache {
+pub fn buildLineTextCacheFromCells(allocator: std.mem.Allocator, cells: []const render.CellInput) !OwnedLineTextCache {
     const text_count = count32(cells);
     const codepoint_count = countCellInputCodepoints(cells);
-    const texts = try allocator.alloc(surface.CellText, @intCast(text_count));
+    const texts = try allocator.alloc(render.CellText, @intCast(text_count));
     errdefer allocator.free(texts);
     const codepoints = try allocator.alloc(u32, @intCast(codepoint_count));
     errdefer allocator.free(codepoints);
@@ -199,7 +199,7 @@ pub fn buildLineTextCacheFromCells(allocator: std.mem.Allocator, cells: []const 
     return .{ .allocator = allocator, .texts = texts, .codepoints = codepoints };
 }
 
-pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const surface.CellInput, grid_metrics: surface.GridMetrics, damage: scene_damage.DamageInput) !SparseCells {
+pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const render.CellInput, grid_metrics: render.GridMetrics, damage: scene_damage.DamageInput) !SparseCells {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     const total_cells = count32(cells);
@@ -210,8 +210,8 @@ pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const s
 pub fn buildSparseCellsWithDamageScratch(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
-    cells: []const surface.CellInput,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.CellInput,
+    grid_metrics: render.GridMetrics,
     damage: scene_damage.DamageInput,
 ) !SparseCells {
     const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
@@ -239,13 +239,13 @@ pub fn buildSparseCellsWithDamageScratch(
         const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
             const next_id = text_count;
             appendScratchText(scratch, &text_count, &codepoint_count, cps);
-            break :blk surface.CellTextId{ .value = next_id };
+            break :blk render.CellTextId{ .value = next_id };
         };
         scratch.renderable[@intCast(renderable_count)] = renderableFromCellInput(text_id, first_cell, span, cell, false);
         renderable_count += 1;
     }
 
-    const renderable = try allocator.dupe(surface.RenderableCell, scratch.renderable[0..@intCast(renderable_count)]);
+    const renderable = try allocator.dupe(render.RenderableCell, scratch.renderable[0..@intCast(renderable_count)]);
     errdefer allocator.free(renderable);
     const text_cache = try cloneTextCache(allocator, scratch.texts[0..@intCast(text_count)], scratch.codepoints[0..@intCast(codepoint_count)]);
     errdefer text_cache.deinit();
@@ -284,12 +284,12 @@ fn normalizedCodepoints(cps: []const u32) []const u32 {
     return if (cps.len == 0) &.{0} else cps;
 }
 
-fn inputCellText(input: CellTextInput) surface.CellText {
+fn inputCellText(input: CellTextInput) render.CellText {
     const cps = normalizedCodepoints(input.codepoints);
     return .{ .id = .{ .value = 0 }, .first_cp = cps[0], .codepoints = cps };
 }
 
-fn initRenderableTextFromCellInput(renderable: surface.RenderableCell, cell: surface.CellInput) RenderableText {
+fn initRenderableTextFromCellInput(renderable: render.RenderableCell, cell: render.CellInput) RenderableText {
     var item = RenderableText{
         .renderable = renderable,
         .text = .{ .id = .{ .value = 0 }, .first_cp = cell.codepoint, .codepoints = &.{} },
@@ -301,27 +301,27 @@ fn initRenderableTextFromCellInput(renderable: surface.RenderableCell, cell: sur
     return item;
 }
 
-fn cellCodepoints(cell: surface.CellInput, scratch: *[4]u32) []const u32 {
+fn cellCodepoints(cell: render.CellInput, scratch: *[4]u32) []const u32 {
     std.debug.assert(cell.combining_len <= cell.combining.len);
     scratch[0] = cell.codepoint;
     for (cell.combining[0..cell.combining_len], 1..) |cp, idx| scratch[idx] = cp;
     return scratch[0 .. @as(usize, cell.combining_len) + 1];
 }
 
-fn cellCodepointsForRenderableOwnership(cell: surface.CellInput, scratch: *[4]u32) []const u32 {
+fn cellCodepointsForRenderableOwnership(cell: render.CellInput, scratch: *[4]u32) []const u32 {
     if (cell.empty) return &blank_codepoints;
     return cellCodepoints(cell, scratch);
 }
 
-fn findText(texts: []const surface.CellText, cps: []const u32) ?surface.CellTextId {
+fn findText(texts: []const render.CellText, cps: []const u32) ?render.CellTextId {
     for (texts, 0..) |text, idx| {
         if (std.mem.eql(u32, text.codepoints, cps)) return .{ .value = @intCast(idx) };
     }
     return null;
 }
 
-pub fn buildRenderableCellsFromCells(allocator: std.mem.Allocator, cells: []const surface.CellInput, cache: surface.LineTextCache) !OwnedRenderableCells {
-    const renderable = try allocator.alloc(surface.RenderableCell, cells.len);
+pub fn buildRenderableCellsFromCells(allocator: std.mem.Allocator, cells: []const render.CellInput, cache: render.LineTextCache) !OwnedRenderableCells {
+    const renderable = try allocator.alloc(render.RenderableCell, cells.len);
     errdefer allocator.free(renderable);
 
     for (cells, 0..) |cell, idx| {
@@ -334,8 +334,8 @@ pub fn buildRenderableCellsFromCells(allocator: std.mem.Allocator, cells: []cons
     return .{ .allocator = allocator, .cells = renderable };
 }
 
-pub fn buildRenderableCellsFromInputs(allocator: std.mem.Allocator, inputs: []const CellTextInput, cache: surface.LineTextCache) !OwnedRenderableCells {
-    const renderable = try allocator.alloc(surface.RenderableCell, inputs.len);
+pub fn buildRenderableCellsFromInputs(allocator: std.mem.Allocator, inputs: []const CellTextInput, cache: render.LineTextCache) !OwnedRenderableCells {
+    const renderable = try allocator.alloc(render.RenderableCell, inputs.len);
     errdefer allocator.free(renderable);
 
     for (inputs, 0..) |input, idx| {
@@ -355,7 +355,7 @@ pub fn buildRenderableCellsFromInputs(allocator: std.mem.Allocator, inputs: []co
     return .{ .allocator = allocator, .cells = renderable };
 }
 
-pub fn detectPresentation(cps: []const u32, fallback: surface.TextPresentation) surface.TextPresentation {
+pub fn detectPresentation(cps: []const u32, fallback: render.TextPresentation) render.TextPresentation {
     for (cps) |cp| {
         if (cp == VS16) return .emoji;
         if (cp == VS15) return .text;
@@ -363,15 +363,15 @@ pub fn detectPresentation(cps: []const u32, fallback: surface.TextPresentation) 
     return fallback;
 }
 
-pub fn extractClusters(allocator: std.mem.Allocator, cells: []const surface.RenderableCell, cache: surface.LineTextCache) !OwnedClusters {
+pub fn extractClusters(allocator: std.mem.Allocator, cells: []const render.RenderableCell, cache: render.LineTextCache) !OwnedClusters {
     return extractClustersWithDamage(allocator, cells, cache, .{ .cols = @intCast(@max(cells.len, 1)), .rows = 1 }, .{});
 }
 
 pub fn extractClustersWithDamage(
     allocator: std.mem.Allocator,
-    cells: []const surface.RenderableCell,
-    cache: surface.LineTextCache,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    cache: render.LineTextCache,
+    grid_metrics: render.GridMetrics,
     damage: scene_damage.DamageInput,
 ) !OwnedClusters {
     var scratch = RetainedScratch{};
@@ -383,9 +383,9 @@ pub fn extractClustersWithDamage(
 pub fn extractClustersWithDamageScratch(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
-    cells: []const surface.RenderableCell,
-    cache: surface.LineTextCache,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    cache: render.LineTextCache,
+    grid_metrics: render.GridMetrics,
     damage: scene_damage.DamageInput,
 ) !OwnedClusters {
     const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
@@ -402,15 +402,15 @@ pub fn extractClustersWithDamageScratch(
         cluster_count += 1;
     }
 
-    return .{ .allocator = allocator, .clusters = try allocator.dupe(surface.CellCluster, scratch.clusters[0..@intCast(cluster_count)]) };
+    return .{ .allocator = allocator, .clusters = try allocator.dupe(render.CellCluster, scratch.clusters[0..@intCast(cluster_count)]) };
 }
 
 pub fn selectComplexWithDamage(
     allocator: std.mem.Allocator,
-    cells: []const surface.RenderableCell,
-    cache: surface.LineTextCache,
-    clusters: []const surface.CellCluster,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    cache: render.LineTextCache,
+    clusters: []const render.CellCluster,
+    grid_metrics: render.GridMetrics,
     damage: scene_damage.DamageInput,
 ) !ComplexSelection {
     var scratch = RetainedScratch{};
@@ -419,7 +419,7 @@ pub fn selectComplexWithDamage(
     return selectComplexWithDamageScratch(allocator, &scratch, cells, cache, clusters, grid_metrics, damage);
 }
 
-pub fn sourceRenderableTextFromCells(cells: []const surface.CellInput, idx: u32) ?RenderableText {
+pub fn sourceRenderableTextFromCells(cells: []const render.CellInput, idx: u32) ?RenderableText {
     const cell = cells[idx];
     if (cell.continuation) return null;
     const cell_span = inferredCellSpan(cells, idx);
@@ -437,7 +437,7 @@ pub fn sourceRenderableTextFromInputs(inputs: []const CellTextInput, idx: u32) ?
     };
 }
 
-pub fn sourceRenderableTextFromPrepared(cells: []const surface.RenderableCell, cache: surface.LineTextCache, idx: u32) ?RenderableText {
+pub fn sourceRenderableTextFromPrepared(cells: []const render.RenderableCell, cache: render.LineTextCache, idx: u32) ?RenderableText {
     const renderable = cells[idx];
     if (renderable.continuation) return null;
     const inferred_span = inferredRenderableCellSpan(cells, idx);
@@ -445,17 +445,17 @@ pub fn sourceRenderableTextFromPrepared(cells: []const surface.RenderableCell, c
     return .{ .renderable = renderable, .text = textForCell(renderable, cache) };
 }
 
-pub fn includeDamage(grid_metrics: surface.GridMetrics, damage: scene_damage.DamageInput, renderable: surface.RenderableCell) bool {
+pub fn includeDamage(grid_metrics: render.GridMetrics, damage: scene_damage.DamageInput, renderable: render.RenderableCell) bool {
     return scene_damage.includeSpan(scene_damage.normalizeDamage(damage, grid_metrics.rows), grid_metrics, renderable.first_cell, renderable.cell_span);
 }
 
 pub fn selectComplexWithDamageScratch(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
-    cells: []const surface.RenderableCell,
-    cache: surface.LineTextCache,
-    clusters: []const surface.CellCluster,
-    grid_metrics: surface.GridMetrics,
+    cells: []const render.RenderableCell,
+    cache: render.LineTextCache,
+    clusters: []const render.CellCluster,
+    grid_metrics: render.GridMetrics,
     damage: scene_damage.DamageInput,
 ) !ComplexSelection {
     const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
@@ -476,9 +476,9 @@ pub fn selectComplexWithDamageScratch(
         cluster_count += 1;
     }
 
-    const selected_cells = try allocator.dupe(surface.RenderableCell, scratch.renderable[0..@intCast(cell_count)]);
+    const selected_cells = try allocator.dupe(render.RenderableCell, scratch.renderable[0..@intCast(cell_count)]);
     errdefer allocator.free(selected_cells);
-    const selected_clusters = try allocator.dupe(surface.CellCluster, scratch.clusters[0..@intCast(cluster_count)]);
+    const selected_clusters = try allocator.dupe(render.CellCluster, scratch.clusters[0..@intCast(cluster_count)]);
     return .{
         .allocator = allocator,
         .cells = selected_cells,
@@ -486,19 +486,19 @@ pub fn selectComplexWithDamageScratch(
     };
 }
 
-fn textForCell(cell: surface.RenderableCell, cache: surface.LineTextCache) surface.CellText {
+fn textForCell(cell: render.RenderableCell, cache: render.LineTextCache) render.CellText {
     const text_idx = cell.text_id.value;
     std.debug.assert(text_idx < count32(cache.texts));
     return cache.texts[@intCast(text_idx)];
 }
 
-fn textForCluster(cluster: surface.CellCluster, cache: surface.LineTextCache) surface.CellText {
+fn textForCluster(cluster: render.CellCluster, cache: render.LineTextCache) render.CellText {
     const idx = cluster.text_id.value;
     std.debug.assert(idx < count32(cache.texts));
     return cache.texts[@intCast(idx)];
 }
 
-fn isBlankText(text: surface.CellText) bool {
+fn isBlankText(text: render.CellText) bool {
     const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
     for (cps) |cp| {
         if (cp != 0 and cp != ' ') return false;
@@ -506,7 +506,7 @@ fn isBlankText(text: surface.CellText) bool {
     return true;
 }
 
-fn renderableFromCellInput(text_id: surface.CellTextId, first_cell: u32, cell_span: u8, cell: surface.CellInput, continuation: bool) surface.RenderableCell {
+fn renderableFromCellInput(text_id: render.CellTextId, first_cell: u32, cell_span: u8, cell: render.CellInput, continuation: bool) render.RenderableCell {
     return renderableCell(
         text_id,
         first_cell,
@@ -535,7 +535,7 @@ fn renderableFromCellInput(text_id: surface.CellTextId, first_cell: u32, cell_sp
     );
 }
 
-fn renderableFromInput(text_id: surface.CellTextId, first_cell: u32, cell_span: u8, presentation: surface.TextPresentation, input: CellTextInput) surface.RenderableCell {
+fn renderableFromInput(text_id: render.CellTextId, first_cell: u32, cell_span: u8, presentation: render.TextPresentation, input: CellTextInput) render.RenderableCell {
     return renderableCell(
         text_id,
         first_cell,
@@ -558,7 +558,7 @@ fn renderableFromInput(text_id: surface.CellTextId, first_cell: u32, cell_span: 
     );
 }
 
-fn renderableCell(text_id: surface.CellTextId, first_cell: u32, cell_span: u8, style: surface.FontStyle, presentation: surface.TextPresentation, dim: bool, invisible: bool, semantic_fg: surface.SemanticColor, semantic_bg: surface.SemanticColor, fg: surface.Rgba8, bg: surface.Rgba8, underline_color_set: bool, semantic_underline_color: surface.SemanticColor, underline_color: surface.Rgba8, underline_style: surface.UnderlineStyle, underline: bool, strikethrough: bool, continuation: bool) surface.RenderableCell {
+fn renderableCell(text_id: render.CellTextId, first_cell: u32, cell_span: u8, style: render.FontStyle, presentation: render.TextPresentation, dim: bool, invisible: bool, semantic_fg: render.SemanticColor, semantic_bg: render.SemanticColor, fg: render.Rgba8, bg: render.Rgba8, underline_color_set: bool, semantic_underline_color: render.SemanticColor, underline_color: render.Rgba8, underline_style: render.UnderlineStyle, underline: bool, strikethrough: bool, continuation: bool) render.RenderableCell {
     return .{
         .text_id = text_id,
         .first_cell = first_cell,
@@ -581,7 +581,7 @@ fn renderableCell(text_id: surface.CellTextId, first_cell: u32, cell_span: u8, s
     };
 }
 
-fn renderableCluster(cell: surface.RenderableCell, text: surface.CellText, cell_span: u8) surface.CellCluster {
+fn renderableCluster(cell: render.RenderableCell, text: render.CellText, cell_span: u8) render.CellCluster {
     return .{
         .text_id = cell.text_id,
         .first_cell = cell.first_cell,
@@ -592,15 +592,15 @@ fn renderableCluster(cell: surface.RenderableCell, text: surface.CellText, cell_
     };
 }
 
-fn classifyComplexCell(cell: surface.RenderableCell, cache: surface.LineTextCache) bool {
+fn classifyComplexCell(cell: render.RenderableCell, cache: render.LineTextCache) bool {
     return lane.classifyRenderableCell(cell, textForCell(cell, cache)).lane == .complex;
 }
 
-fn classifyComplexCluster(cells: []const surface.RenderableCell, cluster_value: surface.CellCluster, cache: surface.LineTextCache) bool {
+fn classifyComplexCluster(cells: []const render.RenderableCell, cluster_value: render.CellCluster, cache: render.LineTextCache) bool {
     return lane.classifyClusterInCells(cells, cluster_value, textForCluster(cluster_value, cache)).lane == .complex;
 }
 
-fn inferredCellSpan(cells: []const surface.CellInput, idx: u32) u8 {
+fn inferredCellSpan(cells: []const render.CellInput, idx: u32) u8 {
     var span: u32 = 1;
     const total = count32(cells);
     while (idx + span < total and cells[@intCast(idx + span)].continuation) : (span += 1) {}
@@ -614,7 +614,7 @@ fn inferredInputCellSpan(inputs: []const CellTextInput, idx: u32) u8 {
     return @intCast(@min(span, std.math.maxInt(u8)));
 }
 
-fn inferredRenderableCellSpan(cells: []const surface.RenderableCell, idx: u32) u8 {
+fn inferredRenderableCellSpan(cells: []const render.RenderableCell, idx: u32) u8 {
     var span: u32 = 1;
     const total = count32(cells);
     while (idx + span < total and cells[@intCast(idx + span)].continuation) : (span += 1) {}
@@ -639,10 +639,10 @@ fn appendScratchText(scratch: *RetainedScratch, text_count: *u32, codepoint_coun
     codepoint_count.* += cp_len;
 }
 
-fn cloneTextCache(allocator: std.mem.Allocator, texts: []const surface.CellText, codepoints: []const u32) !OwnedLineTextCache {
+fn cloneTextCache(allocator: std.mem.Allocator, texts: []const render.CellText, codepoints: []const u32) !OwnedLineTextCache {
     const final_codepoints = try allocator.dupe(u32, codepoints);
     errdefer allocator.free(final_codepoints);
-    const final_texts = try allocator.alloc(surface.CellText, texts.len);
+    const final_texts = try allocator.alloc(render.CellText, texts.len);
     errdefer allocator.free(final_texts);
 
     var codepoint_offset: u32 = 0;
@@ -665,7 +665,7 @@ fn countNormalizedInputCodepoints(inputs: []const CellTextInput) u32 {
     return total_codepoints;
 }
 
-fn countCellInputCodepoints(cells: []const surface.CellInput) u32 {
+fn countCellInputCodepoints(cells: []const render.CellInput) u32 {
     var total_codepoints: u32 = 0;
     for (cells) |cell| total_codepoints += @as(u32, cell.combining_len) + 1;
     return total_codepoints;
@@ -678,9 +678,9 @@ test "single codepoint text preserves first codepoint" {
 
 test "cell inputs build text cache renderable cells and clusters" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]surface.CellInput{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]render.CellInput{
         .{ .codepoint = 'A', .fg = white, .bg = black },
         .{ .codepoint = 'B', .fg = white, .bg = black },
         .{ .codepoint = 'C', .fg = white, .bg = black, .continuation = true },
@@ -695,15 +695,15 @@ test "cell inputs build text cache renderable cells and clusters" {
 
     try std.testing.expectEqual(@as(u32, 3), count32(cache.texts));
     try std.testing.expectEqual(@as(u32, 2), count32(clusters.clusters));
-    try std.testing.expectEqual(surface.SemanticColorKind.default, renderable.cells[0].semantic_fg.kind);
-    try std.testing.expectEqual(surface.SemanticColorKind.default, renderable.cells[0].semantic_bg.kind);
+    try std.testing.expectEqual(render.SemanticColorKind.default, renderable.cells[0].semantic_fg.kind);
+    try std.testing.expectEqual(render.SemanticColorKind.default, renderable.cells[0].semantic_bg.kind);
 }
 
 test "cell inputs retain combining sequences in text cache" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]surface.CellInput{.{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]render.CellInput{.{
         .codepoint = 'i',
         .combining_len = 1,
         .combining = .{ 0x0332, 0, 0 },
@@ -720,9 +720,9 @@ test "cell inputs retain combining sequences in text cache" {
 
 test "cell inputs preserve style and presentation into renderables and clusters" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]surface.CellInput{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]render.CellInput{
         .{ .codepoint = 'A', .style = .bold, .presentation = .text, .fg = white, .bg = black },
         .{ .codepoint = 'B', .style = .italic, .presentation = .emoji, .fg = white, .bg = black },
     };
@@ -734,22 +734,22 @@ test "cell inputs preserve style and presentation into renderables and clusters"
     var clusters = try extractClusters(allocator, renderable.cells, cache.view());
     defer clusters.deinit();
 
-    try std.testing.expectEqual(surface.FontStyle.bold, renderable.cells[0].style);
-    try std.testing.expectEqual(surface.TextPresentation.text, renderable.cells[0].presentation);
-    try std.testing.expectEqual(surface.FontStyle.italic, renderable.cells[1].style);
-    try std.testing.expectEqual(surface.TextPresentation.emoji, renderable.cells[1].presentation);
+    try std.testing.expectEqual(render.FontStyle.bold, renderable.cells[0].style);
+    try std.testing.expectEqual(render.TextPresentation.text, renderable.cells[0].presentation);
+    try std.testing.expectEqual(render.FontStyle.italic, renderable.cells[1].style);
+    try std.testing.expectEqual(render.TextPresentation.emoji, renderable.cells[1].presentation);
 
-    try std.testing.expectEqual(surface.FontStyle.bold, clusters.clusters[0].style);
-    try std.testing.expectEqual(surface.TextPresentation.text, clusters.clusters[0].presentation);
-    try std.testing.expectEqual(surface.FontStyle.italic, clusters.clusters[1].style);
-    try std.testing.expectEqual(surface.TextPresentation.emoji, clusters.clusters[1].presentation);
+    try std.testing.expectEqual(render.FontStyle.bold, clusters.clusters[0].style);
+    try std.testing.expectEqual(render.TextPresentation.text, clusters.clusters[0].presentation);
+    try std.testing.expectEqual(render.FontStyle.italic, clusters.clusters[1].style);
+    try std.testing.expectEqual(render.TextPresentation.emoji, clusters.clusters[1].presentation);
 }
 
 test "blank cells do not produce text clusters" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]surface.CellInput{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]render.CellInput{
         .{ .codepoint = ' ', .fg = white, .bg = black },
         .{ .codepoint = 'A', .fg = white, .bg = black },
         .{ .codepoint = 0, .fg = white, .bg = black },
@@ -769,9 +769,9 @@ test "blank cells do not produce text clusters" {
 
 test "continuation cells expand base cell spans" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]surface.CellInput{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]render.CellInput{
         .{ .codepoint = 0x4f60, .fg = white, .bg = black },
         .{ .codepoint = 0, .fg = white, .bg = black, .continuation = true },
         .{ .codepoint = 'x', .fg = white, .bg = black },
@@ -793,9 +793,9 @@ test "continuation cells expand base cell spans" {
 
 test "partial damage filters clean clusters before shaping" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]surface.CellInput{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]render.CellInput{
         .{ .codepoint = 'A', .fg = white, .bg = black },
         .{ .codepoint = 'B', .fg = white, .bg = black },
         .{ .codepoint = 'C', .fg = white, .bg = black },
@@ -824,9 +824,9 @@ test "partial damage filters clean clusters before shaping" {
 
 test "sparse cells keep only damaged base cells" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]surface.CellInput{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]render.CellInput{
         .{ .codepoint = 'A', .fg = white, .bg = black },
         .{ .codepoint = 0, .fg = white, .bg = black, .continuation = true },
         .{ .codepoint = 'B', .fg = white, .bg = black },
@@ -853,9 +853,9 @@ test "sparse cells keep only damaged base cells" {
 
 test "sparse cells intern repeated codepoints" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]surface.CellInput{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]render.CellInput{
         .{ .codepoint = 'Z', .fg = white, .bg = black },
         .{ .codepoint = 'Z', .fg = white, .bg = black },
         .{ .codepoint = 'Y', .fg = white, .bg = black },
@@ -871,10 +871,10 @@ test "sparse cells intern repeated codepoints" {
 
 test "sparse cells keep empty background witnesses for scene ownership" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const transparent_bg = surface.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
-    const cells = [_]surface.CellInput{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const transparent_bg = render.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
+    const cells = [_]render.CellInput{
         .{ .codepoint = ' ', .fg = white, .bg = transparent_bg, .empty = true },
         .{ .codepoint = 'A', .fg = white, .bg = black },
         .{ .codepoint = '\t', .fg = white, .bg = transparent_bg, .empty = true },
@@ -898,8 +898,8 @@ test "sparse cells keep empty background witnesses for scene ownership" {
 
 test "rich cell text interning deduplicates codepoint sequences" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const underline_i = [_]u32{ 'i', 0x0332, 0x0308 };
     const inputs = [_]CellTextInput{
         .{ .codepoints = &underline_i, .fg = white, .bg = black },
@@ -920,8 +920,8 @@ test "rich cell text interning deduplicates codepoint sequences" {
 
 test "rich cell text renderables resolve exact interned text ids" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const alpha = [_]u32{'a'};
     const beta = [_]u32{ 'b', 0x0332 };
     const inputs = [_]CellTextInput{
@@ -942,8 +942,8 @@ test "rich cell text renderables resolve exact interned text ids" {
 
 test "rich cell text detects emoji and text presentation selectors" {
     const allocator = std.testing.allocator;
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const text_x = [_]u32{ 0x2716, VS15 };
     const emoji_x = [_]u32{ 0x2716, VS16 };
     const inputs = [_]CellTextInput{
@@ -954,8 +954,8 @@ test "rich cell text detects emoji and text presentation selectors" {
     defer cache.deinit();
     var renderable = try buildRenderableCellsFromInputs(allocator, &inputs, cache.view());
     defer renderable.deinit();
-    try std.testing.expectEqual(surface.TextPresentation.text, renderable.cells[0].presentation);
-    try std.testing.expectEqual(surface.TextPresentation.emoji, renderable.cells[1].presentation);
+    try std.testing.expectEqual(render.TextPresentation.text, renderable.cells[0].presentation);
+    try std.testing.expectEqual(render.TextPresentation.emoji, renderable.cells[1].presentation);
 }
 
 test "retained scratch bounds sparse cell assembly" {
@@ -963,9 +963,9 @@ test "retained scratch bounds sparse cell assembly" {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     try scratch.configure(allocator, 1, 1);
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const cells = [_]surface.CellInput{
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const cells = [_]render.CellInput{
         .{ .codepoint = 'A', .fg = white, .bg = black },
         .{ .codepoint = 'B', .fg = white, .bg = black },
     };
@@ -978,8 +978,8 @@ test "retained scratch bounds rich input codepoint assembly" {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     try scratch.configure(allocator, 1, 1);
-    const white = surface.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
-    const black = surface.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
+    const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const combining = [_]u32{ 'i', 0x0332 };
     const inputs = [_]CellTextInput{.{ .codepoints = &combining, .fg = white, .bg = black }};
 

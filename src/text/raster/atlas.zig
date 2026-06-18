@@ -1,12 +1,12 @@
 const std = @import("std");
-const surface = @import("../../surface.zig");
+const render = @import("../../libhowl_render.zig");
 const rasterizer = @import("rasterizer.zig");
 
 pub const StoredRaster = struct {
     pixels: []u8 = &.{},
     width_px: u16 = 0,
     height_px: u16 = 0,
-    color_mode: surface.SpriteColorMode = .alpha,
+    color_mode: render.SpriteColorMode = .alpha,
     visual_bounds: rasterizer.SpriteBounds = .{},
 
     fn deinit(self: *StoredRaster, allocator: std.mem.Allocator) void {
@@ -18,13 +18,13 @@ pub const StoredRaster = struct {
 pub const AtlasCapacity = u32;
 
 pub const Entry = struct {
-    key: surface.SpriteKey,
-    position: surface.SpritePosition,
+    key: render.SpriteKey,
+    position: render.SpritePosition,
     raster: StoredRaster = .{},
 };
 
 pub const ReserveResult = struct {
-    position: surface.SpritePosition,
+    position: render.SpritePosition,
     pending: bool,
 };
 
@@ -44,20 +44,20 @@ pub const OwnedAtlasCache = struct {
         self.* = undefined;
     }
 
-    pub fn get(self: *const OwnedAtlasCache, key: surface.SpriteKey) ?surface.SpritePosition {
+    pub fn get(self: *const OwnedAtlasCache, key: render.SpriteKey) ?render.SpritePosition {
         for (self.entries[0..@intCast(liveLen(self))]) |entry| {
             if (entry.key.value == key.value) return entry.position;
         }
         return null;
     }
 
-    pub fn reserve(self: *OwnedAtlasCache, key: surface.SpriteKey, colored: bool) ReserveResult {
+    pub fn reserve(self: *OwnedAtlasCache, key: render.SpriteKey, colored: bool) ReserveResult {
         if (self.get(key)) |pos| return .{ .position = pos, .pending = !pos.rendered };
         if (self.entries.len == 0) return .{ .position = .{ .slot = 0, .key = key, .rendered = false, .colored = colored }, .pending = true };
         const len = liveLen(self);
         const idx = if (len < entryCap(self)) len else self.next_slot % entryCap(self);
         const slot = idx;
-        const pos = surface.SpritePosition{ .slot = slot, .key = key, .rendered = false, .colored = colored };
+        const pos = render.SpritePosition{ .slot = slot, .key = key, .rendered = false, .colored = colored };
         if (idx < len) self.entries[@intCast(idx)].raster.deinit(self.allocator);
         self.entries[@intCast(idx)] = .{ .key = key, .position = pos };
         if (len < entryCap(self)) self.len += 1;
@@ -65,11 +65,11 @@ pub const OwnedAtlasCache = struct {
         return .{ .position = pos, .pending = true };
     }
 
-    pub fn reserveRequest(self: *OwnedAtlasCache, req: surface.SpriteRasterRequest) ReserveResult {
+    pub fn reserveRequest(self: *OwnedAtlasCache, req: render.SpriteRasterRequest) ReserveResult {
         return self.reserve(req.key, req.color_mode == .color);
     }
 
-    pub fn markRendered(self: *OwnedAtlasCache, key: surface.SpriteKey) bool {
+    pub fn markRendered(self: *OwnedAtlasCache, key: render.SpriteKey) bool {
         for (self.entries[0..@intCast(liveLen(self))]) |*entry| {
             if (entry.key.value != key.value) continue;
             entry.position.rendered = true;
@@ -94,7 +94,7 @@ pub const OwnedAtlasCache = struct {
         return false;
     }
 
-    pub fn rasterForKey(self: *const OwnedAtlasCache, key: surface.SpriteKey) ?StoredRaster {
+    pub fn rasterForKey(self: *const OwnedAtlasCache, key: render.SpriteKey) ?StoredRaster {
         for (self.entries[0..@intCast(liveLen(self))]) |entry| {
             if (entry.key.value == key.value) return entry.raster;
         }

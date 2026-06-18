@@ -1,13 +1,13 @@
 const std = @import("std");
-const surface = @import("../../surface.zig");
+const render = @import("../../libhowl_render.zig");
 
 pub const RasterizeRequest = struct {
     face_id: u32,
     glyph_id: u32,
     atlas_key: u64,
-    cell_metrics: surface.CellMetrics,
+    cell_metrics: render.CellMetrics,
     cell_span: u8 = 1,
-    sprite_key: ?surface.SpriteKey = null,
+    sprite_key: ?render.SpriteKey = null,
 };
 
 pub const RasterizeOutput = struct {

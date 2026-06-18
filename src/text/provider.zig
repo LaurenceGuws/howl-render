@@ -1,5 +1,5 @@
 const std = @import("std");
-const surface = @import("../surface.zig");
+const render = @import("../libhowl_render.zig");
 const font_session = @import("../session/session.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
@@ -23,7 +23,7 @@ pub const FtHbSource = struct {
         };
     }
 
-    fn hasCellText(ctx: *anyopaque, face_id: font_session.FontFaceId, text: surface.CellText) bool {
+    fn hasCellText(ctx: *anyopaque, face_id: font_session.FontFaceId, text: render.CellText) bool {
         const self: *FtHbSource = @ptrCast(@alignCast(ctx));
         const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
         for (cps) |cp| {
@@ -39,13 +39,13 @@ pub const LookupGlyphResult = struct {
     advance_px: f32,
 };
 
-pub const LookupGlyphFn = *const fn (ctx: *anyopaque, face_id: surface.FontFaceId, codepoint: u32, cell_metrics: surface.CellMetrics) LookupGlyphResult;
+pub const LookupGlyphFn = *const fn (ctx: *anyopaque, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) LookupGlyphResult;
 
 pub const LookupGlyphOp = struct {
     ctx: *anyopaque,
     lookup_glyph: LookupGlyphFn,
 
-    pub fn lookupGlyph(self: LookupGlyphOp, face_id: surface.FontFaceId, codepoint: u32, cell_metrics: surface.CellMetrics) LookupGlyphResult {
+    pub fn lookupGlyph(self: LookupGlyphOp, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) LookupGlyphResult {
         return self.lookup_glyph(self.ctx, face_id, codepoint, cell_metrics);
     }
 };
@@ -76,7 +76,7 @@ pub fn defaultGlyphRaster() raster_operation.RasterizeGlyphOp {
     return .{ .ctx = undefined, .call = defaultGlyphRasterThunk };
 }
 
-fn defaultLookupGlyphThunk(_: *anyopaque, face_id: surface.FontFaceId, codepoint: u32, cell_metrics: surface.CellMetrics) LookupGlyphResult {
+fn defaultLookupGlyphThunk(_: *anyopaque, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) LookupGlyphResult {
     _ = face_id;
     return .{
         .glyph_id = codepoint,
@@ -103,7 +103,7 @@ fn defaultGlyphRasterThunk(_: *anyopaque, allocator: std.mem.Allocator, req: ras
 
 test "text provider applies face provider to session" {
     const Provider = struct {
-        fn has(ctx: *anyopaque, face_id: surface.FontFaceId, text: surface.CellText) bool {
+        fn has(ctx: *anyopaque, face_id: render.FontFaceId, text: render.CellText) bool {
             _ = ctx;
             _ = face_id;
             return text.codepoints.len == 1;
