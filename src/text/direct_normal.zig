@@ -3,7 +3,7 @@ const atlas_cache = @import("raster/atlas.zig");
 const cluster = @import("shape/cluster.zig");
 const render = @import("../grid/scene.zig");
 const direct_scene = @import("../grid/direct.zig");
-const font_session = @import("../session/session.zig");
+const face_selection = @import("face_selection.zig");
 const lane = @import("lane.zig");
 const prepare_counters = @import("prepare_counters.zig");
 const provider = @import("provider.zig");
@@ -16,8 +16,8 @@ const sprite_key = @import("raster/key.zig");
 
 const RenderableCell = render.RenderableCell;
 const CellText = render.CellText;
-const FontSession = font_session.FontSession;
-const FontFaceRecord = font_session.FontFaceRecord;
+const FaceSelection = face_selection.FaceSelection;
+const FaceRecord = face_selection.FaceRecord;
 const LookupGlyphResult = provider.LookupGlyphResult;
 
 pub const Product = struct {
@@ -114,18 +114,18 @@ pub fn prepare(
     source: Source,
     policy: Policy,
     grid_metrics: render.GridMetrics,
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     damage_input: scene_damage.DamageInput,
     cursor: ?render.CursorPresentation,
     lane_report: *lane.LaneReport,
     rejected_complex_cells_out: ?*u64,
 ) !?Product {
     const damage = direct_scene.Damage.init(damage_input, grid_metrics.rows);
-    const decoration_layout = scene_rects.rectDecorationLayout(session.metrics, grid_metrics);
+    const decoration_layout = scene_rects.rectDecorationLayout(selection.cell_metrics, grid_metrics);
     const source_len = sourceLen(source);
     var rejected_complex_cells: u64 = 0;
     try driver.scratch.reset(driver.allocator, source_len, source_len, grid_metrics.rows);
-    const appended_visible = try appendVisible(driver, source, damage, grid_metrics, decoration_layout, session, policy, lane_report, &rejected_complex_cells);
+    const appended_visible = try appendVisible(driver, source, damage, grid_metrics, decoration_layout, selection, policy, lane_report, &rejected_complex_cells);
     if (!appended_visible) {
         std.debug.assert(policy == .require_all_normal);
         std.debug.assert(rejected_complex_cells != 0);
@@ -140,11 +140,11 @@ pub fn prepare(
         &driver.scratch.clear_draws,
         driver.scratch.clear_row_colors.items,
         driver.scratch.clear_row_matches.items,
-        session.metrics,
+        selection.cell_metrics,
         grid_metrics,
         damage,
     );
-    direct_scene.appendCursor(&driver.scratch.cursor_draws, cursor, session.metrics, damage);
+    direct_scene.appendCursor(&driver.scratch.cursor_draws, cursor, selection.cell_metrics, damage);
     const product = try finishScene(driver, damage, lane_report);
     return product;
 }
@@ -188,7 +188,7 @@ fn appendVisible(
     damage: direct_scene.Damage,
     grid_metrics: render.GridMetrics,
     decoration_layout: scene_rects.RectDecorationLayout,
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     policy: Policy,
     lane_report: *lane.LaneReport,
     rejected_complex_cells: *u64,
@@ -208,7 +208,7 @@ fn appendVisible(
         }
         switch (candidateDecision(policy, lane_report, candidate_value)) {
             .include => {
-                try appendRenderable(driver, candidate_value.item.renderable, candidate_value.item.text, damage, grid_metrics, decoration_layout, session, lane_report);
+                try appendRenderable(driver, candidate_value.item.renderable, candidate_value.item.text, damage, grid_metrics, decoration_layout, selection, lane_report);
             },
             .skip => continue,
             .reject => {
@@ -284,7 +284,7 @@ fn appendRenderable(
     damage: direct_scene.Damage,
     grid_metrics: render.GridMetrics,
     decoration_layout: scene_rects.RectDecorationLayout,
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
 ) !void {
     direct_scene.appendRenderableRects(
@@ -295,13 +295,13 @@ fn appendRenderable(
         driver.scratch.clear_row_matches.items,
         &driver.scratch.decoration_draws,
         renderable,
-        session.metrics,
+        selection.cell_metrics,
         grid_metrics,
         decoration_layout,
         damage,
     );
 
-    try renderableAppend(driver, renderable, text, grid_metrics, session, lane_report);
+    try renderableAppend(driver, renderable, text, grid_metrics, selection, lane_report);
 }
 
 fn renderableAppend(
@@ -309,17 +309,17 @@ fn renderableAppend(
     renderable: render.RenderableCell,
     text: render.CellText,
     grid_metrics: render.GridMetrics,
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
 ) !void {
     if (blankFastReturn(driver, text)) return;
 
-    const face = resolveFaceOrAppendMissing(driver, renderable, text, session) orelse return;
-    appendResolvedGlyph(driver, renderable, text, grid_metrics, session, lane_report, face);
+    const face = resolveFaceOrAppendMissing(driver, renderable, text, selection) orelse return;
+    appendResolvedGlyph(driver, renderable, text, grid_metrics, selection, lane_report, face);
 }
 
-fn resolveFaceOrAppendMissing(driver: Driver, renderable: render.RenderableCell, text: render.CellText, session: font_session.FontSession) ?font_session.FontFaceRecord {
-    const face = resolveFace(session, renderable, text) orelse {
+fn resolveFaceOrAppendMissing(driver: Driver, renderable: render.RenderableCell, text: render.CellText, selection: face_selection.FaceSelection) ?face_selection.FaceRecord {
+    const face = resolveFace(selection, renderable, text) orelse {
         driver.scratch.missing.appendAssumeCapacity(.{ .codepoint = text.first_cp, .style = renderable.style, .presentation = renderable.presentation, .reason = .no_fallback_face });
         return null;
     };
@@ -337,34 +337,34 @@ fn appendResolvedGlyph(
     renderable: render.RenderableCell,
     text: render.CellText,
     grid_metrics: render.GridMetrics,
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
-    face: font_session.FontFaceRecord,
+    face: face_selection.FaceRecord,
 ) void {
-    const lookup = lookupGlyph(driver, text, session, face);
-    const resolved = deriveResolvedGlyphKey(renderable, session, face, lookup);
-    const residency = reserveAtlasOrAppendPendingRaster(driver, session, face, resolved);
-    spriteAppend(driver, renderable, grid_metrics, session, lane_report, resolved.lookup, residency, resolved.span);
+    const lookup = lookupGlyph(driver, text, selection, face);
+    const resolved = deriveResolvedGlyphKey(renderable, selection, face, lookup);
+    const residency = reserveAtlasOrAppendPendingRaster(driver, selection, face, resolved);
+    spriteAppend(driver, renderable, grid_metrics, selection, lane_report, resolved.lookup, residency, resolved.span);
 }
 
-fn lookupGlyph(driver: Driver, text: CellText, session: FontSession, face: FontFaceRecord) LookupGlyphResult {
-    return driver.glyph_lookup.lookupGlyph(face.id, text.first_cp, session.metrics);
+fn lookupGlyph(driver: Driver, text: CellText, selection: FaceSelection, face: FaceRecord) LookupGlyphResult {
+    return driver.glyph_lookup.lookupGlyph(face.id, text.first_cp, selection.cell_metrics);
 }
 
-fn deriveResolvedGlyphKey(renderable: RenderableCell, session: FontSession, face: FontFaceRecord, lookup: LookupGlyphResult) ResolvedGlyphKey {
+fn deriveResolvedGlyphKey(renderable: RenderableCell, selection: FaceSelection, face: FaceRecord, lookup: LookupGlyphResult) ResolvedGlyphKey {
     const span = @max(renderable.cell_span, 1);
-    const key = sprite_key.hashGlyphLocal(face.id, lookup.glyph_id, span, session.metrics);
+    const key = sprite_key.hashGlyphLocal(face.id, lookup.glyph_id, span, selection.cell_metrics);
     return .{ .lookup = lookup, .span = span, .key = key };
 }
 
-fn reserveAtlasOrAppendPendingRaster(driver: Driver, session: font_session.FontSession, face: font_session.FontFaceRecord, resolved: ResolvedGlyphKey) atlas_cache.ReserveResult {
+fn reserveAtlasOrAppendPendingRaster(driver: Driver, selection: face_selection.FaceSelection, face: face_selection.FaceRecord, resolved: ResolvedGlyphKey) atlas_cache.ReserveResult {
     const residency = driver.atlas.reserve(resolved.key, false);
     if (residency.pending) {
         driver.scratch.raster_reqs.appendAssumeCapacity(.{
             .face_id = face.id.value,
             .glyph_id = resolved.lookup.glyph_id,
             .atlas_key = resolved.key.value,
-            .cell_metrics = session.metrics,
+            .cell_metrics = selection.cell_metrics,
             .cell_span = resolved.span,
         });
     }
@@ -384,7 +384,7 @@ fn spriteAppend(
     driver: Driver,
     renderable: render.RenderableCell,
     grid_metrics: render.GridMetrics,
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
     lookup: provider.LookupGlyphResult,
     residency: atlas_cache.ReserveResult,
@@ -395,11 +395,11 @@ fn spriteAppend(
     const row = renderable.first_cell / cols;
     driver.scratch.sprite_draws.appendAssumeCapacity(.{
         .sprite = residency.position,
-        .x_px = @as(i32, @intCast(col * @as(u32, session.metrics.cell_w_px))),
-        .y_px = @as(i32, @intCast(row * @as(u32, session.metrics.cell_h_px))),
-        .width_px = @intCast(@as(u32, span) * @as(u32, session.metrics.cell_w_px)),
-        .height_px = session.metrics.cell_h_px,
-        .placement = .{ .advance_px = @max(lookup.advance_px, @as(f32, @floatFromInt(@as(u32, span) * @as(u32, session.metrics.cell_w_px)))) },
+        .x_px = @as(i32, @intCast(col * @as(u32, selection.cell_metrics.cell_w_px))),
+        .y_px = @as(i32, @intCast(row * @as(u32, selection.cell_metrics.cell_h_px))),
+        .width_px = @intCast(@as(u32, span) * @as(u32, selection.cell_metrics.cell_w_px)),
+        .height_px = selection.cell_metrics.cell_h_px,
+        .placement = .{ .advance_px = @max(lookup.advance_px, @as(f32, @floatFromInt(@as(u32, span) * @as(u32, selection.cell_metrics.cell_w_px)))) },
         .color = scene.spriteDrawColor(renderable),
         .first_cell = renderable.first_cell,
         .cell_span = span,
@@ -470,9 +470,9 @@ fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.L
     return .{ .damage = damage, .outputs = outputs, .outputs_owned = outputs_owned };
 }
 
-fn resolveFace(session: font_session.FontSession, cell: render.RenderableCell, text: render.CellText) ?font_session.FontFaceRecord {
-    if (isPlainAsciiText(text)) return session.primary();
-    return session.findStyle(cell.style, cell.presentation, text) orelse session.findFallback(cell.style, cell.presentation, text);
+fn resolveFace(selection: face_selection.FaceSelection, cell: render.RenderableCell, text: render.CellText) ?face_selection.FaceRecord {
+    if (isPlainAsciiText(text)) return selection.primary();
+    return selection.findStyle(cell.style, cell.presentation, text) orelse selection.findFallback(cell.style, cell.presentation, text);
 }
 
 fn isPlainAsciiText(text: render.CellText) bool {
@@ -516,10 +516,10 @@ fn testCellText(codepoint: u32, codepoints: []const u32) render.CellText {
     };
 }
 
-fn testFontSession(faces: []const font_session.FontFaceRecord) font_session.FontSession {
+fn testFaceSelection(faces: []const face_selection.FaceRecord) face_selection.FaceSelection {
     return .{
         .faces = faces,
-        .metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
+        .cell_metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
     };
 }
 
@@ -541,7 +541,7 @@ test "direct normal renderable append tab fast return leaves sprite raster missi
         .scratch = &scratch,
     };
 
-    try renderableAppend(driver, testRenderableCell(0), testCellText('\t', tab[0..]), .{ .cols = 1, .rows = 1 }, testFontSession(&.{}), &lane_report);
+    try renderableAppend(driver, testRenderableCell(0), testCellText('\t', tab[0..]), .{ .cols = 1, .rows = 1 }, testFaceSelection(&.{}), &lane_report);
 
     try std.testing.expectEqual(@as(usize, 0), scratch.sprite_draws.items.len);
     try std.testing.expectEqual(@as(usize, 0), scratch.raster_reqs.items.len);
@@ -559,7 +559,7 @@ test "direct normal renderable append zero codepoint fast return leaves sprite r
 
     var lane_report = lane.LaneReport{};
     const zero = [_]u32{0};
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },
     };
     const driver = Driver{
@@ -570,7 +570,7 @@ test "direct normal renderable append zero codepoint fast return leaves sprite r
         .scratch = &scratch,
     };
 
-    try renderableAppend(driver, testRenderableCell(0), testCellText(0, zero[0..]), .{ .cols = 1, .rows = 1 }, testFontSession(&faces), &lane_report);
+    try renderableAppend(driver, testRenderableCell(0), testCellText(0, zero[0..]), .{ .cols = 1, .rows = 1 }, testFaceSelection(&faces), &lane_report);
 
     try std.testing.expectEqual(@as(usize, 0), scratch.sprite_draws.items.len);
     try std.testing.expectEqual(@as(usize, 0), scratch.raster_reqs.items.len);
@@ -588,7 +588,7 @@ test "direct normal renderable append missing face appends no fallback glyph and
 
     var lane_report = lane.LaneReport{};
     const snowman = [_]u32{0x2603};
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },
     };
     const driver = Driver{
@@ -599,7 +599,7 @@ test "direct normal renderable append missing face appends no fallback glyph and
         .scratch = &scratch,
     };
 
-    try renderableAppend(driver, testRenderableCell(0), testCellText(0x2603, snowman[0..]), .{ .cols = 1, .rows = 1 }, testFontSession(&faces), &lane_report);
+    try renderableAppend(driver, testRenderableCell(0), testCellText(0x2603, snowman[0..]), .{ .cols = 1, .rows = 1 }, testFaceSelection(&faces), &lane_report);
 
     try std.testing.expectEqual(@as(usize, 1), scratch.missing.items.len);
     try std.testing.expectEqual(render.MissingGlyphReason.no_fallback_face, scratch.missing.items[0].reason);
@@ -618,12 +618,12 @@ test "direct normal renderable append pending atlas reserve appends matching ras
 
     var lane_report = lane.LaneReport{};
     const ascii = [_]u32{'a'};
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 7 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },
     };
     const renderable = testRenderableCell(0);
     const text = testCellText('a', ascii[0..]);
-    const session = testFontSession(&faces);
+    const selection = testFaceSelection(&faces);
     const driver = Driver{
         .allocator = std.testing.allocator,
         .atlas = &atlas,
@@ -632,11 +632,11 @@ test "direct normal renderable append pending atlas reserve appends matching ras
         .scratch = &scratch,
     };
 
-    try renderableAppend(driver, renderable, text, .{ .cols = 1, .rows = 1 }, session, &lane_report);
+    try renderableAppend(driver, renderable, text, .{ .cols = 1, .rows = 1 }, selection, &lane_report);
 
-    const lookup = driver.glyph_lookup.lookupGlyph(faces[0].id, text.first_cp, session.metrics);
+    const lookup = driver.glyph_lookup.lookupGlyph(faces[0].id, text.first_cp, selection.cell_metrics);
     const span = @max(renderable.cell_span, 1);
-    const key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, span, session.metrics);
+    const key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, span, selection.cell_metrics);
 
     try std.testing.expectEqual(@as(usize, 1), scratch.sprite_draws.items.len);
     try std.testing.expectEqual(@as(usize, 1), scratch.raster_reqs.items.len);
@@ -645,7 +645,7 @@ test "direct normal renderable append pending atlas reserve appends matching ras
     try std.testing.expectEqual(faces[0].id.value, scratch.raster_reqs.items[0].face_id);
     try std.testing.expectEqual(lookup.glyph_id, scratch.raster_reqs.items[0].glyph_id);
     try std.testing.expectEqual(key.value, scratch.raster_reqs.items[0].atlas_key);
-    try std.testing.expectEqualDeep(session.metrics, scratch.raster_reqs.items[0].cell_metrics);
+    try std.testing.expectEqualDeep(selection.cell_metrics, scratch.raster_reqs.items[0].cell_metrics);
     try std.testing.expectEqual(span, scratch.raster_reqs.items[0].cell_span);
 }
 
@@ -659,13 +659,13 @@ test "direct normal renderable append widened span preserves key raster request 
 
     var lane_report = lane.LaneReport{};
     const ascii = [_]u32{'a'};
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 7 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },
     };
     var renderable = testRenderableCell(0);
     renderable.cell_span = 3;
     const text = testCellText('a', ascii[0..]);
-    const session = testFontSession(&faces);
+    const selection = testFaceSelection(&faces);
     const driver = Driver{
         .allocator = std.testing.allocator,
         .atlas = &atlas,
@@ -674,14 +674,14 @@ test "direct normal renderable append widened span preserves key raster request 
         .scratch = &scratch,
     };
 
-    const lookup = lookupGlyph(driver, text, session, faces[0]);
-    const resolved = deriveResolvedGlyphKey(renderable, session, faces[0], lookup);
-    const expected_key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, renderable.cell_span, session.metrics);
+    const lookup = lookupGlyph(driver, text, selection, faces[0]);
+    const resolved = deriveResolvedGlyphKey(renderable, selection, faces[0], lookup);
+    const expected_key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, renderable.cell_span, selection.cell_metrics);
 
     try std.testing.expectEqual(@as(u8, 3), resolved.span);
     try std.testing.expectEqual(expected_key.value, resolved.key.value);
 
-    appendResolvedGlyph(driver, renderable, text, .{ .cols = 1, .rows = 1 }, session, &lane_report, faces[0]);
+    appendResolvedGlyph(driver, renderable, text, .{ .cols = 1, .rows = 1 }, selection, &lane_report, faces[0]);
 
     try std.testing.expectEqual(@as(usize, 1), scratch.raster_reqs.items.len);
     try std.testing.expectEqual(@as(u8, 3), scratch.raster_reqs.items[0].cell_span);
@@ -700,12 +700,12 @@ test "direct normal renderable append rendered atlas hit appends sprite draw wit
 
     var lane_report = lane.LaneReport{};
     const ascii = [_]u32{'a'};
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 7 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },
     };
     const renderable = testRenderableCell(0);
     const text = testCellText('a', ascii[0..]);
-    const session = testFontSession(&faces);
+    const selection = testFaceSelection(&faces);
     const driver = Driver{
         .allocator = std.testing.allocator,
         .atlas = &atlas,
@@ -714,17 +714,17 @@ test "direct normal renderable append rendered atlas hit appends sprite draw wit
         .scratch = &scratch,
     };
 
-    try renderableAppend(driver, renderable, text, .{ .cols = 1, .rows = 1 }, session, &lane_report);
+    try renderableAppend(driver, renderable, text, .{ .cols = 1, .rows = 1 }, selection, &lane_report);
 
-    const lookup = driver.glyph_lookup.lookupGlyph(faces[0].id, text.first_cp, session.metrics);
+    const lookup = driver.glyph_lookup.lookupGlyph(faces[0].id, text.first_cp, selection.cell_metrics);
     const span = @max(renderable.cell_span, 1);
-    const key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, span, session.metrics);
+    const key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, span, selection.cell_metrics);
 
     try std.testing.expectEqual(@as(usize, 1), scratch.raster_reqs.items.len);
     try std.testing.expectEqual(@as(usize, 1), scratch.sprite_draws.items.len);
     try std.testing.expect(atlas.markRendered(key));
 
-    try renderableAppend(driver, renderable, text, .{ .cols = 1, .rows = 1 }, session, &lane_report);
+    try renderableAppend(driver, renderable, text, .{ .cols = 1, .rows = 1 }, selection, &lane_report);
 
     try std.testing.expectEqual(@as(usize, 2), scratch.sprite_draws.items.len);
     try std.testing.expectEqual(@as(usize, 1), scratch.raster_reqs.items.len);
@@ -745,7 +745,7 @@ test "direct normal renderable append updates direct normal draws only on sprite
     const zero = [_]u32{0};
     const tab = [_]u32{'\t'};
     const snowman = [_]u32{0x2603};
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },
     };
     const driver = Driver{
@@ -756,15 +756,15 @@ test "direct normal renderable append updates direct normal draws only on sprite
         .scratch = &scratch,
     };
 
-    try renderableAppend(driver, testRenderableCell(0), testCellText('a', ascii[0..]), .{ .cols = 1, .rows = 1 }, testFontSession(&faces), &lane_report);
+    try renderableAppend(driver, testRenderableCell(0), testCellText('a', ascii[0..]), .{ .cols = 1, .rows = 1 }, testFaceSelection(&faces), &lane_report);
     try std.testing.expectEqual(@as(u64, 1), lane_report.direct_normal_draws);
 
-    try renderableAppend(driver, testRenderableCell(1), testCellText(0, zero[0..]), .{ .cols = 1, .rows = 1 }, testFontSession(&faces), &lane_report);
+    try renderableAppend(driver, testRenderableCell(1), testCellText(0, zero[0..]), .{ .cols = 1, .rows = 1 }, testFaceSelection(&faces), &lane_report);
     try std.testing.expectEqual(@as(u64, 1), lane_report.direct_normal_draws);
 
-    try renderableAppend(driver, testRenderableCell(2), testCellText('\t', tab[0..]), .{ .cols = 1, .rows = 1 }, testFontSession(&faces), &lane_report);
+    try renderableAppend(driver, testRenderableCell(2), testCellText('\t', tab[0..]), .{ .cols = 1, .rows = 1 }, testFaceSelection(&faces), &lane_report);
     try std.testing.expectEqual(@as(u64, 1), lane_report.direct_normal_draws);
 
-    try renderableAppend(driver, testRenderableCell(3), testCellText(0x2603, snowman[0..]), .{ .cols = 1, .rows = 1 }, testFontSession(&faces), &lane_report);
+    try renderableAppend(driver, testRenderableCell(3), testCellText(0x2603, snowman[0..]), .{ .cols = 1, .rows = 1 }, testFaceSelection(&faces), &lane_report);
     try std.testing.expectEqual(@as(u64, 1), lane_report.direct_normal_draws);
 }

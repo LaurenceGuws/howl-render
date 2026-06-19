@@ -1,9 +1,10 @@
 const std = @import("std");
+
 const render = @import("../grid/scene.zig");
 
-pub const FontFaceId = render.FontFaceId;
+pub const FaceId = render.FontFaceId;
 
-pub const FontFaceRole = enum(u3) {
+pub const FaceRole = enum(u3) {
     primary,
     style,
     symbol,
@@ -12,14 +13,14 @@ pub const FontFaceRole = enum(u3) {
     missing,
 };
 
-pub const FontFaceRecord = struct {
-    id: FontFaceId,
-    role: FontFaceRole,
+pub const FaceRecord = struct {
+    id: FaceId,
+    role: FaceRole,
     style: render.FontStyle = .regular,
     presentation: render.TextPresentation = .any,
     coverage: Coverage = .all,
 
-    pub fn hasCellText(self: FontFaceRecord, text: render.CellText) bool {
+    pub fn hasCellText(self: FaceRecord, text: render.CellText) bool {
         for (text.codepoints) |cp| {
             if (isNonRenderingCodepoint(cp)) continue;
             if (!covers(self.coverage, cp)) return false;
@@ -28,13 +29,13 @@ pub const FontFaceRecord = struct {
     }
 };
 
-pub const HasCellTextFn = *const fn (ctx: *anyopaque, face_id: FontFaceId, text: render.CellText) bool;
+pub const HasCellTextFn = *const fn (ctx: *anyopaque, face_id: FaceId, text: render.CellText) bool;
 
 pub const FaceProvider = struct {
     ctx: *anyopaque,
     has_cell_text: HasCellTextFn,
 
-    pub fn hasCellText(self: FaceProvider, face_id: FontFaceId, text: render.CellText) bool {
+    pub fn hasCellText(self: FaceProvider, face_id: FaceId, text: render.CellText) bool {
         return self.has_cell_text(self.ctx, face_id, text);
     }
 };
@@ -53,13 +54,13 @@ pub const CodepointRange = struct {
     }
 };
 
-pub const FontSession = struct {
-    primary_face: FontFaceId = .{ .value = 1 },
-    faces: []const FontFaceRecord = &.{},
+pub const FaceSelection = struct {
+    primary_face: FaceId = .{ .value = 1 },
+    faces: []const FaceRecord = &.{},
     provider: ?FaceProvider = null,
-    metrics: render.CellMetrics = .{ .cell_w_px = 1, .cell_h_px = 1, .baseline_px = 1 },
+    cell_metrics: render.CellMetrics = .{ .cell_w_px = 1, .cell_h_px = 1, .baseline_px = 1 },
 
-    pub fn primary(self: FontSession) FontFaceRecord {
+    pub fn primary(self: FaceSelection) FaceRecord {
         for (self.faces) |face| {
             if (face.role == .primary and face.id.value == self.primary_face.value) return face;
         }
@@ -69,20 +70,20 @@ pub const FontSession = struct {
         return .{ .id = self.primary_face, .role = .primary };
     }
 
-    pub fn findStyle(self: FontSession, style: render.FontStyle, presentation: render.TextPresentation, text: render.CellText) ?FontFaceRecord {
+    pub fn findStyle(self: FaceSelection, style: render.FontStyle, presentation: render.TextPresentation, text: render.CellText) ?FaceRecord {
         if (self.findText(.style, style, presentation, text)) |face| return face;
         return validPrimary(self, self.primary(), text);
     }
 
-    pub fn findSymbol(self: FontSession, cp: u32) ?FontFaceRecord {
+    pub fn findSymbol(self: FaceSelection, cp: u32) ?FaceRecord {
         return self.find(.symbol, .regular, .any, cp);
     }
 
-    pub fn findFallback(self: FontSession, style: render.FontStyle, presentation: render.TextPresentation, text: render.CellText) ?FontFaceRecord {
+    pub fn findFallback(self: FaceSelection, style: render.FontStyle, presentation: render.TextPresentation, text: render.CellText) ?FaceRecord {
         return self.findText(.fallback, style, presentation, text) orelse self.findText(.fallback, .regular, .any, text);
     }
 
-    fn find(self: FontSession, role: FontFaceRole, style: render.FontStyle, presentation: render.TextPresentation, cp: u32) ?FontFaceRecord {
+    fn find(self: FaceSelection, role: FaceRole, style: render.FontStyle, presentation: render.TextPresentation, cp: u32) ?FaceRecord {
         for (self.faces) |face| {
             if (face.role != role) continue;
             if (face.style != style and face.style != .regular) continue;
@@ -93,7 +94,7 @@ pub const FontSession = struct {
         return null;
     }
 
-    fn findText(self: FontSession, role: FontFaceRole, style: render.FontStyle, presentation: render.TextPresentation, text: render.CellText) ?FontFaceRecord {
+    fn findText(self: FaceSelection, role: FaceRole, style: render.FontStyle, presentation: render.TextPresentation, text: render.CellText) ?FaceRecord {
         for (self.faces) |face| {
             if (face.role != role) continue;
             if (face.style != style and face.style != .regular) continue;
@@ -104,13 +105,13 @@ pub const FontSession = struct {
         return null;
     }
 
-    pub fn hasCellText(self: FontSession, face: FontFaceRecord, text: render.CellText) bool {
+    pub fn hasCellText(self: FaceSelection, face: FaceRecord, text: render.CellText) bool {
         if (self.provider) |provider| return provider.hasCellText(face.id, text);
         return face.hasCellText(text);
     }
 };
 
-fn validPrimary(self: FontSession, face: FontFaceRecord, text: render.CellText) ?FontFaceRecord {
+fn validPrimary(self: FaceSelection, face: FaceRecord, text: render.CellText) ?FaceRecord {
     return if (self.hasCellText(face, text)) face else null;
 }
 
@@ -125,64 +126,64 @@ fn isNonRenderingCodepoint(cp: u32) bool {
     return cp == 0xfe0e or cp == 0xfe0f;
 }
 
-test "font session has deterministic defaults" {
-    const session = FontSession{};
-    try std.testing.expectEqual(@as(u32, 1), session.primary_face.value);
-    try std.testing.expectEqual(@as(u32, 1), session.primary().id.value);
+test "face selection has deterministic defaults" {
+    const selection = FaceSelection{};
+    try std.testing.expectEqual(@as(u32, 1), selection.primary_face.value);
+    try std.testing.expectEqual(@as(u32, 1), selection.primary().id.value);
 }
 
-test "font session resolves symbol and fallback records by coverage" {
-    const faces = [_]FontFaceRecord{
+test "face selection resolves symbol and fallback records by coverage" {
+    const faces = [_]FaceRecord{
         .{ .id = .{ .value = 2 }, .role = .symbol, .coverage = .{ .range = .{ .first = 0xe000, .last = 0xf8ff } } },
         .{ .id = .{ .value = 3 }, .role = .fallback, .coverage = .{ .range = .{ .first = 0x2600, .last = 0x26ff } } },
     };
-    const session = FontSession{ .faces = &faces };
-    try std.testing.expectEqual(@as(u32, 2), session.findSymbol(0xe0b0).?.id.value);
+    const selection = FaceSelection{ .faces = &faces };
+    try std.testing.expectEqual(@as(u32, 2), selection.findSymbol(0xe0b0).?.id.value);
     const snowman = render.CellText{ .id = .{ .value = 1 }, .first_cp = 0x2603, .codepoints = &.{0x2603} };
-    try std.testing.expectEqual(@as(u32, 3), session.findFallback(.regular, .any, snowman).?.id.value);
+    try std.testing.expectEqual(@as(u32, 3), selection.findFallback(.regular, .any, snowman).?.id.value);
 }
 
-test "font session validates all rendering codepoints in cell text" {
-    const faces = [_]FontFaceRecord{
+test "face selection validates all rendering codepoints in cell text" {
+    const faces = [_]FaceRecord{
         .{ .id = .{ .value = 2 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },
         .{ .id = .{ .value = 3 }, .role = .fallback, .coverage = .all },
     };
-    const session = FontSession{ .faces = &faces };
+    const selection = FaceSelection{ .faces = &faces };
     const combining = render.CellText{ .id = .{ .value = 1 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
     const emoji_presentation = render.CellText{ .id = .{ .value = 2 }, .first_cp = 'x', .codepoints = &.{ 'x', 0xfe0f } };
-    try std.testing.expect(session.findStyle(.regular, .any, combining) == null);
-    try std.testing.expectEqual(@as(u32, 3), session.findFallback(.regular, .any, combining).?.id.value);
-    try std.testing.expectEqual(@as(u32, 2), session.findStyle(.regular, .any, emoji_presentation).?.id.value);
+    try std.testing.expect(selection.findStyle(.regular, .any, combining) == null);
+    try std.testing.expectEqual(@as(u32, 3), selection.findFallback(.regular, .any, combining).?.id.value);
+    try std.testing.expectEqual(@as(u32, 2), selection.findStyle(.regular, .any, emoji_presentation).?.id.value);
 }
 
-test "font session primary lookup preserves configured face without synthetic coverage" {
-    const faces = [_]FontFaceRecord{
+test "face selection primary lookup preserves configured face without synthetic coverage" {
+    const faces = [_]FaceRecord{
         .{ .id = .{ .value = 2 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },
         .{ .id = .{ .value = 4 }, .role = .primary, .coverage = .all },
         .{ .id = .{ .value = 3 }, .role = .fallback, .coverage = .all },
     };
-    const session = FontSession{ .primary_face = .{ .value = 2 }, .faces = &faces };
+    const selection = FaceSelection{ .primary_face = .{ .value = 2 }, .faces = &faces };
     const combining = render.CellText{ .id = .{ .value = 1 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
-    try std.testing.expectEqual(@as(u32, 2), session.primary().id.value);
-    try std.testing.expect(session.findStyle(.regular, .any, combining) == null);
-    try std.testing.expectEqual(@as(u32, 3), session.findFallback(.regular, .any, combining).?.id.value);
+    try std.testing.expectEqual(@as(u32, 2), selection.primary().id.value);
+    try std.testing.expect(selection.findStyle(.regular, .any, combining) == null);
+    try std.testing.expectEqual(@as(u32, 3), selection.findFallback(.regular, .any, combining).?.id.value);
 }
 
-test "font session provider can reject static coverage hits" {
+test "face selection provider can reject static coverage hits" {
     const Provider = struct {
-        fn has(ctx: *anyopaque, face_id: FontFaceId, text: render.CellText) bool {
+        fn has(ctx: *anyopaque, face_id: FaceId, text: render.CellText) bool {
             _ = ctx;
             if (face_id.value == 1 and text.codepoints.len > 1) return false;
             return true;
         }
     };
-    const faces = [_]FontFaceRecord{
+    const faces = [_]FaceRecord{
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .all },
         .{ .id = .{ .value = 2 }, .role = .fallback, .coverage = .all },
     };
     var dummy: u8 = 0;
-    const session = FontSession{ .faces = &faces, .provider = .{ .ctx = &dummy, .has_cell_text = Provider.has } };
+    const selection = FaceSelection{ .faces = &faces, .provider = .{ .ctx = &dummy, .has_cell_text = Provider.has } };
     const sequence = render.CellText{ .id = .{ .value = 1 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } };
-    try std.testing.expect(session.findStyle(.regular, .any, sequence) == null);
-    try std.testing.expectEqual(@as(u32, 2), session.findFallback(.regular, .any, sequence).?.id.value);
+    try std.testing.expect(selection.findStyle(.regular, .any, sequence) == null);
+    try std.testing.expectEqual(@as(u32, 2), selection.findFallback(.regular, .any, sequence).?.id.value);
 }

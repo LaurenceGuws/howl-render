@@ -1,13 +1,13 @@
 const std = @import("std");
 const render = @import("../grid/scene.zig");
-const font_session = @import("../session/session.zig");
+const face_selection = @import("face_selection.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const shape_run = @import("shape/run.zig");
 
 pub const FtHbSource = struct {
     ctx: *anyopaque,
-    has_codepoint: *const fn (ctx: *anyopaque, face_id: font_session.FontFaceId, codepoint: u32) bool,
+    has_codepoint: *const fn (ctx: *anyopaque, face_id: face_selection.FaceId, codepoint: u32) bool,
     shaper: shape_run.Shaper = shape_run.defaultShaper(),
     rasterizer: rasterizer.Rasterizer = rasterizer.defaultRasterizer(),
     glyph_lookup: LookupGlyphOp = defaultLookupGlyph(),
@@ -23,7 +23,7 @@ pub const FtHbSource = struct {
         };
     }
 
-    fn hasCellText(ctx: *anyopaque, face_id: font_session.FontFaceId, text: render.CellText) bool {
+    fn hasCellText(ctx: *anyopaque, face_id: face_selection.FaceId, text: render.CellText) bool {
         const self: *FtHbSource = @ptrCast(@alignCast(ctx));
         const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
         for (cps) |cp| {
@@ -51,14 +51,14 @@ pub const LookupGlyphOp = struct {
 };
 
 pub const TextProvider = struct {
-    face_provider: ?font_session.FaceProvider = null,
+    face_provider: ?face_selection.FaceProvider = null,
     shaper: shape_run.Shaper = shape_run.defaultShaper(),
     rasterizer: rasterizer.Rasterizer = rasterizer.defaultRasterizer(),
     glyph_lookup: LookupGlyphOp = defaultLookupGlyph(),
     glyph_raster: raster_operation.RasterizeGlyphOp = defaultGlyphRaster(),
 
-    pub fn applyToSession(self: TextProvider, session: font_session.FontSession) font_session.FontSession {
-        var next = session;
+    pub fn applyToSelection(self: TextProvider, selection: face_selection.FaceSelection) face_selection.FaceSelection {
+        var next = selection;
         next.provider = self.face_provider;
         return next;
     }
@@ -101,7 +101,7 @@ fn defaultGlyphRasterThunk(_: *anyopaque, allocator: std.mem.Allocator, req: ras
     };
 }
 
-test "text provider applies face provider to session" {
+test "text provider applies face provider to selection" {
     const Provider = struct {
         fn has(ctx: *anyopaque, face_id: render.FontFaceId, text: render.CellText) bool {
             _ = ctx;
@@ -111,7 +111,7 @@ test "text provider applies face provider to session" {
     };
     var dummy: u8 = 0;
     const provider = TextProvider{ .face_provider = .{ .ctx = &dummy, .has_cell_text = Provider.has } };
-    const session = provider.applyToSession(.{});
-    const face = font_session.FontFaceRecord{ .id = .{ .value = 1 }, .role = .primary };
-    try @import("std").testing.expect(!session.hasCellText(face, .{ .id = .{ .value = 0 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } }));
+    const selection = provider.applyToSelection(.{});
+    const face = face_selection.FaceRecord{ .id = .{ .value = 1 }, .role = .primary };
+    try @import("std").testing.expect(!selection.hasCellText(face, .{ .id = .{ .value = 0 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } }));
 }

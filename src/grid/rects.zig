@@ -1,6 +1,5 @@
 const std = @import("std");
 const render = @import("scene.zig");
-const metrics = @import("../text/metrics.zig");
 const scene_damage = @import("damage.zig");
 
 const CursorDrawCount = u3;
@@ -797,7 +796,16 @@ fn decorationGeometry(cell_metrics: render.CellMetrics, font_metrics: render.Fon
 }
 
 fn cursorGeometry(cursor: anytype, cell_metrics: render.CellMetrics) render.CursorGeometry {
-    return metrics.cursorGeometry(cell_metrics, cursor.beam_thickness, cursor.underline_thickness);
+    return .{
+        .beam_w_px = configuredThicknessPx(cell_metrics.cell_w_px, cursor.beam_thickness),
+        .underline_h_px = configuredThicknessPx(cell_metrics.cell_h_px, cursor.underline_thickness),
+        .hollow_stroke_px = 2,
+    };
+}
+
+fn configuredThicknessPx(cell_px: u16, thickness: f32) u16 {
+    const scaled = @max((@as(f32, @floatFromInt(@max(cell_px, 1))) * thickness) / 16.0, 1.0);
+    return @intFromFloat(@round(scaled));
 }
 
 fn resolveCursorFillColor(cursor: anytype, cells: []const render.RenderableCell, first_cell: u32) render.Rgba8 {

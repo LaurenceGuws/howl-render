@@ -8,7 +8,7 @@ const prepared_surface = @import("../surface/prepared_surface.zig");
 const surface_emitter = @import("../surface/emitter.zig");
 const surface_preparer = @import("../surface/surface_preparer.zig");
 const surface_resources = @import("../surface/resource_store.zig");
-const font_session = @import("../session/session.zig");
+const face_selection = @import("face_selection.zig");
 const font_resolver = @import("resolver.zig");
 const glyph_raster = @import("glyph_raster.zig");
 const raster_operation = @import("raster/operation.zig");
@@ -98,9 +98,9 @@ pub const TextSurface = struct {
             .damage = .{ .full = true, .dirty_rows = text.dirty_rows, .dirty_cols_start = text.dirty_cols_start, .dirty_cols_end = text.dirty_cols_end },
         } };
         const preparer = try self.ensurePreparer(input.grid);
-        var faces: [max_font_faces]font_session.FontFaceRecord = undefined;
+        var faces: [max_font_faces]face_selection.FaceRecord = undefined;
         var resolve: font_resolver.ResolveObservability = .{};
-        var owned_text = try preparer.prepareCellsWithSessionOptions(text.cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.fontSession(&faces, &resolve), options);
+        var owned_text = try preparer.prepareCellsWithFaceSelection(text.cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve), options);
         errdefer owned_text.deinit();
         self.prepared = .{
             .allocator = self.allocator,
@@ -244,7 +244,7 @@ pub const TextSurface = struct {
         };
     }
 
-    fn fontSession(self: *TextSurface, faces: []font_session.FontFaceRecord, active_resolve: ?*font_resolver.ResolveObservability) font_session.FontSession {
+    fn faceSelection(self: *TextSurface, faces: []face_selection.FaceRecord, active_resolve: ?*font_resolver.ResolveObservability) face_selection.FaceSelection {
         self.support.active_resolve = active_resolve;
         var len: support.FallbackFontCount = 0;
         if (faces.len > support.fallbackFontLen(len)) {
@@ -261,7 +261,7 @@ pub const TextSurface = struct {
             .primary_face = .{ .value = support.primary_face_id },
             .faces = faces[0..@intCast(support.fallbackFontLen(len))],
             .provider = .{ .ctx = self, .has_cell_text = providerHasCellTextThunk },
-            .metrics = support.deriveCellMetricsWithConfig(&self.support, self.textConfig()),
+            .cell_metrics = support.deriveCellMetricsWithConfig(&self.support, self.textConfig()),
         };
     }
 };

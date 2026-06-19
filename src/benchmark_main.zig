@@ -4,7 +4,7 @@ const geometry = @import("geometry.zig");
 
 const render = @import("grid/scene.zig");
 const surface_preparer = @import("surface/surface_preparer.zig");
-const font_session = @import("session/session.zig");
+const face_selection = @import("text/face_selection.zig");
 const cluster = @import("text/shape/cluster.zig");
 
 const RunCount = u32;
@@ -72,7 +72,7 @@ const Workload = struct {
 };
 
 const WorkloadPrepareContext = struct {
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     options: surface_preparer.PrepareOptions,
     borrowed_cells: []render.CellInput = &.{},
 };
@@ -680,9 +680,9 @@ fn buildIconPuaMixedWorkload(allocator: std.mem.Allocator) !Workload {
 
 fn initPrepareContext(workload: Workload) WorkloadPrepareContext {
     return .{
-        .session = .{
+        .selection = .{
             .primary_face = .{ .value = 1 },
-            .metrics = defaultCellMetrics(workload.cell_px),
+            .cell_metrics = defaultCellMetrics(workload.cell_px),
         },
         .options = .{
             .scene = .{
@@ -699,16 +699,16 @@ fn initPrepareContext(workload: Workload) WorkloadPrepareContext {
 
 fn prepareWorkloadSurface(preparer: *surface_preparer.TextSurfacePreparer, workload: Workload, context: WorkloadPrepareContext) !surface_preparer.OwnedPreparedTextSurface {
     return switch (workload.input) {
-        .cells => |cells| preparer.prepareCellsWithSessionOptions(
+        .cells => |cells| preparer.prepareCellsWithFaceSelection(
             cells,
             workload.grid,
-            context.session,
+            context.selection,
             context.options,
         ),
-        .cell_texts => |cells| preparer.prepareCellTextInputsWithSessionOptions(
+        .cell_texts => |cells| preparer.prepareCellTextInputsWithFaceSelection(
             cells,
             workload.grid,
-            context.session,
+            context.selection,
             context.options,
         ),
     };

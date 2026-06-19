@@ -3,7 +3,6 @@ const std = @import("std");
 const cell_input = @import("cell/input.zig");
 const color = @import("cell/color.zig");
 const effects = @import("cell/effects.zig");
-const metrics = @import("text/metrics.zig");
 const scene_grid = @import("grid/scene.zig");
 const cursor_presentation = @import("cursor/presentation.zig");
 const c = @import("howl_render_c");
@@ -18,12 +17,12 @@ pub const FontStyle = effects.FontStyle;
 pub const TextPresentation = effects.TextPresentation;
 pub const DecorationKind = effects.DecorationKind;
 
-pub const FontMetrics = metrics.FontMetrics;
-pub const FaceMetrics26Dot6 = metrics.FaceMetrics26Dot6;
-pub const DecorationGeometry = metrics.DecorationGeometry;
-pub const CursorGeometry = metrics.CursorGeometry;
-pub const CellMetrics = metrics.CellMetrics;
-pub const GridMetrics = metrics.GridMetrics;
+pub const FontMetrics = scene_grid.FontMetrics;
+pub const FaceMetrics26Dot6 = scene_grid.FaceMetrics26Dot6;
+pub const DecorationGeometry = scene_grid.DecorationGeometry;
+pub const CursorGeometry = scene_grid.CursorGeometry;
+pub const CellMetrics = scene_grid.CellMetrics;
+pub const GridMetrics = scene_grid.GridMetrics;
 
 pub const CellInput = cell_input.CellInput;
 pub const max_extra_cursors = cursor_presentation.max_extra_cursors;

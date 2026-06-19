@@ -1,5 +1,4 @@
 const std = @import("std");
-const metrics = @import("../text/metrics.zig");
 const render = @import("../grid/scene.zig");
 
 pub const Target = struct {
@@ -114,7 +113,7 @@ pub fn targetFromCursor(cursor: anytype, cell_metrics: render.CellMetrics) ?Targ
     const base_top: f32 = @floatFromInt(@as(u32, cursor.primary_extent.row) * @as(u32, cell_metrics.cell_h_px));
     const full_width: f32 = @floatFromInt(@as(u32, cursor.primary_extent.cols) * @as(u32, cell_metrics.cell_w_px));
     const full_height: f32 = @floatFromInt(@as(u32, cursor.primary_extent.rows) * @as(u32, cell_metrics.cell_h_px));
-    const geom = metrics.cursorGeometry(cell_metrics, cursor.beam_thickness, cursor.underline_thickness);
+    const geom = cursorGeometry(cell_metrics, cursor.beam_thickness, cursor.underline_thickness);
     return switch (cursor.shape) {
         .none => null,
         .block, .hollow => .{ .left_px = base_left, .right_px = base_left + full_width, .top_px = base_top, .bottom_px = base_top + full_height, .visible = cursor.visible },
@@ -131,6 +130,19 @@ pub fn targetFromCursor(cursor: anytype, cell_metrics: render.CellMetrics) ?Targ
 
 fn norm(x: f32, y: f32) f32 {
     return @sqrt(x * x + y * y);
+}
+
+fn cursorGeometry(cell_metrics: render.CellMetrics, beam_thickness: f32, underline_thickness: f32) render.CursorGeometry {
+    return .{
+        .beam_w_px = configuredThicknessPx(cell_metrics.cell_w_px, beam_thickness),
+        .underline_h_px = configuredThicknessPx(cell_metrics.cell_h_px, underline_thickness),
+        .hollow_stroke_px = 2,
+    };
+}
+
+fn configuredThicknessPx(cell_px: u16, thickness: f32) u16 {
+    const scaled = @max((@as(f32, @floatFromInt(@max(cell_px, 1))) * thickness) / 16.0, 1.0);
+    return @intFromFloat(@round(scaled));
 }
 
 test "cursor trail corners ease toward target" {

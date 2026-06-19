@@ -8,7 +8,7 @@ const prepare_counters = @import("../text/prepare_counters.zig");
 const atlas_cache = @import("../text/raster/atlas.zig");
 const cluster = @import("../text/shape/cluster.zig");
 const font_resolver = @import("../text/resolver.zig");
-const font_session = @import("../session/session.zig");
+const face_selection = @import("../text/face_selection.zig");
 const grouping = @import("../text/shape/grouping.zig");
 const provider = @import("../text/provider.zig");
 const raster_operation = @import("../text/raster/operation.zig");
@@ -77,33 +77,33 @@ pub const TextSurfacePreparer = struct {
         self.atlas.next_slot = 0;
     }
 
-    pub fn prepareCellsWithSessionOptions(
+    pub fn prepareCellsWithFaceSelection(
         self: *TextSurfacePreparer,
         cells: []const render.CellInput,
         grid_metrics: render.GridMetrics,
-        session: font_session.FontSession,
+        selection: face_selection.FaceSelection,
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
-        if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, session, options, &lane_report, null)) |direct| {
+        if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, selection, options, &lane_report, null)) |direct| {
             return self.finishNormalOnlySurface(direct, lane_report, options.scene.cursor);
         }
         const cell_count = count32(cells);
         try self.ensureClusterScratchCapacity(cell_count, countCellInputCodepoints(cells));
         var sparse = try cluster.buildSparseCellsWithDamageScratch(self.allocator, &self.cluster_scratch, cells, grid_metrics, options.scene.damage);
         errdefer sparse.deinit();
-        return self.preparePreparedTextSurface(sparse.text_cache, sparse.renderable, grid_metrics, session, options);
+        return self.preparePreparedTextSurface(sparse.text_cache, sparse.renderable, grid_metrics, selection, options);
     }
 
-    pub fn prepareCellTextInputsWithSessionOptions(
+    pub fn prepareCellTextInputsWithFaceSelection(
         self: *TextSurfacePreparer,
         inputs: []const cluster.CellTextInput,
         grid_metrics: render.GridMetrics,
-        session: font_session.FontSession,
+        selection: face_selection.FaceSelection,
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
-        if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, session, options, &lane_report, null)) |direct| {
+        if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, selection, options, &lane_report, null)) |direct| {
             return self.finishNormalOnlySurface(direct, lane_report, options.scene.cursor);
         }
         const input_count = count32(inputs);
@@ -114,7 +114,7 @@ pub const TextSurfacePreparer = struct {
         errdefer text_cache.deinit();
         var renderable = try cluster.buildRenderableCellsFromInputs(self.allocator, inputs, text_cache.view());
         errdefer renderable.deinit();
-        return self.preparePreparedTextSurface(text_cache, renderable, grid_metrics, session, options);
+        return self.preparePreparedTextSurface(text_cache, renderable, grid_metrics, selection, options);
     }
 
     fn preparePreparedTextSurface(
@@ -122,10 +122,10 @@ pub const TextSurfacePreparer = struct {
         text_cache: cluster.OwnedLineTextCache,
         renderable: cluster.OwnedRenderableCells,
         grid_metrics: render.GridMetrics,
-        session: font_session.FontSession,
+        selection: face_selection.FaceSelection,
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
-        return self.preparePreparedTextSurfaceWithExpectedComplexCells(text_cache, renderable, grid_metrics, session, options, null);
+        return self.preparePreparedTextSurfaceWithExpectedComplexCells(text_cache, renderable, grid_metrics, selection, options, null);
     }
 
     fn preparePreparedTextSurfaceWithExpectedComplexCells(
@@ -133,7 +133,7 @@ pub const TextSurfacePreparer = struct {
         text_cache: cluster.OwnedLineTextCache,
         renderable: cluster.OwnedRenderableCells,
         grid_metrics: render.GridMetrics,
-        session: font_session.FontSession,
+        selection: face_selection.FaceSelection,
         options: PrepareOptions,
         expected_complex_cells: ?u64,
     ) !OwnedPreparedTextSurface {
@@ -160,7 +160,7 @@ pub const TextSurfacePreparer = struct {
             .{ .prepared = .{ .cells = owned_renderable.cells, .text_cache = owned_text_cache.view() } },
             .skip_complex,
             grid_metrics,
-            session,
+            selection,
             options,
             &final_lane_report,
             null,
@@ -185,7 +185,7 @@ pub const TextSurfacePreparer = struct {
                 .lane_report = final_lane_report,
             },
             grid_metrics,
-            session,
+            selection,
             options,
         );
     }
@@ -194,7 +194,7 @@ pub const TextSurfacePreparer = struct {
         self: *TextSurfacePreparer,
         prepared: PreparedComplexSurface,
         grid_metrics: render.GridMetrics,
-        session: font_session.FontSession,
+        selection: face_selection.FaceSelection,
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
         var final_prepared = prepared;
@@ -202,14 +202,14 @@ pub const TextSurfacePreparer = struct {
         var complex = try self.selectComplexCells(&final_prepared, grid_metrics, options.scene.damage);
         defer complex.deinit();
 
-        try self.resolveShapeAndGroupComplex(&final_prepared, complex, grid_metrics, session);
-        var text_scene = try self.buildComplexScene(&final_prepared, complex.cells, grid_metrics, session.metrics, options.scene);
+        try self.resolveShapeAndGroupComplex(&final_prepared, complex, grid_metrics, selection);
+        var text_scene = try self.buildComplexScene(&final_prepared, complex.cells, grid_metrics, selection.cell_metrics, options.scene);
         errdefer text_scene.deinit();
         var raster_plan = try self.rasterizeComplexScene(&text_scene);
         errdefer raster_plan.deinit();
         const complex_sprite_cache_hits = text_scene.scene.sprite_draws.len - text_scene.scene.raster_requests.len;
 
-        const merged = try self.mergePreparedScene(final_prepared.direct, final_prepared.renderable.cells, grid_metrics, session.metrics, options.scene.cursor, &text_scene, &raster_plan);
+        const merged = try self.mergePreparedScene(final_prepared.direct, final_prepared.renderable.cells, grid_metrics, selection.cell_metrics, options.scene.cursor, &text_scene, &raster_plan);
         final_prepared.direct.outputs = &.{};
         final_prepared.direct.outputs_owned = false;
 
@@ -238,14 +238,14 @@ pub const TextSurfacePreparer = struct {
         return complex;
     }
 
-    fn resolveShapeAndGroupComplex(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, complex: cluster.ComplexSelection, grid_metrics: render.GridMetrics, session: font_session.FontSession) !void {
-        prepared.runs = try resolveComplexRuns(self, prepared.text_cache.view(), complex.clusters, grid_metrics, session, &prepared.lane_report, complex.cells);
+    fn resolveShapeAndGroupComplex(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, complex: cluster.ComplexSelection, grid_metrics: render.GridMetrics, selection: face_selection.FaceSelection) !void {
+        prepared.runs = try resolveComplexRuns(self, prepared.text_cache.view(), complex.clusters, grid_metrics, selection, &prepared.lane_report, complex.cells);
         prepared.shaped_runs = try shapeComplexRuns(
             self,
             prepared.runs.?.runs,
             prepared.text_cache.view(),
             complex.clusters,
-            session.metrics,
+            selection.cell_metrics,
             &prepared.lane_report,
             complex.cells,
         );
@@ -254,7 +254,7 @@ pub const TextSurfacePreparer = struct {
             prepared.shaped_runs.?.runs,
             prepared.runs.?.sprite_routes,
             complex.clusters,
-            session.metrics,
+            selection.cell_metrics,
             &prepared.lane_report,
             prepared.text_cache.view(),
             complex.cells,
@@ -369,7 +369,7 @@ pub const TextSurfacePreparer = struct {
         source: direct_normal.Source,
         policy: direct_normal.Policy,
         grid_metrics: render.GridMetrics,
-        session: font_session.FontSession,
+        selection: face_selection.FaceSelection,
         options: PrepareOptions,
         lane_report: *lane.LaneReport,
         rejected_complex_cells: ?*u64,
@@ -385,7 +385,7 @@ pub const TextSurfacePreparer = struct {
             source,
             policy,
             grid_metrics,
-            session,
+            selection,
             options.scene.damage,
             options.scene.cursor,
             lane_report,
@@ -446,11 +446,11 @@ fn resolveComplexRuns(
     text_cache: render.LineTextCache,
     clusters: []const render.CellCluster,
     grid_metrics: render.GridMetrics,
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
     cells: []const render.RenderableCell,
 ) !font_resolver.OwnedResolvedRuns {
-    const runs = try font_resolver.resolveClusters(self.allocator, &self.resolver_scratch, session, clusters, text_cache, grid_metrics);
+    const runs = try font_resolver.resolveClusters(self.allocator, &self.resolver_scratch, selection, clusters, text_cache, grid_metrics);
     for (runs.runs) |run| lane_report.recordLegacyResolvedRunWithCells(text_cache, cells, clusters, run);
     return runs;
 }
@@ -625,7 +625,7 @@ test "text preparation prepares cell inputs into clusters and runs" {
         .{ .codepoint = 'a', .fg = white, .bg = black },
         .{ .codepoint = 'b', .fg = white, .bg = black },
     };
-    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -644,7 +644,7 @@ test "text preparation records sprite routes through resolver" {
         .{ .codepoint = 'a', .fg = white, .bg = black },
         .{ .codepoint = 0x2500, .fg = white, .bg = black },
     };
-    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -667,7 +667,7 @@ test "text preparation scene is grid positioned" {
         .{ .codepoint = 'c', .fg = white, .bg = black },
         .{ .codepoint = 'd', .fg = white, .bg = black },
     };
-    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 2 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 2 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 4), count32(analysis.scene.scene.sprite_draws));
@@ -681,10 +681,10 @@ test "text preparation rerasterizes pending atlas entries across prepares" {
     const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const cells = [_]render.CellInput{.{ .codepoint = 'z', .fg = white, .bg = black }};
-    var first = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    var first = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     const first_slot = first.scene.scene.sprite_draws[0].sprite.slot;
     first.deinit();
-    var second = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    var second = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer second.deinit();
     try std.testing.expectEqual(first_slot, second.scene.scene.sprite_draws[0].sprite.slot);
     try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
@@ -699,18 +699,18 @@ test "text preparation rerasterizes sprites after cell metrics change" {
     const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const cells = [_]render.CellInput{.{ .codepoint = 0x2588, .fg = white, .bg = black }};
-    var first = try engine.prepareCellsWithSessionOptions(
+    var first = try engine.prepareCellsWithFaceSelection(
         &cells,
         .{ .cols = 1, .rows = 1 },
-        .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 } },
+        .{ .primary_face = .{ .value = 1 }, .cell_metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 } },
         .{},
     );
     const first_key = first.scene.scene.sprite_draws[0].sprite.key.value;
     first.deinit();
-    var second = try engine.prepareCellsWithSessionOptions(
+    var second = try engine.prepareCellsWithFaceSelection(
         &cells,
         .{ .cols = 1, .rows = 1 },
-        .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 16, .cell_h_px = 32, .baseline_px = 24 } },
+        .{ .primary_face = .{ .value = 1 }, .cell_metrics = .{ .cell_w_px = 16, .cell_h_px = 32, .baseline_px = 24 } },
         .{},
     );
     defer second.deinit();
@@ -726,18 +726,18 @@ test "text preparation rerasterizes sprites after box thickness change" {
     const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const cells = [_]render.CellInput{.{ .codepoint = 0x256d, .fg = white, .bg = black }};
-    var first = try engine.prepareCellsWithSessionOptions(
+    var first = try engine.prepareCellsWithFaceSelection(
         &cells,
         .{ .cols = 1, .rows = 1 },
-        .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 1 } },
+        .{ .primary_face = .{ .value = 1 }, .cell_metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 1 } },
         .{},
     );
     const first_key = first.scene.scene.sprite_draws[0].sprite.key.value;
     first.deinit();
-    var second = try engine.prepareCellsWithSessionOptions(
+    var second = try engine.prepareCellsWithFaceSelection(
         &cells,
         .{ .cols = 1, .rows = 1 },
-        .{ .primary_face = .{ .value = 1 }, .metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 3 } },
+        .{ .primary_face = .{ .value = 1 }, .cell_metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 3 } },
         .{},
     );
     defer second.deinit();
@@ -770,7 +770,7 @@ test "text preparation accepts configurable shaper" {
     const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const combining = [_]u32{ 'q', 0x0332 };
     const inputs = [_]cluster.CellTextInput{.{ .codepoints = &combining, .fg = white, .bg = black }};
-    var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
     try std.testing.expectEqual(@as(u8, 1), stub.hits);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
@@ -792,7 +792,7 @@ test "text preparation accepts unified provider rasterizer" {
     const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const cells = [_]render.CellInput{.{ .codepoint = 0x2500, .fg = white, .bg = black }};
-    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
     try std.testing.expectEqual(@as(u8, 1), stub.hits);
 }
@@ -803,9 +803,9 @@ test "text preparation options produce scene cursor draws" {
     const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const cells = [_]render.CellInput{.{ .codepoint = 'c', .fg = white, .bg = black }};
-    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{
+    var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 1, .rows = 1 }, .{
         .primary_face = .{ .value = 1 },
-        .metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
+        .cell_metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
     }, .{
         .scene = .{ .cursor = .{
             .focused = true,
@@ -836,7 +836,7 @@ test "text preparation partial damage clears use empty default background truth"
     const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const transparent_bg = render.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
     const cells = [_]render.CellInput{.{ .codepoint = ' ', .fg = white, .bg = transparent_bg, .empty = true }};
-    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 1, .rows = 1 }, .{}, .{
+    var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 1, .rows = 1 }, .{}, .{
         .scene = .{ .damage = .{ .full = false, .dirty_rows = &[_]bool{true}, .dirty_cols_start = &[_]u16{0}, .dirty_cols_end = &[_]u16{0} } },
     });
     defer analysis.deinit();
@@ -861,7 +861,7 @@ test "text preparation direct-renders pure normal cell text inputs" {
         .{ .codepoints = &a, .fg = white, .bg = black },
         .{ .codepoints = &b, .fg = white, .bg = black },
     };
-    var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 2, .rows = 1 }, .{}, .{});
+    var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 2, .rows = 1 }, .{}, .{});
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -881,7 +881,7 @@ test "text preparation keeps mixed cell text normals out of legacy path" {
         .{ .codepoints = &a, .fg = white, .bg = black },
         .{ .codepoints = &combining, .fg = white, .bg = black },
     };
-    var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 2, .rows = 1 }, .{}, .{});
+    var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 2, .rows = 1 }, .{}, .{});
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
@@ -898,7 +898,7 @@ test "text preparation marks curly underline cells complex before shaping" {
         .{ .codepoint = 'a', .fg = white, .bg = black },
         .{ .codepoint = 'b', .fg = white, .bg = black, .underline = true, .underline_style = .curly },
     };
-    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u32, 3), count32(analysis.scene.scene.sprite_draws));
@@ -917,7 +917,7 @@ test "text preparation sizes cluster scratch for multi codepoint cell inputs" {
         .{ .codepoint = 'x', .combining_len = 3, .combining = .{ 0x0305, 0x030D, 0x030E }, .fg = white, .bg = black },
         .{ .codepoint = 'y', .combining_len = 3, .combining = .{ 0x0310, 0x0312, 0x033D }, .fg = white, .bg = black },
     };
-    var analysis = try engine.prepareCellsWithSessionOptions(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
+    var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
     try std.testing.expect(count32(analysis.scene.scene.sprite_draws) != 0);
@@ -959,7 +959,7 @@ test "text preparation keeps icon codepoints out of the normal lane" {
         .{ .codepoints = &blank, .fg = white, .bg = black },
         .{ .codepoints = &ascii, .fg = white, .bg = black },
     };
-    var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 3, .rows = 1 }, .{ .metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 } }, .{});
+    var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 3, .rows = 1 }, .{ .cell_metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 } }, .{});
     defer analysis.deinit();
 
     try std.testing.expectEqual(@as(u16, 16), analysis.scene.scene.sprite_draws[0].width_px);
@@ -1006,11 +1006,11 @@ test "text preparation uses ft hb source coverage for fallback" {
     const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const combining = [_]u32{ 'i', 0x0332 };
     const inputs = [_]cluster.CellTextInput{.{ .codepoints = &combining, .fg = white, .bg = black }};
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .all },
         .{ .id = .{ .value = 2 }, .role = .fallback, .coverage = .all },
     };
-    var analysis = try engine.prepareCellTextInputsWithSessionOptions(&inputs, .{ .cols = 1, .rows = 1 }, ft_hb.textProvider().applyToSession(.{ .faces = &faces }), .{});
+    var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 1, .rows = 1 }, ft_hb.textProvider().applyToSelection(.{ .faces = &faces }), .{});
     defer analysis.deinit();
     try std.testing.expectEqual(@as(u32, 2), shaper.last_face_id);
 }

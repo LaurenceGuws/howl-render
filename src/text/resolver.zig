@@ -1,6 +1,6 @@
 const std = @import("std");
 const render = @import("../grid/scene.zig");
-const font_session = @import("../session/session.zig");
+const face_selection = @import("face_selection.zig");
 const symbol_map = @import("symbol_map.zig");
 
 pub const ResolveStage = enum(u5) {
@@ -130,7 +130,7 @@ const ResolveMemoKey = struct {
 };
 
 const ResolveMemoValue = union(enum) {
-    hit: font_session.FontFaceRecord,
+    hit: face_selection.FaceRecord,
     miss,
 };
 
@@ -180,7 +180,7 @@ pub const RetainedScratch = struct {
 pub fn resolveClusters(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     clusters: []const render.CellCluster,
     text_cache: render.LineTextCache,
     grid_metrics: render.GridMetrics,
@@ -199,7 +199,7 @@ pub fn resolveClusters(
         }
 
         const text = textForCluster(text_cache, cluster);
-        const face = (try resolveFaceMemoized(scratch, session, cluster, text)) orelse {
+        const face = (try resolveFaceMemoized(scratch, selection, cluster, text)) orelse {
             scratch.missing.appendAssumeCapacity(.{
                 .codepoint = cluster.first_cp,
                 .style = cluster.style,
@@ -216,7 +216,7 @@ pub fn resolveClusters(
             const next = clusters[@intCast(idx)];
             if (symbol_map.builtinRoute(next.first_cp) != null) break;
             if (next.first_cell / cols != cluster.first_cell / cols) break;
-            const next_face = (try resolveFaceMemoized(scratch, session, next, textForCluster(text_cache, next))) orelse break;
+            const next_face = (try resolveFaceMemoized(scratch, selection, next, textForCluster(text_cache, next))) orelse break;
             if (next_face.id.value != face.id.value or next.style != cluster.style or next.presentation != cluster.presentation) break;
         }
 
@@ -234,7 +234,7 @@ pub fn resolveClusters(
 pub fn resolveClusterFaces(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
-    session: font_session.FontSession,
+    selection: face_selection.FaceSelection,
     clusters: []const render.CellCluster,
     text_cache: render.LineTextCache,
 ) !OwnedResolvedClusterFaces {
@@ -242,7 +242,7 @@ pub fn resolveClusterFaces(
 
     for (clusters, 0..) |cluster, idx| {
         const text = textForCluster(text_cache, cluster);
-        const face = (try resolveFaceMemoized(scratch, session, cluster, text)) orelse {
+        const face = (try resolveFaceMemoized(scratch, selection, cluster, text)) orelse {
             scratch.missing.appendAssumeCapacity(.{
                 .codepoint = cluster.first_cp,
                 .style = cluster.style,
@@ -260,13 +260,13 @@ pub fn resolveClusterFaces(
     return .{ .allocator = allocator, .faces = faces, .missing = missing_list };
 }
 
-fn resolveFace(session: font_session.FontSession, cluster: render.CellCluster, text: render.CellText) ?font_session.FontFaceRecord {
-    if (session.findSymbol(cluster.first_cp)) |face| return face;
-    if (session.findStyle(cluster.style, cluster.presentation, text)) |face| return face;
-    return session.findFallback(cluster.style, cluster.presentation, text);
+fn resolveFace(selection: face_selection.FaceSelection, cluster: render.CellCluster, text: render.CellText) ?face_selection.FaceRecord {
+    if (selection.findSymbol(cluster.first_cp)) |face| return face;
+    if (selection.findStyle(cluster.style, cluster.presentation, text)) |face| return face;
+    return selection.findFallback(cluster.style, cluster.presentation, text);
 }
 
-fn resolveFaceMemoized(scratch: *RetainedScratch, session: font_session.FontSession, cluster: render.CellCluster, text: render.CellText) !?font_session.FontFaceRecord {
+fn resolveFaceMemoized(scratch: *RetainedScratch, selection: face_selection.FaceSelection, cluster: render.CellCluster, text: render.CellText) !?face_selection.FaceRecord {
     const key = ResolveMemoKey{
         .text_id = text.id.value,
         .style = cluster.style,
@@ -280,7 +280,7 @@ fn resolveFaceMemoized(scratch: *RetainedScratch, session: font_session.FontSess
     }
 
     if (scratch.memo.items.len >= scratch.memo.capacity) return error.ResolveScratchOverflow;
-    const value = if (resolveFace(session, cluster, text)) |face|
+    const value = if (resolveFace(selection, cluster, text)) |face|
         ResolveMemoValue{ .hit = face }
     else
         .miss;
@@ -447,17 +447,17 @@ test "resolver separates shared and fallback special sprite routes before font r
 }
 
 test "resolver falls back when primary cannot cover whole cell text" {
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .{ .range = .{ .first = 'a', .last = 'z' } } },
         .{ .id = .{ .value = 2 }, .role = .fallback, .coverage = .all },
     };
-    const session = font_session.FontSession{ .faces = &faces };
+    const selection = face_selection.FaceSelection{ .faces = &faces };
     const clusters = [_]render.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'i', .style = .regular, .presentation = .any }};
     const texts = [_]render.CellText{.{ .id = .{ .value = 0 }, .first_cp = 'i', .codepoints = &.{ 'i', 0x0332 } }};
     var scratch = RetainedScratch{};
     defer scratch.deinit(std.testing.allocator);
     try scratch.configure(std.testing.allocator, count32(clusters));
-    var resolved = try resolveClusters(std.testing.allocator, &scratch, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
+    var resolved = try resolveClusters(std.testing.allocator, &scratch, selection, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(resolved.runs));
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.font.face_id.value);
@@ -471,18 +471,18 @@ test "resolver uses face provider validation" {
             return true;
         }
     };
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .all },
         .{ .id = .{ .value = 2 }, .role = .fallback, .coverage = .all },
     };
     var dummy: u8 = 0;
-    const session = font_session.FontSession{ .faces = &faces, .provider = .{ .ctx = &dummy, .has_cell_text = Provider.has } };
+    const selection = face_selection.FaceSelection{ .faces = &faces, .provider = .{ .ctx = &dummy, .has_cell_text = Provider.has } };
     const clusters = [_]render.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any }};
     const texts = [_]render.CellText{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{ 'x', 0x0332 } }};
     var scratch = RetainedScratch{};
     defer scratch.deinit(std.testing.allocator);
     try scratch.configure(std.testing.allocator, count32(clusters));
-    var resolved = try resolveClusters(std.testing.allocator, &scratch, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
+    var resolved = try resolveClusters(std.testing.allocator, &scratch, selection, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.font.face_id.value);
 }
@@ -499,7 +499,7 @@ test "resolver memoizes repeated text face validation" {
         }
     };
 
-    const faces = [_]font_session.FontFaceRecord{
+    const faces = [_]face_selection.FaceRecord{
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .all },
         .{ .id = .{ .value = 2 }, .role = .fallback, .coverage = .all },
     };
@@ -510,12 +510,12 @@ test "resolver memoizes repeated text face validation" {
     };
     const texts = [_]render.CellText{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{'x'} }};
     var provider = Provider{};
-    const session = font_session.FontSession{ .faces = &faces, .provider = .{ .ctx = &provider, .has_cell_text = Provider.has } };
+    const selection = face_selection.FaceSelection{ .faces = &faces, .provider = .{ .ctx = &provider, .has_cell_text = Provider.has } };
 
     var scratch = RetainedScratch{};
     defer scratch.deinit(std.testing.allocator);
     try scratch.configure(std.testing.allocator, count32(clusters));
-    var resolved = try resolveClusters(std.testing.allocator, &scratch, session, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
+    var resolved = try resolveClusters(std.testing.allocator, &scratch, selection, &clusters, .{ .texts = &texts }, .{ .cols = 3, .rows = 1 });
     defer resolved.deinit();
     try std.testing.expectEqual(@as(u32, 1), count32(resolved.runs));
     try std.testing.expectEqual(@as(u32, 2), resolved.runs[0].run.font.face_id.value);

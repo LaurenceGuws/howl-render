@@ -2,7 +2,6 @@ const std = @import("std");
 const cell_input = @import("../cell/input.zig");
 const color = @import("../cell/color.zig");
 const effects = @import("../cell/effects.zig");
-const metrics = @import("../text/metrics.zig");
 const cursor_presentation = @import("../cursor/presentation.zig");
 
 pub const Rgba8 = color.Rgba8;
@@ -12,12 +11,6 @@ pub const UnderlineStyle = effects.UnderlineStyle;
 pub const FontStyle = effects.FontStyle;
 pub const TextPresentation = effects.TextPresentation;
 pub const DecorationKind = effects.DecorationKind;
-pub const FontMetrics = metrics.FontMetrics;
-pub const FaceMetrics26Dot6 = metrics.FaceMetrics26Dot6;
-pub const DecorationGeometry = metrics.DecorationGeometry;
-pub const CursorGeometry = metrics.CursorGeometry;
-pub const CellMetrics = metrics.CellMetrics;
-pub const GridMetrics = metrics.GridMetrics;
 pub const CellInput = cell_input.CellInput;
 pub const max_extra_cursors = cursor_presentation.max_extra_cursors;
 pub const max_cursor_trail_rects = cursor_presentation.max_cursor_trail_rects;
@@ -30,6 +23,49 @@ pub const ExtraCursorPresentation = cursor_presentation.ExtraCursorPresentation;
 pub const CursorTrailRect = cursor_presentation.CursorTrailRect;
 pub const CursorTrailSource = cursor_presentation.CursorTrailSource;
 pub const CursorPresentation = cursor_presentation.CursorPresentation;
+
+pub const FontMetrics = struct {
+    ascent_px: f32,
+    descent_px: f32,
+    line_gap_px: f32,
+    underline_pos_px: f32,
+    underline_thickness_px: f32,
+    strikethrough_pos_px: f32,
+    strikethrough_thickness_px: f32,
+};
+
+pub const FaceMetrics26Dot6 = struct {
+    ascender: i32,
+    descender: i32,
+    height: i32,
+    max_advance: i32,
+    fallback_font_px: u16,
+};
+
+pub const DecorationGeometry = struct {
+    underline_y_px: i32,
+    underline_h_px: u16,
+    strikethrough_y_px: i32,
+    strikethrough_h_px: u16,
+};
+
+pub const CursorGeometry = struct {
+    beam_w_px: u16,
+    underline_h_px: u16,
+    hollow_stroke_px: u16,
+};
+
+pub const CellMetrics = struct {
+    cell_w_px: u16,
+    cell_h_px: u16,
+    baseline_px: i16,
+    box_thickness_px: u16 = 0,
+};
+
+pub const GridMetrics = struct {
+    cols: u16,
+    rows: u16 = 1,
+};
 
 pub const FontFaceId = struct {
     value: u32,
