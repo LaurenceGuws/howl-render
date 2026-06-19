@@ -2,7 +2,7 @@ const std = @import("std");
 const c = @import("howl_render_c");
 const geometry = @import("geometry.zig");
 
-const render = @import("libhowl_render.zig");
+const render = @import("grid/scene.zig");
 const surface_preparer = @import("surface/surface_preparer.zig");
 const font_session = @import("session/session.zig");
 const cluster = @import("text/shape/cluster.zig");

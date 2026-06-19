@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../libhowl_render.zig");
+const render = @import("../../grid/scene.zig");
 
 pub fn rasterizeGeneratedBoxAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: render.BoxDrawingRasterMetrics) void {
     switch (codepoint) {

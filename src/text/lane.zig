@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const symbol_map = @import("symbol_map.zig");
 
 pub const TextLane = enum(u1) {

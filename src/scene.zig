@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("libhowl_render.zig");
+const render = @import("grid/scene.zig");
 const scene_damage = @import("grid/damage.zig");
 const scene_rects = @import("grid/rects.zig");
 const atlas_cache = @import("text/raster/atlas.zig");

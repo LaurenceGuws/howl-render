@@ -1,6 +1,6 @@
 const std = @import("std");
 const prepared_surface = @import("prepared_surface.zig");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 
 pub fn compose(allocator: std.mem.Allocator, base_pixels: ?[]const u8, prepared: *const prepared_surface.PreparedSurface) ![]u8 {

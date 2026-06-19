@@ -1,6 +1,35 @@
 const std = @import("std");
+const cell_input = @import("../cell/input.zig");
 const color = @import("../cell/color.zig");
 const effects = @import("../cell/effects.zig");
+const metrics = @import("../text/metrics.zig");
+const cursor_presentation = @import("../cursor/presentation.zig");
+
+pub const Rgba8 = color.Rgba8;
+pub const SemanticColorKind = color.SemanticColorKind;
+pub const SemanticColor = color.SemanticColor;
+pub const UnderlineStyle = effects.UnderlineStyle;
+pub const FontStyle = effects.FontStyle;
+pub const TextPresentation = effects.TextPresentation;
+pub const DecorationKind = effects.DecorationKind;
+pub const FontMetrics = metrics.FontMetrics;
+pub const FaceMetrics26Dot6 = metrics.FaceMetrics26Dot6;
+pub const DecorationGeometry = metrics.DecorationGeometry;
+pub const CursorGeometry = metrics.CursorGeometry;
+pub const CellMetrics = metrics.CellMetrics;
+pub const GridMetrics = metrics.GridMetrics;
+pub const CellInput = cell_input.CellInput;
+pub const max_extra_cursors = cursor_presentation.max_extra_cursors;
+pub const max_cursor_trail_rects = cursor_presentation.max_cursor_trail_rects;
+pub const CursorColor = cursor_presentation.CursorColor;
+pub const Rgb8 = cursor_presentation.Rgb8;
+pub const CellExtent = cursor_presentation.CellExtent;
+pub const CursorShape = cursor_presentation.CursorShape;
+pub const ExtraCursorMode = cursor_presentation.ExtraCursorMode;
+pub const ExtraCursorPresentation = cursor_presentation.ExtraCursorPresentation;
+pub const CursorTrailRect = cursor_presentation.CursorTrailRect;
+pub const CursorTrailSource = cursor_presentation.CursorTrailSource;
+pub const CursorPresentation = cursor_presentation.CursorPresentation;
 
 pub const FontFaceId = struct {
     value: u32,

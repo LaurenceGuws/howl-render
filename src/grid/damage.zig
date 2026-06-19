@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../libhowl_render.zig");
+const render = @import("scene.zig");
 
 pub const DamageInput = struct {
     full: bool = true,

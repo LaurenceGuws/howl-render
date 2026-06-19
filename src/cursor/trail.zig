@@ -1,6 +1,6 @@
 const std = @import("std");
 const metrics = @import("../text/metrics.zig");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 
 pub const Target = struct {
     left_px: f32,

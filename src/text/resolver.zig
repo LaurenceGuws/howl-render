@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const font_session = @import("../session/session.zig");
 const symbol_map = @import("symbol_map.zig");
 

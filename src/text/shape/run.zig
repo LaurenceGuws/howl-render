@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../libhowl_render.zig");
+const render = @import("../../grid/scene.zig");
 const cluster_shape = @import("cluster.zig");
 
 pub const ShapeRunRequest = struct {

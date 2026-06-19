@@ -3,7 +3,7 @@ const c = @import("howl_render_c");
 
 const event = @import("../event.zig");
 const geometry = @import("../geometry.zig");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const prepared_surface = @import("../surface/prepared_surface.zig");
 const surface_emitter = @import("../surface/emitter.zig");
 const surface_preparer = @import("../surface/surface_preparer.zig");

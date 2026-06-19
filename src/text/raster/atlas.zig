@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../libhowl_render.zig");
+const render = @import("../../grid/scene.zig");
 const rasterizer = @import("rasterizer.zig");
 
 pub const StoredRaster = struct {

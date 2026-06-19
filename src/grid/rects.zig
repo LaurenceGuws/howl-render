@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../libhowl_render.zig");
+const render = @import("scene.zig");
 const metrics = @import("../text/metrics.zig");
 const scene_damage = @import("damage.zig");
 

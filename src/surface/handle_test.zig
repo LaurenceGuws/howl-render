@@ -7,7 +7,7 @@ const render_surface_emitter = @import("emitter.zig");
 const render_surface_realizer = @import("realizer.zig");
 const render_session = @import("../render_session.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const test_support = @import("../c/test_support.zig");
 
 const PreparedHandle = prepared_handle.PreparedHandle;

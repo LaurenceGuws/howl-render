@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const c = @import("howl_render_c");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const geometry = @import("../geometry.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const sprite_resource_store = @import("resource_store.zig");

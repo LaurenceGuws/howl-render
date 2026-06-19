@@ -1,4 +1,4 @@
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const special_glyphs = @import("special_glyphs.zig");
 
 pub fn builtinRoute(cp: u32) ?render.SpecialSpriteRoute {

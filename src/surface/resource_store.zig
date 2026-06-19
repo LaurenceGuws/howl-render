@@ -1,6 +1,6 @@
 const std = @import("std");
 const c = @import("howl_render_c");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 
 const ResourceId = c.HowlRenderResourceId;

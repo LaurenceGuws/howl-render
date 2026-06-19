@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const shape_run = @import("shape/run.zig");
 
 pub const FaceTextKey = struct {

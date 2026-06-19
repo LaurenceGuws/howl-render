@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const provider = @import("../text/provider.zig");
 const shape_run = @import("../text/shape/run.zig");
 const font_resolve = @import("../text/resolver.zig");

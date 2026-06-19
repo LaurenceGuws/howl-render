@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../libhowl_render.zig");
+const render = @import("../../grid/scene.zig");
 const generated_special = @import("generated_special.zig");
 const special_box = @import("special_box.zig");
 

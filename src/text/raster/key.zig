@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../libhowl_render.zig");
+const render = @import("../../grid/scene.zig");
 
 pub fn hashGlyphSequence(face: render.FontFaceId, glyphs: []const render.GlyphInstance, cell_span: u8, cell_metrics: render.CellMetrics) render.SpriteKey {
     var h = std.hash.Wyhash.init(0);

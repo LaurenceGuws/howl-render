@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const fallback = @import("raster/fallback.zig");
 const provider_mod = @import("../support/support.zig");

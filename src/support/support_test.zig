@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const test_font_options = @import("test_font_options");
-const render = @import("../libhowl_render.zig");
+const render = @import("../grid/scene.zig");
 const support = @import("support.zig");
 
 const InjectedTestFontPaths = struct {
