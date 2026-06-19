@@ -6,7 +6,7 @@ Shared rules: [`../AGENTS.md`](../AGENTS.md), [`../project-memory.md`](../projec
 
 ## Purpose
 
-`howl-render` owns backend-agnostic render contracts and text rendering work for Howl.
+`howl-render` owns backend-agnostic render contracts and text rendering preparation for Howl.
 
 It consumes render-owned source snapshots derived from VT truth, derives geometry, prepares complete surface images, and records submit/retire consequences. It does not own PTY behavior, VT terminal semantics, host textures, event loops, upload, swap, or presentation cadence.
 
@@ -46,7 +46,7 @@ It consumes render-owned source snapshots derived from VT truth, derives geometr
 5. Render issues a prepare request and builds a prepared surface image.
 6. Host uploads the prepared buffer into host-owned backend resources.
 7. Host submits execution facts through render's submit contract.
-8. Host later retires presented work so render can return the VT snapshot identity to acknowledge.
+8. Host later retires the presented render output so render can return the VT snapshot identity to acknowledge.
 
 ## Invariants
 
