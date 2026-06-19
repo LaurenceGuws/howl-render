@@ -2,14 +2,14 @@ const std = @import("std");
 
 const c = @import("howl_render_c");
 
-const DamageItem = c.HowlRenderSurfaceDamageItem;
+const DamageItem = c.HowlRenderSurfaceFrameDamageItem;
 const ResourceId = c.HowlRenderResourceId;
 const Upload = c.HowlRenderResourceUpload;
 const Create = c.HowlRenderResourceCreate;
 const GlyphRef = c.HowlRenderGlyphRef;
-const Command = c.HowlRenderSurfaceCommand;
+const Command = c.HowlRenderSurfaceFrameCommand;
 const Retire = c.HowlRenderResourceRetire;
-const Surface = c.HowlRenderSurface;
+const Surface = c.HowlRenderSurfaceFrame;
 
 const glyph_atlas_width_px = 1024;
 const glyph_atlas_height_px = 1024;
@@ -65,13 +65,13 @@ fn realizeWithStore(surface: *const Surface, pixels: []u8, base_pixels: ?[]const
     for (spanSlice(Command, surface.commands.ptr, surface.commands.count), 0..) |command, command_index| {
         const command_index_u32: u32 = @intCast(command_index);
         switch (command.kind) {
-            c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT,
-            c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
+            c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT,
+            c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT,
             => try drawSolidRect(pixels, surface.render_px, command.rect, command.color_rgba),
-            c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN => {
+            c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN => {
                 try drawGlyphRun(pixels, surface, command, command_index_u32, store);
             },
-            c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE => {
+            c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE => {
                 try drawSprite(pixels, surface, command, command_index_u32, store);
             },
             else => return error.UnknownCommandKind,
@@ -85,7 +85,7 @@ fn realizeWithStore(surface: *const Surface, pixels: []u8, base_pixels: ?[]const
 }
 
 fn validateSurface(surface: *const Surface, store: ?*const ResourceStore) Error!void {
-    if (surface.surface_version != c.HOWL_RENDER_SURFACE_VERSION) return error.InvalidDamage;
+    if (surface.frame_version != c.HOWL_RENDER_SURFACE_FRAME_VERSION) return error.InvalidDamage;
     try validateDamageSpan(surface);
     try validateCreateSpan(surface);
     try validateRetireSpan(surface, store);
@@ -98,12 +98,12 @@ fn validateDamageSpan(surface: *const Surface) Error!void {
         surface.damage.ptr,
         surface.damage.count,
         surface.damage.count_max,
-        c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX,
+        c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX,
     );
     for (spanSlice(DamageItem, surface.damage.ptr, surface.damage.count)) |damage| {
         switch (damage.kind) {
-            c.HOWL_RENDER_SURFACE_DAMAGE_RECT => {},
-            c.HOWL_RENDER_SURFACE_DAMAGE_FULL => try validateFullDamage(surface, damage),
+            c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT => {},
+            c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL => try validateFullDamage(surface, damage),
             else => return error.UnknownDamageKind,
         }
     }
@@ -121,7 +121,7 @@ fn validateCreateSpan(surface: *const Surface) Error!void {
         surface.creates.ptr,
         surface.creates.count,
         surface.creates.count_max,
-        c.HOWL_RENDER_SURFACE_CREATES_MAX,
+        c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX,
     );
     const creates = spanSlice(Create, surface.creates.ptr, surface.creates.count);
     for (creates, 0..) |create, create_index| {
@@ -152,7 +152,7 @@ fn validateRetireSpan(surface: *const Surface, store: ?*const ResourceStore) Err
         surface.retires.ptr,
         surface.retires.count,
         surface.retires.count_max,
-        c.HOWL_RENDER_SURFACE_RETIRES_MAX,
+        c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX,
     );
     const retires = spanSlice(Retire, surface.retires.ptr, surface.retires.count);
     for (retires, 0..) |retire, retire_index| {
@@ -184,9 +184,9 @@ fn validateUploadSpan(surface: *const Surface, store: ?*const ResourceStore) Err
         surface.uploads.ptr,
         surface.uploads.count,
         surface.uploads.count_max,
-        c.HOWL_RENDER_SURFACE_UPLOADS_MAX,
+        c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX,
     );
-    if (surface.uploads.bytes_count_max != c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX) {
+    if (surface.uploads.bytes_count_max != c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX) {
         return error.InvalidSpan;
     }
 
@@ -199,7 +199,7 @@ fn validateUploadSpan(surface: *const Surface, store: ?*const ResourceStore) Err
         bytes_sum = std.math.add(u32, bytes_sum, upload.bytes_count) catch {
             return error.InvalidSpan;
         };
-        if (bytes_sum > c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX) return error.InvalidSpan;
+        if (bytes_sum > c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX) return error.InvalidSpan;
     }
     if (surface.uploads.bytes_count_total != bytes_sum) return error.InvalidSpan;
 }
@@ -249,7 +249,7 @@ fn validateCommandSpan(surface: *const Surface, store: ?*const ResourceStore) Er
         surface.commands.ptr,
         surface.commands.count,
         surface.commands.count_max,
-        c.HOWL_RENDER_SURFACE_COMMANDS_MAX,
+        c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX,
     );
     for (spanSlice(Command, surface.commands.ptr, surface.commands.count), 0..) |command, command_index| {
         const command_index_u32: u32 = @intCast(command_index);
@@ -257,16 +257,16 @@ fn validateCommandSpan(surface: *const Surface, store: ?*const ResourceStore) Er
             command.glyphs.ptr,
             command.glyphs.count,
             command.glyphs.count_max,
-            c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX,
+            c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX,
         );
         switch (command.kind) {
-            c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT,
-            c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
+            c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT,
+            c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT,
             => try validateFillCommand(command),
-            c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN => {
+            c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN => {
                 try validateGlyphRunCommand(surface, store, command, command_index_u32);
             },
-            c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE => {
+            c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE => {
                 try validateSpriteCommand(surface, store, command, command_index_u32);
             },
             else => return error.UnknownCommandKind,

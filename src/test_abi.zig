@@ -57,7 +57,7 @@ test "render text ABI emits foreground commands from VT render state" {
         .cursor_underline_thickness = 2.0,
     };
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &prepare, &upload));
-    const surface_ptr = upload.render_surface orelse return error.TestUnexpectedResult;
+    const surface_ptr = upload.surface_frame orelse return error.TestUnexpectedResult;
     const surface = surface_ptr.*;
     try std.testing.expectEqual(@as(u64, 1), upload.snapshot_seq);
     try std.testing.expect(surface.commands.count > 1);
@@ -66,8 +66,8 @@ test "render text ABI emits foreground commands from VT render state" {
     var has_cursor = false;
     var fill_count: u32 = 0;
     for (surface.commands.ptr[0..surface.commands.count]) |command| {
-        if (command.kind == c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE) has_foreground = true;
-        if (command.kind == c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT and command.rect.width_px > 0 and command.rect.height_px > 0) {
+        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE) has_foreground = true;
+        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT and command.rect.width_px > 0 and command.rect.height_px > 0) {
             has_cursor = true;
             fill_count += 1;
         }
@@ -79,12 +79,12 @@ test "render text ABI emits foreground commands from VT render state" {
     var hidden_prepare = prepare;
     hidden_prepare.cursor_opacity = 0;
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &hidden_prepare, &hidden_upload));
-    const hidden_surface = (hidden_upload.render_surface orelse return error.TestUnexpectedResult).*;
+    const hidden_surface = (hidden_upload.surface_frame orelse return error.TestUnexpectedResult).*;
     var hidden_has_foreground = false;
     var hidden_fill_count: u32 = 0;
     for (hidden_surface.commands.ptr[0..hidden_surface.commands.count]) |command| {
-        if (command.kind == c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE) hidden_has_foreground = true;
-        if (command.kind == c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT and command.rect.width_px > 0 and command.rect.height_px > 0) hidden_fill_count += 1;
+        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE) hidden_has_foreground = true;
+        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT and command.rect.width_px > 0 and command.rect.height_px > 0) hidden_fill_count += 1;
     }
     try std.testing.expect(hidden_has_foreground);
     try std.testing.expect(hidden_fill_count < fill_count);

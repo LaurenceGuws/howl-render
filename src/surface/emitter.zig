@@ -10,7 +10,7 @@ const rasterizer = @import("../text/raster/rasterizer.zig");
 const ResourceId = c.HowlRenderResourceId;
 const Rect = c.HowlRenderSurfaceRect;
 const GlyphRef = c.HowlRenderGlyphRef;
-pub const Surface = c.HowlRenderSurface;
+pub const Surface = c.HowlRenderSurfaceFrame;
 const SpriteResourceStore = sprite_resource_store.SpriteResourceStore;
 
 // Glyph refs are data-plane payload; commands are control-plane payload.
@@ -18,9 +18,9 @@ const glyph_refs_max: u32 = 32 * 1024;
 const PreparedSprite = sprite_resource_store.PreparedSprite;
 
 comptime {
-    std.debug.assert(glyph_refs_max > c.HOWL_RENDER_SURFACE_COMMANDS_MAX);
+    std.debug.assert(glyph_refs_max > c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX);
     std.debug.assert(glyph_refs_max <=
-        c.HOWL_RENDER_SURFACE_COMMANDS_MAX * c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX);
+        c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX * c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX);
 }
 
 pub const Error = error{
@@ -64,24 +64,24 @@ pub fn emissionFailureFromError(err: Error) RenderSurfaceEmissionFailure {
 }
 
 pub const Limits = struct {
-    damage_max: u32 = c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX,
-    creates_max: u32 = c.HOWL_RENDER_SURFACE_CREATES_MAX,
-    uploads_max: u32 = c.HOWL_RENDER_SURFACE_UPLOADS_MAX,
-    commands_max: u32 = c.HOWL_RENDER_SURFACE_COMMANDS_MAX,
+    damage_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX,
+    creates_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX,
+    uploads_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX,
+    commands_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX,
     glyph_refs_max: u32 = glyph_refs_max,
-    retires_max: u32 = c.HOWL_RENDER_SURFACE_RETIRES_MAX,
-    upload_bytes_max: u32 = c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX,
+    retires_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX,
+    upload_bytes_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX,
 
     pub fn assertValid(comptime limits: Limits) void {
-        std.debug.assert(limits.damage_max <= c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX);
-        std.debug.assert(limits.creates_max <= c.HOWL_RENDER_SURFACE_CREATES_MAX);
-        std.debug.assert(limits.uploads_max <= c.HOWL_RENDER_SURFACE_UPLOADS_MAX);
-        std.debug.assert(limits.commands_max <= c.HOWL_RENDER_SURFACE_COMMANDS_MAX);
+        std.debug.assert(limits.damage_max <= c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX);
+        std.debug.assert(limits.creates_max <= c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX);
+        std.debug.assert(limits.uploads_max <= c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX);
+        std.debug.assert(limits.commands_max <= c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX);
         std.debug.assert(limits.glyph_refs_max <=
-            c.HOWL_RENDER_SURFACE_COMMANDS_MAX * c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX);
+            c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX * c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX);
         std.debug.assert(limits.glyph_refs_max >= limits.commands_max);
-        std.debug.assert(limits.retires_max <= c.HOWL_RENDER_SURFACE_RETIRES_MAX);
-        std.debug.assert(limits.upload_bytes_max <= c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX);
+        std.debug.assert(limits.retires_max <= c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX);
+        std.debug.assert(limits.upload_bytes_max <= c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX);
     }
 };
 
@@ -89,11 +89,11 @@ pub fn Emitter(comptime limits: Limits) type {
     comptime limits.assertValid();
 
     return struct {
-        damage: [limits.damage_max]c.HowlRenderSurfaceDamageItem = undefined,
+        damage: [limits.damage_max]c.HowlRenderSurfaceFrameDamageItem = undefined,
         creates: [limits.creates_max]c.HowlRenderResourceCreate = undefined,
         uploads: [limits.uploads_max]c.HowlRenderResourceUpload = undefined,
         upload_byte_offsets: [limits.uploads_max]u32 = undefined,
-        commands: [limits.commands_max]c.HowlRenderSurfaceCommand = undefined,
+        commands: [limits.commands_max]c.HowlRenderSurfaceFrameCommand = undefined,
         glyphs: [limits.glyph_refs_max]GlyphRef = undefined,
         retires: [limits.retires_max]c.HowlRenderResourceRetire = undefined,
         upload_bytes: [limits.upload_bytes_max]u8 = undefined,
@@ -185,7 +185,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.surface_storage = emptySurface();
             self.surface_storage.token = .{
                 .snapshot_seq = prepared.request.token.snapshot_seq,
-                .surface_seq = prepared.request.token.dirty_epoch,
+                .frame_seq = prepared.request.token.dirty_epoch,
                 .geometry_epoch = prepared.geometry_epoch,
                 .resource_epoch = 0,
             };
@@ -199,7 +199,7 @@ pub fn Emitter(comptime limits: Limits) type {
             std.debug.assert(self.glyph_count == 0);
             std.debug.assert(self.retire_count == 0);
             std.debug.assert(self.upload_bytes_count == 0);
-            std.debug.assert(self.surface_storage.surface_version == c.HOWL_RENDER_SURFACE_VERSION);
+            std.debug.assert(self.surface_storage.frame_version == c.HOWL_RENDER_SURFACE_FRAME_VERSION);
             std.debug.assert(self.surface_storage.damage.ptr == null);
             std.debug.assert(self.surface_storage.creates.ptr == null);
             std.debug.assert(self.surface_storage.uploads.ptr == null);
@@ -210,7 +210,7 @@ pub fn Emitter(comptime limits: Limits) type {
         fn appendFullDamage(self: *Self, render_px: c.HowlRenderPixelSize) Error!void {
             if (self.damage_count >= limits.damage_max) return error.DamageBoundOverflow;
             self.damage[self.damage_count] = .{
-                .kind = c.HOWL_RENDER_SURFACE_DAMAGE_FULL,
+                .kind = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL,
                 .reserved0 = 0,
                 .reserved1 = 0,
                 .rect = .{
@@ -226,7 +226,7 @@ pub fn Emitter(comptime limits: Limits) type {
         fn appendPreparedFullRedrawClear(self: *Self, prepared: *const prepared_surface.PreparedSurface) Error!void {
             if (prepared.damageKind() != .full) return;
             try self.appendCommand(.{
-                .kind = c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT,
+                .kind = c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT,
                 .reserved0 = 0,
                 .reserved1 = 0,
                 .rect = .{
@@ -248,7 +248,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 draw.width_px,
                 draw.height_px,
                 draw.color,
-                c.HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT,
+                c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT,
             );
         }
 
@@ -259,7 +259,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 draw.width_px,
                 draw.height_px,
                 draw.color,
-                c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
+                c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT,
             );
         }
 
@@ -270,7 +270,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 draw.width_px,
                 draw.height_px,
                 draw.color,
-                c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
+                c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT,
             );
         }
 
@@ -281,7 +281,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 draw.width_px,
                 draw.height_px,
                 draw.color,
-                c.HOWL_RENDER_SURFACE_COMMAND_FILL_RECT,
+                c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT,
             );
         }
 
@@ -289,7 +289,7 @@ pub fn Emitter(comptime limits: Limits) type {
             if (width_px == 0) return;
             if (height_px == 0) return;
             const clipped = clippedFillRect(self.surface_storage.render_px, x_px, y_px, width_px, height_px) orelse return;
-            const command = c.HowlRenderSurfaceCommand{
+            const command = c.HowlRenderSurfaceFrameCommand{
                 .kind = kind,
                 .reserved0 = 0,
                 .reserved1 = 0,
@@ -327,7 +327,7 @@ pub fn Emitter(comptime limits: Limits) type {
             return true;
         }
 
-        fn tryMergePreparedFillCommand(self: *Self, command: c.HowlRenderSurfaceCommand) bool {
+        fn tryMergePreparedFillCommand(self: *Self, command: c.HowlRenderSurfaceFrameCommand) bool {
             if (self.command_count == 0) return false;
             const prior = &self.commands[self.command_count - 1];
             if (prior.kind != command.kind) return false;
@@ -443,7 +443,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 }
                 std.debug.assert(result.resource.value != 0);
                 try self.appendCommand(.{
-                    .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE,
+                    .kind = c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE,
                     .reserved0 = 0,
                     .reserved1 = 0,
                     .rect = .{
@@ -558,7 +558,7 @@ pub fn Emitter(comptime limits: Limits) type {
             std.debug.assert(self.upload_bytes_count == upload_start);
         }
 
-        fn appendCommand(self: *Self, command: c.HowlRenderSurfaceCommand) Error!void {
+        fn appendCommand(self: *Self, command: c.HowlRenderSurfaceFrameCommand) Error!void {
             if (self.command_count >= limits.commands_max) return error.CommandBoundOverflow;
             self.commands[self.command_count] = command;
             self.command_count += 1;
@@ -569,10 +569,10 @@ pub fn Emitter(comptime limits: Limits) type {
 
             if (self.command_count > 0) {
                 const prior = &self.commands[self.command_count - 1];
-                if (prior.kind == c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN) {
+                if (prior.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN) {
                     std.debug.assert(prior.glyphs.count > 0);
-                    std.debug.assert(prior.glyphs.count <= c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX);
-                    if (prior.glyphs.count < c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX) {
+                    std.debug.assert(prior.glyphs.count <= c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX);
+                    if (prior.glyphs.count < c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX) {
                         self.glyphs[@intCast(self.glyph_count)] = glyph;
                         self.glyph_count += 1;
                         prior.glyphs.count += 1;
@@ -587,7 +587,7 @@ pub fn Emitter(comptime limits: Limits) type {
             self.glyphs[@intCast(self.glyph_count)] = glyph;
             self.glyph_count += 1;
             try self.appendCommand(.{
-                .kind = c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN,
+                .kind = c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN,
                 .reserved0 = 0,
                 .reserved1 = 0,
                 .rect = .{ .x_px = 0, .y_px = 0, .width_px = 0, .height_px = 0 },
@@ -596,7 +596,7 @@ pub fn Emitter(comptime limits: Limits) type {
                 .glyphs = .{
                     .ptr = &self.glyphs[@intCast(start)],
                     .count = 1,
-                    .count_max = c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX,
+                    .count_max = c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX,
                 },
             });
         }
@@ -615,9 +615,9 @@ pub fn Emitter(comptime limits: Limits) type {
             var command_index: u32 = 0;
             while (command_index < self.command_count) : (command_index += 1) {
                 const command = &self.commands[command_index];
-                if (command.kind != c.HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN) continue;
+                if (command.kind != c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN) continue;
                 std.debug.assert(command.glyphs.count > 0);
-                std.debug.assert(command.glyphs.count <= c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX);
+                std.debug.assert(command.glyphs.count <= c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX);
                 std.debug.assert(glyph_offset < self.glyph_count);
                 command.glyphs.ptr = &self.glyphs[@intCast(glyph_offset)];
                 glyph_offset += command.glyphs.count;
@@ -633,37 +633,37 @@ pub fn Emitter(comptime limits: Limits) type {
             self.surface_storage.damage = .{
                 .ptr = if (self.damage_count == 0) null else &self.damage[0],
                 .count = self.damage_count,
-                .count_max = c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX,
             };
             self.surface_storage.creates = .{
                 .ptr = if (self.create_count == 0) null else &self.creates[0],
                 .count = self.create_count,
-                .count_max = c.HOWL_RENDER_SURFACE_CREATES_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX,
             };
             self.surface_storage.uploads = .{
                 .ptr = if (self.upload_count == 0) null else &self.uploads[0],
                 .count = self.upload_count,
-                .count_max = c.HOWL_RENDER_SURFACE_UPLOADS_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX,
                 .bytes_count_total = self.upload_bytes_count,
-                .bytes_count_max = c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX,
+                .bytes_count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX,
             };
             self.surface_storage.commands = .{
                 .ptr = if (self.command_count == 0) null else &self.commands[0],
                 .count = self.command_count,
-                .count_max = c.HOWL_RENDER_SURFACE_COMMANDS_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX,
             };
             self.surface_storage.retires = .{
                 .ptr = if (self.retire_count == 0) null else &self.retires[0],
                 .count = self.retire_count,
-                .count_max = c.HOWL_RENDER_SURFACE_RETIRES_MAX,
+                .count_max = c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX,
             };
-            std.debug.assert(self.surface_storage.surface_version == c.HOWL_RENDER_SURFACE_VERSION);
-            std.debug.assert(self.surface_storage.damage.count_max == c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX);
-            std.debug.assert(self.surface_storage.creates.count_max == c.HOWL_RENDER_SURFACE_CREATES_MAX);
-            std.debug.assert(self.surface_storage.uploads.count_max == c.HOWL_RENDER_SURFACE_UPLOADS_MAX);
-            std.debug.assert(self.surface_storage.uploads.bytes_count_max == c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX);
-            std.debug.assert(self.surface_storage.commands.count_max == c.HOWL_RENDER_SURFACE_COMMANDS_MAX);
-            std.debug.assert(self.surface_storage.retires.count_max == c.HOWL_RENDER_SURFACE_RETIRES_MAX);
+            std.debug.assert(self.surface_storage.frame_version == c.HOWL_RENDER_SURFACE_FRAME_VERSION);
+            std.debug.assert(self.surface_storage.damage.count_max == c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX);
+            std.debug.assert(self.surface_storage.creates.count_max == c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX);
+            std.debug.assert(self.surface_storage.uploads.count_max == c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX);
+            std.debug.assert(self.surface_storage.uploads.bytes_count_max == c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX);
+            std.debug.assert(self.surface_storage.commands.count_max == c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX);
+            std.debug.assert(self.surface_storage.retires.count_max == c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX);
             if (self.surface_storage.damage.count == 0) std.debug.assert(self.surface_storage.damage.ptr == null);
             if (self.surface_storage.damage.count > 0) std.debug.assert(self.surface_storage.damage.ptr != null);
             if (self.surface_storage.creates.count == 0) std.debug.assert(self.surface_storage.creates.ptr == null);
@@ -680,28 +680,28 @@ pub fn Emitter(comptime limits: Limits) type {
 
 fn emptySurface() Surface {
     return .{
-        .surface_version = c.HOWL_RENDER_SURFACE_VERSION,
+        .frame_version = c.HOWL_RENDER_SURFACE_FRAME_VERSION,
         .reserved0 = 0,
-        .token = .{ .snapshot_seq = 0, .surface_seq = 0, .geometry_epoch = 0, .resource_epoch = 0 },
+        .token = .{ .snapshot_seq = 0, .frame_seq = 0, .geometry_epoch = 0, .resource_epoch = 0 },
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
-        .damage = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX },
-        .creates = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_CREATES_MAX },
+        .damage = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX },
+        .creates = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX },
         .uploads = .{
             .ptr = null,
             .count = 0,
-            .count_max = c.HOWL_RENDER_SURFACE_UPLOADS_MAX,
+            .count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX,
             .bytes_count_total = 0,
-            .bytes_count_max = c.HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX,
+            .bytes_count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX,
         },
-        .commands = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_COMMANDS_MAX },
-        .retires = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_RETIRES_MAX },
+        .commands = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX },
+        .retires = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX },
     };
 }
 
 fn emptyGlyphs() c.HowlRenderGlyphRunSpan {
-    return .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX };
+    return .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX };
 }
 
 fn zeroResource() ResourceId {
@@ -728,7 +728,7 @@ fn cellSizeOut(size: layout.CellSize) c.HowlRenderCellSize {
     return .{ .width = size.width, .height = size.height };
 }
 
-fn gridSizeOut(size: layout.GridSize) c.HowlRenderGridSize {
+fn gridSizeOut(size: layout.GridSize) c.HowlRenderCellGrid {
     return .{ .cols = size.cols, .rows = size.rows };
 }
 

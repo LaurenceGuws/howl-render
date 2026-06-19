@@ -10,33 +10,33 @@ extern "C" {
 
 #define HOWL_RENDER_MAX_FALLBACK_FONTS 24
 
-#define HOWL_RENDER_SURFACE_VERSION 0
-#define HOWL_RENDER_SURFACE_IN_FLIGHT_MAX 2
-#define HOWL_RENDER_SURFACE_SNAPSHOTS_IN_FLIGHT_MAX 2
-#define HOWL_RENDER_SURFACE_DAMAGE_ITEMS_MAX 1024
-#define HOWL_RENDER_SURFACE_UPLOADS_MAX 256
-#define HOWL_RENDER_SURFACE_COMMANDS_MAX 8192
-#define HOWL_RENDER_SURFACE_GLYPHS_PER_RUN_MAX 256
-#define HOWL_RENDER_SURFACE_UPLOAD_BYTES_MAX 8388608
+#define HOWL_RENDER_SURFACE_FRAME_VERSION 0
+#define HOWL_RENDER_SURFACE_FRAME_IN_FLIGHT_MAX 2
+#define HOWL_RENDER_SURFACE_FRAME_SNAPSHOTS_IN_FLIGHT_MAX 2
+#define HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX 1024
+#define HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX 256
+#define HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX 8192
+#define HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX 256
+#define HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX 8388608
 #define HOWL_RENDER_SURFACE_ATLAS_PAGES_MAX 64
 #define HOWL_RENDER_SURFACE_RESOURCES_MAX 4096
-#define HOWL_RENDER_SURFACE_CREATES_MAX 256
-#define HOWL_RENDER_SURFACE_RETIRES_MAX 256
-#define HOWL_RENDER_SURFACE_HOST_ACKS_MAX 256
+#define HOWL_RENDER_SURFACE_FRAME_CREATES_MAX 256
+#define HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX 256
+#define HOWL_RENDER_SURFACE_FRAME_HOST_ACKS_MAX 256
 #define HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX 16
 
-#define HOWL_RENDER_SURFACE_DAMAGE_RECT 1
-#define HOWL_RENDER_SURFACE_DAMAGE_FULL 2
+#define HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT 1
+#define HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL 2
 #define HOWL_RENDER_RESOURCE_GLYPH_ATLAS_ALPHA 1
 #define HOWL_RENDER_RESOURCE_GLYPH_ATLAS_COLOR 2
 #define HOWL_RENDER_RESOURCE_SPRITE_ALPHA 3
 #define HOWL_RENDER_RESOURCE_SPRITE_COLOR 4
 #define HOWL_RENDER_UPLOAD_ALPHA8 1
 #define HOWL_RENDER_UPLOAD_RGBA8 2
-#define HOWL_RENDER_SURFACE_COMMAND_CLEAR_RECT 1
-#define HOWL_RENDER_SURFACE_COMMAND_FILL_RECT 2
-#define HOWL_RENDER_SURFACE_COMMAND_DRAW_GLYPH_RUN 3
-#define HOWL_RENDER_SURFACE_COMMAND_DRAW_SPRITE 4
+#define HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT 1
+#define HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT 2
+#define HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN 3
+#define HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE 4
 
 typedef enum {
     HOWL_RENDER_CALL_OK = 0,
@@ -71,7 +71,7 @@ typedef struct {
 typedef struct {
     uint16_t cols;
     uint16_t rows;
-} HowlRenderGridSize;
+} HowlRenderCellGrid;
 
 typedef struct {
     int32_t x_px;
@@ -122,7 +122,7 @@ typedef struct {
 typedef struct {
     int status;
     HowlRenderCellSize cell_px;
-    HowlRenderGridSize grid;
+    HowlRenderCellGrid grid;
 } HowlRenderLayoutResult;
 
 typedef struct {
@@ -140,12 +140,12 @@ typedef struct {
     HowlRenderPixelSize grid_px;
 } HowlRenderGeometry;
 
-typedef struct HowlRenderSurfaceToken {
+typedef struct HowlRenderSurfaceFrameToken {
     uint64_t snapshot_seq;
-    uint64_t surface_seq;
+    uint64_t frame_seq;
     uint64_t geometry_epoch;
     uint64_t resource_epoch;
-} HowlRenderSurfaceToken;
+} HowlRenderSurfaceFrameToken;
 
 typedef struct HowlRenderSurfaceRect {
     int32_t x_px;
@@ -154,18 +154,18 @@ typedef struct HowlRenderSurfaceRect {
     uint16_t height_px;
 } HowlRenderSurfaceRect;
 
-typedef struct HowlRenderSurfaceDamageItem {
+typedef struct HowlRenderSurfaceFrameDamageItem {
     uint8_t kind;
     uint8_t reserved0;
     uint16_t reserved1;
     HowlRenderSurfaceRect rect;
-} HowlRenderSurfaceDamageItem;
+} HowlRenderSurfaceFrameDamageItem;
 
-typedef struct HowlRenderSurfaceDamageSpan {
-    const HowlRenderSurfaceDamageItem *ptr;
+typedef struct HowlRenderSurfaceFrameDamageSpan {
+    const HowlRenderSurfaceFrameDamageItem *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderSurfaceDamageSpan;
+} HowlRenderSurfaceFrameDamageSpan;
 
 typedef struct HowlRenderResourceId {
     uint64_t value;
@@ -220,7 +220,7 @@ typedef struct HowlRenderGlyphRunSpan {
     uint32_t count_max;
 } HowlRenderGlyphRunSpan;
 
-typedef struct HowlRenderSurfaceCommand {
+typedef struct HowlRenderSurfaceFrameCommand {
     uint8_t kind;
     uint8_t reserved0;
     uint16_t reserved1;
@@ -228,13 +228,13 @@ typedef struct HowlRenderSurfaceCommand {
     uint32_t color_rgba;
     HowlRenderResourceId resource;
     HowlRenderGlyphRunSpan glyphs;
-} HowlRenderSurfaceCommand;
+} HowlRenderSurfaceFrameCommand;
 
-typedef struct HowlRenderSurfaceCommandSpan {
-    const HowlRenderSurfaceCommand *ptr;
+typedef struct HowlRenderSurfaceFrameCommandSpan {
+    const HowlRenderSurfaceFrameCommand *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderSurfaceCommandSpan;
+} HowlRenderSurfaceFrameCommandSpan;
 
 typedef struct HowlRenderResourceRetire {
     HowlRenderResourceId resource;
@@ -258,19 +258,19 @@ typedef struct HowlRenderResourceAckSpan {
     uint32_t count_max;
 } HowlRenderResourceAckSpan;
 
-typedef struct HowlRenderSurface {
-    uint32_t surface_version;
+typedef struct HowlRenderSurfaceFrame {
+    uint32_t frame_version;
     uint32_t reserved0;
-    HowlRenderSurfaceToken token;
+    HowlRenderSurfaceFrameToken token;
     HowlRenderPixelSize render_px;
     HowlRenderCellSize cell_px;
-    HowlRenderGridSize grid;
-    HowlRenderSurfaceDamageSpan damage;
+    HowlRenderCellGrid grid;
+    HowlRenderSurfaceFrameDamageSpan damage;
     HowlRenderResourceCreateSpan creates;
     HowlRenderResourceUploadSpan uploads;
-    HowlRenderSurfaceCommandSpan commands;
+    HowlRenderSurfaceFrameCommandSpan commands;
     HowlRenderResourceRetireSpan retires;
-} HowlRenderSurface;
+} HowlRenderSurfaceFrame;
 
 typedef struct {
     int32_t status;
@@ -286,10 +286,10 @@ typedef struct {
 } HowlRenderGeometryResponse;
 
 typedef struct {
-    uint64_t host_surface_id;
+    uint64_t host_texture_id;
     uint16_t width;
     uint16_t height;
-} HowlRenderHostSurface;
+} HowlRenderHostTexture;
 
 typedef struct HowlRenderText HowlRenderText;
 typedef HowlRenderText *HowlRenderTextHandle;
@@ -307,7 +307,7 @@ typedef struct {
     HowlRenderPixelSize render_px;
     HowlRenderPixelSize grid_px;
     HowlRenderCellSize cell_px;
-    HowlRenderGridSize grid;
+    HowlRenderCellGrid grid;
     uint64_t geometry_epoch;
     uint8_t focused;
     uint8_t cursor_opacity;
@@ -321,17 +321,17 @@ typedef struct {
 
 typedef struct {
     int32_t status;
-    uint32_t render_surface_status;
+    uint32_t surface_frame_status;
     uint32_t reserved0;
     uint64_t snapshot_seq;
     HowlRenderPixelSize render_px;
-    const HowlRenderSurface *render_surface;
+    const HowlRenderSurfaceFrame *surface_frame;
 } HowlRenderTextPreparedUpload;
 
 HowlRenderCallStatus howl_render_text_init(HowlRenderTextHandle *out_handle, const HowlRenderTextConfig *config);
 void howl_render_text_deinit(HowlRenderTextHandle handle);
 HowlRenderCallStatus howl_render_text_prepare(HowlRenderTextHandle handle, const HowlRenderTextPrepare *prepare, HowlRenderTextPreparedUpload *out_upload);
-HowlRenderCallStatus howl_render_text_submit(HowlRenderTextHandle handle, HowlRenderHostSurface host_surface, HowlRenderHostSurface *out_host_surface);
+HowlRenderCallStatus howl_render_text_submit(HowlRenderTextHandle handle, HowlRenderHostTexture host_texture, HowlRenderHostTexture *out_host_texture);
 
 #ifdef __cplusplus
 }

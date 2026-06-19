@@ -7,7 +7,7 @@ const ResourceId = c.HowlRenderResourceId;
 const Rect = c.HowlRenderSurfaceRect;
 
 pub const persistent_sprite_resources_max: u32 = 384;
-pub const alpha_atlas_entries_max: u32 = c.HOWL_RENDER_SURFACE_COMMANDS_MAX;
+pub const alpha_atlas_entries_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX;
 const persistent_sprite_resource_bytes_max: u32 = 64 * 1024;
 pub const glyph_atlas_width_px: u16 = 1024;
 pub const glyph_atlas_height_px: u16 = 1024;

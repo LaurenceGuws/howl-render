@@ -110,17 +110,17 @@ test "emitter maps every render-surface emission error to local failure" {
     try std.testing.expectEqual(RenderSurfaceEmissionFailure.missing_prepared_sprite, render_surface_emitter.emissionFailureFromError(error.MissingPreparedSprite));
 }
 
-test "prepared handle testing validates realized uploads and host surface dimensions before submit" {
+test "prepared handle testing validates realized uploads and host texture dimensions before submit" {
     const render_px = layout.PixelSize{ .width = 11, .height = 12 };
 
     try std.testing.expect(prepared_handle.testing.executionMatchesPrepared(render_px, .{
-        .host_surface = .{ .host_surface_id = 1, .width = 11, .height = 12 },
+        .host_texture = .{ .host_texture_id = 1, .width = 11, .height = 12 },
     }));
     try std.testing.expect(!prepared_handle.testing.executionMatchesPrepared(render_px, .{
-        .host_surface = .{ .host_surface_id = 1, .width = 10, .height = 12 },
+        .host_texture = .{ .host_texture_id = 1, .width = 10, .height = 12 },
     }));
     try std.testing.expect(!prepared_handle.testing.executionMatchesPrepared(render_px, .{
-        .host_surface = .{ .host_surface_id = 1, .width = 11, .height = 13 },
+        .host_texture = .{ .host_texture_id = 1, .width = 11, .height = 13 },
     }));
 }
 

@@ -91,10 +91,10 @@ export fn howl_render_text_prepare(handle: c.HowlRenderTextHandle, prepare: ?*co
     return c.HOWL_RENDER_CALL_OK;
 }
 
-export fn howl_render_text_submit(handle: c.HowlRenderTextHandle, host_surface: c.HowlRenderHostSurface, out_host_surface: ?*c.HowlRenderHostSurface) c.HowlRenderCallStatus {
+export fn howl_render_text_submit(handle: c.HowlRenderTextHandle, host_texture: c.HowlRenderHostTexture, out_host_texture: ?*c.HowlRenderHostTexture) c.HowlRenderCallStatus {
     const surface = textSurfaceFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
-    const out = out_host_surface orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    surface.submit(host_surface, out);
+    const out = out_host_texture orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    surface.submit(host_texture, out);
     return c.HOWL_RENDER_CALL_OK;
 }
 

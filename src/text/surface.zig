@@ -116,16 +116,16 @@ pub const TextSurface = struct {
         _ = try self.emitter.emitPreparedFresh(&self.resources, prepared);
         out.* = .{
             .status = c.HOWL_RENDER_CALL_OK,
-            .render_surface_status = 0,
+            .surface_frame_status = 0,
             .reserved0 = 0,
             .snapshot_seq = token.snapshot_seq,
             .render_px = input.render_px,
-            .render_surface = self.emitter.surface(),
+            .surface_frame = self.emitter.surface(),
         };
     }
 
-    pub fn submit(self: *TextSurface, host_surface: c.HowlRenderHostSurface, out_host_surface: *c.HowlRenderHostSurface) void {
-        out_host_surface.* = host_surface;
+    pub fn submit(self: *TextSurface, host_texture: c.HowlRenderHostTexture, out_host_texture: *c.HowlRenderHostTexture) void {
+        out_host_texture.* = host_texture;
         self.releasePrepared();
     }
 
@@ -134,7 +134,7 @@ pub const TextSurface = struct {
         self.prepared = null;
     }
 
-    fn ensurePreparer(self: *TextSurface, grid: c.HowlRenderGridSize) !*surface_preparer.TextSurfacePreparer {
+    fn ensurePreparer(self: *TextSurface, grid: c.HowlRenderCellGrid) !*surface_preparer.TextSurfacePreparer {
         if (self.preparer == null) {
             self.preparer = try surface_preparer.TextSurfacePreparer.initWithProvider(self.allocator, 2048, self.textProvider());
         }
@@ -145,7 +145,7 @@ pub const TextSurface = struct {
         return &self.preparer.?;
     }
 
-    fn capacity(self: *TextSurface, grid: c.HowlRenderGridSize) glyph_cache.Capacity {
+    fn capacity(self: *TextSurface, grid: c.HowlRenderCellGrid) glyph_cache.Capacity {
         _ = self;
         const visible_cells = @as(u32, @max(grid.cols, 1)) * @as(u32, @max(grid.rows, 1));
         return .{
@@ -157,7 +157,7 @@ pub const TextSurface = struct {
         };
     }
 
-    fn readRenderState(self: *TextSurface, state: c.HowlVtRenderStateHandle, grid: c.HowlRenderGridSize, full_damage: bool) !RenderStateTextInput {
+    fn readRenderState(self: *TextSurface, state: c.HowlVtRenderStateHandle, grid: c.HowlRenderCellGrid, full_damage: bool) !RenderStateTextInput {
         const cell_count = try std.math.mul(usize, grid.cols, grid.rows);
         try self.ensureCellInputScratchCapacity(cell_count);
         try self.ensureDamageScratchCapacity(grid.rows);
