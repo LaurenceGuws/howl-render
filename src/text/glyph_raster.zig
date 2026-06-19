@@ -3,14 +3,14 @@ const std = @import("std");
 const render = @import("../grid/scene.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const fallback = @import("raster/fallback.zig");
-const provider_mod = @import("../support/support.zig");
+const glyph_cache = @import("glyph_cache.zig");
 const c_api = @import("c_api.zig");
 const c = c_api.c;
 
 const FtFace = c_api.FtFace;
 const HbFont = c_api.HbFont;
 
-pub fn providerRasterizeSpriteWithConfig(state: *provider_mod.FtHbSupport, config: provider_mod.TextConfig, allocator: std.mem.Allocator, req: render.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
+pub fn providerRasterizeSpriteWithConfig(state: *glyph_cache.GlyphCache, config: glyph_cache.TextConfig, allocator: std.mem.Allocator, req: render.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
     const width = @max(req.width_px, 1);
     const height = @max(req.height_px, 1);
     const pixels = try allocator.alloc(u8, @intCast(rasterPixelCount(width, height)));
@@ -27,8 +27,8 @@ pub fn providerRasterizeSpriteWithConfig(state: *provider_mod.FtHbSupport, confi
     return providerSpriteOutput(allocator, req, width, height, pixels);
 }
 pub fn rasterizeProviderGlyphWithConfig(
-    state: *provider_mod.FtHbSupport,
-    config: provider_mod.TextConfig,
+    state: *glyph_cache.GlyphCache,
+    config: glyph_cache.TextConfig,
     dst: []u8,
     width: u16,
     height: u16,
@@ -43,10 +43,10 @@ pub fn rasterizeProviderGlyphWithConfig(
         fallback.rasterAsciiOrPlaceholder(dst, width, @intCast(glyph_id), width, height);
         return true;
     }
-    if (!provider_mod.ensureFontWithConfig(state, config)) return false;
+    if (!glyph_cache.ensureFontWithConfig(state, config)) return false;
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
-    const shaped_face = provider_mod.acquireShapingFaceFromStateLocked(state, face_id) orelse return false;
+    const shaped_face = glyph_cache.acquireShapingFaceFromStateLocked(state, face_id) orelse return false;
     return rasterizeProviderGlyphFromFace(dst, width, height, baseline_px, shaped_face.face, glyph_id, x_origin_px, y_origin_px, glyph_index);
 }
 fn fallbackFaceId(index: u32) u32 {
@@ -65,7 +65,7 @@ fn rasterizeProviderGlyphFromFace(dst: []u8, width: u16, height: u16, baseline_p
     const visual_h = bitmapVisualHeight(bitmap.pixel_mode, bh);
     const pitch_abs: u16 = @intCast(@abs(bitmap.pitch));
     const pitch_is_negative = bitmap.pitch < 0;
-    const baseline: i32 = if (baseline_px > 0) baseline_px else provider_mod.computeBaselineFromFace(face, height);
+    const baseline: i32 = if (baseline_px > 0) baseline_px else glyph_cache.computeBaselineFromFace(face, height);
     const origin = cellBitmapOrigin(width, baseline, glyph.*.bitmap_left, glyph.*.bitmap_top, @intCast(visual_w), x_origin_px, y_origin_px, glyph_index);
     for (0..visual_h) |yy| {
         for (0..visual_w) |xx| {
@@ -90,7 +90,7 @@ fn rasterizeProviderGlyphFromFace(dst: []u8, width: u16, height: u16, baseline_p
     }
     return true;
 }
-fn setFacePixelHeight(config: provider_mod.TextConfig, face: FtFace) bool {
+fn setFacePixelHeight(config: glyph_cache.TextConfig, face: FtFace) bool {
     return c.FT_Set_Pixel_Sizes(face, 0, @max(config.font_size_px, 1)) == 0;
 }
 fn faceMetricsInput(face: FtFace, font_size_px: u16) render.FaceMetrics26Dot6 {
@@ -115,7 +115,7 @@ fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
     }
     return if (max_advance > 0) max_advance else fallback_advance;
 }
-fn tryRasterizeProviderSpecialCase(state: *provider_mod.FtHbSupport, config: provider_mod.TextConfig, pixels: []u8, width: u16, height: u16, req: render.SpriteRasterRequest) bool {
+fn tryRasterizeProviderSpecialCase(state: *glyph_cache.GlyphCache, config: glyph_cache.TextConfig, pixels: []u8, width: u16, height: u16, req: render.SpriteRasterRequest) bool {
     if (req.kind == .undercurl) {
         rasterizer.rasterizeUndercurlAlpha(pixels, width, height, req.decoration);
         return true;
@@ -245,17 +245,17 @@ fn cellBitmapOrigin(cell_width: u16, baseline: i32, bitmap_left: i32, bitmap_top
     const y_px = if (yoff > 0 and yoff > baseline) 0 else baseline - yoff;
     return .{ .x_px = x_px, .y_px = y_px };
 }
-fn useDeterministicTestTextFallback(state: *provider_mod.FtHbSupport, config: provider_mod.TextConfig) bool {
+fn useDeterministicTestTextFallback(state: *glyph_cache.GlyphCache, config: glyph_cache.TextConfig) bool {
     return builtin.is_test and config.font_path == null and state.fallback_font_paths_len == 0;
 }
 
 const DeterministicFallbackContext = struct {
-    text_state: provider_mod.FtHbSupport,
-    config: provider_mod.TextConfig,
+    text_state: glyph_cache.GlyphCache,
+    config: glyph_cache.TextConfig,
 
     fn init(allocator: std.mem.Allocator) DeterministicFallbackContext {
         return .{
-            .text_state = provider_mod.FtHbSupport.init(allocator),
+            .text_state = glyph_cache.GlyphCache.init(allocator),
             .config = .{
                 .surface_px = .{ .width = 1, .height = 1 },
                 .font_size_px = 16,

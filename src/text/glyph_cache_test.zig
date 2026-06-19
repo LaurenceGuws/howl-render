@@ -2,7 +2,7 @@ const std = @import("std");
 
 const test_font_options = @import("test_font_options");
 const render = @import("../grid/scene.zig");
-const support = @import("support.zig");
+const glyph_cache = @import("glyph_cache.zig");
 
 const InjectedTestFontPaths = struct {
     primary_path: []const u8,
@@ -24,7 +24,7 @@ test "provider loads fallback face for symbol glyph with primary present" {
     const symbol_path = try std.Io.Dir.cwd().realPathFileAlloc(io, font_paths.symbol_path, std.testing.allocator);
     defer std.testing.allocator.free(symbol_path);
 
-    var state = support.FtHbSupport.init(std.heap.c_allocator);
+    var state = glyph_cache.GlyphCache.init(std.heap.c_allocator);
     defer state.deinit();
     const primary_z = try std.heap.c_allocator.dupeZ(u8, primary_path);
     defer std.heap.c_allocator.free(primary_z);
@@ -32,21 +32,21 @@ test "provider loads fallback face for symbol glyph with primary present" {
     defer std.heap.c_allocator.free(symbol_z);
     state.fallback_font_paths[0] = symbol_z;
     state.fallback_font_paths_len = 1;
-    const config = support.TextConfig{ .surface_px = .{ .width = 1, .height = 1 }, .font_path = primary_z };
+    const config = glyph_cache.TextConfig{ .surface_px = .{ .width = 1, .height = 1 }, .font_path = primary_z };
 
-    try std.testing.expect(!support.providerHasCodepointWithConfig(&state, config, .{ .value = support.primary_face_id }, 0xebfc));
-    try std.testing.expect(support.providerHasCodepointWithConfig(&state, config, .{ .value = 2 }, 0xebfc));
-    try std.testing.expect(support.providerGlyphIdWithConfig(&state, config, .{ .value = 2 }, 0xebfc) != 0);
-    try std.testing.expect(!support.providerHasCodepointWithConfig(&state, config, .{ .value = support.primary_face_id }, 0xf117));
-    try std.testing.expect(support.providerHasCodepointWithConfig(&state, config, .{ .value = 2 }, 0xf117));
-    try std.testing.expect(support.providerGlyphIdWithConfig(&state, config, .{ .value = 2 }, 0xf117) != 0);
+    try std.testing.expect(!glyph_cache.providerHasCodepointWithConfig(&state, config, .{ .value = glyph_cache.primary_face_id }, 0xebfc));
+    try std.testing.expect(glyph_cache.providerHasCodepointWithConfig(&state, config, .{ .value = 2 }, 0xebfc));
+    try std.testing.expect(glyph_cache.providerGlyphIdWithConfig(&state, config, .{ .value = 2 }, 0xebfc) != 0);
+    try std.testing.expect(!glyph_cache.providerHasCodepointWithConfig(&state, config, .{ .value = glyph_cache.primary_face_id }, 0xf117));
+    try std.testing.expect(glyph_cache.providerHasCodepointWithConfig(&state, config, .{ .value = 2 }, 0xf117));
+    try std.testing.expect(glyph_cache.providerGlyphIdWithConfig(&state, config, .{ .value = 2 }, 0xf117) != 0);
 }
 
 test "ft hb state configures explicit retained cache and input capacities" {
-    var state = support.FtHbSupport.init(std.testing.allocator);
+    var state = glyph_cache.GlyphCache.init(std.testing.allocator);
     defer state.deinit();
 
-    try state.configureFtHbCapacity(.{
+    try state.configureCapacity(.{
         .face_text_cache_entries = 4,
         .shape_run_cache_entries = 2,
         .glyph_cell_cache_entries = 3,
@@ -63,9 +63,9 @@ test "ft hb state configures explicit retained cache and input capacities" {
 }
 
 test "shape run input assembly reuses retained bounded buffers" {
-    var state = support.FtHbSupport.init(std.testing.allocator);
+    var state = glyph_cache.GlyphCache.init(std.testing.allocator);
     defer state.deinit();
-    try state.configureFtHbCapacity(.{
+    try state.configureCapacity(.{
         .face_text_cache_entries = 2,
         .shape_run_cache_entries = 2,
         .glyph_cell_cache_entries = 2,
@@ -82,15 +82,15 @@ test "shape run input assembly reuses retained bounded buffers" {
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .first_cp = 'b', .style = .regular, .presentation = .any },
     };
 
-    const first = try support.testing.gatherShapeRunInput(&state, text_cache_view, &clusters, 0, 2);
+    const first = try glyph_cache.testing.gatherShapeRunInput(&state, text_cache_view, &clusters, 0, 2);
     try std.testing.expectEqual(state.shape_input_codepoints.ptr, first.codepoints.ptr);
     try std.testing.expectEqual(state.shape_input_cluster_map.ptr, first.cluster_map.ptr);
 
-    const second = try support.testing.gatherShapeRunInput(&state, text_cache_view, &clusters, 0, 2);
+    const second = try glyph_cache.testing.gatherShapeRunInput(&state, text_cache_view, &clusters, 0, 2);
     try std.testing.expectEqual(first.codepoints.ptr, second.codepoints.ptr);
     try std.testing.expectEqual(first.cluster_map.ptr, second.cluster_map.ptr);
 
     const overflow_text_cache = render.LineTextCache{ .texts = &.{.{ .id = .{ .value = 0 }, .first_cp = 'x', .codepoints = &.{ 'x', 0x0332, 0x0308 } }} };
     const overflow_clusters = [_]render.CellCluster{.{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .first_cp = 'x', .style = .regular, .presentation = .any }};
-    try std.testing.expectError(error.ShapeRunInputOverflow, support.testing.gatherShapeRunInput(&state, overflow_text_cache, &overflow_clusters, 0, 1));
+    try std.testing.expectError(error.ShapeRunInputOverflow, glyph_cache.testing.gatherShapeRunInput(&state, overflow_text_cache, &overflow_clusters, 0, 1));
 }

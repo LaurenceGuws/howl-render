@@ -5,7 +5,7 @@ const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const shape_run = @import("shape/run.zig");
 
-pub const FtHbSource = struct {
+pub const FontSource = struct {
     ctx: *anyopaque,
     has_codepoint: *const fn (ctx: *anyopaque, face_id: face_selection.FaceId, codepoint: u32) bool,
     shaper: shape_run.Shaper = shape_run.defaultShaper(),
@@ -13,7 +13,7 @@ pub const FtHbSource = struct {
     glyph_lookup: LookupGlyphOp = defaultLookupGlyph(),
     glyph_raster: raster_operation.RasterizeGlyphOp = defaultGlyphRaster(),
 
-    pub fn textProvider(self: *FtHbSource) TextProvider {
+    pub fn textProvider(self: *FontSource) TextProvider {
         return .{
             .face_provider = .{ .ctx = self, .has_cell_text = hasCellText },
             .shaper = self.shaper,
@@ -24,7 +24,7 @@ pub const FtHbSource = struct {
     }
 
     fn hasCellText(ctx: *anyopaque, face_id: face_selection.FaceId, text: render.CellText) bool {
-        const self: *FtHbSource = @ptrCast(@alignCast(ctx));
+        const self: *FontSource = @ptrCast(@alignCast(ctx));
         const cps = if (text.codepoints.len == 0) &[_]u32{text.first_cp} else text.codepoints;
         for (cps) |cp| {
             if (cp == 0xfe0e or cp == 0xfe0f) continue;

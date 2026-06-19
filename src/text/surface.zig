@@ -14,9 +14,9 @@ const glyph_raster = @import("glyph_raster.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const shape_run = @import("shape/run.zig");
-const support = @import("../support/support.zig");
+const glyph_cache = @import("glyph_cache.zig");
 
-const max_font_faces = support.fallbackFontLen(support.max_fallback_fonts) + 1;
+const max_font_faces = glyph_cache.fallbackFontLen(glyph_cache.max_fallback_fonts) + 1;
 const face_text_cache_entry_cap: u32 = 4096;
 const glyph_cell_cache_entry_cap: u32 = 4096;
 const shape_run_cache_entry_cap: u32 = 64;
@@ -28,7 +28,7 @@ const Emitter = surface_emitter.Emitter(.{});
 
 pub const TextSurface = struct {
     allocator: std.mem.Allocator,
-    support: support.FtHbSupport,
+    glyph_cache: glyph_cache.GlyphCache,
     preparer: ?surface_preparer.TextSurfacePreparer = null,
     resources: surface_resources.SpriteResourceStore = .init(),
     emitter: Emitter = .init(),
@@ -38,31 +38,31 @@ pub const TextSurface = struct {
     dirty_cols_start_scratch: []u16 = &.{},
     dirty_cols_end_scratch: []u16 = &.{},
     primary_font_path: ?[:0]u8 = null,
-    fallback_font_paths: [support.max_fallback_fonts]?[:0]u8 = [_]?[:0]u8{null} ** support.max_fallback_fonts,
-    fallback_font_path_count: support.FallbackFontCount = 0,
+    fallback_font_paths: [glyph_cache.max_fallback_fonts]?[:0]u8 = [_]?[:0]u8{null} ** glyph_cache.max_fallback_fonts,
+    fallback_font_path_count: glyph_cache.FallbackFontCount = 0,
     font_size_px: u16,
 
     pub fn create(allocator: std.mem.Allocator, config: *const c.HowlRenderTextConfig) !*TextSurface {
         if (config.font_size_px == 0) return error.InvalidArgument;
-        if (config.fallback_font_path_count > support.max_fallback_fonts) return error.InvalidArgument;
+        if (config.fallback_font_path_count > glyph_cache.max_fallback_fonts) return error.InvalidArgument;
         const surface = try allocator.create(TextSurface);
         surface.* = .{
             .allocator = allocator,
-            .support = support.FtHbSupport.init(allocator),
+            .glyph_cache = glyph_cache.GlyphCache.init(allocator),
             .font_size_px = config.font_size_px,
         };
         errdefer surface.destroy();
         if (config.primary_font_path) |path| surface.primary_font_path = try copyPath(allocator, path);
         if (config.fallback_font_path_count > 0) {
             const paths = config.fallback_font_paths orelse return error.InvalidArgument;
-            var i: support.FallbackFontCount = 0;
+            var i: glyph_cache.FallbackFontCount = 0;
             while (i < config.fallback_font_path_count) : (i += 1) {
                 surface.fallback_font_paths[i] = try copyPath(allocator, paths[i] orelse return error.InvalidArgument);
             }
             surface.fallback_font_path_count = @intCast(config.fallback_font_path_count);
-            surface.support.fallback_font_paths_len = surface.fallback_font_path_count;
-            var j: support.FallbackFontCount = 0;
-            while (j < surface.fallback_font_path_count) : (j += 1) surface.support.fallback_font_paths[j] = surface.fallback_font_paths[j];
+            surface.glyph_cache.fallback_font_paths_len = surface.fallback_font_path_count;
+            var j: glyph_cache.FallbackFontCount = 0;
+            while (j < surface.fallback_font_path_count) : (j += 1) surface.glyph_cache.fallback_font_paths[j] = surface.fallback_font_paths[j];
         }
         return surface;
     }
@@ -76,9 +76,9 @@ pub const TextSurface = struct {
         if (self.dirty_cols_start_scratch.len > 0) self.allocator.free(self.dirty_cols_start_scratch);
         if (self.dirty_cols_end_scratch.len > 0) self.allocator.free(self.dirty_cols_end_scratch);
         if (self.primary_font_path) |path| self.allocator.free(path);
-        var i: support.FallbackFontCount = 0;
+        var i: glyph_cache.FallbackFontCount = 0;
         while (i < self.fallback_font_path_count) : (i += 1) if (self.fallback_font_paths[i]) |path| self.allocator.free(path);
-        self.support.deinit();
+        self.glyph_cache.deinit();
         const allocator = self.allocator;
         self.* = undefined;
         allocator.destroy(self);
@@ -139,13 +139,13 @@ pub const TextSurface = struct {
             self.preparer = try surface_preparer.TextSurfacePreparer.initWithProvider(self.allocator, 2048, self.textProvider());
         }
         const ft_hb_capacity = self.capacity(grid);
-        try self.support.configureFtHbCapacity(ft_hb_capacity);
+        try self.glyph_cache.configureCapacity(ft_hb_capacity);
         try self.preparer.?.ensureClusterScratchCapacity(@as(u32, grid.cols) * @as(u32, grid.rows), ft_hb_capacity.max_shape_input_codepoints);
         try self.preparer.?.ensureResolverScratchCapacity(@as(u32, grid.cols) * @as(u32, grid.rows));
         return &self.preparer.?;
     }
 
-    fn capacity(self: *TextSurface, grid: c.HowlRenderGridSize) support.FtHbCapacity {
+    fn capacity(self: *TextSurface, grid: c.HowlRenderGridSize) glyph_cache.Capacity {
         _ = self;
         const visible_cells = @as(u32, @max(grid.cols, 1)) * @as(u32, @max(grid.rows, 1));
         return .{
@@ -231,7 +231,7 @@ pub const TextSurface = struct {
         }
     }
 
-    fn textConfig(self: *TextSurface) support.TextConfig {
+    fn textConfig(self: *TextSurface) glyph_cache.TextConfig {
         return .{ .surface_px = .{ .width = 1, .height = 1 }, .font_size_px = self.font_size_px, .font_path = self.primary_font_path };
     }
 
@@ -245,23 +245,23 @@ pub const TextSurface = struct {
     }
 
     fn faceSelection(self: *TextSurface, faces: []face_selection.FaceRecord, active_resolve: ?*font_resolver.ResolveObservability) face_selection.FaceSelection {
-        self.support.active_resolve = active_resolve;
-        var len: support.FallbackFontCount = 0;
-        if (faces.len > support.fallbackFontLen(len)) {
-            faces[@intCast(support.fallbackFontLen(len))] = .{ .id = .{ .value = support.primary_face_id }, .role = .primary, .coverage = .all };
+        self.glyph_cache.active_resolve = active_resolve;
+        var len: glyph_cache.FallbackFontCount = 0;
+        if (faces.len > glyph_cache.fallbackFontLen(len)) {
+            faces[@intCast(glyph_cache.fallbackFontLen(len))] = .{ .id = .{ .value = glyph_cache.primary_face_id }, .role = .primary, .coverage = .all };
             len += 1;
         }
-        var i: support.FallbackFontCount = 0;
-        while (i < self.support.fallback_font_paths_len and support.fallbackFontLen(len) < faces.len) : (i += 1) {
-            if (self.support.fallback_font_paths[i] == null) continue;
-            faces[@intCast(support.fallbackFontLen(len))] = .{ .id = .{ .value = i + 2 }, .role = .fallback, .coverage = .all };
+        var i: glyph_cache.FallbackFontCount = 0;
+        while (i < self.glyph_cache.fallback_font_paths_len and glyph_cache.fallbackFontLen(len) < faces.len) : (i += 1) {
+            if (self.glyph_cache.fallback_font_paths[i] == null) continue;
+            faces[@intCast(glyph_cache.fallbackFontLen(len))] = .{ .id = .{ .value = i + 2 }, .role = .fallback, .coverage = .all };
             len += 1;
         }
         return .{
-            .primary_face = .{ .value = support.primary_face_id },
-            .faces = faces[0..@intCast(support.fallbackFontLen(len))],
+            .primary_face = .{ .value = glyph_cache.primary_face_id },
+            .faces = faces[0..@intCast(glyph_cache.fallbackFontLen(len))],
             .provider = .{ .ctx = self, .has_cell_text = providerHasCellTextThunk },
-            .cell_metrics = support.deriveCellMetricsWithConfig(&self.support, self.textConfig()),
+            .cell_metrics = glyph_cache.deriveCellMetricsWithConfig(&self.glyph_cache, self.textConfig()),
         };
     }
 };
@@ -499,22 +499,22 @@ fn emptyCell(colors: RenderStateColors) render.CellInput {
 
 fn providerHasCellTextThunk(ctx: *anyopaque, face_id: render.FontFaceId, text_value: render.CellText) bool {
     const surface: *TextSurface = @ptrCast(@alignCast(ctx));
-    return support.providerHasCellTextWithConfig(&surface.support, surface.textConfig(), face_id, text_value);
+    return glyph_cache.providerHasCellTextWithConfig(&surface.glyph_cache, surface.textConfig(), face_id, text_value);
 }
 
 fn providerShapeRunThunk(ctx: *anyopaque, allocator: std.mem.Allocator, run: render.ResolvedRun, text_cache_view: render.LineTextCache, clusters: []const render.CellCluster, cell_metrics: render.CellMetrics) anyerror!shape_run.OwnedShapedRun {
     const surface: *TextSurface = @ptrCast(@alignCast(ctx));
-    return support.providerShapeRunWithConfig(&surface.support, surface.textConfig(), allocator, run, text_cache_view, clusters, cell_metrics);
+    return glyph_cache.providerShapeRunWithConfig(&surface.glyph_cache, surface.textConfig(), allocator, run, text_cache_view, clusters, cell_metrics);
 }
 
 fn providerRasterizeSpriteThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: render.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
     const surface: *TextSurface = @ptrCast(@alignCast(ctx));
-    return glyph_raster.providerRasterizeSpriteWithConfig(&surface.support, surface.textConfig(), allocator, req);
+    return glyph_raster.providerRasterizeSpriteWithConfig(&surface.glyph_cache, surface.textConfig(), allocator, req);
 }
 
 fn providerLookupGlyphThunk(ctx: *anyopaque, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) @import("provider.zig").LookupGlyphResult {
     const surface: *TextSurface = @ptrCast(@alignCast(ctx));
-    return support.providerLookupGlyphWithConfig(&surface.support, surface.textConfig(), face_id, codepoint, cell_metrics);
+    return glyph_cache.providerLookupGlyphWithConfig(&surface.glyph_cache, surface.textConfig(), face_id, codepoint, cell_metrics);
 }
 
 fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: raster_operation.RasterizeRequest) anyerror!raster_operation.RasterizeOutput {
@@ -525,14 +525,14 @@ fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, re
     const alpha = try allocator.alloc(u8, @intCast(alpha_len));
     errdefer allocator.free(alpha);
     @memset(alpha, 0);
-    _ = glyph_raster.rasterizeProviderGlyphWithConfig(&surface.support, surface.textConfig(), alpha, width, height, req.cell_metrics.baseline_px, .{ .value = req.face_id }, req.glyph_id, 0, 0, 0);
+    _ = glyph_raster.rasterizeProviderGlyphWithConfig(&surface.glyph_cache, surface.textConfig(), alpha, width, height, req.cell_metrics.baseline_px, .{ .value = req.face_id }, req.glyph_id, 0, 0, 0);
     return .{
         .allocator = allocator,
         .width_px = width,
         .height_px = height,
         .bearing_x_px = 0,
         .bearing_y_px = 0,
-        .advance_px = support.providerGlyphAdvanceWithConfig(&surface.support, surface.textConfig(), .{ .value = req.face_id }, req.glyph_id, req.cell_metrics),
+        .advance_px = glyph_cache.providerGlyphAdvanceWithConfig(&surface.glyph_cache, surface.textConfig(), .{ .value = req.face_id }, req.glyph_id, req.cell_metrics),
         .alpha_mask = alpha,
     };
 }

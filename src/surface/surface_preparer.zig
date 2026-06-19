@@ -996,8 +996,8 @@ test "text preparation uses ft hb source coverage for fallback" {
         }
     };
     var dummy: u8 = 0;
-    var ft_hb = provider.FtHbSource{ .ctx = &dummy, .has_codepoint = Backend.has };
-    var provider_value = ft_hb.textProvider();
+    var font_source = provider.FontSource{ .ctx = &dummy, .has_codepoint = Backend.has };
+    var provider_value = font_source.textProvider();
     var shaper = FallbackShaper{ .inner = provider_value.shaper };
     provider_value.shaper = .{ .ctx = &shaper, .shape_run = FallbackShaper.shape };
     var engine = try TextSurfacePreparer.initWithProvider(std.testing.allocator, 16, provider_value);
@@ -1010,7 +1010,7 @@ test "text preparation uses ft hb source coverage for fallback" {
         .{ .id = .{ .value = 1 }, .role = .primary, .coverage = .all },
         .{ .id = .{ .value = 2 }, .role = .fallback, .coverage = .all },
     };
-    var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 1, .rows = 1 }, ft_hb.textProvider().applyToSelection(.{ .faces = &faces }), .{});
+    var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 1, .rows = 1 }, font_source.textProvider().applyToSelection(.{ .faces = &faces }), .{});
     defer analysis.deinit();
     try std.testing.expectEqual(@as(u32, 2), shaper.last_face_id);
 }

@@ -1,14 +1,14 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const render = @import("../grid/scene.zig");
-const provider = @import("../text/provider.zig");
-const shape_run = @import("../text/shape/run.zig");
-const font_resolve = @import("../text/resolver.zig");
-const font_paths = @import("../text/font_paths.zig");
+const provider = @import("provider.zig");
+const shape_run = @import("shape/run.zig");
+const font_resolve = @import("resolver.zig");
+const font_paths = @import("font_paths.zig");
 const geometry = @import("../geometry.zig");
-const text_cache = @import("../text/cache.zig");
-const c_api = @import("../text/c_api.zig");
-const loaded_faces = @import("../text/loaded_faces.zig");
+const text_cache = @import("cache.zig");
+const c_api = @import("c_api.zig");
+const loaded_faces = @import("loaded_faces.zig");
 
 pub const c = c_api.c;
 pub const FtLibrary = c_api.FtLibrary;
@@ -40,7 +40,7 @@ const ThreadMutex = struct {
     }
 };
 
-pub const FtHbSupport = struct {
+pub const GlyphCache = struct {
     allocator: std.mem.Allocator,
     loaded_faces: LoadedFaces = .{},
     ft_mutex: ThreadMutex = .{},
@@ -60,7 +60,7 @@ pub const FtHbSupport = struct {
     fallback_font_paths: [max_fallback_fonts]?[:0]const u8 = [_]?[:0]const u8{null} ** max_fallback_fonts,
     fallback_font_paths_len: u8 = 0,
 
-    pub fn init(allocator: std.mem.Allocator) FtHbSupport {
+    pub fn init(allocator: std.mem.Allocator) GlyphCache {
         return .{
             .allocator = allocator,
             .face_text_cache = text_cache.FaceTextCache.init(allocator),
@@ -69,7 +69,7 @@ pub const FtHbSupport = struct {
         };
     }
 
-    pub fn configureFtHbCapacity(self: *FtHbSupport, capacity: FtHbCapacity) !void {
+    pub fn configureCapacity(self: *GlyphCache, capacity: Capacity) !void {
         try self.face_text_cache.configure(capacity.face_text_cache_entries);
         try self.shape_run_cache.configure(capacity.shape_run_cache_entries, capacity.max_glyphs_per_run);
         try self.glyph_cell_cache.configure(capacity.glyph_cell_cache_entries);
@@ -83,7 +83,7 @@ pub const FtHbSupport = struct {
         self.max_shape_input_codepoints = capacity.max_shape_input_codepoints;
     }
 
-    pub fn deinit(self: *FtHbSupport) void {
+    pub fn deinit(self: *GlyphCache) void {
         self.loaded_faces.resetLocked();
         if (self.shape_input_cluster_map.len > 0) self.allocator.free(self.shape_input_cluster_map);
         if (self.shape_input_codepoints.len > 0) self.allocator.free(self.shape_input_codepoints);
@@ -94,7 +94,7 @@ pub const FtHbSupport = struct {
     }
 };
 
-pub const FtHbCapacity = struct {
+pub const Capacity = struct {
     face_text_cache_entries: u32,
     shape_run_cache_entries: u32,
     glyph_cell_cache_entries: u32,
@@ -130,7 +130,7 @@ const ShapeRunInput = struct {
     cluster_map: []u32,
 };
 
-pub fn providerHasCodepointWithConfig(state: *FtHbSupport, config: TextConfig, face_id: render.FontFaceId, codepoint: u32) bool {
+pub fn providerHasCodepointWithConfig(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, codepoint: u32) bool {
     if (useDeterministicTestTextFallback(state, config)) return codepoint != 0;
     if (!ensureFaceForId(state, config, face_id)) return false;
     state.ft_mutex.lock();
@@ -140,7 +140,7 @@ pub fn providerHasCodepointWithConfig(state: *FtHbSupport, config: TextConfig, f
     return glyphAcceptedLocked(shaped_face.face, glyph_id, codepoint);
 }
 
-pub fn providerHasCellTextWithConfig(state: *FtHbSupport, config: TextConfig, face_id: render.FontFaceId, text: render.CellText) bool {
+pub fn providerHasCellTextWithConfig(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, text: render.CellText) bool {
     if (face_id.value == primary_face_id and isPlainAsciiText(text)) {
         return ensurePrimaryFontWithConfig(state, config);
     }
@@ -157,7 +157,7 @@ pub fn providerHasCellTextWithConfig(state: *FtHbSupport, config: TextConfig, fa
     return result;
 }
 
-fn uncachedProviderHasCellText(state: *FtHbSupport, config: TextConfig, face_id: render.FontFaceId, text: render.CellText) bool {
+fn uncachedProviderHasCellText(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, text: render.CellText) bool {
     for (text.codepoints) |cp| {
         if (cp == 0xfe0e or cp == 0xfe0f) continue;
         if (!providerHasCodepointWithConfig(state, config, face_id, cp)) return false;
@@ -175,7 +175,7 @@ fn isPlainAsciiText(text: render.CellText) bool {
 }
 
 pub fn providerShapeRunWithConfig(
-    state: *FtHbSupport,
+    state: *GlyphCache,
     config: TextConfig,
     allocator: std.mem.Allocator,
     run: render.ResolvedRun,
@@ -213,7 +213,7 @@ pub fn providerShapeRunWithConfig(
 }
 
 fn shapeRunViaProviderOrFallback(
-    state: *FtHbSupport,
+    state: *GlyphCache,
     config: TextConfig,
     allocator: std.mem.Allocator,
     run: render.ResolvedRun,
@@ -242,7 +242,7 @@ fn shapeRunViaProviderOrFallback(
 }
 
 fn shapeRunViaProvider(
-    state: *FtHbSupport,
+    state: *GlyphCache,
     allocator: std.mem.Allocator,
     run: render.ResolvedRun,
     clusters: []const render.CellCluster,
@@ -263,7 +263,7 @@ fn shapeRunViaProvider(
 }
 
 fn shapePlainAsciiRun(
-    state: *FtHbSupport,
+    state: *GlyphCache,
     config: TextConfig,
     allocator: std.mem.Allocator,
     run: render.ResolvedRun,
@@ -306,7 +306,7 @@ fn shapePlainAsciiRun(
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-pub fn providerGlyphIdWithConfig(state: *FtHbSupport, config: TextConfig, face_id: render.FontFaceId, codepoint: u32) u32 {
+pub fn providerGlyphIdWithConfig(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, codepoint: u32) u32 {
     if (useDeterministicTestTextFallback(state, config)) return codepoint;
     if (!ensureFaceForId(state, config, face_id)) return 0;
     state.ft_mutex.lock();
@@ -317,7 +317,7 @@ pub fn providerGlyphIdWithConfig(state: *FtHbSupport, config: TextConfig, face_i
     return glyph_id;
 }
 
-pub fn providerGlyphAdvanceWithConfig(state: *FtHbSupport, config: TextConfig, face_id: render.FontFaceId, glyph_id: u32, cell_metrics: render.CellMetrics) f32 {
+pub fn providerGlyphAdvanceWithConfig(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, glyph_id: u32, cell_metrics: render.CellMetrics) f32 {
     const fallback: f32 = @floatFromInt(cell_metrics.cell_w_px);
     if (glyph_id == 0) return fallback;
     if (!ensureFaceForId(state, config, face_id)) return fallback;
@@ -328,7 +328,7 @@ pub fn providerGlyphAdvanceWithConfig(state: *FtHbSupport, config: TextConfig, f
 }
 
 pub fn providerLookupGlyphWithConfig(
-    state: *FtHbSupport,
+    state: *GlyphCache,
     config: TextConfig,
     face_id: render.FontFaceId,
     codepoint: u32,
@@ -349,7 +349,7 @@ pub fn providerLookupGlyphWithConfig(
     return result;
 }
 
-fn uncachedProviderLookupGlyph(state: *FtHbSupport, config: TextConfig, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) provider.LookupGlyphResult {
+fn uncachedProviderLookupGlyph(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) provider.LookupGlyphResult {
     const glyph_id = providerGlyphIdWithConfig(state, config, face_id, codepoint);
     return .{ .glyph_id = glyph_id, .advance_px = providerGlyphAdvanceWithConfig(state, config, face_id, glyph_id, cell_metrics) };
 }
@@ -358,13 +358,13 @@ fn glyphCellValue(result: provider.LookupGlyphResult) text_cache.GlyphCellValue 
     return .{ .glyph_id = result.glyph_id, .advance_px = result.advance_px };
 }
 
-pub fn ensurePrimaryFontWithConfig(state: *FtHbSupport, config: TextConfig) bool {
+pub fn ensurePrimaryFontWithConfig(state: *GlyphCache, config: TextConfig) bool {
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
     return state.loaded_faces.ensurePrimaryFontLocked(config.font_path, config.font_size_px);
 }
 
-pub fn ensureFontWithConfig(state: *FtHbSupport, config: TextConfig) bool {
+pub fn ensureFontWithConfig(state: *GlyphCache, config: TextConfig) bool {
     if (ensurePrimaryFontWithConfig(state, config)) {
         state.resolve_stage = .loaded_exact_match;
         if (state.active_resolve) |obs| obs.stage = .loaded_exact_match;
@@ -388,21 +388,21 @@ pub fn ensureFontWithConfig(state: *FtHbSupport, config: TextConfig) bool {
     return false;
 }
 
-pub fn resetLoadedFace(state: *FtHbSupport) void {
+pub fn resetLoadedFace(state: *GlyphCache) void {
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
     state.cached_cell_metrics_valid = false;
     state.loaded_faces.resetLocked();
 }
 
-pub fn resizeLoadedFacesWithConfig(state: *FtHbSupport, config: TextConfig) void {
+pub fn resizeLoadedFacesWithConfig(state: *GlyphCache, config: TextConfig) void {
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
     state.cached_cell_metrics_valid = false;
     state.loaded_faces.resizeLocked(config.font_size_px);
 }
 
-pub fn ensureFallbackFaceWithConfig(state: *FtHbSupport, config: TextConfig, fallback_index: FallbackFontCount) ?FtFace {
+pub fn ensureFallbackFaceWithConfig(state: *GlyphCache, config: TextConfig, fallback_index: FallbackFontCount) ?FtFace {
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
     return state.loaded_faces.ensureFallbackFaceLocked(
@@ -413,7 +413,7 @@ pub fn ensureFallbackFaceWithConfig(state: *FtHbSupport, config: TextConfig, fal
     );
 }
 
-pub fn deriveCellMetricsWithConfig(state: *FtHbSupport, config: TextConfig) render.CellMetrics {
+pub fn deriveCellMetricsWithConfig(state: *GlyphCache, config: TextConfig) render.CellMetrics {
     const font_size_px = config.font_size_px;
     if (state.cached_cell_metrics_valid and state.cached_cell_metrics_font_px == font_size_px) {
         return state.cached_cell_metrics;
@@ -446,11 +446,11 @@ pub fn deriveCellMetricsWithConfig(state: *FtHbSupport, config: TextConfig) rend
     return metrics;
 }
 
-pub fn configuredCellMetrics(state: *FtHbSupport, config: TextConfig) render.CellMetrics {
+pub fn configuredCellMetrics(state: *GlyphCache, config: TextConfig) render.CellMetrics {
     return deriveCellMetricsWithConfig(state, config);
 }
 
-pub fn deriveCellSize(state: *FtHbSupport, config: TextConfig) geometry.CellSize {
+pub fn deriveCellSize(state: *GlyphCache, config: TextConfig) geometry.CellSize {
     const cell = deriveCellMetricsWithConfig(state, config);
     return .{ .width = cell.cell_w_px, .height = cell.cell_h_px };
 }
@@ -459,7 +459,7 @@ pub fn computeBaselineFromFace(face: FtFace, cell_h: u16) i32 {
     return baselineFromFaceMetrics(faceMetricsInput(face, 1), cell_h);
 }
 
-pub fn acquireShapingFaceFromStateLocked(state: *FtHbSupport, face_id: render.FontFaceId) ?ShapingFace {
+pub fn acquireShapingFaceFromStateLocked(state: *GlyphCache, face_id: render.FontFaceId) ?ShapingFace {
     return state.loaded_faces.acquireShapingFaceLocked(face_id, state.fallback_font_paths_len);
 }
 
@@ -467,7 +467,7 @@ pub fn shapeGlyphId(hb_font: ?HbFont, face: FtFace, codepoint: u21) c_uint {
     return c_api.shapeGlyphId(hb_font, face, codepoint);
 }
 
-fn ensureFaceForId(state: *FtHbSupport, config: TextConfig, face_id: render.FontFaceId) bool {
+fn ensureFaceForId(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId) bool {
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
     return state.loaded_faces.ensureFaceForIdLocked(
@@ -492,7 +492,7 @@ fn glyphAcceptedLocked(face: FtFace, glyph_id: u32, codepoint: u32) bool {
 }
 
 fn fallbackProviderShapeRun(
-    state: *FtHbSupport,
+    state: *GlyphCache,
     config: TextConfig,
     allocator: std.mem.Allocator,
     run: render.ResolvedRun,
@@ -514,7 +514,7 @@ fn fallbackProviderShapeRun(
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-fn providerGlyphVisualWidth(state: *FtHbSupport, config: TextConfig, face_id: render.FontFaceId, glyph_id: u32) f32 {
+fn providerGlyphVisualWidth(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, glyph_id: u32) f32 {
     if (glyph_id == 0) return 0;
     if (!ensureFaceForId(state, config, face_id)) return 0;
     state.ft_mutex.lock();
@@ -593,7 +593,7 @@ fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
     return if (max_advance > 0) max_advance else fallback_advance;
 }
 
-fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: render.LineTextCache, clusters: []const render.CellCluster, window: ClusterWindow) !ShapeRunInput {
+fn gatherShapeRunInput(state: *GlyphCache, text_cache_view: render.LineTextCache, clusters: []const render.CellCluster, window: ClusterWindow) !ShapeRunInput {
     const required = shapeRunInputCodepointCount(text_cache_view, clusters, window);
     if (required > state.max_shape_input_codepoints) return error.ShapeRunInputOverflow;
     var count: u32 = 0;
@@ -657,7 +657,7 @@ fn buildProviderShapedRun(
     return .{ .allocator = allocator, .run = run, .glyphs = glyphs };
 }
 
-fn useDeterministicTestTextFallback(state: *FtHbSupport, config: TextConfig) bool {
+fn useDeterministicTestTextFallback(state: *GlyphCache, config: TextConfig) bool {
     return builtin.is_test and config.font_path == null and state.fallback_font_paths_len == 0;
 }
 
@@ -681,8 +681,8 @@ pub const testing = struct {
         cluster_map: []u32,
     };
 
-    pub fn gatherShapeRunInput(state: *FtHbSupport, text_cache_view: render.LineTextCache, clusters: []const render.CellCluster, window_start: u32, window_end: u32) !GatherShapeRunInput {
-        const input = try @import("support.zig").gatherShapeRunInput(state, text_cache_view, clusters, .{ .start = window_start, .end = window_end });
+    pub fn gatherShapeRunInput(state: *GlyphCache, text_cache_view: render.LineTextCache, clusters: []const render.CellCluster, window_start: u32, window_end: u32) !GatherShapeRunInput {
+        const input = try @import("glyph_cache.zig").gatherShapeRunInput(state, text_cache_view, clusters, .{ .start = window_start, .end = window_end });
         return .{
             .codepoints = input.codepoints,
             .cluster_map = input.cluster_map,
