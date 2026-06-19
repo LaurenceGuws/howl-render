@@ -138,12 +138,12 @@ typedef struct {
 typedef struct {
     HowlRenderPixelSize render_px;
     HowlRenderPixelSize grid_px;
-} HowlRenderGeometry;
+} HowlRenderLayout;
 
 typedef struct HowlRenderSurfaceFrameToken {
     uint64_t snapshot_seq;
     uint64_t frame_seq;
-    uint64_t geometry_epoch;
+    uint64_t layout_epoch;
     uint64_t resource_epoch;
 } HowlRenderSurfaceFrameToken;
 
@@ -282,8 +282,8 @@ typedef struct {
     HowlRenderPixelSize render_px;
     HowlRenderPixelSize grid_px;
     HowlRenderCellSize cell_px;
-    uint64_t geometry_epoch;
-} HowlRenderGeometryResponse;
+    uint64_t layout_epoch;
+} HowlRenderLayoutResponse;
 
 typedef struct {
     uint64_t host_texture_id;
@@ -308,7 +308,7 @@ typedef struct {
     HowlRenderPixelSize grid_px;
     HowlRenderCellSize cell_px;
     HowlRenderCellGrid grid;
-    uint64_t geometry_epoch;
+    uint64_t layout_epoch;
     uint8_t focused;
     uint8_t cursor_opacity;
     uint8_t text_blink_opacity;

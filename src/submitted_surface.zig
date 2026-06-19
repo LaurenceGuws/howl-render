@@ -45,7 +45,7 @@ pub const SubmittedSurface = struct {
     pub fn prepareTokenForRetainedState(token: event.SnapshotToken, submitted_token: ?event.SnapshotToken) event.SnapshotToken {
         if (!token.requiresRetainedBase()) return token;
         const submitted = submitted_token orelse return forceFull(token);
-        if (submitted.geometry_epoch != token.geometry_epoch) return forceFull(token);
+        if (submitted.layout_epoch != token.layout_epoch) return forceFull(token);
         if (submitted.snapshot_seq != token.damage_base_seq) return forceFull(token);
         return token;
     }
@@ -54,7 +54,7 @@ pub const SubmittedSurface = struct {
         return .{
             .snapshot_seq = token.snapshot_seq,
             .dirty_epoch = token.dirty_epoch,
-            .geometry_epoch = token.geometry_epoch,
+            .layout_epoch = token.layout_epoch,
             .damage_base_seq = 0,
             .damage_kind = .full,
         };
@@ -70,10 +70,10 @@ pub const SubmittedSurface = struct {
 test "submitted owner validates retained base before GPU mutation" {
     var submitted = SubmittedSurface{};
     submitted.acceptSubmitted(.{
-        .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+        .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     });
     const validation = submitted.validatePrepared(.{
-        .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
+        .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .layout_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
         .required_base_seq = 1,
     });
 
@@ -83,7 +83,7 @@ test "submitted owner validates retained base before GPU mutation" {
 test "submitted owner keeps submitted identity as retained base only" {
     var submitted = SubmittedSurface{};
     const token = event.SubmittedSurfaceToken{
-        .token = .{ .snapshot_seq = 7, .dirty_epoch = 9, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
+        .token = .{ .snapshot_seq = 7, .dirty_epoch = 9, .layout_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
         .atlas_epoch = 11,
         .surface_epoch = 13,
     };
@@ -93,7 +93,7 @@ test "submitted owner keeps submitted identity as retained base only" {
     try std.testing.expect(submitted.submitted_token != null);
     try std.testing.expectEqual(token.token.snapshot_seq, submitted.submitted_token.?.token.snapshot_seq);
     try std.testing.expectEqual(token.token.dirty_epoch, submitted.submitted_token.?.token.dirty_epoch);
-    try std.testing.expectEqual(token.token.geometry_epoch, submitted.submitted_token.?.token.geometry_epoch);
+    try std.testing.expectEqual(token.token.layout_epoch, submitted.submitted_token.?.token.layout_epoch);
     try std.testing.expectEqual(token.atlas_epoch, submitted.submitted_token.?.atlas_epoch);
     try std.testing.expectEqual(token.surface_epoch, submitted.submitted_token.?.surface_epoch);
 }
@@ -101,8 +101,8 @@ test "submitted owner keeps submitted identity as retained base only" {
 test "submitted owner reports stale submit when newer snapshot already won" {
     var submitted = SubmittedSurface{};
     const stale = submitted.isStalePrepared(
-        .{ .snapshot_seq = 3, .dirty_epoch = 3, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
-        .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+        .{ .snapshot_seq = 3, .dirty_epoch = 3, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+        .{ .snapshot_seq = 2, .dirty_epoch = 2, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     );
     try std.testing.expect(stale);
 }
@@ -115,10 +115,10 @@ test "submitted surface starts without submitted token" {
 test "submitted surface token monotonicity keeps latest submission" {
     var submitted = SubmittedSurface{};
     submitted.acceptSubmitted(.{
-        .token = .{ .snapshot_seq = 4, .dirty_epoch = 4, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+        .token = .{ .snapshot_seq = 4, .dirty_epoch = 4, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     });
     submitted.acceptSubmitted(.{
-        .token = .{ .snapshot_seq = 5, .dirty_epoch = 5, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+        .token = .{ .snapshot_seq = 5, .dirty_epoch = 5, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     });
 
     try std.testing.expect(submitted.submittedToken() != null);

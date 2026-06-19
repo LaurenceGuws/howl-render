@@ -9,7 +9,7 @@ pub const DamageKind = enum(u2) {
 pub const SnapshotToken = struct {
     snapshot_seq: u64,
     dirty_epoch: u64,
-    geometry_epoch: u64,
+    layout_epoch: u64,
     damage_base_seq: u64,
     damage_kind: DamageKind,
 
@@ -54,21 +54,21 @@ pub const SubmittedSurfaceToken = struct {
 
 pub const SubmitValidation = enum {
     valid,
-    stale_geometry,
+    stale_layout,
     missing_retained_base,
     stale_retained_base,
 };
 
 pub fn validatePreparedSurfaceToken(prepared: PreparedSurfaceToken, submitted: SubmittedSurfaceToken) SubmitValidation {
     if (!prepared.requiresRetainedBase()) return .valid;
-    if (prepared.token.geometry_epoch != submitted.token.geometry_epoch) return .stale_geometry;
+    if (prepared.token.layout_epoch != submitted.token.layout_epoch) return .stale_layout;
     if (prepared.required_base_seq != submitted.token.snapshot_seq) return .stale_retained_base;
     return .valid;
 }
 
 test "snapshot token classifies retained-base damage" {
-    const full = SnapshotToken{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full };
-    const partial = SnapshotToken{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial };
+    const full = SnapshotToken{ .snapshot_seq = 1, .dirty_epoch = 1, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full };
+    const partial = SnapshotToken{ .snapshot_seq = 2, .dirty_epoch = 2, .layout_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial };
 
     try std.testing.expect(!full.requiresRetainedBase());
     try std.testing.expect(partial.requiresRetainedBase());
@@ -77,10 +77,10 @@ test "snapshot token classifies retained-base damage" {
 
 test "prepared partial surface token validates retained target base" {
     const submitted = SubmittedSurfaceToken{
-        .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 3, .damage_base_seq = 0, .damage_kind = .full },
+        .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .layout_epoch = 3, .damage_base_seq = 0, .damage_kind = .full },
     };
     const prepared = PreparedSurfaceToken{
-        .token = .{ .snapshot_seq = 11, .dirty_epoch = 11, .geometry_epoch = 3, .damage_base_seq = 10, .damage_kind = .partial },
+        .token = .{ .snapshot_seq = 11, .dirty_epoch = 11, .layout_epoch = 3, .damage_base_seq = 10, .damage_kind = .partial },
         .required_base_seq = 10,
     };
 
@@ -89,21 +89,21 @@ test "prepared partial surface token validates retained target base" {
 
 test "prepared partial surface token rejects stale retained base state" {
     const submitted = SubmittedSurfaceToken{
-        .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 3, .damage_base_seq = 0, .damage_kind = .full },
+        .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .layout_epoch = 3, .damage_base_seq = 0, .damage_kind = .full },
     };
 
     try std.testing.expectEqual(SubmitValidation.stale_retained_base, validatePreparedSurfaceToken(.{
-        .token = .{ .snapshot_seq = 12, .dirty_epoch = 12, .geometry_epoch = 3, .damage_base_seq = 11, .damage_kind = .partial },
+        .token = .{ .snapshot_seq = 12, .dirty_epoch = 12, .layout_epoch = 3, .damage_base_seq = 11, .damage_kind = .partial },
         .required_base_seq = 11,
     }, submitted));
 }
 
-test "prepared full surface token validates across geometry change" {
+test "prepared full surface token validates across layout change" {
     const submitted = SubmittedSurfaceToken{
-        .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
+        .token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full },
     };
     const prepared = PreparedSurfaceToken{
-        .token = .{ .snapshot_seq = 11, .dirty_epoch = 11, .geometry_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
+        .token = .{ .snapshot_seq = 11, .dirty_epoch = 11, .layout_epoch = 2, .damage_base_seq = 0, .damage_kind = .full },
     };
 
     try std.testing.expectEqual(SubmitValidation.valid, validatePreparedSurfaceToken(prepared, submitted));

@@ -30,8 +30,8 @@ test "create reports missing-sprite diagnostic without double free" {
 
     const prepared = prepared_surface.PreparedSurface{
         .allocator = std.testing.allocator,
-        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
-        .geometry_epoch = 1,
+        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+        .layout_epoch = 1,
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
@@ -64,8 +64,8 @@ test "prepared surface exports info and required upload count truth" {
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{ undefined, undefined, undefined };
     const surface = prepared_surface.PreparedSurface{
         .allocator = std.testing.allocator,
-        .request = .{ .token = .{ .snapshot_seq = 7, .dirty_epoch = 8, .geometry_epoch = 1, .damage_base_seq = 6, .damage_kind = .partial } },
-        .geometry_epoch = 9,
+        .request = .{ .token = .{ .snapshot_seq = 7, .dirty_epoch = 8, .layout_epoch = 1, .damage_base_seq = 6, .damage_kind = .partial } },
+        .layout_epoch = 9,
         .render_px = .{ .width = 11, .height = 12 },
         .cell_px = .{ .width = 2, .height = 3 },
         .grid = .{ .cols = 4, .rows = 5 },
@@ -338,8 +338,8 @@ fn ownedCommandOverflowPreparedSurface(allocator: std.mem.Allocator) !prepared_s
     for (background_draws) |*draw| draw.* = backgroundDraw(0, 0, 1, 1, rgba(1, 2, 3, 255));
     return .{
         .allocator = allocator,
-        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
-        .geometry_epoch = 1,
+        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } },
+        .layout_epoch = 1,
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
@@ -379,8 +379,8 @@ const PreparedOptions = struct {
 fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     return .{
         .allocator = std.testing.allocator,
-        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = if (options.full_redraw) 0 else 1, .damage_kind = if (options.full_redraw) .full else .partial } },
-        .geometry_epoch = 1,
+        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .layout_epoch = 1, .damage_base_seq = if (options.full_redraw) 0 else 1, .damage_kind = if (options.full_redraw) .full else .partial } },
+        .layout_epoch = 1,
         .render_px = .{ .width = options.width_px, .height = options.height_px },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = options.width_px, .rows = options.height_px },

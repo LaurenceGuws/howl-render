@@ -45,7 +45,7 @@ const Fixture = struct {
     token: c.HowlRenderSurfaceFrameToken = .{
         .snapshot_seq = 0,
         .frame_seq = 0,
-        .geometry_epoch = 0,
+        .layout_epoch = 0,
         .resource_epoch = 0,
     },
     clear_fills: []const Fill = &.{},
@@ -227,7 +227,7 @@ fn emptySurface() Surface {
     return .{
         .frame_version = c.HOWL_RENDER_SURFACE_FRAME_VERSION,
         .reserved0 = 0,
-        .token = .{ .snapshot_seq = 0, .frame_seq = 0, .geometry_epoch = 0, .resource_epoch = 0 },
+        .token = .{ .snapshot_seq = 0, .frame_seq = 0, .layout_epoch = 0, .resource_epoch = 0 },
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
@@ -535,7 +535,7 @@ test "render surface surface emitter fresh emission initializes undefined storag
     try std.testing.expectEqual(@as(@TypeOf(surface.frame_version), c.HOWL_RENDER_SURFACE_FRAME_VERSION), surface.frame_version);
     try std.testing.expectEqual(@as(u64, 1), surface.token.snapshot_seq);
     try std.testing.expectEqual(@as(u64, 1), surface.token.frame_seq);
-    try std.testing.expectEqual(@as(u64, 1), surface.token.geometry_epoch);
+    try std.testing.expectEqual(@as(u64, 1), surface.token.layout_epoch);
     try std.testing.expectEqual(@as(u16, 2), surface.render_px.width);
     try std.testing.expectEqual(@as(u16, 1), surface.render_px.height);
     try std.testing.expectEqual(@as(u16, 1), surface.cell_px.width);
@@ -1354,8 +1354,8 @@ const PreparedOptions = struct {
 fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
     return .{
         .allocator = std.testing.allocator,
-        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = if (options.full_redraw) 0 else 1, .damage_kind = if (options.full_redraw) .full else .partial } },
-        .geometry_epoch = 1,
+        .request = .{ .token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .layout_epoch = 1, .damage_base_seq = if (options.full_redraw) 0 else 1, .damage_kind = if (options.full_redraw) .full else .partial } },
+        .layout_epoch = 1,
         .render_px = .{ .width = options.width_px, .height = options.height_px },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = options.width_px, .rows = options.height_px },

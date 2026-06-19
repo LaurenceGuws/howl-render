@@ -48,7 +48,7 @@ pub const RenderLayoutResponse = struct {
     render_px: PixelSize,
     grid_px: PixelSize,
     cell_px: CellSize,
-    geometry_epoch: u64,
+    layout_epoch: u64,
 };
 
 pub const PreparedLayout = struct {
@@ -66,10 +66,10 @@ pub const RenderLayout = struct {
     render_px: PixelSize = .{ .width = 0, .height = 0 },
     grid_px: PixelSize = .{ .width = 0, .height = 0 },
     cell_px: CellSize = .{ .width = 0, .height = 0 },
-    geometry_epoch: u64 = 0,
+    layout_epoch: u64 = 0,
 
     pub fn sync(self: *RenderLayout, layout: RenderLayoutInput) RenderLayoutResponse {
-        const changed = self.geometry_epoch == 0 or
+        const changed = self.layout_epoch == 0 or
             self.render_px.width != layout.render_px.width or
             self.render_px.height != layout.render_px.height or
             self.grid_px.width != layout.grid_px.width or
@@ -77,7 +77,7 @@ pub const RenderLayout = struct {
             self.cell_px.width != layout.cell_px.width or
             self.cell_px.height != layout.cell_px.height;
         if (changed) {
-            self.geometry_epoch +%= 1;
+            self.layout_epoch +%= 1;
             self.render_px = layout.render_px;
             self.grid_px = layout.grid_px;
             self.cell_px = layout.cell_px;
@@ -87,13 +87,13 @@ pub const RenderLayout = struct {
             .render_px = self.render_px,
             .grid_px = self.grid_px,
             .cell_px = self.cell_px,
-            .geometry_epoch = self.geometry_epoch,
+            .layout_epoch = self.layout_epoch,
         };
     }
 
-    pub fn prepareLayout(self: *const RenderLayout, geometry_epoch: u64) PreparedLayout {
-        std.debug.assert(self.geometry_epoch != 0);
-        std.debug.assert(self.geometry_epoch == geometry_epoch);
+    pub fn prepareLayout(self: *const RenderLayout, layout_epoch: u64) PreparedLayout {
+        std.debug.assert(self.layout_epoch != 0);
+        std.debug.assert(self.layout_epoch == layout_epoch);
         std.debug.assert(self.render_px.width > 0);
         std.debug.assert(self.render_px.height > 0);
         std.debug.assert(self.cell_px.width > 0);

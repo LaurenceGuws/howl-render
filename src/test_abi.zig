@@ -46,7 +46,7 @@ test "render text ABI emits foreground commands from VT render state" {
         .grid_px = .{ .width = 16, .height = 16 },
         .cell_px = .{ .width = 8, .height = 16 },
         .grid = .{ .cols = 2, .rows = 1 },
-        .geometry_epoch = 1,
+        .layout_epoch = 1,
         .focused = 1,
         .cursor_opacity = 255,
         .text_blink_opacity = 255,

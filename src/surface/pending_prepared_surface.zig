@@ -134,7 +134,7 @@ test "pending prepared surface accepts candidate and submits once" {
     defer owner.destroy();
     var submitted = submitted_surface.SubmittedSurface{};
     var prepared_value = support.preparedSurface(.{ .width_px = 8, .height_px = 16 });
-    prepared_value.request.token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full };
+    prepared_value.request.token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full };
 
     const prepared = try prepared_handle.PreparedHandle.create(owner, &prepared_value);
     owner.pending_prepared.acceptPrepared(prepared);
@@ -155,12 +155,12 @@ test "pending prepared surface stale source clears candidate" {
     defer owner.destroy();
     var submitted = submitted_surface.SubmittedSurface{};
     var prepared_value = support.preparedSurface(.{ .width_px = 8, .height_px = 16 });
-    prepared_value.request.token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full };
+    prepared_value.request.token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full };
 
     const prepared = try prepared_handle.PreparedHandle.create(owner, &prepared_value);
     owner.pending_prepared.acceptPrepared(prepared);
 
-    try std.testing.expectEqual(TakeSubmitDecision.stale, owner.pending_prepared.takeSubmitHandle(.{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, &submitted));
+    try std.testing.expectEqual(TakeSubmitDecision.stale, owner.pending_prepared.takeSubmitHandle(.{ .snapshot_seq = 2, .dirty_epoch = 2, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full }, &submitted));
     try std.testing.expect(!owner.pending_prepared.submitPending());
     try std.testing.expectEqual(prepared_handle.PreparedHandle.State.released, prepared.state);
 }
@@ -171,9 +171,9 @@ test "pending prepared surface invalid retained base clears candidate" {
     const owner = render_session.TextSessionOwner.create(std.testing.allocator, .{ .surface_px = .{ .width = 8, .height = 16 } }) orelse return error.OutOfMemory;
     defer owner.destroy();
     var submitted = submitted_surface.SubmittedSurface{};
-    submitted.acceptSubmitted(.{ .token = .{ .snapshot_seq = 9, .dirty_epoch = 9, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } });
+    submitted.acceptSubmitted(.{ .token = .{ .snapshot_seq = 9, .dirty_epoch = 9, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full } });
     var prepared_value = support.preparedSurface(.{ .width_px = 8, .height_px = 16, .full_redraw = false });
-    prepared_value.request.token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial };
+    prepared_value.request.token = .{ .snapshot_seq = 10, .dirty_epoch = 10, .layout_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial };
 
     const prepared = try prepared_handle.PreparedHandle.create(owner, &prepared_value);
     owner.pending_prepared.acceptPrepared(prepared);
@@ -190,7 +190,7 @@ test "pending prepared surface consume clears candidate" {
     defer owner.destroy();
     var submitted = submitted_surface.SubmittedSurface{};
     var prepared_value = support.preparedSurface(.{ .width_px = 8, .height_px = 16 });
-    prepared_value.request.token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .geometry_epoch = 1, .damage_base_seq = 0, .damage_kind = .full };
+    prepared_value.request.token = .{ .snapshot_seq = 1, .dirty_epoch = 1, .layout_epoch = 1, .damage_base_seq = 0, .damage_kind = .full };
 
     const prepared = try prepared_handle.PreparedHandle.create(owner, &prepared_value);
     owner.pending_prepared.acceptPrepared(prepared);

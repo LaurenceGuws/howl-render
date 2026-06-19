@@ -8,7 +8,7 @@ const render_surface_emitter = @import("emitter.zig");
 pub const PreparedInfo = struct {
     snapshot_seq: u64,
     dirty_epoch: u64,
-    geometry_epoch: u64,
+    layout_epoch: u64,
     required_base_seq: u64,
     render_px: layout.PixelSize,
     cell_px: layout.CellSize,
@@ -23,7 +23,7 @@ pub const PreparedBuffer = struct {
 pub const PreparedSurface = struct {
     allocator: std.mem.Allocator,
     request: event.RenderRequest,
-    geometry_epoch: u64,
+    layout_epoch: u64,
     render_px: layout.PixelSize,
     cell_px: layout.CellSize,
     grid: layout.GridSize,
@@ -61,7 +61,7 @@ pub const PreparedSurface = struct {
             .token = .{
                 .snapshot_seq = self.request.token.snapshot_seq,
                 .dirty_epoch = self.request.token.dirty_epoch,
-                .geometry_epoch = self.geometry_epoch,
+                .layout_epoch = self.layout_epoch,
                 .damage_base_seq = damage_base_seq,
                 .damage_kind = damage_kind,
             },
@@ -74,7 +74,7 @@ pub const PreparedSurface = struct {
         return .{
             .snapshot_seq = self.request.token.snapshot_seq,
             .dirty_epoch = self.request.token.dirty_epoch,
-            .geometry_epoch = self.geometry_epoch,
+            .layout_epoch = self.layout_epoch,
             .required_base_seq = self.preparedSurfaceToken().required_base_seq,
             .render_px = self.render_px,
             .cell_px = self.cell_px,

@@ -304,9 +304,9 @@ test "compose preserves retained content outside partial updates" {
     var prepared = prepared_surface.PreparedSurface{
         .allocator = allocator,
         .request = .{
-            .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
+            .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .layout_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
         },
-        .geometry_epoch = 1,
+        .layout_epoch = 1,
         .render_px = .{ .width = 4, .height = 4 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 4, .rows = 4 },
@@ -379,9 +379,9 @@ fn testPreparedSurface(
     return .{
         .allocator = allocator,
         .request = .{
-            .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .geometry_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
+            .token = .{ .snapshot_seq = 2, .dirty_epoch = 2, .layout_epoch = 1, .damage_base_seq = 1, .damage_kind = .partial },
         },
-        .geometry_epoch = 1,
+        .layout_epoch = 1,
         .render_px = .{ .width = 4, .height = 4 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 4, .rows = 4 },

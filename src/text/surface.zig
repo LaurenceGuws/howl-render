@@ -110,11 +110,11 @@ pub const TextSurface = struct {
             .request = .{ .token = .{
                 .snapshot_seq = token.snapshot_seq,
                 .dirty_epoch = token.dirty_epoch,
-                .geometry_epoch = input.geometry_epoch,
+                .layout_epoch = input.layout_epoch,
                 .damage_base_seq = if (full_damage or token.snapshot_seq == 0) 0 else token.snapshot_seq - 1,
                 .damage_kind = if (full_damage) .full else .partial,
             } },
-            .geometry_epoch = input.geometry_epoch,
+            .layout_epoch = input.layout_epoch,
             .render_px = pixelSizeIn(input.render_px),
             .cell_px = cellSizeIn(input.cell_px),
             .grid = .{ .cols = input.grid.cols, .rows = input.grid.rows },

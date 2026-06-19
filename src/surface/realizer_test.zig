@@ -976,7 +976,7 @@ fn testSurface(width: u16, height: u16) Surface {
     return .{
         .frame_version = c.HOWL_RENDER_SURFACE_FRAME_VERSION,
         .reserved0 = 0,
-        .token = .{ .snapshot_seq = 0, .frame_seq = 0, .geometry_epoch = 0, .resource_epoch = 0 },
+        .token = .{ .snapshot_seq = 0, .frame_seq = 0, .layout_epoch = 0, .resource_epoch = 0 },
         .render_px = .{ .width = width, .height = height },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },

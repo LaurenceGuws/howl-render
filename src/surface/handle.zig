@@ -148,11 +148,11 @@ fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedS
         .request = .{ .token = .{
             .snapshot_seq = 0,
             .dirty_epoch = 0,
-            .geometry_epoch = 0,
+            .layout_epoch = 0,
             .damage_base_seq = 0,
             .damage_kind = .full,
         } },
-        .geometry_epoch = 0,
+        .layout_epoch = 0,
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
