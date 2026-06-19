@@ -159,6 +159,30 @@ test "render-surface surface rejects unknown damage kind" {
     try expectReject(&surface, error.UnknownDamageKind);
 }
 
+test "render-surface surface accepts shaped rect damage" {
+    var damage = [_]DamageItem{.{ .kind = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT, .rect = makeRect(1, 0, 1, 1) }};
+    var commands = [_]Command{fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 2, 1), 0xff0000ff)};
+    var pixels: [8]u8 = undefined;
+    var surface = testSurface(2, 1);
+    surface.damage = damageSpan(&damage, c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX);
+    surface.commands = commandSpan(&commands);
+    try realize(&surface, &pixels, null);
+}
+
+test "render-surface surface rejects zero-area rect damage" {
+    var damage = [_]DamageItem{.{ .kind = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT, .rect = makeRect(0, 0, 0, 1) }};
+    var surface = testSurface(1, 1);
+    surface.damage = damageSpan(&damage, c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX);
+    try expectReject(&surface, error.InvalidDamage);
+}
+
+test "render-surface surface rejects out-of-bounds rect damage" {
+    var damage = [_]DamageItem{.{ .kind = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT, .rect = makeRect(1, 0, 1, 1) }};
+    var surface = testSurface(1, 1);
+    surface.damage = damageSpan(&damage, c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX);
+    try expectReject(&surface, error.InvalidDamage);
+}
+
 test "render-surface surface rejects unknown resource kind" {
     const resource = ResourceId{ .value = 1, .generation = 1, .kind = 255 };
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_UPLOAD_RGBA8)};

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const c = @import("howl_render_c");
 const render = @import("../text/draw_primitives.zig");
+const text_damage = @import("../text/damage.zig");
 const layout = @import("../layout.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const sprite_resource_store = @import("resource_store.zig");
@@ -141,13 +142,13 @@ pub fn Emitter(comptime limits: Limits) type {
 
         fn appendPreparedPass(self: *Self, resources: *SpriteResourceStore, prepared: *const prepared_surface.PreparedSurface) Error!void {
             self.resetPrepared(prepared);
-            try self.appendFullDamage(pixelSizeOut(prepared.render_px));
             try self.appendPreparedFullRedrawClear(prepared);
             try self.appendPreparedClears(prepared.text_surface.draw_list.draw_list.clear_draws);
             try self.appendPreparedBackgrounds(prepared.text_surface.draw_list.draw_list.background_draws);
             try self.appendPreparedDecorations(prepared.text_surface.draw_list.draw_list.decoration_draws);
             try self.appendPreparedSprites(resources, prepared);
             try self.appendPreparedCursors(prepared.text_surface.draw_list.draw_list.cursor_draws);
+            try self.appendPreparedDamage(prepared);
         }
 
         fn assertReadyToPublish(self: *const Self) void {
@@ -221,6 +222,83 @@ pub fn Emitter(comptime limits: Limits) type {
                 },
             };
             self.damage_count += 1;
+        }
+
+        fn appendPreparedDamage(self: *Self, prepared: *const prepared_surface.PreparedSurface) Error!void {
+            if (prepared.damageKind() == .full) return self.appendFullDamage(pixelSizeOut(prepared.render_px));
+            if (self.command_count != 0) return self.appendFullDamage(pixelSizeOut(prepared.render_px));
+            const damage = text_damage.NormalizedDamage{
+                .full = false,
+                .dirty_rows = prepared.dirty_rows,
+                .dirty_cols_start = prepared.dirty_cols_start,
+                .dirty_cols_end = prepared.dirty_cols_end,
+            };
+            const grid_metrics = render.CellGridMetrics{ .cols = prepared.grid.cols, .rows = prepared.grid.rows };
+            var row: u16 = 0;
+            while (row < prepared.grid.rows) : (row += 1) {
+                const dirty = text_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+                const rect = damageRectForDirtySpan(prepared, dirty) orelse continue;
+                self.appendDamageRect(rect) catch |err| switch (err) {
+                    error.DamageBoundOverflow => return self.replaceDamageWithFull(pixelSizeOut(prepared.render_px)),
+                    else => return err,
+                };
+            }
+            if (self.damage_count == 0) try self.appendFullDamage(pixelSizeOut(prepared.render_px));
+        }
+
+        fn replaceDamageWithFull(self: *Self, render_px: c.HowlRenderPixelSize) Error!void {
+            self.damage_count = 0;
+            try self.appendFullDamage(render_px);
+        }
+
+        fn damageRectForDirtySpan(prepared: *const prepared_surface.PreparedSurface, dirty: text_damage.DirtyRowSpan) ?Rect {
+            const start_col = if (dirty.start_col == 0) 0 else dirty.start_col - 1;
+            const end_col = @min(@as(u32, dirty.end_col) + 1, @as(u32, prepared.grid.cols) - 1);
+            const x_px_u32 = @as(u32, start_col) * @as(u32, prepared.cell_px.width);
+            const y_px_u32 = @as(u32, dirty.row) * @as(u32, prepared.cell_px.height);
+            const right_px_u32 = (@as(u32, @intCast(end_col)) + 1) * @as(u32, prepared.cell_px.width);
+            const bottom_px_u32 = (@as(u32, dirty.row) + 1) * @as(u32, prepared.cell_px.height);
+            const x_px = @min(x_px_u32, prepared.render_px.width);
+            const y_px = @min(y_px_u32, prepared.render_px.height);
+            const right_px = @min(right_px_u32, prepared.render_px.width);
+            const bottom_px = @min(bottom_px_u32, prepared.render_px.height);
+            if (right_px <= x_px or bottom_px <= y_px) return null;
+            return .{
+                .x_px = @intCast(x_px),
+                .y_px = @intCast(y_px),
+                .width_px = @intCast(right_px - x_px),
+                .height_px = @intCast(bottom_px - y_px),
+            };
+        }
+
+        fn appendDamageRect(self: *Self, rect: Rect) Error!void {
+            std.debug.assert(rect.width_px != 0);
+            std.debug.assert(rect.height_px != 0);
+            if (self.tryMergeDamageRect(rect)) return;
+            if (self.damage_count >= limits.damage_max) return error.DamageBoundOverflow;
+            self.damage[self.damage_count] = .{
+                .kind = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT,
+                .reserved0 = 0,
+                .reserved1 = 0,
+                .rect = rect,
+            };
+            self.damage_count += 1;
+        }
+
+        fn tryMergeDamageRect(self: *Self, rect: Rect) bool {
+            if (self.damage_count == 0) return false;
+            const prior = &self.damage[self.damage_count - 1];
+            if (prior.kind != c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT) return false;
+            if (prior.rect.x_px != rect.x_px) return false;
+            if (prior.rect.width_px != rect.width_px) return false;
+            const prior_bottom = std.math.add(i32, prior.rect.y_px, prior.rect.height_px) catch return false;
+            if (prior_bottom < rect.y_px) return false;
+            const rect_bottom = std.math.add(i32, rect.y_px, rect.height_px) catch return false;
+            if (rect_bottom <= prior_bottom) return true;
+            const height = rect_bottom - prior.rect.y_px;
+            if (height > std.math.maxInt(u16)) return false;
+            prior.rect.height_px = @intCast(height);
+            return true;
         }
 
         fn appendPreparedFullRedrawClear(self: *Self, prepared: *const prepared_surface.PreparedSurface) Error!void {

@@ -27,6 +27,9 @@ pub const PreparedSurface = struct {
     render_px: layout.PixelSize,
     cell_px: layout.CellSize,
     grid: layout.GridSize,
+    dirty_rows: []const bool = &.{},
+    dirty_cols_start: []const u16 = &.{},
+    dirty_cols_end: []const u16 = &.{},
     text_surface: surface_preparer.OwnedPreparedTextSurface,
     resolve: font_resolve.ResolveObservability = .{},
     render_surface_emission_failure: render_surface_emitter.RenderSurfaceEmissionFailure = .none,
@@ -94,6 +97,11 @@ pub const PreparedSurface = struct {
         std.debug.assert(self.cell_px.height > 0);
         std.debug.assert(self.grid.cols > 0);
         std.debug.assert(self.grid.rows > 0);
+        if (!self.text_surface.draw_list.draw_list.full_redraw) {
+            std.debug.assert(self.dirty_rows.len == self.grid.rows);
+            std.debug.assert(self.dirty_cols_start.len == self.grid.rows);
+            std.debug.assert(self.dirty_cols_end.len == self.grid.rows);
+        }
     }
 };
 

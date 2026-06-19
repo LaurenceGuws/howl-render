@@ -92,10 +92,13 @@ pub const TextSurface = struct {
         self.releasePrepared();
 
         const token = try readRenderStateToken(input.render_state.?);
-        const text = try self.readRenderState(input.render_state.?, input.grid, true);
+        _ = try renderStateDirty(input.render_state.?);
+        // The C text ABI has no submitted-base input yet. Rect damage is unsafe across skipped frames without that base.
+        const full_damage = true;
+        const text = try self.readRenderState(input.render_state.?, input.grid, full_damage);
         const options = surface_preparer.PrepareOptions{ .draw_list = .{
             .cursor = try readCursorPresentation(input.render_state.?, text.colors, input),
-            .damage = .{ .full = true, .dirty_rows = text.dirty_rows, .dirty_cols_start = text.dirty_cols_start, .dirty_cols_end = text.dirty_cols_end },
+            .damage = .{ .full = full_damage, .dirty_rows = text.dirty_rows, .dirty_cols_start = text.dirty_cols_start, .dirty_cols_end = text.dirty_cols_end },
         } };
         const preparer = try self.ensurePreparer(input.grid);
         var faces: [max_font_faces]face_selection.FaceRecord = undefined;
@@ -104,11 +107,20 @@ pub const TextSurface = struct {
         errdefer owned_text.deinit();
         self.prepared = .{
             .allocator = self.allocator,
-            .request = .{ .token = .{ .snapshot_seq = token.snapshot_seq, .dirty_epoch = token.dirty_epoch, .geometry_epoch = input.geometry_epoch, .damage_base_seq = 0, .damage_kind = .full } },
+            .request = .{ .token = .{
+                .snapshot_seq = token.snapshot_seq,
+                .dirty_epoch = token.dirty_epoch,
+                .geometry_epoch = input.geometry_epoch,
+                .damage_base_seq = if (full_damage or token.snapshot_seq == 0) 0 else token.snapshot_seq - 1,
+                .damage_kind = if (full_damage) .full else .partial,
+            } },
             .geometry_epoch = input.geometry_epoch,
             .render_px = pixelSizeIn(input.render_px),
             .cell_px = cellSizeIn(input.cell_px),
             .grid = .{ .cols = input.grid.cols, .rows = input.grid.rows },
+            .dirty_rows = text.dirty_rows,
+            .dirty_cols_start = text.dirty_cols_start,
+            .dirty_cols_end = text.dirty_cols_end,
             .text_surface = owned_text,
             .resolve = resolve,
         };
@@ -176,8 +188,13 @@ pub const TextSurface = struct {
             var row_dirty: u8 = 0;
             try requireVtOk(c.howl_vt_render_state_row_get(row_iterator, c.HOWL_VT_RENDER_STATE_ROW_DATA_DIRTY, @ptrCast(&row_dirty)));
             dirty_rows[row_index] = full_damage or row_dirty != 0;
-            dirty_cols_start[row_index] = 0;
-            dirty_cols_end[row_index] = if (grid.cols == 0) 0 else grid.cols - 1;
+            if (full_damage) {
+                dirty_cols_start[row_index] = 0;
+                dirty_cols_end[row_index] = if (grid.cols == 0) 0 else grid.cols - 1;
+            } else {
+                try requireVtOk(c.howl_vt_render_state_row_get(row_iterator, c.HOWL_VT_RENDER_STATE_ROW_DATA_DIRTY_COL_START, @ptrCast(&dirty_cols_start[row_index])));
+                try requireVtOk(c.howl_vt_render_state_row_get(row_iterator, c.HOWL_VT_RENDER_STATE_ROW_DATA_DIRTY_COL_END, @ptrCast(&dirty_cols_end[row_index])));
+            }
             var row_cells: c.HowlVtRenderStateRowCellsHandle = null;
             try requireVtOk(c.howl_vt_render_state_row_cells_init(&row_cells));
             defer c.howl_vt_render_state_row_cells_deinit(row_cells);
@@ -304,6 +321,12 @@ fn readRenderStateToken(state: c.HowlVtRenderStateHandle) !RenderStateToken {
         .snapshot_seq = try renderStateU64(state, c.HOWL_VT_RENDER_STATE_DATA_SNAPSHOT_SEQ),
         .dirty_epoch = try renderStateU64(state, c.HOWL_VT_RENDER_STATE_DATA_DIRTY_GENERATION),
     };
+}
+
+fn renderStateDirty(state: c.HowlVtRenderStateHandle) !c_int {
+    var dirty: c_int = c.HOWL_VT_RENDER_STATE_DIRTY_FULL;
+    try requireVtOk(c.howl_vt_render_state_get(state, c.HOWL_VT_RENDER_STATE_DATA_DIRTY, @ptrCast(&dirty)));
+    return dirty;
 }
 
 fn readRenderStateColors(state: c.HowlVtRenderStateHandle) !RenderStateColors {

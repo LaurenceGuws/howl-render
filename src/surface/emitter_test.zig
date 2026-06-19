@@ -590,11 +590,11 @@ test "render surface surface emitter emits full prepared surface clear before fi
     try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
-test "render surface surface emitter keeps partial prepared surface patch shaped" {
+test "render surface surface emitter falls back to full damage for partial frame with commands" {
     const allocator = std.testing.allocator;
 
     const background = [_]render.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(255, 0, 0, 255))};
-    const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1, .full_redraw = false });
+    const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1, .full_redraw = false, .dirty_rows = &[_]bool{true}, .dirty_cols_start = &[_]u16{0}, .dirty_cols_end = &[_]u16{1} });
     const PreparedEmitter = Emitter(.{});
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
@@ -602,8 +602,94 @@ test "render surface surface emitter keeps partial prepared surface patch shaped
     var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
+    try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL, surface.damage.ptr[0].kind);
+    try std.testing.expectEqual(rect(0, 0, 2, 1), surface.damage.ptr[0].rect);
     try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
     try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, surface.commands.ptr[0].kind);
+}
+
+test "render surface surface emitter overdamages dirty column span and clamps edges" {
+    const dirty_rows = [_]bool{true};
+    const dirty_starts = [_]u16{0};
+    const dirty_ends = [_]u16{0};
+    const prepared = preparedSurface(.{ .width_px = 4, .height_px = 1, .full_redraw = false, .dirty_rows = &dirty_rows, .dirty_cols_start = &dirty_starts, .dirty_cols_end = &dirty_ends });
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try std.testing.allocator.create(PreparedEmitter);
+    defer std.testing.allocator.destroy(emitter);
+    emitter.* = .init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT, surface.damage.ptr[0].kind);
+    try std.testing.expectEqual(rect(0, 0, 2, 1), surface.damage.ptr[0].rect);
+}
+
+test "render surface surface emitter shapes one dirty row with dirty column span" {
+    const dirty_rows = [_]bool{ false, true, false };
+    const dirty_starts = [_]u16{ 0, 2, 0 };
+    const dirty_ends = [_]u16{ 0, 3, 0 };
+    const prepared = preparedSurface(.{ .width_px = 6, .height_px = 3, .full_redraw = false, .dirty_rows = &dirty_rows, .dirty_cols_start = &dirty_starts, .dirty_cols_end = &dirty_ends });
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try std.testing.allocator.create(PreparedEmitter);
+    defer std.testing.allocator.destroy(emitter);
+    emitter.* = .init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
+    try std.testing.expectEqual(rect(1, 1, 4, 1), surface.damage.ptr[0].rect);
+}
+
+test "render surface surface emitter merges adjacent dirty rows with matching span" {
+    const dirty_rows = [_]bool{ true, true };
+    const dirty_starts = [_]u16{ 1, 1 };
+    const dirty_ends = [_]u16{ 2, 2 };
+    const prepared = preparedSurface(.{ .width_px = 4, .height_px = 2, .full_redraw = false, .dirty_rows = &dirty_rows, .dirty_cols_start = &dirty_starts, .dirty_cols_end = &dirty_ends });
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try std.testing.allocator.create(PreparedEmitter);
+    defer std.testing.allocator.destroy(emitter);
+    emitter.* = .init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
+    try std.testing.expectEqual(rect(0, 0, 4, 2), surface.damage.ptr[0].rect);
+}
+
+test "render surface surface emitter falls back to full damage when partial spans have no area" {
+    const dirty_rows = [_]bool{true};
+    const dirty_starts = [_]u16{1};
+    const dirty_ends = [_]u16{0};
+    const prepared = preparedSurface(.{ .width_px = 2, .height_px = 1, .full_redraw = false, .dirty_rows = &dirty_rows, .dirty_cols_start = &dirty_starts, .dirty_cols_end = &dirty_ends });
+    const PreparedEmitter = Emitter(.{});
+    const emitter = try std.testing.allocator.create(PreparedEmitter);
+    defer std.testing.allocator.destroy(emitter);
+    emitter.* = .init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+    const surface = try emitter.emitPrepared(&resources, &prepared);
+
+    try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL, surface.damage.ptr[0].kind);
+    try std.testing.expectEqual(rect(0, 0, 2, 1), surface.damage.ptr[0].rect);
+}
+
+test "render surface surface emitter falls back to full damage on damage bound overflow" {
+    const dirty_rows = [_]bool{ true, true };
+    const dirty_starts = [_]u16{ 0, 1 };
+    const dirty_ends = [_]u16{ 0, 1 };
+    const prepared = preparedSurface(.{ .width_px = 4, .height_px = 2, .full_redraw = false, .dirty_rows = &dirty_rows, .dirty_cols_start = &dirty_starts, .dirty_cols_end = &dirty_ends });
+    const PreparedEmitter = Emitter(.{ .damage_max = 1 });
+    const emitter = try std.testing.allocator.create(PreparedEmitter);
+    defer std.testing.allocator.destroy(emitter);
+    emitter.* = .init();
+    var resources = sprite_resource_store.SpriteResourceStore.init();
+
+    const surface = try emitter.emitPrepared(&resources, &prepared);
+    try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
+    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL, surface.damage.ptr[0].kind);
+    try std.testing.expectEqual(rect(0, 0, 4, 2), surface.damage.ptr[0].rect);
 }
 
 test "render surface surface emitter skips zero area prepared fills" {
@@ -1231,7 +1317,7 @@ test "render surface surface emitter realizes partial prepared surface equal to 
         4, 5, 6, 255,
     };
     const background = [_]render.TextBackgroundDraw{backgroundDraw(0, 0, 1, 1, rgba(9, 8, 7, 255))};
-    const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1, .full_redraw = false });
+    const prepared = preparedSurface(.{ .background_draws = &background, .width_px = 2, .height_px = 1, .full_redraw = false, .dirty_rows = &[_]bool{true}, .dirty_cols_start = &[_]u16{0}, .dirty_cols_end = &[_]u16{1} });
     try expectPreparedEmissionEqualsCompose(allocator, &prepared, &base);
 }
 
@@ -1260,6 +1346,9 @@ const PreparedOptions = struct {
     width_px: u16,
     height_px: u16,
     full_redraw: bool = true,
+    dirty_rows: []const bool = &.{},
+    dirty_cols_start: []const u16 = &.{},
+    dirty_cols_end: []const u16 = &.{},
 };
 
 fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
@@ -1270,6 +1359,9 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
         .render_px = .{ .width = options.width_px, .height = options.height_px },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = options.width_px, .rows = options.height_px },
+        .dirty_rows = options.dirty_rows,
+        .dirty_cols_start = options.dirty_cols_start,
+        .dirty_cols_end = options.dirty_cols_end,
         .text_surface = .{
             .draw_list = .{
                 .allocator = std.testing.allocator,

@@ -102,11 +102,23 @@ fn validateDamageSpan(surface: *const Surface) Error!void {
     );
     for (spanSlice(DamageItem, surface.damage.ptr, surface.damage.count)) |damage| {
         switch (damage.kind) {
-            c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT => {},
+            c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT => try validateRectDamage(surface, damage),
             c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL => try validateFullDamage(surface, damage),
             else => return error.UnknownDamageKind,
         }
     }
+}
+
+fn validateRectDamage(surface: *const Surface, damage: DamageItem) Error!void {
+    if (damage.rect.width_px == 0) return error.InvalidDamage;
+    if (damage.rect.height_px == 0) return error.InvalidDamage;
+    if (!destinationOverlaps(surface.render_px, damage.rect.x_px, damage.rect.y_px, damage.rect)) return error.InvalidDamage;
+    const right = std.math.add(i32, damage.rect.x_px, damage.rect.width_px) catch return error.InvalidDamage;
+    const bottom = std.math.add(i32, damage.rect.y_px, damage.rect.height_px) catch return error.InvalidDamage;
+    if (damage.rect.x_px < 0) return error.InvalidDamage;
+    if (damage.rect.y_px < 0) return error.InvalidDamage;
+    if (right > surface.render_px.width) return error.InvalidDamage;
+    if (bottom > surface.render_px.height) return error.InvalidDamage;
 }
 
 fn validateFullDamage(surface: *const Surface, damage: DamageItem) Error!void {
