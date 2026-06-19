@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <howl_vt.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -289,6 +290,48 @@ typedef struct {
     uint16_t width;
     uint16_t height;
 } HowlRenderHostSurface;
+
+typedef struct HowlRenderText HowlRenderText;
+typedef HowlRenderText *HowlRenderTextHandle;
+
+typedef struct {
+    uint16_t font_size_px;
+    uint16_t fallback_font_path_count;
+    uint32_t reserved0;
+    const char *primary_font_path;
+    const char *const *fallback_font_paths;
+} HowlRenderTextConfig;
+
+typedef struct {
+    HowlVtRenderStateHandle render_state;
+    HowlRenderPixelSize render_px;
+    HowlRenderPixelSize grid_px;
+    HowlRenderCellSize cell_px;
+    HowlRenderGridSize grid;
+    uint64_t geometry_epoch;
+    uint8_t focused;
+    uint8_t cursor_opacity;
+    uint8_t text_blink_opacity;
+    uint8_t effective_shape;
+    HowlVtColor cursor_color;
+    HowlVtColor cursor_text_color;
+    float cursor_beam_thickness;
+    float cursor_underline_thickness;
+} HowlRenderTextPrepare;
+
+typedef struct {
+    int32_t status;
+    uint32_t render_surface_status;
+    uint32_t reserved0;
+    uint64_t snapshot_seq;
+    HowlRenderPixelSize render_px;
+    const HowlRenderSurface *render_surface;
+} HowlRenderTextPreparedUpload;
+
+HowlRenderCallStatus howl_render_text_init(HowlRenderTextHandle *out_handle, const HowlRenderTextConfig *config);
+void howl_render_text_deinit(HowlRenderTextHandle handle);
+HowlRenderCallStatus howl_render_text_prepare(HowlRenderTextHandle handle, const HowlRenderTextPrepare *prepare, HowlRenderTextPreparedUpload *out_upload);
+HowlRenderCallStatus howl_render_text_submit(HowlRenderTextHandle handle, HowlRenderHostSurface host_surface, HowlRenderHostSurface *out_host_surface);
 
 #ifdef __cplusplus
 }
