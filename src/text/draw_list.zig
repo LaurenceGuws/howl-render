@@ -1,48 +1,48 @@
 const std = @import("std");
-const render = @import("grid/scene.zig");
-const scene_damage = @import("grid/damage.zig");
-const scene_rects = @import("grid/rects.zig");
-const atlas_cache = @import("text/raster/atlas.zig");
-const rasterizer = @import("text/raster/rasterizer.zig");
-const sprite_key = @import("text/raster/key.zig");
-const cursor_presentation = @import("cursor/presentation.zig");
+const render = @import("draw_primitives.zig");
+const text_damage = @import("damage.zig");
+const rect_primitives = @import("rect_primitives.zig");
+const atlas_cache = @import("raster/atlas.zig");
+const rasterizer = @import("raster/rasterizer.zig");
+const sprite_key = @import("raster/key.zig");
+const cursor_presentation = @import("../cursor/presentation.zig");
 
-pub const TextScene = render.TextScene;
+pub const TextDrawList = render.TextDrawList;
 pub const TextSpriteDraw = render.TextSpriteDraw;
 pub const CursorFillRect = cursor_presentation.CursorFillRect;
 pub const CursorTextRecolorSpan = cursor_presentation.CursorTextRecolorSpan;
 pub const CursorTrailRect = cursor_presentation.CursorTrailDrawRect;
 
-pub fn empty() TextScene {
+pub fn empty() TextDrawList {
     return .{ .clear_draws = &.{}, .background_draws = &.{}, .sprite_draws = &.{}, .decoration_draws = &.{}, .cursor_draws = &.{}, .missing = &.{} };
 }
 
 const kitty_dim_opacity_numerator: u16 = 2;
 const kitty_dim_opacity_denominator: u16 = 5;
 
-pub const BuildOptions = struct {
+pub const DrawListOptions = struct {
     cursor: ?render.CursorPresentation = null,
-    damage: scene_damage.DamageInput = .{},
+    damage: text_damage.DamageInput = .{},
 };
 
-pub const OwnedTextScene = struct {
+pub const OwnedTextDrawList = struct {
     allocator: std.mem.Allocator,
-    scene: render.TextScene,
+    draw_list: render.TextDrawList,
     cursor_presentation: ?render.CursorPresentation = null,
     cursor_fill_rects: []const CursorFillRect = &.{},
     cursor_text_recolor_spans: []const CursorTextRecolorSpan = &.{},
     cursor_trail_rects: []const CursorTrailRect = &.{},
     owned: bool = true,
 
-    pub fn deinit(self: *OwnedTextScene) void {
+    pub fn deinit(self: *OwnedTextDrawList) void {
         if (self.owned) {
-            self.allocator.free(self.scene.clear_draws);
-            self.allocator.free(self.scene.background_draws);
-            self.allocator.free(self.scene.sprite_draws);
-            self.allocator.free(self.scene.decoration_draws);
-            self.allocator.free(self.scene.cursor_draws);
-            self.allocator.free(self.scene.raster_requests);
-            self.allocator.free(self.scene.missing);
+            self.allocator.free(self.draw_list.clear_draws);
+            self.allocator.free(self.draw_list.background_draws);
+            self.allocator.free(self.draw_list.sprite_draws);
+            self.allocator.free(self.draw_list.decoration_draws);
+            self.allocator.free(self.draw_list.cursor_draws);
+            self.allocator.free(self.draw_list.raster_requests);
+            self.allocator.free(self.draw_list.missing);
             self.allocator.free(self.cursor_fill_rects);
             self.allocator.free(self.cursor_text_recolor_spans);
             self.allocator.free(self.cursor_trail_rects);
@@ -51,22 +51,22 @@ pub const OwnedTextScene = struct {
     }
 };
 
-pub const BorrowedTextScene = struct {
+pub const BorrowedTextDrawList = struct {
     allocator: std.mem.Allocator,
-    scene: render.TextScene,
+    draw_list: render.TextDrawList,
     cursor_presentation: ?render.CursorPresentation = null,
     cursor_fill_rects: []const CursorFillRect = &.{},
     cursor_text_recolor_spans: []const CursorTextRecolorSpan = &.{},
     cursor_trail_rects: []const CursorTrailRect = &.{},
 
-    pub fn deinit(self: *BorrowedTextScene) void {
-        self.allocator.free(self.scene.raster_requests);
-        self.allocator.free(self.scene.missing);
+    pub fn deinit(self: *BorrowedTextDrawList) void {
+        self.allocator.free(self.draw_list.raster_requests);
+        self.allocator.free(self.draw_list.missing);
         self.* = undefined;
     }
 };
 
-pub const RetainedScratch = struct {
+pub const RetainedDrawScratch = struct {
     sprite_draws: std.ArrayList(render.TextSpriteDraw) = .empty,
     background_draws: std.ArrayList(render.TextBackgroundDraw) = .empty,
     clear_draws: std.ArrayList(render.TextClearDraw) = .empty,
@@ -76,7 +76,7 @@ pub const RetainedScratch = struct {
     cursor_text_recolor_spans: std.ArrayList(CursorTextRecolorSpan) = .empty,
     cursor_trail_rects: std.ArrayList(CursorTrailRect) = .empty,
 
-    pub fn deinit(self: *RetainedScratch, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *RetainedDrawScratch, allocator: std.mem.Allocator) void {
         self.cursor_trail_rects.deinit(allocator);
         self.cursor_text_recolor_spans.deinit(allocator);
         self.cursor_fill_rects.deinit(allocator);
@@ -88,7 +88,7 @@ pub const RetainedScratch = struct {
         self.* = undefined;
     }
 
-    fn reset(self: *RetainedScratch, allocator: std.mem.Allocator, capacities: DrawCapacities) !void {
+    fn reset(self: *RetainedDrawScratch, allocator: std.mem.Allocator, capacities: DrawCapacities) !void {
         try self.sprite_draws.ensureTotalCapacity(allocator, capacities.sprite_draws);
         try self.background_draws.ensureTotalCapacity(allocator, capacities.background_draws);
         try self.clear_draws.ensureTotalCapacity(allocator, capacities.clear_draws);
@@ -108,76 +108,76 @@ pub const RetainedScratch = struct {
     }
 };
 
-pub fn buildSceneWithOptions(
+pub fn buildDrawListWithOptions(
     allocator: std.mem.Allocator,
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     missing: []const render.MissingGlyph,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
-    options: BuildOptions,
-) !OwnedTextScene {
+    grid_metrics: render.CellGridMetrics,
+    options: DrawListOptions,
+) !OwnedTextDrawList {
     var cache = try atlas_cache.OwnedAtlasCache.init(allocator, @intCast(groups.len + cells.len));
     defer cache.deinit();
-    return buildSceneWithAtlasCacheOptions(allocator, cells, groups, missing, cell_metrics, grid_metrics, &cache, options);
+    return buildDrawListWithAtlasCacheOptions(allocator, cells, groups, missing, cell_metrics, grid_metrics, &cache, options);
 }
 
-pub fn buildSceneWithAtlasCacheOptions(
+pub fn buildDrawListWithAtlasCacheOptions(
     allocator: std.mem.Allocator,
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     missing: []const render.MissingGlyph,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     cache: *atlas_cache.OwnedAtlasCache,
-    options: BuildOptions,
-) !OwnedTextScene {
-    const damage = scene_damage.normalizeDamage(options.damage, grid_metrics.rows);
-    var assembly = SceneAssembly{ .allocator = allocator };
+    options: DrawListOptions,
+) !OwnedTextDrawList {
+    const damage = text_damage.normalizeDamage(options.damage, grid_metrics.rows);
+    var assembly = DrawListAssembly{ .allocator = allocator };
     assembly.cursor_presentation = options.cursor;
     errdefer assembly.deinit();
-    try appendSceneAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
-    return assembly.toOwnedScene(damage);
+    try appendDrawListAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
+    return assembly.toOwnedDrawList(damage);
 }
 
-pub fn buildBorrowedSceneWithAtlasCacheOptions(
+pub fn buildBorrowedDrawListWithAtlasCacheOptions(
     allocator: std.mem.Allocator,
-    scratch: *RetainedScratch,
+    scratch: *RetainedDrawScratch,
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     missing: []const render.MissingGlyph,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     cache: *atlas_cache.OwnedAtlasCache,
-    options: BuildOptions,
-) !BorrowedTextScene {
-    const damage = scene_damage.normalizeDamage(options.damage, grid_metrics.rows);
+    options: DrawListOptions,
+) !BorrowedTextDrawList {
+    const damage = text_damage.normalizeDamage(options.damage, grid_metrics.rows);
     const capacities = drawCapacities(cells, groups, cell_metrics, grid_metrics, damage, options.cursor);
     try scratch.reset(allocator, capacities);
 
-    var assembly = SceneAssembly{ .allocator = allocator };
+    var assembly = DrawListAssembly{ .allocator = allocator };
     assembly.cursor_presentation = options.cursor;
-    assembly.adoptRetainedScratch(scratch);
+    assembly.adoptRetainedDrawScratch(scratch);
     errdefer assembly.deinit();
-    try appendSceneAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
-    return assembly.toBorrowedScene(damage);
+    try appendDrawListAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
+    return assembly.toBorrowedDrawList(damage);
 }
 
-fn appendSceneAssemblyPopulation(
-    assembly: *SceneAssembly,
+fn appendDrawListAssemblyPopulation(
+    assembly: *DrawListAssembly,
     cache: *atlas_cache.OwnedAtlasCache,
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     missing: []const render.MissingGlyph,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
-    damage: scene_damage.NormalizedDamage,
+    grid_metrics: render.CellGridMetrics,
+    damage: text_damage.NormalizedDamage,
     cursor: ?render.CursorPresentation,
 ) !void {
     try assembly.missing.appendSlice(assembly.allocator, missing);
 
     try appendGroupSpriteDraws(assembly, cache, cells, groups, cell_metrics, grid_metrics, damage);
-    try scene_rects.appendCursorPrimitives(
+    try rect_primitives.appendCursorPrimitives(
         assembly.allocator,
         &assembly.cursor_draws,
         &assembly.cursor_fill_rects,
@@ -189,9 +189,9 @@ fn appendSceneAssemblyPopulation(
         damage,
         cell_metrics,
     );
-    try scene_rects.appendClearDraws(assembly.allocator, &assembly.clear_draws, cells, cell_metrics, grid_metrics, damage);
-    try scene_rects.appendBackgroundDraws(assembly.allocator, &assembly.background_draws, cells, cell_metrics, grid_metrics, damage);
-    try scene_rects.appendRectDecorationDraws(underlineDrawColor, spriteDrawColor, assembly.allocator, &assembly.decoration_draws, cells, cell_metrics, grid_metrics, damage);
+    try rect_primitives.appendClearDraws(assembly.allocator, &assembly.clear_draws, cells, cell_metrics, grid_metrics, damage);
+    try rect_primitives.appendBackgroundDraws(assembly.allocator, &assembly.background_draws, cells, cell_metrics, grid_metrics, damage);
+    try rect_primitives.appendRectDecorationDraws(underlineDrawColor, spriteDrawColor, assembly.allocator, &assembly.decoration_draws, cells, cell_metrics, grid_metrics, damage);
     try appendCurlyUnderlineSprites(assembly, cache, cells, cell_metrics, grid_metrics, damage);
 }
 
@@ -206,9 +206,9 @@ const DrawCapacities = struct {
     cursor_trail_rects: usize,
 };
 
-const SceneAssembly = struct {
+const DrawListAssembly = struct {
     allocator: std.mem.Allocator,
-    retained_scratch: ?*RetainedScratch = null,
+    retained_scratch: ?*RetainedDrawScratch = null,
     cursor_presentation: ?render.CursorPresentation = null,
     sprite_draws: std.ArrayList(render.TextSpriteDraw) = .empty,
     background_draws: std.ArrayList(render.TextBackgroundDraw) = .empty,
@@ -221,7 +221,7 @@ const SceneAssembly = struct {
     raster_requests: std.ArrayList(render.SpriteRasterRequest) = .empty,
     missing: std.ArrayList(render.MissingGlyph) = .empty,
 
-    fn adoptRetainedScratch(self: *SceneAssembly, scratch: *RetainedScratch) void {
+    fn adoptRetainedDrawScratch(self: *DrawListAssembly, scratch: *RetainedDrawScratch) void {
         self.retained_scratch = scratch;
         self.sprite_draws = scratch.sprite_draws;
         self.background_draws = scratch.background_draws;
@@ -233,7 +233,7 @@ const SceneAssembly = struct {
         self.cursor_trail_rects = scratch.cursor_trail_rects;
     }
 
-    fn releaseRetainedScratch(self: *SceneAssembly) void {
+    fn releaseRetainedDrawScratch(self: *DrawListAssembly) void {
         const scratch = self.retained_scratch orelse return;
         scratch.sprite_draws = self.sprite_draws;
         scratch.background_draws = self.background_draws;
@@ -245,7 +245,7 @@ const SceneAssembly = struct {
         scratch.cursor_trail_rects = self.cursor_trail_rects;
     }
 
-    fn deinit(self: *SceneAssembly) void {
+    fn deinit(self: *DrawListAssembly) void {
         if (self.retained_scratch == null) {
             self.sprite_draws.deinit(self.allocator);
             self.background_draws.deinit(self.allocator);
@@ -256,18 +256,18 @@ const SceneAssembly = struct {
             self.cursor_text_recolor_spans.deinit(self.allocator);
             self.cursor_trail_rects.deinit(self.allocator);
         } else {
-            self.releaseRetainedScratch();
+            self.releaseRetainedDrawScratch();
         }
         self.raster_requests.deinit(self.allocator);
         self.missing.deinit(self.allocator);
         self.* = undefined;
     }
 
-    fn toOwnedScene(self: *SceneAssembly, damage: scene_damage.NormalizedDamage) !OwnedTextScene {
-        defer if (self.retained_scratch != null) self.releaseRetainedScratch();
+    fn toOwnedDrawList(self: *DrawListAssembly, damage: text_damage.NormalizedDamage) !OwnedTextDrawList {
+        defer if (self.retained_scratch != null) self.releaseRetainedDrawScratch();
         return .{
             .allocator = self.allocator,
-            .scene = .{
+            .draw_list = .{
                 .full_redraw = damage.full,
                 .clear_draws = try self.clear_draws.toOwnedSlice(self.allocator),
                 .background_draws = try self.background_draws.toOwnedSlice(self.allocator),
@@ -284,15 +284,15 @@ const SceneAssembly = struct {
         };
     }
 
-    fn toBorrowedScene(self: *SceneAssembly, damage: scene_damage.NormalizedDamage) !BorrowedTextScene {
+    fn toBorrowedDrawList(self: *DrawListAssembly, damage: text_damage.NormalizedDamage) !BorrowedTextDrawList {
         std.debug.assert(self.retained_scratch != null);
-        defer self.releaseRetainedScratch();
+        defer self.releaseRetainedDrawScratch();
         const raster_requests = try self.raster_requests.toOwnedSlice(self.allocator);
         errdefer self.allocator.free(raster_requests);
         const missing = try self.missing.toOwnedSlice(self.allocator);
         return .{
             .allocator = self.allocator,
-            .scene = .{
+            .draw_list = .{
                 .full_redraw = damage.full,
                 .clear_draws = self.clear_draws.items,
                 .background_draws = self.background_draws.items,
@@ -309,7 +309,7 @@ const SceneAssembly = struct {
         };
     }
 
-    fn appendRasterizedSpriteDraw(self: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, req: render.SpriteRasterRequest, draw: SpriteDrawInput) !void {
+    fn appendRasterizedSpriteDraw(self: *DrawListAssembly, cache: *atlas_cache.OwnedAtlasCache, req: render.SpriteRasterRequest, draw: SpriteDrawInput) !void {
         std.debug.assert(draw.width_px > 0);
         std.debug.assert(draw.height_px > 0);
         const residency = cache.reserveRequest(req);
@@ -328,7 +328,7 @@ const SceneAssembly = struct {
     }
 
     fn appendUndercurl(
-        self: *SceneAssembly,
+        self: *DrawListAssembly,
         cache: *atlas_cache.OwnedAtlasCache,
         cell: render.RenderableCell,
         x: i32,
@@ -370,19 +370,19 @@ fn drawCapacities(
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
-    damage: scene_damage.NormalizedDamage,
+    grid_metrics: render.CellGridMetrics,
+    damage: text_damage.NormalizedDamage,
     cursor: ?render.CursorPresentation,
 ) DrawCapacities {
     return .{
         .sprite_draws = countGroupSpriteDraws(groups, grid_metrics, damage) + countCurlyUnderlineSprites(cells, grid_metrics, damage),
         .background_draws = cells.len,
-        .clear_draws = scene_rects.countClearDraws(grid_metrics, damage),
-        .decoration_draws = scene_rects.countRectDecorationDraws(cells, cell_metrics, grid_metrics, damage),
-        .cursor_draws = scene_rects.countCursorDraws(cursor, damage),
-        .cursor_fill_rects = scene_rects.countCursorFillRects(cursor, damage),
-        .cursor_text_recolor_spans = scene_rects.countCursorTextRecolorSpans(cursor, damage),
-        .cursor_trail_rects = scene_rects.countCursorTrailRects(cursor, damage),
+        .clear_draws = rect_primitives.countClearDraws(grid_metrics, damage),
+        .decoration_draws = rect_primitives.countRectDecorationDraws(cells, cell_metrics, grid_metrics, damage),
+        .cursor_draws = rect_primitives.countCursorDraws(cursor, damage),
+        .cursor_fill_rects = rect_primitives.countCursorFillRects(cursor, damage),
+        .cursor_text_recolor_spans = rect_primitives.countCursorTextRecolorSpans(cursor, damage),
+        .cursor_trail_rects = rect_primitives.countCursorTrailRects(cursor, damage),
     };
 }
 
@@ -421,7 +421,7 @@ fn testCursorPresentation(shape: render.CursorShape, col: u16, row: u16, rgb: re
     };
 }
 
-fn countGroupSpriteDraws(groups: []const render.GlyphGroup, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
+fn countGroupSpriteDraws(groups: []const render.GlyphGroup, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) usize {
     var count: usize = 0;
     for (groups) |group| {
         if (classifyGroupLead(damage, grid_metrics, group) != .draw) continue;
@@ -430,11 +430,11 @@ fn countGroupSpriteDraws(groups: []const render.GlyphGroup, grid_metrics: render
     return count;
 }
 
-fn countCurlyUnderlineSprites(cells: []const render.RenderableCell, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
+fn countCurlyUnderlineSprites(cells: []const render.RenderableCell, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) usize {
     var count: usize = 0;
     for (cells) |cell| {
         if (cell.continuation) continue;
-        if (!scene_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
+        if (!text_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
         if (!cell.underline) continue;
         if (cell.underline_style != .curly) continue;
         count += 1;
@@ -442,7 +442,7 @@ fn countCurlyUnderlineSprites(cells: []const render.RenderableCell, grid_metrics
     return count;
 }
 
-fn classifyIconSpan(group: render.GlyphGroup, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, next_group_cell: ?u32) IconSpan {
+fn classifyIconSpan(group: render.GlyphGroup, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, next_group_cell: ?u32) IconSpan {
     if (group.kind != .icon) return .keep_kind;
     if (cell_metrics.cell_w_px == 0) return .keep_zero_width;
     const desired = desiredIconCells(group, cell_metrics.cell_w_px);
@@ -480,19 +480,19 @@ const IconSpan = enum(u3) {
     expand,
 };
 
-fn classifyGroupLead(damage: scene_damage.NormalizedDamage, grid_metrics: render.GridMetrics, group: render.GlyphGroup) GroupLead {
-    if (!scene_damage.includeSpan(damage, grid_metrics, group.first_cell, group.cell_span)) return .skip;
+fn classifyGroupLead(damage: text_damage.NormalizedDamage, grid_metrics: render.CellGridMetrics, group: render.GlyphGroup) GroupLead {
+    if (!text_damage.includeSpan(damage, grid_metrics, group.first_cell, group.cell_span)) return .skip;
     return .draw;
 }
 
 fn appendGroupSpriteDraws(
-    assembly: *SceneAssembly,
+    assembly: *DrawListAssembly,
     cache: *atlas_cache.OwnedAtlasCache,
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
-    damage: scene_damage.NormalizedDamage,
+    grid_metrics: render.CellGridMetrics,
+    damage: text_damage.NormalizedDamage,
 ) !void {
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const cell_w = @as(i32, @intCast(cell_metrics.cell_w_px));
@@ -500,10 +500,10 @@ fn appendGroupSpriteDraws(
     for (groups, 0..) |group, group_idx| {
         if (classifyGroupLead(damage, grid_metrics, group) != .draw) continue;
         const next_group_cell = if (group_idx + 1 < groups.len) groups[group_idx + 1].first_cell else null;
-        const scene_group = iconGroupWithAvailableSpace(group, cell_metrics, grid_metrics, next_group_cell);
-        const first_cell = scene_group.first_cell;
-        const width_cells = @max(scene_group.cell_span, 1);
-        const req = rasterizer.requestForGroup(scene_group, cell_metrics);
+        const draw_group = iconGroupWithAvailableSpace(group, cell_metrics, grid_metrics, next_group_cell);
+        const first_cell = draw_group.first_cell;
+        const width_cells = @max(draw_group.cell_span, 1);
+        const req = rasterizer.requestForGroup(draw_group, cell_metrics);
         const col = first_cell % cols;
         const row = first_cell / cols;
         try assembly.appendRasterizedSpriteDraw(cache, req, .{
@@ -514,19 +514,19 @@ fn appendGroupSpriteDraws(
             .placement = group.placement,
             .color = spriteColorForGroup(cells, group.first_cell),
             .first_cell = group.first_cell,
-            .cell_span = scene_group.cell_span,
+            .cell_span = draw_group.cell_span,
         });
     }
 }
 
-fn appendCurlyUnderlineSprites(assembly: *SceneAssembly, cache: *atlas_cache.OwnedAtlasCache, cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) !void {
-    const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
+fn appendCurlyUnderlineSprites(assembly: *DrawListAssembly, cache: *atlas_cache.OwnedAtlasCache, cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) !void {
+    const deco = rect_primitives.decorationGeometryForCellMetrics(cell_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     for (cells) |cell| {
         if (cell.continuation) continue;
         if (!cell.underline) continue;
         if (cell.underline_style != .curly) continue;
-        if (!scene_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
+        if (!text_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
         const col = cell.first_cell % cols;
         const row = cell.first_cell / cols;
         const base_x = @as(i32, @intCast(col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
@@ -582,7 +582,7 @@ fn findCellByFirstCell(cells: []const render.RenderableCell, first_cell: u32) ?r
     return null;
 }
 
-fn iconGroupWithAvailableSpace(group: render.GlyphGroup, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, next_group_cell: ?u32) render.GlyphGroup {
+fn iconGroupWithAvailableSpace(group: render.GlyphGroup, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, next_group_cell: ?u32) render.GlyphGroup {
     if (classifyIconSpan(group, cell_metrics, grid_metrics, next_group_cell) != .expand) return group;
 
     const desired = desiredIconCells(group, cell_metrics.cell_w_px);
@@ -618,7 +618,7 @@ fn count16(items: anytype) u16 {
     return @intCast(items.len);
 }
 
-test "scene builds ordered sprite draws from groups" {
+test "draw list builds ordered sprite draws from groups" {
     const cell = render.RenderableCell{
         .text_id = .{ .value = 0 },
         .first_cell = 3,
@@ -635,17 +635,17 @@ test "scene builds ordered sprite draws from groups" {
         .sprite_key = .{ .value = 99 },
         .kind = .normal,
     };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &.{cell}, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &.{cell}, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.sprite_draws));
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.raster_requests));
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
-    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.sprite_draws[0].width_px);
-    try std.testing.expectEqual(@as(u64, 99), owned.scene.sprite_draws[0].sprite.key.value);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.raster_requests));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.background_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(owned.draw_list.decoration_draws));
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.sprite_draws[0].width_px);
+    try std.testing.expectEqual(@as(u64, 99), owned.draw_list.sprite_draws[0].sprite.key.value);
 }
 
-test "scene emits background draws from non-continuation cells" {
+test "draw list emits background draws from non-continuation cells" {
     const cells = [_]render.RenderableCell{
         .{
             .text_id = .{ .value = 0 },
@@ -667,28 +667,28 @@ test "scene emits background draws from non-continuation cells" {
             .continuation = true,
         },
     };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
-    try std.testing.expectEqual(@as(u8, 1), owned.scene.background_draws[0].color.r);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.background_draws));
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.background_draws[0].width_px);
+    try std.testing.expectEqual(@as(u8, 1), owned.draw_list.background_draws[0].color.r);
 }
 
-test "scene merges adjacent same-color background cells on one row" {
+test "draw list merges adjacent same-color background cells on one row" {
     const bg = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
     const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg, .bg = bg },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg, .bg = bg },
         .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg, .bg = bg },
     };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 3, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 3, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
-    try std.testing.expectEqual(@as(u16, 24), owned.scene.background_draws[0].width_px);
-    try std.testing.expectEqual(@as(u8, 3), owned.scene.background_draws[0].cell_span);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.background_draws));
+    try std.testing.expectEqual(@as(u16, 24), owned.draw_list.background_draws[0].width_px);
+    try std.testing.expectEqual(@as(u8, 3), owned.draw_list.background_draws[0].cell_span);
 }
 
-test "scene keeps distinct background spans across color changes" {
+test "draw list keeps distinct background spans across color changes" {
     const bg_a = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
     const bg_b = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cells = [_]render.RenderableCell{
@@ -697,15 +697,15 @@ test "scene keeps distinct background spans across color changes" {
         .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg_b, .bg = bg_b },
         .{ .text_id = .{ .value = 3 }, .first_cell = 3, .cell_span = 1, .style = .regular, .presentation = .any, .fg = bg_a, .bg = bg_a },
     };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, 3), count32(owned.scene.background_draws));
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
-    try std.testing.expectEqual(@as(i32, 16), owned.scene.background_draws[1].x_px);
-    try std.testing.expectEqual(@as(i32, 24), owned.scene.background_draws[2].x_px);
+    try std.testing.expectEqual(@as(u32, 3), count32(owned.draw_list.background_draws));
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.background_draws[0].width_px);
+    try std.testing.expectEqual(@as(i32, 16), owned.draw_list.background_draws[1].x_px);
+    try std.testing.expectEqual(@as(i32, 24), owned.draw_list.background_draws[2].x_px);
 }
 
-test "scene emits explicit clears for transparent default backgrounds on partial damage" {
+test "draw list emits explicit clears for transparent default backgrounds on partial damage" {
     const transparent_bg = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 0 };
     const fg = render.Rgba8{ .r = 200, .g = 200, .b = 200, .a = 255 };
     const cells = [_]render.RenderableCell{
@@ -715,7 +715,7 @@ test "scene emits explicit clears for transparent default backgrounds on partial
     const dirty_rows = [_]bool{true};
     const dirty_starts = [_]u16{0};
     const dirty_ends = [_]u16{1};
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2, .rows = 1 }, .{
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2, .rows = 1 }, .{
         .damage = .{
             .full = false,
             .dirty_rows = &dirty_rows,
@@ -724,42 +724,42 @@ test "scene emits explicit clears for transparent default backgrounds on partial
         },
     });
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.clear_draws));
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.clear_draws[0].width_px);
-    try std.testing.expectEqual(@as(u8, 255), owned.scene.clear_draws[0].color.a);
-    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.background_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.clear_draws));
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.clear_draws[0].width_px);
+    try std.testing.expectEqual(@as(u8, 255), owned.draw_list.clear_draws[0].color.a);
+    try std.testing.expectEqual(@as(u32, 0), count32(owned.draw_list.background_draws));
 }
 
-test "scene cursor draws emit shared cursor geometry" {
+test "draw list cursor draws emit shared cursor geometry" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cell_metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
     const underline_cursor = testCursorPresentation(.underline, 2, 1, color);
-    const underline = try scene_rects.cursorDraws(std.testing.allocator, underline_cursor, cell_metrics);
+    const underline = try rect_primitives.cursorDraws(std.testing.allocator, underline_cursor, cell_metrics);
     defer std.testing.allocator.free(underline);
-    try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.underline))), count32(underline));
+    try std.testing.expectEqual(@as(u32, @intCast(rect_primitives.cursorDrawCount(.underline))), count32(underline));
     try std.testing.expectEqual(@as(i32, 16), underline[0].x_px);
     try std.testing.expectEqual(@as(u16, 8), underline[0].width_px);
     try std.testing.expectEqual(color.r, underline[0].color.r);
 
     const hollow_cursor = testCursorPresentation(.hollow, 0, 0, color);
-    const hollow = try scene_rects.cursorDraws(std.testing.allocator, hollow_cursor, cell_metrics);
+    const hollow = try rect_primitives.cursorDraws(std.testing.allocator, hollow_cursor, cell_metrics);
     defer std.testing.allocator.free(hollow);
-    try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.hollow))), count32(hollow));
+    try std.testing.expectEqual(@as(u32, @intCast(rect_primitives.cursorDrawCount(.hollow))), count32(hollow));
 }
 
-test "scene build options include cursor draws" {
+test "draw list build options include cursor draws" {
     const color = render.Rgba8{ .r = 7, .g = 8, .b = 9, .a = 255 };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4 }, .{
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4 }, .{
         .cursor = testCursorPresentation(.beam, 3, 2, color),
     });
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, @intCast(scene_rects.cursorDrawCount(.beam))), count32(owned.scene.cursor_draws));
-    try std.testing.expectEqual(@as(i32, 24), owned.scene.cursor_draws[0].x_px);
-    try std.testing.expectEqual(@as(i32, 32), owned.scene.cursor_draws[0].y_px);
-    try std.testing.expectEqual(color.g, owned.scene.cursor_draws[0].color.g);
+    try std.testing.expectEqual(@as(u32, @intCast(rect_primitives.cursorDrawCount(.beam))), count32(owned.draw_list.cursor_draws));
+    try std.testing.expectEqual(@as(i32, 24), owned.draw_list.cursor_draws[0].x_px);
+    try std.testing.expectEqual(@as(i32, 32), owned.draw_list.cursor_draws[0].y_px);
+    try std.testing.expectEqual(color.g, owned.draw_list.cursor_draws[0].color.g);
 }
 
-test "scene stores cursor presentation owner" {
+test "draw list stores cursor presentation owner" {
     var presentation = testCursorPresentation(.beam, 3, 2, .{ .r = 4, .g = 5, .b = 6, .a = 255 });
     presentation.blink = true;
     presentation.cursor_opacity = 200;
@@ -767,7 +767,7 @@ test "scene stores cursor presentation owner" {
     presentation.cursor_color = .{ .kind = .rgb, .value = 0x010203 };
     presentation.cursor_text_color = .{ .kind = .indexed, .value = 7 };
     presentation.default_background = .{ .r = 7, .g = 8, .b = 9 };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4 }, .{
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 4 }, .{
         .cursor = presentation,
     });
     defer owned.deinit();
@@ -776,23 +776,23 @@ test "scene stores cursor presentation owner" {
     try std.testing.expectEqual(@as(u8, 200), owned.cursor_presentation.?.cursor_opacity);
 }
 
-test "scene cursor primitive metadata uses grid width for non-zero-row multicell beam" {
+test "draw list cursor primitive metadata uses grid width for non-zero-row multicell beam" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     var cursor = testCursorPresentation(.beam, 2, 1, color);
     cursor.primary_extent.cols = 3;
     cursor.primary_extent.rows = 2;
-    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10, .rows = 4 }, .{ .cursor = cursor });
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10, .rows = 4 }, .{ .cursor = cursor });
     defer owned.deinit();
     try std.testing.expectEqual(@as(u32, 12), owned.cursor_fill_rects[0].first_cell);
     try std.testing.expectEqual(@as(u8, 6), owned.cursor_fill_rects[0].cell_span);
 }
 
-test "scene cursor primitive metadata uses full covered extent for hollow edges" {
+test "draw list cursor primitive metadata uses full covered extent for hollow edges" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     var cursor = testCursorPresentation(.hollow, 4, 2, color);
     cursor.primary_extent.cols = 2;
     cursor.primary_extent.rows = 3;
-    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 12, .rows = 5 }, .{ .cursor = cursor });
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 12, .rows = 5 }, .{ .cursor = cursor });
     defer owned.deinit();
     try std.testing.expectEqual(@as(usize, 4), owned.cursor_fill_rects.len);
     for (owned.cursor_fill_rects) |rect| {
@@ -801,13 +801,13 @@ test "scene cursor primitive metadata uses full covered extent for hollow edges"
     }
 }
 
-test "scene cursor trail primitive metadata uses grid width and full extent" {
+test "draw list cursor trail primitive metadata uses grid width and full extent" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     var cursor = testCursorPresentation(.beam, 0, 0, color);
     cursor.visible = false;
     cursor.trail.count = 1;
     cursor.trail.rects[0] = .{ .extent = .{ .row = 3, .col = 5, .rows = 2, .cols = 4 }, .opacity = 12, .color = .{ .r = 1, .g = 2, .b = 3 } };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 20, .rows = 6 }, .{ .cursor = cursor });
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 20, .rows = 6 }, .{ .cursor = cursor });
     defer owned.deinit();
     try std.testing.expectEqual(@as(usize, 1), owned.cursor_trail_rects.len);
     try std.testing.expectEqual(@as(u32, 65), owned.cursor_trail_rects[0].first_cell);
@@ -820,15 +820,15 @@ test "hidden cursor emits trail primitives only" {
     cursor.visible = false;
     cursor.trail.count = 1;
     cursor.trail.rects[0] = .{ .extent = .{ .row = 2, .col = 3, .rows = 1, .cols = 2 }, .opacity = 12, .color = .{ .r = 1, .g = 2, .b = 3 } };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10, .rows = 4 }, .{ .cursor = cursor });
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &.{}, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10, .rows = 4 }, .{ .cursor = cursor });
     defer owned.deinit();
-    try std.testing.expectEqual(@as(usize, 0), owned.scene.cursor_draws.len);
+    try std.testing.expectEqual(@as(usize, 0), owned.draw_list.cursor_draws.len);
     try std.testing.expectEqual(@as(usize, 0), owned.cursor_fill_rects.len);
     try std.testing.expectEqual(@as(usize, 0), owned.cursor_text_recolor_spans.len);
     try std.testing.expectEqual(@as(usize, 1), owned.cursor_trail_rects.len);
 }
 
-test "scene damage filters clean rows" {
+test "draw list damage filters clean rows" {
     const color = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
     const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = color },
@@ -843,7 +843,7 @@ test "scene damage filters clean rows" {
     const dirty_rows = [_]bool{ false, true };
     const dirty_starts = [_]u16{ 0, 0 };
     const dirty_ends = [_]u16{ 0, 1 };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &groups, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2, .rows = 2 }, .{
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &groups, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 2, .rows = 2 }, .{
         .damage = .{
             .full = false,
             .dirty_rows = &dirty_rows,
@@ -852,16 +852,16 @@ test "scene damage filters clean rows" {
         },
     });
     defer owned.deinit();
-    try std.testing.expect(!owned.scene.full_redraw);
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.clear_draws));
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.clear_draws[0].width_px);
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.background_draws));
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.background_draws[0].width_px);
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.sprite_draws));
-    try std.testing.expectEqual(@as(u32, 3), owned.scene.sprite_draws[0].first_cell);
+    try std.testing.expect(!owned.draw_list.full_redraw);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.clear_draws));
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.clear_draws[0].width_px);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.background_draws));
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.background_draws[0].width_px);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 3), owned.draw_list.sprite_draws[0].first_cell);
 }
 
-test "scene emits shared-geometry decoration draws from cells" {
+test "draw list emits shared-geometry decoration draws from cells" {
     const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 1,
@@ -874,34 +874,34 @@ test "scene emits shared-geometry decoration draws from cells" {
         .underline = true,
         .strikethrough = true,
     }};
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 4, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 4, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, 2), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(render.DecorationKind.underline, owned.scene.decoration_draws[0].kind);
-    try std.testing.expectEqual(@as(i32, 8), owned.scene.decoration_draws[0].x_px);
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[0].width_px);
-    try std.testing.expectEqual(@as(u8, 9), owned.scene.decoration_draws[0].color.r);
-    try std.testing.expectEqual(render.DecorationKind.strikethrough, owned.scene.decoration_draws[1].kind);
+    try std.testing.expectEqual(@as(u32, 2), count32(owned.draw_list.decoration_draws));
+    try std.testing.expectEqual(render.DecorationKind.underline, owned.draw_list.decoration_draws[0].kind);
+    try std.testing.expectEqual(@as(i32, 8), owned.draw_list.decoration_draws[0].x_px);
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.decoration_draws[0].width_px);
+    try std.testing.expectEqual(@as(u8, 9), owned.draw_list.decoration_draws[0].color.r);
+    try std.testing.expectEqual(render.DecorationKind.strikethrough, owned.draw_list.decoration_draws[1].kind);
 }
 
-test "scene merges contiguous straight underline spans" {
+test "draw list merges contiguous straight underline spans" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 }, .underline = true },
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 }, .underline = true },
         .{ .text_id = .{ .value = 2 }, .first_cell = 2, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 }, .underline = true },
     };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 3, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 3, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(@as(u16, 24), owned.scene.decoration_draws[0].width_px);
-    try std.testing.expectEqual(@as(u8, 3), owned.scene.decoration_draws[0].cell_span);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.decoration_draws));
+    try std.testing.expectEqual(@as(u16, 24), owned.draw_list.decoration_draws[0].width_px);
+    try std.testing.expectEqual(@as(u8, 3), owned.draw_list.decoration_draws[0].cell_span);
 }
 
-test "scene double underline count and geometry stay aligned" {
+test "draw list double underline count and geometry stay aligned" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cell_metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 };
-    const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
+    const deco = rect_primitives.decorationGeometryForCellMetrics(cell_metrics);
     const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
@@ -913,20 +913,20 @@ test "scene double underline count and geometry stay aligned" {
         .underline = true,
         .underline_style = .double,
     }};
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 2, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 2, .rows = 1 }, .{});
     defer owned.deinit();
 
-    try std.testing.expectEqual(@as(usize, 2), scene_rects.countUnderlineDecorationDraws(cell_metrics.cell_w_px * 2, deco.underline_h_px, .double));
-    try std.testing.expectEqual(@as(u32, 2), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(render.DecorationKind.underline, owned.scene.decoration_draws[0].kind);
-    try std.testing.expectEqual(render.DecorationKind.underline, owned.scene.decoration_draws[1].kind);
-    try std.testing.expectEqual(@as(i32, 12), owned.scene.decoration_draws[0].y_px);
-    try std.testing.expectEqual(@as(i32, 14), owned.scene.decoration_draws[1].y_px);
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[0].width_px);
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[1].width_px);
+    try std.testing.expectEqual(@as(usize, 2), rect_primitives.countUnderlineDecorationDraws(cell_metrics.cell_w_px * 2, deco.underline_h_px, .double));
+    try std.testing.expectEqual(@as(u32, 2), count32(owned.draw_list.decoration_draws));
+    try std.testing.expectEqual(render.DecorationKind.underline, owned.draw_list.decoration_draws[0].kind);
+    try std.testing.expectEqual(render.DecorationKind.underline, owned.draw_list.decoration_draws[1].kind);
+    try std.testing.expectEqual(@as(i32, 12), owned.draw_list.decoration_draws[0].y_px);
+    try std.testing.expectEqual(@as(i32, 14), owned.draw_list.decoration_draws[1].y_px);
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.decoration_draws[0].width_px);
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.decoration_draws[1].width_px);
 }
 
-test "scene emits undercurl sprite for curly underline" {
+test "draw list emits undercurl sprite for curly underline" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
@@ -939,21 +939,21 @@ test "scene emits undercurl sprite for curly underline" {
         .underline = true,
         .underline_style = .curly,
     }};
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 4, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 4, .rows = 1 }, .{});
     defer owned.deinit();
 
-    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.sprite_draws));
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.raster_requests));
-    try std.testing.expectEqual(render.SpriteRasterKind.undercurl, owned.scene.raster_requests[0].kind);
-    try std.testing.expectEqual(@as(u16, 32), owned.scene.sprite_draws[0].width_px);
-    try std.testing.expect(owned.scene.raster_requests[0].decoration.amplitude_px >= 1);
+    try std.testing.expectEqual(@as(u32, 0), count32(owned.draw_list.decoration_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.raster_requests));
+    try std.testing.expectEqual(render.SpriteRasterKind.undercurl, owned.draw_list.raster_requests[0].kind);
+    try std.testing.expectEqual(@as(u16, 32), owned.draw_list.sprite_draws[0].width_px);
+    try std.testing.expect(owned.draw_list.raster_requests[0].decoration.amplitude_px >= 1);
 }
 
-test "scene dotted underline geometry stays aligned with counted capacity" {
+test "draw list dotted underline geometry stays aligned with counted capacity" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cell_metrics = render.CellMetrics{ .cell_w_px = 9, .cell_h_px = 16, .baseline_px = 13 };
-    const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
+    const deco = rect_primitives.decorationGeometryForCellMetrics(cell_metrics);
     const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
@@ -965,13 +965,13 @@ test "scene dotted underline geometry stays aligned with counted capacity" {
         .underline = true,
         .underline_style = .dotted,
     }};
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 2, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 2, .rows = 1 }, .{});
     defer owned.deinit();
 
     const width_px: u16 = cell_metrics.cell_w_px * 2;
-    try std.testing.expectEqual(scene_rects.countUnderlineDecorationDraws(width_px, deco.underline_h_px, .dotted), owned.scene.decoration_draws.len);
-    try std.testing.expectEqual(@as(u32, 9), count32(owned.scene.decoration_draws));
-    for (owned.scene.decoration_draws, 0..) |draw, index| {
+    try std.testing.expectEqual(rect_primitives.countUnderlineDecorationDraws(width_px, deco.underline_h_px, .dotted), owned.draw_list.decoration_draws.len);
+    try std.testing.expectEqual(@as(u32, 9), count32(owned.draw_list.decoration_draws));
+    for (owned.draw_list.decoration_draws, 0..) |draw, index| {
         try std.testing.expectEqual(render.DecorationKind.underline_dotted, draw.kind);
         try std.testing.expectEqual(@as(i32, @intCast(index * 2)), draw.x_px);
         try std.testing.expectEqual(deco.underline_y_px, draw.y_px);
@@ -980,10 +980,10 @@ test "scene dotted underline geometry stays aligned with counted capacity" {
     }
 }
 
-test "scene dashed underline geometry stays aligned with counted capacity" {
+test "draw list dashed underline geometry stays aligned with counted capacity" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cell_metrics = render.CellMetrics{ .cell_w_px = 17, .cell_h_px = 16, .baseline_px = 13 };
-    const deco = scene_rects.decorationGeometryForCellMetrics(cell_metrics);
+    const deco = rect_primitives.decorationGeometryForCellMetrics(cell_metrics);
     const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
@@ -995,26 +995,26 @@ test "scene dashed underline geometry stays aligned with counted capacity" {
         .underline = true,
         .underline_style = .dashed,
     }};
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 1, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 1, .rows = 1 }, .{});
     defer owned.deinit();
 
-    try std.testing.expectEqual(scene_rects.countUnderlineDecorationDraws(cell_metrics.cell_w_px, deco.underline_h_px, .dashed), owned.scene.decoration_draws.len);
-    try std.testing.expectEqual(@as(u32, 3), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(render.DecorationKind.underline_dashed, owned.scene.decoration_draws[0].kind);
-    try std.testing.expectEqual(@as(i32, 0), owned.scene.decoration_draws[0].x_px);
-    try std.testing.expectEqual(@as(u16, 5), owned.scene.decoration_draws[0].width_px);
-    try std.testing.expectEqual(@as(i32, 7), owned.scene.decoration_draws[1].x_px);
-    try std.testing.expectEqual(@as(u16, 5), owned.scene.decoration_draws[1].width_px);
-    try std.testing.expectEqual(@as(i32, 14), owned.scene.decoration_draws[2].x_px);
-    try std.testing.expectEqual(@as(u16, 3), owned.scene.decoration_draws[2].width_px);
-    for (owned.scene.decoration_draws) |draw| {
+    try std.testing.expectEqual(rect_primitives.countUnderlineDecorationDraws(cell_metrics.cell_w_px, deco.underline_h_px, .dashed), owned.draw_list.decoration_draws.len);
+    try std.testing.expectEqual(@as(u32, 3), count32(owned.draw_list.decoration_draws));
+    try std.testing.expectEqual(render.DecorationKind.underline_dashed, owned.draw_list.decoration_draws[0].kind);
+    try std.testing.expectEqual(@as(i32, 0), owned.draw_list.decoration_draws[0].x_px);
+    try std.testing.expectEqual(@as(u16, 5), owned.draw_list.decoration_draws[0].width_px);
+    try std.testing.expectEqual(@as(i32, 7), owned.draw_list.decoration_draws[1].x_px);
+    try std.testing.expectEqual(@as(u16, 5), owned.draw_list.decoration_draws[1].width_px);
+    try std.testing.expectEqual(@as(i32, 14), owned.draw_list.decoration_draws[2].x_px);
+    try std.testing.expectEqual(@as(u16, 3), owned.draw_list.decoration_draws[2].width_px);
+    for (owned.draw_list.decoration_draws) |draw| {
         try std.testing.expectEqual(render.DecorationKind.underline_dashed, draw.kind);
         try std.testing.expectEqual(deco.underline_y_px, draw.y_px);
         try std.testing.expectEqual(deco.underline_h_px, draw.height_px);
     }
 }
 
-test "scene merges contiguous strikethrough spans" {
+test "draw list merges contiguous strikethrough spans" {
     const color = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
     const cells = [_]render.RenderableCell{
         .{
@@ -1038,14 +1038,14 @@ test "scene merges contiguous strikethrough spans" {
             .strikethrough = true,
         },
     };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 2, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 }, .{ .cols = 2, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.decoration_draws));
-    try std.testing.expectEqual(render.DecorationKind.strikethrough, owned.scene.decoration_draws[0].kind);
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.decoration_draws[0].width_px);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.decoration_draws));
+    try std.testing.expectEqual(render.DecorationKind.strikethrough, owned.draw_list.decoration_draws[0].kind);
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.decoration_draws[0].width_px);
 }
 
-test "scene carries group placement offsets into sprite draw" {
+test "draw list carries group placement offsets into sprite draw" {
     const group = render.GlyphGroup{
         .first_cell = 1,
         .cell_span = 1,
@@ -1054,14 +1054,14 @@ test "scene carries group placement offsets into sprite draw" {
         .sprite_key = .{ .value = 77 },
         .kind = .normal,
     };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &.{}, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 10 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(i32, 8), owned.scene.sprite_draws[0].x_px);
-    try std.testing.expectEqual(@as(i32, 0), owned.scene.sprite_draws[0].y_px);
-    try std.testing.expectEqual(@as(f32, 8), owned.scene.sprite_draws[0].placement.advance_px);
+    try std.testing.expectEqual(@as(i32, 8), owned.draw_list.sprite_draws[0].x_px);
+    try std.testing.expectEqual(@as(i32, 0), owned.draw_list.sprite_draws[0].y_px);
+    try std.testing.expectEqual(@as(f32, 8), owned.draw_list.sprite_draws[0].placement.advance_px);
 }
 
-test "scene extends wide icon groups into available blank cells" {
+test "draw list extends wide icon groups into available blank cells" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
     const cells = [_]render.RenderableCell{
         .{ .text_id = .{ .value = 0 }, .first_cell = 0, .cell_span = 1, .style = .regular, .presentation = .any, .fg = color, .bg = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
@@ -1078,14 +1078,14 @@ test "scene extends wide icon groups into available blank cells" {
         .kind = .icon,
     };
     const next = render.GlyphGroup{ .first_cell = 2, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 9 }, .kind = .normal };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &cells, &.{ icon, next }, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 3, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{ icon, next }, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 3, .rows = 1 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.sprite_draws[0].width_px);
-    try std.testing.expectEqual(@as(u8, 2), owned.scene.sprite_draws[0].cell_span);
-    try std.testing.expectEqual(@as(u16, 16), owned.scene.raster_requests[0].width_px);
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.sprite_draws[0].width_px);
+    try std.testing.expectEqual(@as(u8, 2), owned.draw_list.sprite_draws[0].cell_span);
+    try std.testing.expectEqual(@as(u16, 16), owned.draw_list.raster_requests[0].width_px);
 }
 
-test "scene positions sprite draws by grid columns" {
+test "draw list positions sprite draws by grid columns" {
     const group = render.GlyphGroup{
         .first_cell = 7,
         .cell_span = 1,
@@ -1093,38 +1093,38 @@ test "scene positions sprite draws by grid columns" {
         .sprite_key = .{ .value = 1 },
         .kind = .normal,
     };
-    var owned = try buildSceneWithOptions(std.testing.allocator, &.{}, &.{group}, &.{}, .{ .cell_w_px = 9, .cell_h_px = 17, .baseline_px = 13 }, .{ .cols = 5, .rows = 2 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &.{}, &.{group}, &.{}, .{ .cell_w_px = 9, .cell_h_px = 17, .baseline_px = 13 }, .{ .cols = 5, .rows = 2 }, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(i32, 18), owned.scene.sprite_draws[0].x_px);
-    try std.testing.expectEqual(@as(i32, 17), owned.scene.sprite_draws[0].y_px);
+    try std.testing.expectEqual(@as(i32, 18), owned.draw_list.sprite_draws[0].x_px);
+    try std.testing.expectEqual(@as(i32, 17), owned.draw_list.sprite_draws[0].y_px);
 }
 
-test "scene reuses atlas slots for repeated sprite keys" {
+test "draw list reuses atlas slots for repeated sprite keys" {
     const groups = [_]render.GlyphGroup{
         .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 7 }, .kind = .normal },
         .{ .first_cell = 1, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 7 }, .kind = .normal },
     };
     var cache = try atlas_cache.OwnedAtlasCache.init(std.testing.allocator, 8);
     defer cache.deinit();
-    var owned = try buildSceneWithAtlasCacheOptions(std.testing.allocator, &.{}, &groups, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 8 }, &cache, .{});
+    var owned = try buildDrawListWithAtlasCacheOptions(std.testing.allocator, &.{}, &groups, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 8 }, &cache, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(owned.scene.sprite_draws[0].sprite.slot, owned.scene.sprite_draws[1].sprite.slot);
-    try std.testing.expectEqual(@as(u32, 1), count32(owned.scene.raster_requests));
+    try std.testing.expectEqual(owned.draw_list.sprite_draws[0].sprite.slot, owned.draw_list.sprite_draws[1].sprite.slot);
+    try std.testing.expectEqual(@as(u32, 1), count32(owned.draw_list.raster_requests));
     try std.testing.expectEqual(@as(u32, 1), cache.len);
 }
 
-test "scene does not request raster for cache hit" {
+test "draw list does not request raster for cache hit" {
     const group = render.GlyphGroup{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 21 }, .kind = .normal };
     var cache = try atlas_cache.OwnedAtlasCache.init(std.testing.allocator, 8);
     defer cache.deinit();
     _ = cache.reserve(group.sprite_key, false);
     try std.testing.expect(cache.markRendered(group.sprite_key));
-    var owned = try buildSceneWithAtlasCacheOptions(std.testing.allocator, &.{}, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 8 }, &cache, .{});
+    var owned = try buildDrawListWithAtlasCacheOptions(std.testing.allocator, &.{}, &.{group}, &.{}, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 }, .{ .cols = 8 }, &cache, .{});
     defer owned.deinit();
-    try std.testing.expectEqual(@as(u32, 0), count32(owned.scene.raster_requests));
+    try std.testing.expectEqual(@as(u32, 0), count32(owned.draw_list.raster_requests));
 }
 
-test "borrowed scene reuses retained draw list storage" {
+test "borrowed draw list reuses retained draw list storage" {
     const fg = render.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
     const bg = render.Rgba8{ .r = 4, .g = 5, .b = 6, .a = 255 };
     const cells = [_]render.RenderableCell{
@@ -1136,10 +1136,10 @@ test "borrowed scene reuses retained draw list storage" {
     };
     var cache = try atlas_cache.OwnedAtlasCache.init(std.testing.allocator, 8);
     defer cache.deinit();
-    var scratch = RetainedScratch{};
+    var scratch = RetainedDrawScratch{};
     defer scratch.deinit(std.testing.allocator);
 
-    var first = try buildBorrowedSceneWithAtlasCacheOptions(
+    var first = try buildBorrowedDrawListWithAtlasCacheOptions(
         std.testing.allocator,
         &scratch,
         &cells,
@@ -1152,12 +1152,12 @@ test "borrowed scene reuses retained draw list storage" {
     );
     defer first.deinit();
 
-    const sprite_ptr = first.scene.sprite_draws.ptr;
-    const background_ptr = first.scene.background_draws.ptr;
-    const decoration_ptr = first.scene.decoration_draws.ptr;
-    const cursor_ptr = first.scene.cursor_draws.ptr;
+    const sprite_ptr = first.draw_list.sprite_draws.ptr;
+    const background_ptr = first.draw_list.background_draws.ptr;
+    const decoration_ptr = first.draw_list.decoration_draws.ptr;
+    const cursor_ptr = first.draw_list.cursor_draws.ptr;
 
-    var second = try buildBorrowedSceneWithAtlasCacheOptions(
+    var second = try buildBorrowedDrawListWithAtlasCacheOptions(
         std.testing.allocator,
         &scratch,
         &cells,
@@ -1170,13 +1170,13 @@ test "borrowed scene reuses retained draw list storage" {
     );
     defer second.deinit();
 
-    try std.testing.expectEqual(sprite_ptr, second.scene.sprite_draws.ptr);
-    try std.testing.expectEqual(background_ptr, second.scene.background_draws.ptr);
-    try std.testing.expectEqual(decoration_ptr, second.scene.decoration_draws.ptr);
-    try std.testing.expectEqual(cursor_ptr, second.scene.cursor_draws.ptr);
+    try std.testing.expectEqual(sprite_ptr, second.draw_list.sprite_draws.ptr);
+    try std.testing.expectEqual(background_ptr, second.draw_list.background_draws.ptr);
+    try std.testing.expectEqual(decoration_ptr, second.draw_list.decoration_draws.ptr);
+    try std.testing.expectEqual(cursor_ptr, second.draw_list.cursor_draws.ptr);
 }
 
-test "text scene applies kitty dim opacity at render-time for sprite draws" {
+test "text draw list applies kitty dim opacity at render-time for sprite draws" {
     const dim_fg = render.Rgba8{ .r = 100, .g = 150, .b = 200, .a = 255 };
     const transparent_bg = render.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
     const groups = [_]render.GlyphGroup{
@@ -1187,7 +1187,7 @@ test "text scene applies kitty dim opacity at render-time for sprite draws" {
         .{ .text_id = .{ .value = 1 }, .first_cell = 1, .cell_span = 1, .style = .regular, .presentation = .any, .invisible = true, .fg = .{ .r = 7, .g = 8, .b = 9, .a = 255 }, .bg = transparent_bg },
     };
 
-    var owned = try buildSceneWithOptions(
+    var owned = try buildDrawListWithOptions(
         std.testing.allocator,
         &cells,
         &groups,
@@ -1198,12 +1198,12 @@ test "text scene applies kitty dim opacity at render-time for sprite draws" {
     );
     defer owned.deinit();
 
-    try std.testing.expectEqual(@as(u8, dim_fg.r), owned.scene.sprite_draws[0].color.r);
-    try std.testing.expectEqual(@as(u8, dim_fg.g), owned.scene.sprite_draws[0].color.g);
-    try std.testing.expectEqual(@as(u8, dim_fg.b), owned.scene.sprite_draws[0].color.b);
-    try std.testing.expectEqual(@as(u8, 102), owned.scene.sprite_draws[0].color.a);
-    try std.testing.expectEqual(transparent_bg.r, owned.scene.clear_draws[0].color.r);
-    try std.testing.expectEqual(transparent_bg.g, owned.scene.clear_draws[0].color.g);
-    try std.testing.expectEqual(transparent_bg.b, owned.scene.clear_draws[0].color.b);
-    try std.testing.expectEqual(@as(u8, 255), owned.scene.clear_draws[0].color.a);
+    try std.testing.expectEqual(@as(u8, dim_fg.r), owned.draw_list.sprite_draws[0].color.r);
+    try std.testing.expectEqual(@as(u8, dim_fg.g), owned.draw_list.sprite_draws[0].color.g);
+    try std.testing.expectEqual(@as(u8, dim_fg.b), owned.draw_list.sprite_draws[0].color.b);
+    try std.testing.expectEqual(@as(u8, 102), owned.draw_list.sprite_draws[0].color.a);
+    try std.testing.expectEqual(transparent_bg.r, owned.draw_list.clear_draws[0].color.r);
+    try std.testing.expectEqual(transparent_bg.g, owned.draw_list.clear_draws[0].color.g);
+    try std.testing.expectEqual(transparent_bg.b, owned.draw_list.clear_draws[0].color.b);
+    try std.testing.expectEqual(@as(u8, 255), owned.draw_list.clear_draws[0].color.a);
 }

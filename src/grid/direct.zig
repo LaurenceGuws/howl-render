@@ -1,8 +1,8 @@
 const std = @import("std");
-const render = @import("scene.zig");
-const scene = @import("../scene.zig");
-const scene_damage = @import("damage.zig");
-const scene_rects = @import("rects.zig");
+const render = @import("../text/draw_primitives.zig");
+const draw_list = @import("../text/draw_list.zig");
+const text_damage = @import("../text/damage.zig");
+const rect_primitives = @import("../text/rect_primitives.zig");
 
 pub const Damage = struct {
     full: bool,
@@ -10,8 +10,8 @@ pub const Damage = struct {
     dirty_cols_start: []const u16,
     dirty_cols_end: []const u16,
 
-    pub fn init(damage: scene_damage.DamageInput, rows: u16) Damage {
-        const normalized = scene_damage.normalizeDamage(damage, rows);
+    pub fn init(damage: text_damage.DamageInput, rows: u16) Damage {
+        const normalized = text_damage.normalizeDamage(damage, rows);
         return .{
             .full = normalized.full,
             .dirty_rows = normalized.dirty_rows,
@@ -21,8 +21,8 @@ pub const Damage = struct {
     }
 };
 
-pub fn borrowScene(allocator: std.mem.Allocator, damage: Damage, direct: anytype) scene.OwnedTextScene {
-    return .{ .allocator = allocator, .scene = .{
+pub fn borrowDrawList(allocator: std.mem.Allocator, damage: Damage, direct: anytype) draw_list.OwnedTextDrawList {
+    return .{ .allocator = allocator, .draw_list = .{
         .full_redraw = damage.full,
         .clear_draws = direct.clear_draws.items,
         .background_draws = direct.background_draws.items,
@@ -40,10 +40,10 @@ pub fn appendBackground(
     merge_end_cell: *u32,
     cell: render.RenderableCell,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     damage: Damage,
 ) void {
-    scene_rects.appendBackgroundDrawCellUnmanaged(out, merge_live, merge_end_cell, cell, cell_metrics, grid_metrics, toSceneDamage(damage));
+    rect_primitives.appendBackgroundDrawCellUnmanaged(out, merge_live, merge_end_cell, cell, cell_metrics, grid_metrics, toDrawListDamage(damage));
 }
 
 pub fn appendClears(
@@ -51,27 +51,27 @@ pub fn appendClears(
     clear_row_colors: []const render.Rgba8,
     clear_row_matches: []const bool,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     damage: Damage,
 ) void {
-    scene_rects.appendClearRowDrawsUnmanaged(out, clear_row_colors, clear_row_matches, cell_metrics, grid_metrics, toSceneDamage(damage));
+    rect_primitives.appendClearRowDrawsUnmanaged(out, clear_row_colors, clear_row_matches, cell_metrics, grid_metrics, toDrawListDamage(damage));
 }
 
 pub fn appendCursor(out: *std.ArrayListUnmanaged(render.TextCursorDraw), cursor: ?render.CursorPresentation, cell_metrics: render.CellMetrics, damage: Damage) void {
-    scene_rects.appendCursorDrawsUnmanaged(out, cursor, toSceneDamage(damage), cell_metrics);
+    rect_primitives.appendCursorDrawsUnmanaged(out, cursor, toDrawListDamage(damage), cell_metrics);
 }
 
-pub fn noteClearColor(clear_row_colors: []render.Rgba8, clear_row_matches: []bool, cell: render.RenderableCell, grid_metrics: render.GridMetrics, damage: Damage) void {
-    scene_rects.noteClearColorCell(clear_row_colors, clear_row_matches, cell, grid_metrics, toSceneDamage(damage));
+pub fn noteClearColor(clear_row_colors: []render.Rgba8, clear_row_matches: []bool, cell: render.RenderableCell, grid_metrics: render.CellGridMetrics, damage: Damage) void {
+    rect_primitives.noteClearColorCell(clear_row_colors, clear_row_matches, cell, grid_metrics, toDrawListDamage(damage));
 }
 
 pub fn appendDecorations(
     out: *std.ArrayListUnmanaged(render.TextDecorationDraw),
     cell: render.RenderableCell,
-    layout: scene_rects.RectDecorationLayout,
+    layout: rect_primitives.RectDecorationLayout,
     damage: Damage,
 ) void {
-    scene_rects.appendRectDecorationCellDrawsWithLayoutUnmanaged(scene.underlineDrawColor, scene.spriteDrawColor, out, cell, layout, toSceneDamage(damage));
+    rect_primitives.appendRectDecorationCellDrawsWithLayoutUnmanaged(draw_list.underlineDrawColor, draw_list.spriteDrawColor, out, cell, layout, toDrawListDamage(damage));
 }
 
 pub fn appendRenderableRects(
@@ -83,8 +83,8 @@ pub fn appendRenderableRects(
     decoration_draws: *std.ArrayListUnmanaged(render.TextDecorationDraw),
     cell: render.RenderableCell,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
-    decoration_layout: scene_rects.RectDecorationLayout,
+    grid_metrics: render.CellGridMetrics,
+    decoration_layout: rect_primitives.RectDecorationLayout,
     damage: Damage,
 ) void {
     appendBackground(background_draws, background_merge_live, background_merge_end_cell, cell, cell_metrics, grid_metrics, damage);
@@ -92,7 +92,7 @@ pub fn appendRenderableRects(
     appendDecorations(decoration_draws, cell, decoration_layout, damage);
 }
 
-fn toSceneDamage(damage: Damage) scene_damage.NormalizedDamage {
+fn toDrawListDamage(damage: Damage) text_damage.NormalizedDamage {
     return .{
         .full = damage.full,
         .dirty_rows = damage.dirty_rows,

@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const c = @import("howl_render_c");
-const render = @import("../grid/scene.zig");
+const render = @import("../text/draw_primitives.zig");
 const prepared_buffer = @import("compositor.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const realize = @import("realizer.zig");
@@ -1271,10 +1271,10 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = options.width_px, .rows = options.height_px },
         .text_surface = .{
-            .scene = .{
+            .draw_list = .{
                 .allocator = std.testing.allocator,
                 .owned = false,
-                .scene = .{
+                .draw_list = .{
                     .clear_draws = options.clear_draws,
                     .background_draws = options.background_draws,
                     .sprite_draws = options.sprite_draws,

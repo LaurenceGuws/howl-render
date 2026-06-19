@@ -1,6 +1,6 @@
 const std = @import("std");
 const tokens = @import("../tokens.zig");
-const geometry = @import("../geometry.zig");
+const layout = @import("../layout.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const render_surface_emitter = @import("emitter.zig");
 const render_session = @import("../render_session.zig");
@@ -157,10 +157,10 @@ fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedS
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
         .text_surface = .{
-            .scene = .{
+            .draw_list = .{
                 .allocator = allocator,
                 .owned = false,
-                .scene = .{
+                .draw_list = .{
                     .clear_draws = &.{},
                     .background_draws = &.{},
                     .sprite_draws = &.{},
@@ -178,7 +178,7 @@ fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedS
 }
 
 pub const testing = struct {
-    pub fn executionMatchesPrepared(render_px: geometry.PixelSize, execution: render_session.TextSession.SubmitExecution) bool {
+    pub fn executionMatchesPrepared(render_px: layout.PixelSize, execution: render_session.TextSession.SubmitExecution) bool {
         return execution.host_surface.width == render_px.width and execution.host_surface.height == render_px.height;
     }
 };

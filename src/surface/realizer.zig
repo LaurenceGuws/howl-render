@@ -59,7 +59,7 @@ fn realizeWithStore(surface: *const Surface, pixels: []u8, base_pixels: ?[]const
     if (base_pixels) |base| {
         @memcpy(pixels, base);
     } else {
-        clearSurfacePixels(pixels);
+        clearDrawablePixels(pixels);
     }
 
     for (spanSlice(Command, surface.commands.ptr, surface.commands.count), 0..) |command, command_index| {
@@ -431,7 +431,7 @@ fn drawSolidRect(pixels: []u8, render_px: c.HowlRenderPixelSize, command_rect: c
     }
 }
 
-fn clearSurfacePixels(pixels: []u8) void {
+fn clearDrawablePixels(pixels: []u8) void {
     var index: u32 = 0;
     while (index + 3 < pixels.len) : (index += 4) {
         pixels[index] = 0;

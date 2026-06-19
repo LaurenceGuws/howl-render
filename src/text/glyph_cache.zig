@@ -1,11 +1,11 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const render = @import("../grid/scene.zig");
+const render = @import("draw_primitives.zig");
 const provider = @import("provider.zig");
 const shape_run = @import("shape/run.zig");
 const font_resolve = @import("resolver.zig");
 const font_paths = @import("font_paths.zig");
-const geometry = @import("../geometry.zig");
+const layout = @import("../layout.zig");
 const text_cache = @import("cache.zig");
 const c_api = @import("c_api.zig");
 const loaded_faces = @import("loaded_faces.zig");
@@ -23,7 +23,7 @@ pub const ShapingFace = loaded_faces.ShapingFace;
 pub const LoadedFaces = loaded_faces.LoadedFaces;
 
 pub const TextConfig = struct {
-    surface_px: geometry.PixelSize,
+    surface_px: layout.PixelSize,
     font_size_px: u16 = 16,
     font_path: ?[:0]const u8 = null,
 };
@@ -450,7 +450,7 @@ pub fn configuredCellMetrics(state: *GlyphCache, config: TextConfig) render.Cell
     return deriveCellMetricsWithConfig(state, config);
 }
 
-pub fn deriveCellSize(state: *GlyphCache, config: TextConfig) geometry.CellSize {
+pub fn deriveCellSize(state: *GlyphCache, config: TextConfig) layout.CellSize {
     const cell = deriveCellMetricsWithConfig(state, config);
     return .{ .width = cell.cell_w_px, .height = cell.cell_h_px };
 }

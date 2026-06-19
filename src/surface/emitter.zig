@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const c = @import("howl_render_c");
-const render = @import("../grid/scene.zig");
-const geometry = @import("../geometry.zig");
+const render = @import("../text/draw_primitives.zig");
+const layout = @import("../layout.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const sprite_resource_store = @import("resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
@@ -143,11 +143,11 @@ pub fn Emitter(comptime limits: Limits) type {
             self.resetPrepared(prepared);
             try self.appendFullDamage(pixelSizeOut(prepared.render_px));
             try self.appendPreparedFullRedrawClear(prepared);
-            try self.appendPreparedClears(prepared.text_surface.scene.scene.clear_draws);
-            try self.appendPreparedBackgrounds(prepared.text_surface.scene.scene.background_draws);
-            try self.appendPreparedDecorations(prepared.text_surface.scene.scene.decoration_draws);
+            try self.appendPreparedClears(prepared.text_surface.draw_list.draw_list.clear_draws);
+            try self.appendPreparedBackgrounds(prepared.text_surface.draw_list.draw_list.background_draws);
+            try self.appendPreparedDecorations(prepared.text_surface.draw_list.draw_list.decoration_draws);
             try self.appendPreparedSprites(resources, prepared);
-            try self.appendPreparedCursors(prepared.text_surface.scene.scene.cursor_draws);
+            try self.appendPreparedCursors(prepared.text_surface.draw_list.draw_list.cursor_draws);
         }
 
         fn assertReadyToPublish(self: *const Self) void {
@@ -349,7 +349,7 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         fn appendPreparedSprites(self: *Self, resources: *SpriteResourceStore, prepared: *const prepared_surface.PreparedSurface) Error!void {
-            for (prepared.text_surface.scene.scene.sprite_draws) |draw| {
+            for (prepared.text_surface.draw_list.draw_list.sprite_draws) |draw| {
                 const sprite = lookupPreparedSprite(
                     prepared,
                     draw.sprite.key,
@@ -720,15 +720,15 @@ fn packRgba(color: render.Rgba8) u32 {
         @as(u32, color.a);
 }
 
-fn pixelSizeOut(size: geometry.PixelSize) c.HowlRenderPixelSize {
+fn pixelSizeOut(size: layout.PixelSize) c.HowlRenderPixelSize {
     return .{ .width = size.width, .height = size.height };
 }
 
-fn cellSizeOut(size: geometry.CellSize) c.HowlRenderCellSize {
+fn cellSizeOut(size: layout.CellSize) c.HowlRenderCellSize {
     return .{ .width = size.width, .height = size.height };
 }
 
-fn gridSizeOut(size: geometry.GridSize) c.HowlRenderGridSize {
+fn gridSizeOut(size: layout.GridSize) c.HowlRenderGridSize {
     return .{ .cols = size.cols, .rows = size.rows };
 }
 

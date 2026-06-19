@@ -1,8 +1,8 @@
 const std = @import("std");
 const c = @import("howl_render_c");
-const geometry = @import("geometry.zig");
+const layout = @import("layout.zig");
 
-const render = @import("grid/scene.zig");
+const render = @import("text/draw_primitives.zig");
 const surface_preparer = @import("surface/surface_preparer.zig");
 const face_selection = @import("text/face_selection.zig");
 const cluster = @import("text/shape/cluster.zig");
@@ -65,9 +65,9 @@ const BenchmarkDamage = struct {
 const BenchmarkCase = struct {
     name: []const u8,
     input: BenchmarkInput,
-    grid: render.GridMetrics,
+    grid: render.CellGridMetrics,
     damage: BenchmarkDamage,
-    cell_px: geometry.CellSize,
+    cell_px: layout.CellSize,
     dirty_cells_per_run: u32,
 };
 
@@ -212,7 +212,7 @@ fn rgba(r: u8, g: u8, b: u8) render.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = 255 };
 }
 
-fn defaultCellMetrics(cell_px: geometry.CellSize) render.CellMetrics {
+fn defaultCellMetrics(cell_px: layout.CellSize) render.CellMetrics {
     const h = @max(cell_px.height, 1);
     return .{
         .cell_w_px = @max(cell_px.width, 1),
@@ -285,7 +285,7 @@ fn benchmarkDamage(full: bool, dirty_rows: []const bool, dirty_cols_start: []con
     };
 }
 
-fn buildBenchmarkCase(name: []const u8, input: BenchmarkInput, grid: render.GridMetrics, full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, cell_px: geometry.CellSize, dirty_cells_per_run: u32) BenchmarkCase {
+fn buildBenchmarkCase(name: []const u8, input: BenchmarkInput, grid: render.CellGridMetrics, full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, cell_px: layout.CellSize, dirty_cells_per_run: u32) BenchmarkCase {
     return .{
         .name = name,
         .input = input,
@@ -685,7 +685,7 @@ fn initBenchmarkPrepareContext(benchmark_case: BenchmarkCase) BenchmarkPrepareCo
             .cell_metrics = defaultCellMetrics(benchmark_case.cell_px),
         },
         .options = .{
-            .scene = .{
+            .draw_list = .{
                 .damage = .{
                     .full = benchmark_case.damage.full,
                     .dirty_rows = benchmark_case.damage.dirty_rows,
@@ -723,10 +723,10 @@ fn extractObservation(duration_ns: u64, counting: CountingAllocator) RunObservat
     };
 }
 
-fn countSceneFills(analysis: surface_preparer.OwnedPreparedTextSurface) u64 {
-    return count64(analysis.scene.scene.background_draws) +
-        count64(analysis.scene.scene.decoration_draws) +
-        count64(analysis.scene.scene.cursor_draws);
+fn countDrawListFills(analysis: surface_preparer.OwnedPreparedTextSurface) u64 {
+    return count64(analysis.draw_list.draw_list.background_draws) +
+        count64(analysis.draw_list.draw_list.decoration_draws) +
+        count64(analysis.draw_list.draw_list.cursor_draws);
 }
 
 fn markAtlasOutputs(preparer: *surface_preparer.TextSurfacePreparer, analysis: surface_preparer.OwnedPreparedTextSurface) void {
@@ -744,8 +744,8 @@ fn runBenchmarkCaseCold(io: std.Io, counting: *CountingAllocator, preparer: *sur
     const uploads = count64(analysis.raster_plan.outputs);
     const result: ColdRun = .{
         .observation = extractObservation(duration_ns, counting.*),
-        .fills = countSceneFills(analysis),
-        .glyphs = count64(analysis.scene.scene.sprite_draws),
+        .fills = countDrawListFills(analysis),
+        .glyphs = count64(analysis.draw_list.draw_list.sprite_draws),
         .uploads = uploads,
     };
     markAtlasOutputs(preparer, analysis);
@@ -771,8 +771,8 @@ fn runBenchmarkCaseWarm(
         const duration_ns = nowNs(io) - start_ns;
         observation.* = extractObservation(duration_ns, counting.*);
         markAtlasOutputs(preparer, analysis);
-        fill_values[idx] = countSceneFills(analysis);
-        glyph_values[idx] = count64(analysis.scene.scene.sprite_draws);
+        fill_values[idx] = countDrawListFills(analysis);
+        glyph_values[idx] = count64(analysis.draw_list.draw_list.sprite_draws);
         upload_values[idx] = count64(analysis.raster_plan.outputs);
     }
 }

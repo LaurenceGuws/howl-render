@@ -1,17 +1,17 @@
 const std = @import("std");
 const atlas_cache = @import("raster/atlas.zig");
 const cluster = @import("shape/cluster.zig");
-const render = @import("../grid/scene.zig");
-const direct_scene = @import("../grid/direct.zig");
+const render = @import("draw_primitives.zig");
+const direct_draw = @import("../grid/direct.zig");
 const face_selection = @import("face_selection.zig");
 const lane = @import("lane.zig");
 const prepare_counters = @import("prepare_counters.zig");
 const provider = @import("provider.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
-const scene = @import("../scene.zig");
-const scene_damage = @import("../grid/damage.zig");
-const scene_rects = @import("../grid/rects.zig");
+const draw_list = @import("draw_list.zig");
+const text_damage = @import("damage.zig");
+const rect_primitives = @import("rect_primitives.zig");
 const sprite_key = @import("raster/key.zig");
 
 const RenderableCell = render.RenderableCell;
@@ -21,7 +21,7 @@ const FaceRecord = face_selection.FaceRecord;
 const LookupGlyphResult = provider.LookupGlyphResult;
 
 pub const Product = struct {
-    damage: direct_scene.Damage,
+    damage: direct_draw.Damage,
     outputs: []rasterizer.RasterSpriteOutput = &.{},
     outputs_owned: bool = false,
 
@@ -113,15 +113,15 @@ pub fn prepare(
     driver: Driver,
     source: Source,
     policy: Policy,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     selection: face_selection.FaceSelection,
-    damage_input: scene_damage.DamageInput,
+    damage_input: text_damage.DamageInput,
     cursor: ?render.CursorPresentation,
     lane_report: *lane.LaneReport,
     rejected_complex_cells_out: ?*u64,
 ) !?Product {
-    const damage = direct_scene.Damage.init(damage_input, grid_metrics.rows);
-    const decoration_layout = scene_rects.rectDecorationLayout(selection.cell_metrics, grid_metrics);
+    const damage = direct_draw.Damage.init(damage_input, grid_metrics.rows);
+    const decoration_layout = rect_primitives.rectDecorationLayout(selection.cell_metrics, grid_metrics);
     const source_len = sourceLen(source);
     var rejected_complex_cells: u64 = 0;
     try driver.scratch.reset(driver.allocator, source_len, source_len, grid_metrics.rows);
@@ -136,7 +136,7 @@ pub fn prepare(
     }
     std.debug.assert(rejected_complex_cells == 0);
     if (rejected_complex_cells_out) |out| out.* = 0;
-    direct_scene.appendClears(
+    direct_draw.appendClears(
         &driver.scratch.clear_draws,
         driver.scratch.clear_row_colors.items,
         driver.scratch.clear_row_matches.items,
@@ -144,8 +144,8 @@ pub fn prepare(
         grid_metrics,
         damage,
     );
-    direct_scene.appendCursor(&driver.scratch.cursor_draws, cursor, selection.cell_metrics, damage);
-    const product = try finishScene(driver, damage, lane_report);
+    direct_draw.appendCursor(&driver.scratch.cursor_draws, cursor, selection.cell_metrics, damage);
+    const product = try finishDrawList(driver, damage, lane_report);
     return product;
 }
 
@@ -185,9 +185,9 @@ const ScratchCheckpoint = struct {
 fn appendVisible(
     driver: Driver,
     source: Source,
-    damage: direct_scene.Damage,
-    grid_metrics: render.GridMetrics,
-    decoration_layout: scene_rects.RectDecorationLayout,
+    damage: direct_draw.Damage,
+    grid_metrics: render.CellGridMetrics,
+    decoration_layout: rect_primitives.RectDecorationLayout,
     selection: face_selection.FaceSelection,
     policy: Policy,
     lane_report: *lane.LaneReport,
@@ -240,7 +240,7 @@ fn candidateDecision(policy: Policy, lane_report: *lane.LaneReport, candidate: C
     return action;
 }
 
-fn sourceCandidate(source: Source, idx: u32, damage: direct_scene.Damage, grid_metrics: render.GridMetrics) ?Candidate {
+fn sourceCandidate(source: Source, idx: u32, damage: direct_draw.Damage, grid_metrics: render.CellGridMetrics) ?Candidate {
     const item = sourceItem(source, idx) orelse return null;
     if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) return null;
     return .{ .item = item, .choice = lane.classifyRenderableCell(item.renderable, item.text) };
@@ -262,7 +262,7 @@ fn sourceItem(source: Source, idx: u32) ?cluster.RenderableText {
     };
 }
 
-fn damageInput(damage: direct_scene.Damage) scene_damage.DamageInput {
+fn damageInput(damage: direct_draw.Damage) text_damage.DamageInput {
     return .{
         .full = damage.full,
         .dirty_rows = damage.dirty_rows,
@@ -281,13 +281,13 @@ fn appendRenderable(
     driver: Driver,
     renderable: render.RenderableCell,
     text: render.CellText,
-    damage: direct_scene.Damage,
-    grid_metrics: render.GridMetrics,
-    decoration_layout: scene_rects.RectDecorationLayout,
+    damage: direct_draw.Damage,
+    grid_metrics: render.CellGridMetrics,
+    decoration_layout: rect_primitives.RectDecorationLayout,
     selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
 ) !void {
-    direct_scene.appendRenderableRects(
+    direct_draw.appendRenderableRects(
         &driver.scratch.background_draws,
         &driver.scratch.background_merge_live,
         &driver.scratch.background_merge_end_cell,
@@ -308,7 +308,7 @@ fn renderableAppend(
     driver: Driver,
     renderable: render.RenderableCell,
     text: render.CellText,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
 ) !void {
@@ -336,7 +336,7 @@ fn appendResolvedGlyph(
     driver: Driver,
     renderable: render.RenderableCell,
     text: render.CellText,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
     face: face_selection.FaceRecord,
@@ -383,7 +383,7 @@ fn blankFastReturn(driver: Driver, text: render.CellText) bool {
 fn spriteAppend(
     driver: Driver,
     renderable: render.RenderableCell,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
     lookup: provider.LookupGlyphResult,
@@ -400,7 +400,7 @@ fn spriteAppend(
         .width_px = @intCast(@as(u32, span) * @as(u32, selection.cell_metrics.cell_w_px)),
         .height_px = selection.cell_metrics.cell_h_px,
         .placement = .{ .advance_px = @max(lookup.advance_px, @as(f32, @floatFromInt(@as(u32, span) * @as(u32, selection.cell_metrics.cell_w_px)))) },
-        .color = scene.spriteDrawColor(renderable),
+        .color = draw_list.spriteDrawColor(renderable),
         .first_cell = renderable.first_cell,
         .cell_span = span,
     });
@@ -448,7 +448,7 @@ fn scratchEmpty(scratch: *const Scratch) bool {
     return true;
 }
 
-fn finishScene(driver: Driver, damage: direct_scene.Damage, lane_report: *lane.LaneReport) !Product {
+fn finishDrawList(driver: Driver, damage: direct_draw.Damage, lane_report: *lane.LaneReport) !Product {
     var outputs: []rasterizer.RasterSpriteOutput = &.{};
     var outputs_owned = false;
     if (driver.scratch.raster_reqs.items.len > 0) {

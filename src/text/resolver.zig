@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../grid/scene.zig");
+const render = @import("draw_primitives.zig");
 const face_selection = @import("face_selection.zig");
 const symbol_map = @import("symbol_map.zig");
 
@@ -183,7 +183,7 @@ pub fn resolveClusters(
     selection: face_selection.FaceSelection,
     clusters: []const render.CellCluster,
     text_cache: render.LineTextCache,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
 ) !OwnedResolvedRuns {
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     const cluster_count = count32(clusters);

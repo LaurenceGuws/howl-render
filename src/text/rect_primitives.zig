@@ -1,6 +1,6 @@
 const std = @import("std");
-const render = @import("scene.zig");
-const scene_damage = @import("damage.zig");
+const render = @import("draw_primitives.zig");
+const text_damage = @import("damage.zig");
 
 const CursorDrawCount = u3;
 const block_contrast_threshold: f32 = 2.5;
@@ -47,13 +47,13 @@ const SteppedUnderlineCadence = struct {
 };
 
 pub const RectDecorationLayout = struct {
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     geometry: render.DecorationGeometry,
     cols: u32,
     cell_w_px: u16,
     cell_h_px: u16,
 
-    pub fn init(cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics) RectDecorationLayout {
+    pub fn init(cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics) RectDecorationLayout {
         return .{
             .grid_metrics = grid_metrics,
             .geometry = decorationGeometryForCellMetrics(cell_metrics),
@@ -64,30 +64,30 @@ pub const RectDecorationLayout = struct {
     }
 };
 
-pub fn rectDecorationLayout(cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics) RectDecorationLayout {
+pub fn rectDecorationLayout(cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics) RectDecorationLayout {
     return .init(cell_metrics, grid_metrics);
 }
 
-pub fn countClearDraws(grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
+pub fn countClearDraws(grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) usize {
     if (damage.full) return 0;
-    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
+    const rows = @min(grid_metrics.rows, text_damage.damageRowCount(damage));
     var count: usize = 0;
     var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        if (scene_damage.dirtyRowSpan(damage, grid_metrics, row) == null) continue;
+        if (text_damage.dirtyRowSpan(damage, grid_metrics, row) == null) continue;
         count += 1;
     }
     return count;
 }
 
-pub fn countCursorDraws(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
+pub fn countCursorDraws(cursor: anytype, damage: text_damage.NormalizedDamage) usize {
     const cursor_value = cursor orelse return 0;
     if (!cursor_value.visible) return 0;
     if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
     return cursorDrawCount(cursor_value.shape);
 }
 
-pub fn countCursorFillRects(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
+pub fn countCursorFillRects(cursor: anytype, damage: text_damage.NormalizedDamage) usize {
     const cursor_value = cursor orelse return 0;
     if (!cursor_value.visible) return 0;
     if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
@@ -98,14 +98,14 @@ pub fn countCursorFillRects(cursor: anytype, damage: scene_damage.NormalizedDama
     };
 }
 
-pub fn countCursorTextRecolorSpans(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
+pub fn countCursorTextRecolorSpans(cursor: anytype, damage: text_damage.NormalizedDamage) usize {
     const cursor_value = cursor orelse return 0;
     if (!cursor_value.visible) return 0;
     if (classifyCursorLead(damage, cursor_value) != .draw) return 0;
     return if (cursor_value.shape == .block) 1 else 0;
 }
 
-pub fn countCursorTrailRects(cursor: anytype, damage: scene_damage.NormalizedDamage) usize {
+pub fn countCursorTrailRects(cursor: anytype, damage: text_damage.NormalizedDamage) usize {
     _ = damage;
     const cursor_value = cursor orelse return 0;
     return cursor_value.trail.count;
@@ -115,7 +115,7 @@ pub fn cursorDrawCount(shape: anytype) usize {
     return @intCast(cursorDrawCountExact(shape));
 }
 
-pub fn countRectDecorationDraws(cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) usize {
+pub fn countRectDecorationDraws(cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) usize {
     const deco = decorationGeometryForCellMetrics(cell_metrics);
     var count: usize = 0;
     for (cells) |cell| {
@@ -127,7 +127,7 @@ pub fn countRectDecorationDraws(cells: []const render.RenderableCell, cell_metri
     return count;
 }
 
-pub fn appendBackgroundDraws(allocator: std.mem.Allocator, out: *std.ArrayList(render.TextBackgroundDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) !void {
+pub fn appendBackgroundDraws(allocator: std.mem.Allocator, out: *std.ArrayList(render.TextBackgroundDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) !void {
     const cell_len = count32(cells);
     var idx: u32 = 0;
     while (idx < cell_len) {
@@ -168,7 +168,7 @@ pub fn appendBackgroundDraws(allocator: std.mem.Allocator, out: *std.ArrayList(r
     }
 }
 
-pub fn appendBackgroundDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextBackgroundDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+pub fn appendBackgroundDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextBackgroundDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) void {
     const cell_len = count32(cells);
     var idx: u32 = 0;
     while (idx < cell_len) {
@@ -209,7 +209,7 @@ pub fn appendBackgroundDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextBa
     }
 }
 
-pub fn appendBackgroundDrawCellUnmanaged(out: *std.ArrayListUnmanaged(render.TextBackgroundDraw), merge_live: *bool, merge_end_cell: *u32, cell: render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+pub fn appendBackgroundDrawCellUnmanaged(out: *std.ArrayListUnmanaged(render.TextBackgroundDraw), merge_live: *bool, merge_end_cell: *u32, cell: render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) void {
     const lead = classifyBackgroundLead(damage, grid_metrics, cell);
     if (lead == .skip) {
         merge_live.* = false;
@@ -251,12 +251,12 @@ pub fn appendBackgroundDrawCellUnmanaged(out: *std.ArrayListUnmanaged(render.Tex
     merge_end_cell.* = cell.first_cell + span;
 }
 
-pub fn appendClearDraws(allocator: std.mem.Allocator, out: *std.ArrayList(render.TextClearDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) !void {
+pub fn appendClearDraws(allocator: std.mem.Allocator, out: *std.ArrayList(render.TextClearDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) !void {
     if (damage.full) return;
-    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
+    const rows = @min(grid_metrics.rows, text_damage.damageRowCount(damage));
     var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        const dirty = scene_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+        const dirty = text_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
         const first_cell = dirty.firstCell(grid_metrics);
         const cell_span = dirty.cellSpan();
         const span_cells = @as(u32, @max(cell_span, 1));
@@ -272,12 +272,12 @@ pub fn appendClearDraws(allocator: std.mem.Allocator, out: *std.ArrayList(render
     }
 }
 
-pub fn appendClearDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextClearDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+pub fn appendClearDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextClearDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) void {
     if (damage.full) return;
-    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
+    const rows = @min(grid_metrics.rows, text_damage.damageRowCount(damage));
     var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        const dirty = scene_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+        const dirty = text_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
         const first_cell = dirty.firstCell(grid_metrics);
         const cell_span = dirty.cellSpan();
         const span_cells = @as(u32, @max(cell_span, 1));
@@ -293,28 +293,28 @@ pub fn appendClearDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextClearDr
     }
 }
 
-pub fn noteClearColorCell(clear_row_colors: []render.Rgba8, clear_row_matches: []bool, cell: render.RenderableCell, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+pub fn noteClearColorCell(clear_row_colors: []render.Rgba8, clear_row_matches: []bool, cell: render.RenderableCell, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) void {
     if (damage.full) return;
     if (cell.continuation) return;
     if (cell.bg.a != 0) return;
 
-    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
+    const rows = @min(grid_metrics.rows, text_damage.damageRowCount(damage));
     var row: u16 = 0;
     while (row < rows) : (row += 1) {
         if (clear_row_matches[row]) continue;
-        const dirty = scene_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
-        if (!scene_damage.dirtySpanOverlapsCellSpan(grid_metrics, dirty, cell)) continue;
+        const dirty = text_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+        if (!text_damage.dirtySpanOverlapsCellSpan(grid_metrics, dirty, cell)) continue;
         clear_row_colors[row] = .{ .r = cell.bg.r, .g = cell.bg.g, .b = cell.bg.b, .a = 255 };
         clear_row_matches[row] = true;
     }
 }
 
-pub fn appendClearRowDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextClearDraw), clear_row_colors: []const render.Rgba8, clear_row_matches: []const bool, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+pub fn appendClearRowDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextClearDraw), clear_row_colors: []const render.Rgba8, clear_row_matches: []const bool, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) void {
     if (damage.full) return;
-    const rows = @min(grid_metrics.rows, scene_damage.damageRowCount(damage));
+    const rows = @min(grid_metrics.rows, text_damage.damageRowCount(damage));
     var row: u16 = 0;
     while (row < rows) : (row += 1) {
-        const dirty = scene_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+        const dirty = text_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
         const first_cell = dirty.firstCell(grid_metrics);
         const cell_span = dirty.cellSpan();
         const span_cells = @as(u32, @max(cell_span, 1));
@@ -330,7 +330,7 @@ pub fn appendClearRowDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextClea
     }
 }
 
-pub fn appendCursorDraws(allocator: std.mem.Allocator, out: *std.ArrayList(render.TextCursorDraw), cursor: ?render.CursorPresentation, damage: scene_damage.NormalizedDamage, cell_metrics: render.CellMetrics) !void {
+pub fn appendCursorDraws(allocator: std.mem.Allocator, out: *std.ArrayList(render.TextCursorDraw), cursor: ?render.CursorPresentation, damage: text_damage.NormalizedDamage, cell_metrics: render.CellMetrics) !void {
     const cursor_value = cursor orelse return;
     if (!cursor_value.visible) return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
@@ -344,13 +344,13 @@ pub fn appendCursorDraws(allocator: std.mem.Allocator, out: *std.ArrayList(rende
 pub fn appendCursorPrimitives(
     allocator: std.mem.Allocator,
     cursor_draws: *std.ArrayList(render.TextCursorDraw),
-    cursor_fill_rects: *std.ArrayList(@import("../scene.zig").CursorFillRect),
-    cursor_text_recolor_spans: *std.ArrayList(@import("../scene.zig").CursorTextRecolorSpan),
-    cursor_trail_rects: *std.ArrayList(@import("../scene.zig").CursorTrailRect),
+    cursor_fill_rects: *std.ArrayList(@import("draw_list.zig").CursorFillRect),
+    cursor_text_recolor_spans: *std.ArrayList(@import("draw_list.zig").CursorTextRecolorSpan),
+    cursor_trail_rects: *std.ArrayList(@import("draw_list.zig").CursorTrailRect),
     cells: []const render.RenderableCell,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     cursor: ?render.CursorPresentation,
-    damage: scene_damage.NormalizedDamage,
+    damage: text_damage.NormalizedDamage,
     cell_metrics: render.CellMetrics,
 ) !void {
     const cursor_value = cursor orelse return;
@@ -363,7 +363,7 @@ pub fn appendCursorPrimitives(
     try appendCursorTextRecolorSpans(allocator, cursor_text_recolor_spans, cells, grid_metrics, cursor_value);
 }
 
-fn appendCursorFillRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("../scene.zig").CursorFillRect), cells: []const render.RenderableCell, grid_metrics: render.GridMetrics, cursor: anytype, cell_metrics: render.CellMetrics) !void {
+fn appendCursorFillRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("draw_list.zig").CursorFillRect), cells: []const render.RenderableCell, grid_metrics: render.CellGridMetrics, cursor: anytype, cell_metrics: render.CellMetrics) !void {
     const first_cell: u32 = @as(u32, cursor.primary_extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, cursor.primary_extent.col);
     const cell_span: u8 = @intCast(@min(@as(u32, cursor.primary_extent.cols) * @as(u32, cursor.primary_extent.rows), @as(u32, std.math.maxInt(u8))));
     const base_x: i32 = @as(i32, @intCast(cursor.primary_extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
@@ -390,7 +390,7 @@ fn appendCursorFillRects(allocator: std.mem.Allocator, out: *std.ArrayList(@impo
     }
 }
 
-fn appendCursorTextRecolorSpans(allocator: std.mem.Allocator, out: *std.ArrayList(@import("../scene.zig").CursorTextRecolorSpan), cells: []const render.RenderableCell, grid_metrics: render.GridMetrics, cursor: anytype) !void {
+fn appendCursorTextRecolorSpans(allocator: std.mem.Allocator, out: *std.ArrayList(@import("draw_list.zig").CursorTextRecolorSpan), cells: []const render.RenderableCell, grid_metrics: render.CellGridMetrics, cursor: anytype) !void {
     if (cursor.shape != .block) return;
     const first_cell: u32 = @as(u32, cursor.primary_extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, cursor.primary_extent.col);
     const cell = findCellByFirstCell(cells, first_cell) orelse return;
@@ -402,7 +402,7 @@ fn appendCursorTextRecolorSpans(allocator: std.mem.Allocator, out: *std.ArrayLis
     });
 }
 
-fn appendCursorTrailRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("../scene.zig").CursorTrailRect), grid_metrics: render.GridMetrics, cursor: anytype, cell_metrics: render.CellMetrics) !void {
+fn appendCursorTrailRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("draw_list.zig").CursorTrailRect), grid_metrics: render.CellGridMetrics, cursor: anytype, cell_metrics: render.CellMetrics) !void {
     for (cursor.trail.rects[0..cursor.trail.count]) |rect| {
         const first_cell: u32 = if (rect.pixel_rect) pixelRectFirstCell(rect, grid_metrics, cell_metrics) else @as(u32, rect.extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, rect.extent.col);
         const x_px: i32 = if (rect.pixel_rect) rect.x_px else @as(i32, @intCast(rect.extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
@@ -424,7 +424,7 @@ fn appendCursorTrailRects(allocator: std.mem.Allocator, out: *std.ArrayList(@imp
     }
 }
 
-fn pixelRectFirstCell(rect: anytype, grid_metrics: render.GridMetrics, cell_metrics: render.CellMetrics) u32 {
+fn pixelRectFirstCell(rect: anytype, grid_metrics: render.CellGridMetrics, cell_metrics: render.CellMetrics) u32 {
     std.debug.assert(rect.pixel_rect);
     std.debug.assert(cell_metrics.cell_w_px != 0);
     std.debug.assert(cell_metrics.cell_h_px != 0);
@@ -433,7 +433,7 @@ fn pixelRectFirstCell(rect: anytype, grid_metrics: render.GridMetrics, cell_metr
     return @min(row, @as(u32, @max(grid_metrics.rows, 1)) - 1) * @max(@as(u32, grid_metrics.cols), 1) + @min(col, @as(u32, @max(grid_metrics.cols, 1)) - 1);
 }
 
-pub fn appendCursorDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextCursorDraw), cursor: anytype, damage: scene_damage.NormalizedDamage, cell_metrics: render.CellMetrics) void {
+pub fn appendCursorDrawsUnmanaged(out: *std.ArrayListUnmanaged(render.TextCursorDraw), cursor: anytype, damage: text_damage.NormalizedDamage, cell_metrics: render.CellMetrics) void {
     const cursor_value = cursor orelse return;
     if (!cursor_value.visible) return;
     if (classifyCursorLead(damage, cursor_value) != .draw) return;
@@ -458,7 +458,7 @@ pub fn decorationGeometryForCellMetrics(cell_metrics: render.CellMetrics) render
     return decorationGeometry(cell_metrics, defaultFontMetrics(cell_metrics));
 }
 
-pub fn appendRectDecorationDraws(comptime underline_color_fn: fn (render.RenderableCell) render.Rgba8, comptime text_color_fn: fn (render.RenderableCell) render.Rgba8, allocator: std.mem.Allocator, out: *std.ArrayList(render.TextDecorationDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) !void {
+pub fn appendRectDecorationDraws(comptime underline_color_fn: fn (render.RenderableCell) render.Rgba8, comptime text_color_fn: fn (render.RenderableCell) render.Rgba8, allocator: std.mem.Allocator, out: *std.ArrayList(render.TextDecorationDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) !void {
     const deco = decorationGeometryForCellMetrics(cell_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     for (cells) |cell| {
@@ -473,7 +473,7 @@ pub fn appendRectDecorationDraws(comptime underline_color_fn: fn (render.Rendera
     }
 }
 
-pub fn appendRectDecorationDrawsUnmanaged(comptime underline_color_fn: fn (render.RenderableCell) render.Rgba8, comptime text_color_fn: fn (render.RenderableCell) render.Rgba8, out: *std.ArrayListUnmanaged(render.TextDecorationDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+pub fn appendRectDecorationDrawsUnmanaged(comptime underline_color_fn: fn (render.RenderableCell) render.Rgba8, comptime text_color_fn: fn (render.RenderableCell) render.Rgba8, out: *std.ArrayListUnmanaged(render.TextDecorationDraw), cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) void {
     const deco = decorationGeometryForCellMetrics(cell_metrics);
     const cols = @max(@as(u32, grid_metrics.cols), 1);
     for (cells) |cell| {
@@ -488,12 +488,12 @@ pub fn appendRectDecorationDrawsUnmanaged(comptime underline_color_fn: fn (rende
     }
 }
 
-pub fn appendRectDecorationCellDrawsUnmanaged(comptime underline_color_fn: fn (render.RenderableCell) render.Rgba8, comptime text_color_fn: fn (render.RenderableCell) render.Rgba8, out: *std.ArrayListUnmanaged(render.TextDecorationDraw), cell: render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.GridMetrics, damage: scene_damage.NormalizedDamage) void {
+pub fn appendRectDecorationCellDrawsUnmanaged(comptime underline_color_fn: fn (render.RenderableCell) render.Rgba8, comptime text_color_fn: fn (render.RenderableCell) render.Rgba8, out: *std.ArrayListUnmanaged(render.TextDecorationDraw), cell: render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) void {
     const layout = rectDecorationLayout(cell_metrics, grid_metrics);
     appendRectDecorationCellDrawsWithLayoutUnmanaged(underline_color_fn, text_color_fn, out, cell, layout, damage);
 }
 
-pub fn appendRectDecorationCellDrawsWithLayoutUnmanaged(comptime underline_color_fn: fn (render.RenderableCell) render.Rgba8, comptime text_color_fn: fn (render.RenderableCell) render.Rgba8, out: *std.ArrayListUnmanaged(render.TextDecorationDraw), cell: render.RenderableCell, layout: RectDecorationLayout, damage: scene_damage.NormalizedDamage) void {
+pub fn appendRectDecorationCellDrawsWithLayoutUnmanaged(comptime underline_color_fn: fn (render.RenderableCell) render.Rgba8, comptime text_color_fn: fn (render.RenderableCell) render.Rgba8, out: *std.ArrayListUnmanaged(render.TextDecorationDraw), cell: render.RenderableCell, layout: RectDecorationLayout, damage: text_damage.NormalizedDamage) void {
     if (classifyDecorationLead(damage, layout.grid_metrics, cell) != .draw) return;
     const col = cell.first_cell % layout.cols;
     const row = cell.first_cell / layout.cols;
@@ -504,28 +504,28 @@ pub fn appendRectDecorationCellDrawsWithLayoutUnmanaged(comptime underline_color
     if (cell.strikethrough) appendDecorationUnmanaged(out, .{ .kind = .strikethrough, .x_px = base_x, .y_px = base_y + layout.geometry.strikethrough_y_px, .width_px = width_px, .height_px = layout.geometry.strikethrough_h_px, .color = text_color_fn(cell), .first_cell = cell.first_cell, .cell_span = cell.cell_span });
 }
 
-fn classifyCursorLead(damage: scene_damage.NormalizedDamage, cursor: anytype) CursorLead {
-    if (!damage.full and !scene_damage.rowDirty(damage, cursor.primary_extent.row)) return .skip;
+fn classifyCursorLead(damage: text_damage.NormalizedDamage, cursor: anytype) CursorLead {
+    if (!damage.full and !text_damage.rowDirty(damage, cursor.primary_extent.row)) return .skip;
     return .draw;
 }
 
-fn classifyBackgroundLead(damage: scene_damage.NormalizedDamage, grid_metrics: render.GridMetrics, cell: render.RenderableCell) BackgroundLead {
+fn classifyBackgroundLead(damage: text_damage.NormalizedDamage, grid_metrics: render.CellGridMetrics, cell: render.RenderableCell) BackgroundLead {
     if (cell.continuation) return .skip;
-    if (!scene_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .skip;
+    if (!text_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .skip;
     if (cell.bg.a == 0) return .transparent;
     return .span;
 }
 
-fn classifyBackgroundNext(damage: scene_damage.NormalizedDamage, grid_metrics: render.GridMetrics, row: u16, fill_color: render.Rgba8, span_end_cell: u32, cell: render.RenderableCell) BackgroundNext {
+fn classifyBackgroundNext(damage: text_damage.NormalizedDamage, grid_metrics: render.CellGridMetrics, row: u16, fill_color: render.Rgba8, span_end_cell: u32, cell: render.RenderableCell) BackgroundNext {
     if (cell.continuation) return .stop_continuation;
-    if (!scene_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .stop_damage;
+    if (!text_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .stop_damage;
     if (!sameRgba8(cell.bg, fill_color)) return .stop_color;
     if (cell.first_cell / @max(@as(u32, grid_metrics.cols), 1) != row) return .stop_row;
     if (cell.first_cell != span_end_cell) return .stop_gap;
     return .merge;
 }
 
-fn clearColorForSpan(cells: []const render.RenderableCell, grid_metrics: render.GridMetrics, dirty: scene_damage.DirtyRowSpan) render.Rgba8 {
+fn clearColorForSpan(cells: []const render.RenderableCell, grid_metrics: render.CellGridMetrics, dirty: text_damage.DirtyRowSpan) render.Rgba8 {
     for (cells) |cell| {
         if (classifyClearColorCell(grid_metrics, dirty, cell) != .match) continue;
         const clear = render.Rgba8{ .r = cell.bg.r, .g = cell.bg.g, .b = cell.bg.b, .a = 255 };
@@ -535,17 +535,17 @@ fn clearColorForSpan(cells: []const render.RenderableCell, grid_metrics: render.
     return .{ .r = 0, .g = 0, .b = 0, .a = 255 };
 }
 
-fn classifyClearColorCell(grid_metrics: render.GridMetrics, dirty_span: scene_damage.DirtyRowSpan, cell: render.RenderableCell) ClearColorCell {
+fn classifyClearColorCell(grid_metrics: render.CellGridMetrics, dirty_span: text_damage.DirtyRowSpan, cell: render.RenderableCell) ClearColorCell {
     if (cell.continuation) return .skip;
     if (cell.bg.a != 0) return .skip;
-    if (!scene_damage.dirtySpanOverlapsCellSpan(grid_metrics, dirty_span, cell)) return .skip;
+    if (!text_damage.dirtySpanOverlapsCellSpan(grid_metrics, dirty_span, cell)) return .skip;
     return .match;
 }
 
-fn classifyDecorationLead(damage: scene_damage.NormalizedDamage, grid_metrics: render.GridMetrics, cell: render.RenderableCell) DecorationLead {
+fn classifyDecorationLead(damage: text_damage.NormalizedDamage, grid_metrics: render.CellGridMetrics, cell: render.RenderableCell) DecorationLead {
     if (cell.continuation) return .skip;
     if (!cell.underline and !cell.strikethrough) return .skip;
-    if (!scene_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .skip;
+    if (!text_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) return .skip;
     return .draw;
 }
 
@@ -861,7 +861,7 @@ fn testCursorPresentation() render.CursorPresentation {
 }
 
 test "configured beam and underline thickness affect cursor geometry" {
-    const damage = scene_damage.normalizeDamage(.{ .full = true }, 1);
+    const damage = text_damage.normalizeDamage(.{ .full = true }, 1);
     const cell_metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
 
     var beam = testCursorPresentation();
@@ -874,7 +874,7 @@ test "configured beam and underline thickness affect cursor geometry" {
     var underline = testCursorPresentation();
     underline.shape = .underline;
     underline.underline_thickness = 4.0;
-    var list = std.ArrayList(@import("../scene.zig").CursorFillRect).empty;
+    var list = std.ArrayList(@import("draw_list.zig").CursorFillRect).empty;
     defer list.deinit(std.testing.allocator);
     try appendCursorFillRects(std.testing.allocator, &list, &.{}, .{ .cols = 1, .rows = 1 }, underline, cell_metrics);
     try std.testing.expectEqual(@as(usize, 1), list.items.len);
@@ -885,7 +885,7 @@ test "configured beam and underline thickness affect cursor geometry" {
 test "configured trail color overrides empty trail rect color" {
     var cursor = testCursorPresentation();
     cursor.cursor_trail_color = .{ .kind = .rgb, .value = 0x708090 };
-    var list = std.ArrayList(@import("../scene.zig").CursorTrailRect).empty;
+    var list = std.ArrayList(@import("draw_list.zig").CursorTrailRect).empty;
     defer list.deinit(std.testing.allocator);
     try appendCursorTrailRects(std.testing.allocator, &list, .{ .cols = 1, .rows = 1 }, cursor, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     try std.testing.expectEqual(@as(usize, 1), list.items.len);
@@ -900,7 +900,7 @@ test "cursor trail pixel rect bypasses cell extent scaling" {
     cursor.trail.rects[0].width_px = 23;
     cursor.trail.rects[0].height_px = 29;
 
-    var list = std.ArrayList(@import("../scene.zig").CursorTrailRect).empty;
+    var list = std.ArrayList(@import("draw_list.zig").CursorTrailRect).empty;
     defer list.deinit(std.testing.allocator);
     try appendCursorTrailRects(std.testing.allocator, &list, .{ .cols = 8, .rows = 4 }, cursor, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
 
@@ -912,7 +912,7 @@ test "cursor trail pixel rect bypasses cell extent scaling" {
 }
 
 test "visible no-shape produces no cursor draws fill or recolor" {
-    const damage = scene_damage.normalizeDamage(.{ .full = true }, 1);
+    const damage = text_damage.normalizeDamage(.{ .full = true }, 1);
     const cell_metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
     var cursor = testCursorPresentation();
     cursor.shape = .none;
@@ -928,11 +928,11 @@ test "visible no-shape produces no cursor draws fill or recolor" {
 
     var draw_list = std.ArrayList(render.TextCursorDraw).empty;
     defer draw_list.deinit(std.testing.allocator);
-    var fill_list = std.ArrayList(@import("../scene.zig").CursorFillRect).empty;
+    var fill_list = std.ArrayList(@import("draw_list.zig").CursorFillRect).empty;
     defer fill_list.deinit(std.testing.allocator);
-    var recolor_list = std.ArrayList(@import("../scene.zig").CursorTextRecolorSpan).empty;
+    var recolor_list = std.ArrayList(@import("draw_list.zig").CursorTextRecolorSpan).empty;
     defer recolor_list.deinit(std.testing.allocator);
-    var trail_list = std.ArrayList(@import("../scene.zig").CursorTrailRect).empty;
+    var trail_list = std.ArrayList(@import("draw_list.zig").CursorTrailRect).empty;
     defer trail_list.deinit(std.testing.allocator);
     try appendCursorPrimitives(std.testing.allocator, &draw_list, &fill_list, &recolor_list, &trail_list, &.{}, .{ .cols = 1, .rows = 1 }, cursor, damage, cell_metrics);
     try std.testing.expectEqual(@as(usize, 0), draw_list.items.len);

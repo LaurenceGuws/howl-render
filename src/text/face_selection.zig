@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const render = @import("../grid/scene.zig");
+const render = @import("draw_primitives.zig");
 
 pub const FaceId = render.FontFaceId;
 

@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const render = @import("../grid/scene.zig");
+const render = @import("draw_primitives.zig");
 const rasterizer = @import("raster/rasterizer.zig");
 const fallback = @import("raster/fallback.zig");
 const glyph_cache = @import("glyph_cache.zig");

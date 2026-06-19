@@ -62,7 +62,7 @@ pub const CellMetrics = struct {
     box_thickness_px: u16 = 0,
 };
 
-pub const GridMetrics = struct {
+pub const CellGridMetrics = struct {
     cols: u16,
     rows: u16 = 1,
 };
@@ -268,7 +268,7 @@ pub const SpriteRasterRequest = struct {
     color_mode: SpriteColorMode = .alpha,
 };
 
-pub const TextScene = struct {
+pub const TextDrawList = struct {
     full_redraw: bool = true,
     clear_draws: []const TextClearDraw = &.{},
     background_draws: []const TextBackgroundDraw = &.{},
@@ -326,14 +326,14 @@ pub const MissingGlyph = struct {
     reason: MissingGlyphReason,
 };
 
-test "grid scene defaults stay deterministic" {
+test "text draw primitives defaults stay deterministic" {
     const cluster = TextCluster{ .grapheme_utf8 = "a", .first_cp = 97 };
     try std.testing.expectEqual(@as(u8, 1), cluster.cell_span);
     const text = CellText{ .id = .{ .value = 1 }, .first_cp = 'A', .codepoints = &.{'A'} };
     try std.testing.expectEqual(@as(u32, 'A'), text.codepoints[0]);
 }
 
-test "text scene draw spans retain first cell and cell span facts" {
+test "text draw list spans retain first cell and cell span facts" {
     const rgba = color.Rgba8{ .r = 1, .g = 2, .b = 3, .a = 255 };
     const sprite = TextSpriteDraw{
         .sprite = .{ .slot = 3, .key = .{ .value = 9 } },
@@ -348,10 +348,10 @@ test "text scene draw spans retain first cell and cell span facts" {
     const background = TextBackgroundDraw{ .x_px = 0, .y_px = 0, .width_px = 8, .height_px = 16, .color = rgba, .first_cell = 5, .cell_span = 2 };
     const clear = TextClearDraw{ .x_px = 0, .y_px = 0, .width_px = 8, .height_px = 16, .color = rgba, .first_cell = 5, .cell_span = 2 };
     const decoration = TextDecorationDraw{ .kind = .underline, .x_px = 0, .y_px = 0, .width_px = 8, .height_px = 1, .color = rgba, .first_cell = 5, .cell_span = 2 };
-    const scene = TextScene{ .sprite_draws = &.{sprite}, .missing = &.{} };
+    const draw_list = TextDrawList{ .sprite_draws = &.{sprite}, .missing = &.{} };
 
-    try std.testing.expectEqual(@as(u32, 5), scene.sprite_draws[0].first_cell);
-    try std.testing.expectEqual(@as(u8, 2), scene.sprite_draws[0].cell_span);
+    try std.testing.expectEqual(@as(u32, 5), draw_list.sprite_draws[0].first_cell);
+    try std.testing.expectEqual(@as(u8, 2), draw_list.sprite_draws[0].cell_span);
     try std.testing.expectEqual(@as(u32, 5), background.first_cell);
     try std.testing.expectEqual(@as(u8, 2), background.cell_span);
     try std.testing.expectEqual(@as(u32, 5), clear.first_cell);

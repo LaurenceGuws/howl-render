@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../grid/scene.zig");
+const render = @import("../text/draw_primitives.zig");
 
 pub const Target = struct {
     left_px: f32,

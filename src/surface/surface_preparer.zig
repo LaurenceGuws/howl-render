@@ -1,9 +1,9 @@
 const std = @import("std");
 const c = @import("howl_render_c");
 const builtin = @import("builtin");
-const render = @import("../grid/scene.zig");
+const render = @import("../text/draw_primitives.zig");
 const direct_normal = @import("../text/direct_normal.zig");
-const direct_scene = @import("../grid/direct.zig");
+const direct_draw = @import("../grid/direct.zig");
 const prepare_counters = @import("../text/prepare_counters.zig");
 const atlas_cache = @import("../text/raster/atlas.zig");
 const cluster = @import("../text/shape/cluster.zig");
@@ -13,9 +13,9 @@ const grouping = @import("../text/shape/grouping.zig");
 const provider = @import("../text/provider.zig");
 const raster_operation = @import("../text/raster/operation.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
-const scene = @import("../scene.zig");
-const scene_damage = @import("../grid/damage.zig");
-const scene_rects = @import("../grid/rects.zig");
+const draw_list = @import("../text/draw_list.zig");
+const text_damage = @import("../text/damage.zig");
+const rect_primitives = @import("../text/rect_primitives.zig");
 const shape_run = @import("../text/shape/run.zig");
 const lane = @import("../text/lane.zig");
 
@@ -30,7 +30,7 @@ pub const TextSurfacePreparer = struct {
     cluster_scratch: cluster.RetainedScratch = .{},
     direct_normal: direct_normal.Scratch = .{},
     resolver_scratch: font_resolver.RetainedScratch = .{},
-    scene_scratch: scene.RetainedScratch = .{},
+    draw_list_scratch: draw_list.RetainedDrawScratch = .{},
 
     pub fn init(allocator: std.mem.Allocator) TextSurfacePreparer {
         return initCapacity(allocator, 4096) catch unreachable;
@@ -56,7 +56,7 @@ pub const TextSurfacePreparer = struct {
     }
 
     pub fn deinit(self: *TextSurfacePreparer) void {
-        self.scene_scratch.deinit(self.allocator);
+        self.draw_list_scratch.deinit(self.allocator);
         self.resolver_scratch.deinit(self.allocator);
         self.cluster_scratch.deinit(self.allocator);
         self.direct_normal.deinit(self.allocator);
@@ -80,17 +80,17 @@ pub const TextSurfacePreparer = struct {
     pub fn prepareCellsWithFaceSelection(
         self: *TextSurfacePreparer,
         cells: []const render.CellInput,
-        grid_metrics: render.GridMetrics,
+        grid_metrics: render.CellGridMetrics,
         selection: face_selection.FaceSelection,
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
         if (try self.prepareDirectNormal(.{ .raw_cells = cells }, .require_all_normal, grid_metrics, selection, options, &lane_report, null)) |direct| {
-            return self.finishNormalOnlySurface(direct, lane_report, options.scene.cursor);
+            return self.finishNormalOnlySurface(direct, lane_report, options.draw_list.cursor);
         }
         const cell_count = count32(cells);
         try self.ensureClusterScratchCapacity(cell_count, countCellInputCodepoints(cells));
-        var sparse = try cluster.buildSparseCellsWithDamageScratch(self.allocator, &self.cluster_scratch, cells, grid_metrics, options.scene.damage);
+        var sparse = try cluster.buildSparseCellsWithDamageScratch(self.allocator, &self.cluster_scratch, cells, grid_metrics, options.draw_list.damage);
         errdefer sparse.deinit();
         return self.preparePreparedTextSurface(sparse.text_cache, sparse.renderable, grid_metrics, selection, options);
     }
@@ -98,13 +98,13 @@ pub const TextSurfacePreparer = struct {
     pub fn prepareCellTextInputsWithFaceSelection(
         self: *TextSurfacePreparer,
         inputs: []const cluster.CellTextInput,
-        grid_metrics: render.GridMetrics,
+        grid_metrics: render.CellGridMetrics,
         selection: face_selection.FaceSelection,
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
         var lane_report = lane.LaneReport{};
         if (try self.prepareDirectNormal(.{ .inputs = inputs }, .require_all_normal, grid_metrics, selection, options, &lane_report, null)) |direct| {
-            return self.finishNormalOnlySurface(direct, lane_report, options.scene.cursor);
+            return self.finishNormalOnlySurface(direct, lane_report, options.draw_list.cursor);
         }
         const input_count = count32(inputs);
         var input_codepoints: u32 = 0;
@@ -121,7 +121,7 @@ pub const TextSurfacePreparer = struct {
         self: *TextSurfacePreparer,
         text_cache: cluster.OwnedLineTextCache,
         renderable: cluster.OwnedRenderableCells,
-        grid_metrics: render.GridMetrics,
+        grid_metrics: render.CellGridMetrics,
         selection: face_selection.FaceSelection,
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
@@ -132,7 +132,7 @@ pub const TextSurfacePreparer = struct {
         self: *TextSurfacePreparer,
         text_cache: cluster.OwnedLineTextCache,
         renderable: cluster.OwnedRenderableCells,
-        grid_metrics: render.GridMetrics,
+        grid_metrics: render.CellGridMetrics,
         selection: face_selection.FaceSelection,
         options: PrepareOptions,
         expected_complex_cells: ?u64,
@@ -147,7 +147,7 @@ pub const TextSurfacePreparer = struct {
             owned_renderable.cells,
             owned_text_cache.view(),
             grid_metrics,
-            options.scene.damage,
+            options.draw_list.damage,
         );
         errdefer clusters.deinit();
         try self.ensureResolverScratchCapacity(count32(clusters.clusters));
@@ -171,7 +171,7 @@ pub const TextSurfacePreparer = struct {
             owned_text_cache.deinit();
             clusters.deinit();
             owned_renderable.deinit();
-            return self.finishNormalOnlySurface(direct, final_lane_report, options.scene.cursor);
+            return self.finishNormalOnlySurface(direct, final_lane_report, options.draw_list.cursor);
         }
 
         if (expected_complex_cells != null) std.debug.assert(final_lane_report.complex_cells != 0);
@@ -193,36 +193,36 @@ pub const TextSurfacePreparer = struct {
     fn prepareComplexSurface(
         self: *TextSurfacePreparer,
         prepared: PreparedComplexSurface,
-        grid_metrics: render.GridMetrics,
+        grid_metrics: render.CellGridMetrics,
         selection: face_selection.FaceSelection,
         options: PrepareOptions,
     ) !OwnedPreparedTextSurface {
         var final_prepared = prepared;
         errdefer final_prepared.deinit(self.allocator);
-        var complex = try self.selectComplexCells(&final_prepared, grid_metrics, options.scene.damage);
+        var complex = try self.selectComplexCells(&final_prepared, grid_metrics, options.draw_list.damage);
         defer complex.deinit();
 
         try self.resolveShapeAndGroupComplex(&final_prepared, complex, grid_metrics, selection);
-        var text_scene = try self.buildComplexScene(&final_prepared, complex.cells, grid_metrics, selection.cell_metrics, options.scene);
-        errdefer text_scene.deinit();
-        var raster_plan = try self.rasterizeComplexScene(&text_scene);
+        var text_draw_list = try self.buildComplexDrawList(&final_prepared, complex.cells, grid_metrics, selection.cell_metrics, options.draw_list);
+        errdefer text_draw_list.deinit();
+        var raster_plan = try self.rasterizeComplexDrawList(&text_draw_list);
         errdefer raster_plan.deinit();
-        const complex_sprite_cache_hits = text_scene.scene.sprite_draws.len - text_scene.scene.raster_requests.len;
+        const complex_sprite_cache_hits = text_draw_list.draw_list.sprite_draws.len - text_draw_list.draw_list.raster_requests.len;
 
-        const merged = try self.mergePreparedScene(final_prepared.direct, final_prepared.renderable.cells, grid_metrics, selection.cell_metrics, options.scene.cursor, &text_scene, &raster_plan);
+        const merged = try self.mergePreparedDrawList(final_prepared.direct, final_prepared.renderable.cells, grid_metrics, selection.cell_metrics, options.draw_list.cursor, &text_draw_list, &raster_plan);
         final_prepared.direct.outputs = &.{};
         final_prepared.direct.outputs_owned = false;
 
-        self.applyComplexCounters(&final_prepared, &text_scene, &merged, complex_sprite_cache_hits);
+        self.applyComplexDrawListCounters(&final_prepared, &text_draw_list, &merged, complex_sprite_cache_hits);
         final_prepared.deinit(self.allocator);
 
         return .{
-            .scene = merged.scene,
+            .draw_list = merged.draw_list,
             .raster_plan = merged.raster_plan,
         };
     }
 
-    fn selectComplexCells(self: *TextSurfacePreparer, prepared: *const PreparedComplexSurface, grid_metrics: render.GridMetrics, damage: scene_damage.DamageInput) !cluster.ComplexSelection {
+    fn selectComplexCells(self: *TextSurfacePreparer, prepared: *const PreparedComplexSurface, grid_metrics: render.CellGridMetrics, damage: text_damage.DamageInput) !cluster.ComplexSelection {
         var complex = try cluster.selectComplexWithDamageScratch(
             self.allocator,
             &self.cluster_scratch,
@@ -238,7 +238,7 @@ pub const TextSurfacePreparer = struct {
         return complex;
     }
 
-    fn resolveShapeAndGroupComplex(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, complex: cluster.ComplexSelection, grid_metrics: render.GridMetrics, selection: face_selection.FaceSelection) !void {
+    fn resolveShapeAndGroupComplex(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, complex: cluster.ComplexSelection, grid_metrics: render.CellGridMetrics, selection: face_selection.FaceSelection) !void {
         prepared.runs = try resolveComplexRuns(self, prepared.text_cache.view(), complex.clusters, grid_metrics, selection, &prepared.lane_report, complex.cells);
         prepared.shaped_runs = try shapeComplexRuns(
             self,
@@ -261,10 +261,10 @@ pub const TextSurfacePreparer = struct {
         );
     }
 
-    fn buildComplexScene(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, cells: []const render.RenderableCell, grid_metrics: render.GridMetrics, cell_metrics: render.CellMetrics, options: scene.BuildOptions) !scene.BorrowedTextScene {
-        const text_scene = try scene.buildBorrowedSceneWithAtlasCacheOptions(
+    fn buildComplexDrawList(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, cells: []const render.RenderableCell, grid_metrics: render.CellGridMetrics, cell_metrics: render.CellMetrics, options: draw_list.DrawListOptions) !draw_list.BorrowedTextDrawList {
+        const text_draw_list = try draw_list.buildBorrowedDrawListWithAtlasCacheOptions(
             self.allocator,
-            &self.scene_scratch,
+            &self.draw_list_scratch,
             cells,
             prepared.grouped.?.groups.groups,
             prepared.runs.?.missing,
@@ -273,16 +273,16 @@ pub const TextSurfacePreparer = struct {
             &self.atlas,
             options,
         );
-        for (text_scene.scene.sprite_draws) |draw| prepared.lane_report.recordLegacySceneSpriteDraw(prepared.text_cache.view(), cells, draw);
-        return text_scene;
+        for (text_draw_list.draw_list.sprite_draws) |draw| prepared.lane_report.recordLegacyDrawListSpriteDraw(prepared.text_cache.view(), cells, draw);
+        return text_draw_list;
     }
 
-    fn rasterizeComplexScene(self: *TextSurfacePreparer, text_scene: *const scene.BorrowedTextScene) !rasterizer.OwnedRasterPlan {
-        const raster_plan = try rasterizer.rasterizeRequestsWithRasterizer(self.allocator, self.sprite_rasterizer, text_scene.scene.raster_requests);
+    fn rasterizeComplexDrawList(self: *TextSurfacePreparer, text_draw_list: *const draw_list.BorrowedTextDrawList) !rasterizer.OwnedRasterPlan {
+        const raster_plan = try rasterizer.rasterizeRequestsWithRasterizer(self.allocator, self.sprite_rasterizer, text_draw_list.draw_list.raster_requests);
         return raster_plan;
     }
 
-    fn applyComplexCounters(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, text_scene: *const scene.BorrowedTextScene, merged: *const PreparedSceneMerge, complex_sprite_cache_hits: usize) void {
+    fn applyComplexDrawListCounters(self: *TextSurfacePreparer, prepared: *PreparedComplexSurface, text_draw_list: *const draw_list.BorrowedTextDrawList, merged: *const PreparedDrawListMerge, complex_sprite_cache_hits: usize) void {
         prepared.lane_report.assertValid();
         var counters = prepare_counters.TextPrepareCounters{
             .cell_texts = prepared.lane_report.visible_cells,
@@ -291,25 +291,25 @@ pub const TextSurfacePreparer = struct {
             .shaped_runs = @intCast(prepared.shaped_runs.?.runs.len),
             .glyph_groups = @intCast(prepared.grouped.?.groups.groups.len),
             .sprite_cache_hits = @intCast((self.direct_normal.sprite_draws.items.len - self.direct_normal.raster_reqs.items.len) + complex_sprite_cache_hits),
-            .sprite_cache_misses = @intCast(self.direct_normal.raster_reqs.items.len + text_scene.scene.raster_requests.len),
+            .sprite_cache_misses = @intCast(self.direct_normal.raster_reqs.items.len + text_draw_list.draw_list.raster_requests.len),
             .rasterized_sprites = @intCast(merged.raster_plan.outputs.len),
-            .missing_glyphs = @intCast(merged.scene.scene.missing.len),
+            .missing_glyphs = @intCast(merged.draw_list.draw_list.missing.len),
         };
         for (prepared.shaped_runs.?.runs) |run| counters.shaped_glyphs += @intCast(run.glyphs.len);
         applyCounters(&self.counters, counters);
     }
 
-    fn mergePreparedScene(
+    fn mergePreparedDrawList(
         self: *TextSurfacePreparer,
         direct: direct_normal.Product,
         cells: []const render.RenderableCell,
-        grid_metrics: render.GridMetrics,
+        grid_metrics: render.CellGridMetrics,
         cell_metrics: render.CellMetrics,
         cursor: ?render.CursorPresentation,
-        text_scene: *scene.BorrowedTextScene,
+        text_draw_list: *draw_list.BorrowedTextDrawList,
         raster_plan: *rasterizer.OwnedRasterPlan,
-    ) !PreparedSceneMerge {
-        const damage: scene_damage.NormalizedDamage = .{
+    ) !PreparedDrawListMerge {
+        const damage: text_damage.NormalizedDamage = .{
             .full = direct.damage.full,
             .dirty_rows = direct.damage.dirty_rows,
             .dirty_cols_start = direct.damage.dirty_cols_start,
@@ -319,34 +319,34 @@ pub const TextSurfacePreparer = struct {
         errdefer self.allocator.free(merged_clear_draws);
         const merged_cursor_draws = try buildCursorDraws(self.allocator, cursor, cell_metrics, damage);
         errdefer self.allocator.free(merged_cursor_draws);
-        const merged_background_draws = try mergeFirstCellSlices(render.TextBackgroundDraw, self.allocator, self.direct_normal.background_draws.items, text_scene.scene.background_draws);
+        const merged_background_draws = try mergeFirstCellSlices(render.TextBackgroundDraw, self.allocator, self.direct_normal.background_draws.items, text_draw_list.draw_list.background_draws);
         errdefer self.allocator.free(merged_background_draws);
-        const merged_sprite_draws = try mergeFirstCellSlices(render.TextSpriteDraw, self.allocator, self.direct_normal.sprite_draws.items, text_scene.scene.sprite_draws);
+        const merged_sprite_draws = try mergeFirstCellSlices(render.TextSpriteDraw, self.allocator, self.direct_normal.sprite_draws.items, text_draw_list.draw_list.sprite_draws);
         errdefer self.allocator.free(merged_sprite_draws);
-        const merged_decoration_draws = try mergeFirstCellSlices(render.TextDecorationDraw, self.allocator, self.direct_normal.decoration_draws.items, text_scene.scene.decoration_draws);
+        const merged_decoration_draws = try mergeFirstCellSlices(render.TextDecorationDraw, self.allocator, self.direct_normal.decoration_draws.items, text_draw_list.draw_list.decoration_draws);
         errdefer self.allocator.free(merged_decoration_draws);
-        const merged_missing = try mergeSlices(render.MissingGlyph, self.allocator, self.direct_normal.missing.items, text_scene.scene.missing);
+        const merged_missing = try mergeSlices(render.MissingGlyph, self.allocator, self.direct_normal.missing.items, text_draw_list.draw_list.missing);
         errdefer self.allocator.free(merged_missing);
         var merged_raster_plan = try mergeRasterPlans(self.allocator, direct.outputs, direct.outputs_owned, raster_plan);
         errdefer merged_raster_plan.deinit();
 
-        const merged_scene = scene.OwnedTextScene{
+        const merged_draw_list = draw_list.OwnedTextDrawList{
             .allocator = self.allocator,
-            .scene = .{
+            .draw_list = .{
                 .full_redraw = direct.damage.full,
                 .clear_draws = merged_clear_draws,
                 .background_draws = merged_background_draws,
                 .sprite_draws = merged_sprite_draws,
                 .decoration_draws = merged_decoration_draws,
                 .cursor_draws = merged_cursor_draws,
-                .raster_requests = text_scene.scene.raster_requests,
+                .raster_requests = text_draw_list.draw_list.raster_requests,
                 .missing = merged_missing,
             },
             .cursor_presentation = cursor,
         };
-        text_scene.scene.raster_requests = &.{};
-        text_scene.scene.missing = &.{};
-        return .{ .scene = merged_scene, .raster_plan = merged_raster_plan };
+        text_draw_list.draw_list.raster_requests = &.{};
+        text_draw_list.draw_list.missing = &.{};
+        return .{ .draw_list = merged_draw_list, .raster_plan = merged_raster_plan };
     }
 
     fn finishNormalOnlySurface(self: *TextSurfacePreparer, direct: direct_normal.Product, lane_report: lane.LaneReport, cursor: ?render.CursorPresentation) OwnedPreparedTextSurface {
@@ -355,8 +355,8 @@ pub const TextSurfacePreparer = struct {
         const counters = direct_normal.counters(&self.direct_normal, final_lane_report, direct);
         applyCounters(&self.counters, counters);
         return .{
-            .scene = blk: {
-                var owned = direct_scene.borrowScene(self.allocator, direct.damage, &self.direct_normal);
+            .draw_list = blk: {
+                var owned = direct_draw.borrowDrawList(self.allocator, direct.damage, &self.direct_normal);
                 owned.cursor_presentation = cursor;
                 break :blk owned;
             },
@@ -368,7 +368,7 @@ pub const TextSurfacePreparer = struct {
         self: *TextSurfacePreparer,
         source: direct_normal.Source,
         policy: direct_normal.Policy,
-        grid_metrics: render.GridMetrics,
+        grid_metrics: render.CellGridMetrics,
         selection: face_selection.FaceSelection,
         options: PrepareOptions,
         lane_report: *lane.LaneReport,
@@ -386,8 +386,8 @@ pub const TextSurfacePreparer = struct {
             policy,
             grid_metrics,
             selection,
-            options.scene.damage,
-            options.scene.cursor,
+            options.draw_list.damage,
+            options.draw_list.cursor,
             lane_report,
             rejected_complex_cells,
         );
@@ -401,8 +401,8 @@ pub const TextSurfacePreparer = struct {
     }
 };
 
-const PreparedSceneMerge = struct {
-    scene: scene.OwnedTextScene,
+const PreparedDrawListMerge = struct {
+    draw_list: draw_list.OwnedTextDrawList,
     raster_plan: rasterizer.OwnedRasterPlan,
 };
 
@@ -445,7 +445,7 @@ fn resolveComplexRuns(
     self: *TextSurfacePreparer,
     text_cache: render.LineTextCache,
     clusters: []const render.CellCluster,
-    grid_metrics: render.GridMetrics,
+    grid_metrics: render.CellGridMetrics,
     selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
     cells: []const render.RenderableCell,
@@ -489,12 +489,12 @@ fn groupComplexRuns(
 }
 
 pub const OwnedPreparedTextSurface = struct {
-    scene: scene.OwnedTextScene,
+    draw_list: draw_list.OwnedTextDrawList,
     raster_plan: rasterizer.OwnedRasterPlan,
 
     pub fn deinit(self: *OwnedPreparedTextSurface) void {
         self.raster_plan.deinit();
-        self.scene.deinit();
+        self.draw_list.deinit();
         self.* = undefined;
     }
 };
@@ -564,21 +564,21 @@ fn buildClearDraws(
     allocator: std.mem.Allocator,
     cells: []const render.RenderableCell,
     cell_metrics: render.CellMetrics,
-    grid_metrics: render.GridMetrics,
-    damage: scene_damage.NormalizedDamage,
+    grid_metrics: render.CellGridMetrics,
+    damage: text_damage.NormalizedDamage,
 ) ![]render.TextClearDraw {
     var draws: std.ArrayListUnmanaged(render.TextClearDraw) = .empty;
     defer draws.deinit(allocator);
     try draws.ensureTotalCapacity(allocator, grid_metrics.rows);
-    scene_rects.appendClearDrawsUnmanaged(&draws, cells, cell_metrics, grid_metrics, damage);
+    rect_primitives.appendClearDrawsUnmanaged(&draws, cells, cell_metrics, grid_metrics, damage);
     return draws.toOwnedSlice(allocator);
 }
 
-fn buildCursorDraws(allocator: std.mem.Allocator, cursor: ?render.CursorPresentation, cell_metrics: render.CellMetrics, damage: scene_damage.NormalizedDamage) ![]render.TextCursorDraw {
+fn buildCursorDraws(allocator: std.mem.Allocator, cursor: ?render.CursorPresentation, cell_metrics: render.CellMetrics, damage: text_damage.NormalizedDamage) ![]render.TextCursorDraw {
     var draws: std.ArrayListUnmanaged(render.TextCursorDraw) = .empty;
     defer draws.deinit(allocator);
     try draws.ensureTotalCapacity(allocator, 4);
-    scene_rects.appendCursorDrawsUnmanaged(&draws, cursor, damage, cell_metrics);
+    rect_primitives.appendCursorDrawsUnmanaged(&draws, cursor, damage, cell_metrics);
     return draws.toOwnedSlice(allocator);
 }
 
@@ -613,7 +613,7 @@ fn count32(items: anytype) u32 {
 }
 
 pub const PrepareOptions = struct {
-    scene: scene.BuildOptions = .{},
+    draw_list: draw_list.DrawListOptions = .{},
 };
 
 test "text preparation prepares cell inputs into clusters and runs" {
@@ -628,7 +628,7 @@ test "text preparation prepares cell inputs into clusters and runs" {
     var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.draw_list.draw_list.sprite_draws));
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
     try std.testing.expectEqual(@as(u64, 2), engine.counters.cell_texts);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
@@ -647,16 +647,16 @@ test "text preparation records sprite routes through resolver" {
     var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.draw_list.draw_list.sprite_draws));
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
-    try std.testing.expectEqual(@as(u32, 1), analysis.scene.scene.sprite_draws[1].first_cell);
-    try std.testing.expect(analysis.scene.scene.sprite_draws[1].placement.advance_px > 0);
+    try std.testing.expectEqual(@as(u32, 1), analysis.draw_list.draw_list.sprite_draws[1].first_cell);
+    try std.testing.expect(analysis.draw_list.draw_list.sprite_draws[1].placement.advance_px > 0);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.sprite_cache_misses);
 }
 
-test "text preparation scene is grid positioned" {
+test "text preparation draw list is grid positioned" {
     var engine = TextSurfacePreparer.init(std.testing.allocator);
     defer engine.deinit();
     const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -670,9 +670,9 @@ test "text preparation scene is grid positioned" {
     var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 2 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(u32, 4), count32(analysis.scene.scene.sprite_draws));
-    try std.testing.expectEqual(@as(i32, 0), analysis.scene.scene.sprite_draws[2].x_px);
-    try std.testing.expectEqual(@as(i32, 1), analysis.scene.scene.sprite_draws[2].y_px);
+    try std.testing.expectEqual(@as(u32, 4), count32(analysis.draw_list.draw_list.sprite_draws));
+    try std.testing.expectEqual(@as(i32, 0), analysis.draw_list.draw_list.sprite_draws[2].x_px);
+    try std.testing.expectEqual(@as(i32, 1), analysis.draw_list.draw_list.sprite_draws[2].y_px);
 }
 
 test "text preparation rerasterizes pending atlas entries across prepares" {
@@ -682,15 +682,15 @@ test "text preparation rerasterizes pending atlas entries across prepares" {
     const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };
     const cells = [_]render.CellInput{.{ .codepoint = 'z', .fg = white, .bg = black }};
     var first = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
-    const first_slot = first.scene.scene.sprite_draws[0].sprite.slot;
+    const first_slot = first.draw_list.draw_list.sprite_draws[0].sprite.slot;
     first.deinit();
     var second = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 1, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer second.deinit();
-    try std.testing.expectEqual(first_slot, second.scene.scene.sprite_draws[0].sprite.slot);
+    try std.testing.expectEqual(first_slot, second.draw_list.draw_list.sprite_draws[0].sprite.slot);
     try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
     try std.testing.expectEqual(@as(u32, 1), engine.atlas.len);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.sprite_cache_hits);
-    try std.testing.expect(!engine.atlas.get(.{ .value = second.scene.scene.sprite_draws[0].sprite.key.value }).?.rendered);
+    try std.testing.expect(!engine.atlas.get(.{ .value = second.draw_list.draw_list.sprite_draws[0].sprite.key.value }).?.rendered);
 }
 
 test "text preparation rerasterizes sprites after cell metrics change" {
@@ -705,7 +705,7 @@ test "text preparation rerasterizes sprites after cell metrics change" {
         .{ .primary_face = .{ .value = 1 }, .cell_metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 } },
         .{},
     );
-    const first_key = first.scene.scene.sprite_draws[0].sprite.key.value;
+    const first_key = first.draw_list.draw_list.sprite_draws[0].sprite.key.value;
     first.deinit();
     var second = try engine.prepareCellsWithFaceSelection(
         &cells,
@@ -714,7 +714,7 @@ test "text preparation rerasterizes sprites after cell metrics change" {
         .{},
     );
     defer second.deinit();
-    try std.testing.expect(first_key != second.scene.scene.sprite_draws[0].sprite.key.value);
+    try std.testing.expect(first_key != second.draw_list.draw_list.sprite_draws[0].sprite.key.value);
     try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
     try std.testing.expectEqual(@as(u16, 16), second.raster_plan.outputs[0].width_px);
     try std.testing.expectEqual(@as(u16, 32), second.raster_plan.outputs[0].height_px);
@@ -732,7 +732,7 @@ test "text preparation rerasterizes sprites after box thickness change" {
         .{ .primary_face = .{ .value = 1 }, .cell_metrics = .{ .cell_w_px = 18, .cell_h_px = 18, .baseline_px = 14, .box_thickness_px = 1 } },
         .{},
     );
-    const first_key = first.scene.scene.sprite_draws[0].sprite.key.value;
+    const first_key = first.draw_list.draw_list.sprite_draws[0].sprite.key.value;
     first.deinit();
     var second = try engine.prepareCellsWithFaceSelection(
         &cells,
@@ -741,7 +741,7 @@ test "text preparation rerasterizes sprites after box thickness change" {
         .{},
     );
     defer second.deinit();
-    try std.testing.expect(first_key != second.scene.scene.sprite_draws[0].sprite.key.value);
+    try std.testing.expect(first_key != second.draw_list.draw_list.sprite_draws[0].sprite.key.value);
     try std.testing.expectEqual(@as(u32, 1), count32(second.raster_plan.outputs));
 }
 
@@ -797,7 +797,7 @@ test "text preparation accepts unified provider rasterizer" {
     try std.testing.expectEqual(@as(u8, 1), stub.hits);
 }
 
-test "text preparation options produce scene cursor draws" {
+test "text preparation options produce draw list cursor draws" {
     var engine = try TextSurfacePreparer.initCapacity(std.testing.allocator, 16);
     defer engine.deinit();
     const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -807,7 +807,7 @@ test "text preparation options produce scene cursor draws" {
         .primary_face = .{ .value = 1 },
         .cell_metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
     }, .{
-        .scene = .{ .cursor = .{
+        .draw_list = .{ .cursor = .{
             .focused = true,
             .visible = true,
             .blink = false,
@@ -825,9 +825,9 @@ test "text preparation options produce scene cursor draws" {
         } },
     });
     defer analysis.deinit();
-    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.cursor_draws));
-    try std.testing.expectEqual(@as(u16, 8), analysis.scene.scene.cursor_draws[0].width_px);
-    try std.testing.expect(analysis.scene.cursor_presentation != null);
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.draw_list.draw_list.cursor_draws));
+    try std.testing.expectEqual(@as(u16, 8), analysis.draw_list.draw_list.cursor_draws[0].width_px);
+    try std.testing.expect(analysis.draw_list.cursor_presentation != null);
 }
 
 test "text preparation partial damage clears use empty default background truth" {
@@ -837,17 +837,17 @@ test "text preparation partial damage clears use empty default background truth"
     const transparent_bg = render.Rgba8{ .r = 0x44, .g = 0x55, .b = 0x66, .a = 0 };
     const cells = [_]render.CellInput{.{ .codepoint = ' ', .fg = white, .bg = transparent_bg, .empty = true }};
     var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 1, .rows = 1 }, .{}, .{
-        .scene = .{ .damage = .{ .full = false, .dirty_rows = &[_]bool{true}, .dirty_cols_start = &[_]u16{0}, .dirty_cols_end = &[_]u16{0} } },
+        .draw_list = .{ .damage = .{ .full = false, .dirty_rows = &[_]bool{true}, .dirty_cols_start = &[_]u16{0}, .dirty_cols_end = &[_]u16{0} } },
     });
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(u32, 1), count32(analysis.scene.scene.clear_draws));
-    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.background_draws));
-    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.sprite_draws));
-    try std.testing.expectEqual(transparent_bg.r, analysis.scene.scene.clear_draws[0].color.r);
-    try std.testing.expectEqual(transparent_bg.g, analysis.scene.scene.clear_draws[0].color.g);
-    try std.testing.expectEqual(transparent_bg.b, analysis.scene.scene.clear_draws[0].color.b);
-    try std.testing.expectEqual(@as(u8, 255), analysis.scene.scene.clear_draws[0].color.a);
+    try std.testing.expectEqual(@as(u32, 1), count32(analysis.draw_list.draw_list.clear_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.draw_list.draw_list.background_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.draw_list.draw_list.sprite_draws));
+    try std.testing.expectEqual(transparent_bg.r, analysis.draw_list.draw_list.clear_draws[0].color.r);
+    try std.testing.expectEqual(transparent_bg.g, analysis.draw_list.draw_list.clear_draws[0].color.g);
+    try std.testing.expectEqual(transparent_bg.b, analysis.draw_list.draw_list.clear_draws[0].color.b);
+    try std.testing.expectEqual(@as(u8, 255), analysis.draw_list.draw_list.clear_draws[0].color.a);
 }
 
 test "text preparation direct-renders pure normal cell text inputs" {
@@ -864,7 +864,7 @@ test "text preparation direct-renders pure normal cell text inputs" {
     var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 2, .rows = 1 }, .{}, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.draw_list.draw_list.sprite_draws));
     try std.testing.expectEqual(@as(u32, 2), count32(analysis.raster_plan.outputs));
     try std.testing.expectEqual(@as(u64, 0), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 0), engine.counters.shaped_runs);
@@ -884,7 +884,7 @@ test "text preparation keeps mixed cell text normals out of legacy path" {
     var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 2, .rows = 1 }, .{}, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(u32, 2), count32(analysis.scene.scene.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 2), count32(analysis.draw_list.draw_list.sprite_draws));
     try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
 }
@@ -901,8 +901,8 @@ test "text preparation marks curly underline cells complex before shaping" {
     var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(u32, 3), count32(analysis.scene.scene.sprite_draws));
-    try std.testing.expectEqual(@as(u32, 0), count32(analysis.scene.scene.decoration_draws));
+    try std.testing.expectEqual(@as(u32, 3), count32(analysis.draw_list.draw_list.sprite_draws));
+    try std.testing.expectEqual(@as(u32, 0), count32(analysis.draw_list.draw_list.decoration_draws));
     try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);
@@ -920,7 +920,7 @@ test "text preparation sizes cluster scratch for multi codepoint cell inputs" {
     var analysis = try engine.prepareCellsWithFaceSelection(&cells, .{ .cols = 2, .rows = 1 }, .{ .primary_face = .{ .value = 1 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expect(count32(analysis.scene.scene.sprite_draws) != 0);
+    try std.testing.expect(count32(analysis.draw_list.draw_list.sprite_draws) != 0);
 }
 
 test "text preparation keeps icon codepoints out of the normal lane" {
@@ -962,8 +962,8 @@ test "text preparation keeps icon codepoints out of the normal lane" {
     var analysis = try engine.prepareCellTextInputsWithFaceSelection(&inputs, .{ .cols = 3, .rows = 1 }, .{ .cell_metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 } }, .{});
     defer analysis.deinit();
 
-    try std.testing.expectEqual(@as(u16, 16), analysis.scene.scene.sprite_draws[0].width_px);
-    try std.testing.expectEqual(@as(u8, 2), analysis.scene.scene.sprite_draws[0].cell_span);
+    try std.testing.expectEqual(@as(u16, 16), analysis.draw_list.draw_list.sprite_draws[0].width_px);
+    try std.testing.expectEqual(@as(u8, 2), analysis.draw_list.draw_list.sprite_draws[0].cell_span);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.resolved_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.shaped_runs);
     try std.testing.expectEqual(@as(u64, 1), engine.counters.glyph_groups);

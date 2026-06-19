@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../grid/scene.zig");
+const render = @import("../draw_primitives.zig");
 const generated_special = @import("generated_special.zig");
 const special_box = @import("special_box.zig");
 

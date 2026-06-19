@@ -1,4 +1,4 @@
-const render = @import("../grid/scene.zig");
+const render = @import("draw_primitives.zig");
 const special_glyphs = @import("special_glyphs.zig");
 
 pub fn builtinRoute(cp: u32) ?render.SpecialSpriteRoute {

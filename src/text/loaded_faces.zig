@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../grid/scene.zig");
+const render = @import("draw_primitives.zig");
 const font_paths = @import("font_paths.zig");
 const c_api = @import("c_api.zig");
 

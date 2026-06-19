@@ -14,36 +14,36 @@ pub const GridSize = struct {
     rows: u16,
 };
 
-pub const SurfacePixels = struct {
+pub const DrawablePixels = struct {
     render_width: i32,
     render_height: i32,
     grid_width: i32,
     grid_height: i32,
 
-    pub fn renderWidth(self: SurfacePixels) u16 {
+    pub fn renderWidth(self: DrawablePixels) u16 {
         return @intCast(@max(self.render_width, 1));
     }
 
-    pub fn renderHeight(self: SurfacePixels) u16 {
+    pub fn renderHeight(self: DrawablePixels) u16 {
         return @intCast(@max(self.render_height, 1));
     }
 
-    pub fn gridWidth(self: SurfacePixels) u16 {
+    pub fn gridWidth(self: DrawablePixels) u16 {
         return @intCast(@max(self.grid_width, 1));
     }
 
-    pub fn gridHeight(self: SurfacePixels) u16 {
+    pub fn gridHeight(self: DrawablePixels) u16 {
         return @intCast(@max(self.grid_height, 1));
     }
 };
 
-pub const GeometryLayout = struct {
+pub const RenderLayoutInput = struct {
     render_px: PixelSize,
     grid_px: PixelSize,
     cell_px: CellSize,
 };
 
-pub const GeometryResponse = struct {
+pub const RenderLayoutResponse = struct {
     changed: bool,
     render_px: PixelSize,
     grid_px: PixelSize,
@@ -51,24 +51,24 @@ pub const GeometryResponse = struct {
     geometry_epoch: u64,
 };
 
-pub const PrepareLayout = struct {
+pub const PreparedLayout = struct {
     render_px: PixelSize,
     grid_px: PixelSize,
     cell_px: CellSize,
 };
 
-pub const SurfaceLayout = struct {
+pub const CellGridLayout = struct {
     cell_px: CellSize,
     grid: GridSize,
 };
 
-pub const Geometry = struct {
+pub const RenderLayout = struct {
     render_px: PixelSize = .{ .width = 0, .height = 0 },
     grid_px: PixelSize = .{ .width = 0, .height = 0 },
     cell_px: CellSize = .{ .width = 0, .height = 0 },
     geometry_epoch: u64 = 0,
 
-    pub fn sync(self: *Geometry, layout: GeometryLayout) GeometryResponse {
+    pub fn sync(self: *RenderLayout, layout: RenderLayoutInput) RenderLayoutResponse {
         const changed = self.geometry_epoch == 0 or
             self.render_px.width != layout.render_px.width or
             self.render_px.height != layout.render_px.height or
@@ -91,7 +91,7 @@ pub const Geometry = struct {
         };
     }
 
-    pub fn prepareLayout(self: *const Geometry, geometry_epoch: u64) PrepareLayout {
+    pub fn prepareLayout(self: *const RenderLayout, geometry_epoch: u64) PreparedLayout {
         std.debug.assert(self.geometry_epoch != 0);
         std.debug.assert(self.geometry_epoch == geometry_epoch);
         std.debug.assert(self.render_px.width > 0);
@@ -106,12 +106,12 @@ pub const Geometry = struct {
     }
 };
 
-pub const SurfaceGeometryError = error{
+pub const RenderLayoutError = error{
     InvalidSurfaceSize,
     InvalidGridSize,
 };
 
-pub fn deriveGridSize(grid_px: PixelSize, cell_px: CellSize) GridSize {
+pub fn deriveCellGridSize(grid_px: PixelSize, cell_px: CellSize) GridSize {
     const cell_w: u16 = if (cell_px.width == 0) 1 else cell_px.width;
     const cell_h: u16 = if (cell_px.height == 0) 1 else cell_px.height;
     return .{
@@ -120,26 +120,26 @@ pub fn deriveGridSize(grid_px: PixelSize, cell_px: CellSize) GridSize {
     };
 }
 
-pub fn deriveGridForSurface(render_px: PixelSize, grid_px: PixelSize, cell_px: CellSize) SurfaceGeometryError!GridSize {
+pub fn deriveCellGridForLayout(render_px: PixelSize, grid_px: PixelSize, cell_px: CellSize) RenderLayoutError!GridSize {
     if (render_px.width == 0 or render_px.height == 0) return error.InvalidSurfaceSize;
     if (grid_px.width == 0 or grid_px.height == 0) return error.InvalidGridSize;
-    return deriveGridSize(grid_px, cell_px);
+    return deriveCellGridSize(grid_px, cell_px);
 }
 
-test "render surface pixel geometry clamps to drawable size" {
-    const pixels = SurfacePixels{ .render_width = 0, .render_height = -2, .grid_width = 80, .grid_height = 24 };
+test "render drawable pixels clamp to drawable size" {
+    const pixels = DrawablePixels{ .render_width = 0, .render_height = -2, .grid_width = 80, .grid_height = 24 };
     try std.testing.expectEqual(@as(u16, 1), pixels.renderWidth());
     try std.testing.expectEqual(@as(u16, 1), pixels.renderHeight());
     try std.testing.expectEqual(@as(u16, 80), pixels.gridWidth());
     try std.testing.expectEqual(@as(u16, 24), pixels.gridHeight());
 }
 
-test "surface geometry derives grid deterministically" {
-    const grid = deriveGridSize(.{ .width = 80, .height = 48 }, .{ .width = 8, .height = 16 });
+test "render layout derives cell grid deterministically" {
+    const grid = deriveCellGridSize(.{ .width = 80, .height = 48 }, .{ .width = 8, .height = 16 });
     try std.testing.expectEqual(@as(u16, 10), grid.cols);
     try std.testing.expectEqual(@as(u16, 3), grid.rows);
 
-    const surface_grid = try deriveGridForSurface(
+    const surface_grid = try deriveCellGridForLayout(
         .{ .width = 800, .height = 600 },
         .{ .width = 640, .height = 320 },
         .{ .width = 8, .height = 16 },

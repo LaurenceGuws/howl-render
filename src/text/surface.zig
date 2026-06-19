@@ -2,8 +2,8 @@ const std = @import("std");
 const c = @import("howl_render_c");
 
 const event = @import("../event.zig");
-const geometry = @import("../geometry.zig");
-const render = @import("../grid/scene.zig");
+const layout = @import("../layout.zig");
+const render = @import("draw_primitives.zig");
 const prepared_surface = @import("../surface/prepared_surface.zig");
 const surface_emitter = @import("../surface/emitter.zig");
 const surface_preparer = @import("../surface/surface_preparer.zig");
@@ -93,7 +93,7 @@ pub const TextSurface = struct {
 
         const token = try readRenderStateToken(input.render_state.?);
         const text = try self.readRenderState(input.render_state.?, input.grid, true);
-        const options = surface_preparer.PrepareOptions{ .scene = .{
+        const options = surface_preparer.PrepareOptions{ .draw_list = .{
             .cursor = try readCursorPresentation(input.render_state.?, text.colors, input),
             .damage = .{ .full = true, .dirty_rows = text.dirty_rows, .dirty_cols_start = text.dirty_cols_start, .dirty_cols_end = text.dirty_cols_end },
         } };
@@ -291,11 +291,11 @@ fn copyPath(allocator: std.mem.Allocator, path: [*:0]const u8) ![:0]u8 {
     return try allocator.dupeZ(u8, std.mem.span(path));
 }
 
-fn pixelSizeIn(value: c.HowlRenderPixelSize) geometry.PixelSize {
+fn pixelSizeIn(value: c.HowlRenderPixelSize) layout.PixelSize {
     return .{ .width = value.width, .height = value.height };
 }
 
-fn cellSizeIn(value: c.HowlRenderCellSize) geometry.CellSize {
+fn cellSizeIn(value: c.HowlRenderCellSize) layout.CellSize {
     return .{ .width = value.width, .height = value.height };
 }
 

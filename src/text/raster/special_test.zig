@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const render = @import("../../grid/scene.zig");
+const render = @import("../draw_primitives.zig");
 const special_glyphs = @import("../special_glyphs.zig");
 const special = @import("special.zig");
 const special_legacy_computing = @import("special_legacy_computing.zig");

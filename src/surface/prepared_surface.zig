@@ -1,5 +1,5 @@
 const std = @import("std");
-const geometry = @import("../geometry.zig");
+const layout = @import("../layout.zig");
 const event = @import("../event.zig");
 const font_resolve = @import("../text/resolver.zig");
 const surface_preparer = @import("surface_preparer.zig");
@@ -10,9 +10,9 @@ pub const PreparedInfo = struct {
     dirty_epoch: u64,
     geometry_epoch: u64,
     required_base_seq: u64,
-    render_px: geometry.PixelSize,
-    cell_px: geometry.CellSize,
-    grid: geometry.GridSize,
+    render_px: layout.PixelSize,
+    cell_px: layout.CellSize,
+    grid: layout.GridSize,
     damage_kind: u8,
 };
 
@@ -24,9 +24,9 @@ pub const PreparedSurface = struct {
     allocator: std.mem.Allocator,
     request: event.RenderRequest,
     geometry_epoch: u64,
-    render_px: geometry.PixelSize,
-    cell_px: geometry.CellSize,
-    grid: geometry.GridSize,
+    render_px: layout.PixelSize,
+    cell_px: layout.CellSize,
+    grid: layout.GridSize,
     text_surface: surface_preparer.OwnedPreparedTextSurface,
     resolve: font_resolve.ResolveObservability = .{},
     render_surface_emission_failure: render_surface_emitter.RenderSurfaceEmissionFailure = .none,
@@ -38,7 +38,7 @@ pub const PreparedSurface = struct {
 
     pub fn damageKind(self: *const PreparedSurface) event.DamageKind {
         self.assertValid();
-        if (self.text_surface.scene.scene.full_redraw) return .full;
+        if (self.text_surface.draw_list.draw_list.full_redraw) return .full;
         return .partial;
     }
 
@@ -97,13 +97,13 @@ pub const PreparedSurface = struct {
     }
 };
 
-test "prepared surface owner stays separate from geometry" {
-    const pixels = geometry.SurfacePixels{
+test "prepared surface owner stays separate from layout" {
+    const pixels = layout.DrawablePixels{
         .render_width = 0,
         .render_height = -2,
         .grid_width = 80,
         .grid_height = 24,
     };
     try std.testing.expectEqual(@as(u16, 1), pixels.renderWidth());
-    try std.testing.expect(@This().PreparedSurface != geometry.SurfacePixels);
+    try std.testing.expect(@This().PreparedSurface != layout.DrawablePixels);
 }

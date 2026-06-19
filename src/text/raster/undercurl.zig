@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../grid/scene.zig");
+const render = @import("../draw_primitives.zig");
 
 pub fn requestForUndercurl(key: render.SpriteKey, width_px: u16, height_px: u16, decoration: render.DecorationSpriteRaster) render.SpriteRasterRequest {
     std.debug.assert(width_px > 0);

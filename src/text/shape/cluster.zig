@@ -1,6 +1,6 @@
 const std = @import("std");
-const render = @import("../../grid/scene.zig");
-const scene_damage = @import("../../grid/damage.zig");
+const render = @import("../draw_primitives.zig");
+const text_damage = @import("../damage.zig");
 const lane = @import("../lane.zig");
 
 const VS15: u32 = 0xfe0e;
@@ -199,7 +199,7 @@ pub fn buildLineTextCacheFromCells(allocator: std.mem.Allocator, cells: []const 
     return .{ .allocator = allocator, .texts = texts, .codepoints = codepoints };
 }
 
-pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const render.CellInput, grid_metrics: render.GridMetrics, damage: scene_damage.DamageInput) !SparseCells {
+pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const render.CellInput, grid_metrics: render.CellGridMetrics, damage: text_damage.DamageInput) !SparseCells {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     const total_cells = count32(cells);
@@ -211,10 +211,10 @@ pub fn buildSparseCellsWithDamageScratch(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
     cells: []const render.CellInput,
-    grid_metrics: render.GridMetrics,
-    damage: scene_damage.DamageInput,
+    grid_metrics: render.CellGridMetrics,
+    damage: text_damage.DamageInput,
 ) !SparseCells {
-    const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
+    const normalized_damage = text_damage.normalizeDamage(damage, grid_metrics.rows);
     const total_cells = count32(cells);
     try scratch.require(total_cells, countCellInputCodepoints(cells));
 
@@ -223,7 +223,7 @@ pub fn buildSparseCellsWithDamageScratch(
     var renderable_count: u32 = 0;
     var cell_idx: u32 = 0;
     while (cell_idx < total_cells) {
-        if (scene_damage.cleanRowSkip(normalized_damage, grid_metrics, cell_idx, total_cells)) |next_idx| {
+        if (text_damage.cleanRowSkip(normalized_damage, grid_metrics, cell_idx, total_cells)) |next_idx| {
             cell_idx = next_idx;
             continue;
         }
@@ -233,7 +233,7 @@ pub fn buildSparseCellsWithDamageScratch(
         if (cell.continuation) continue;
         const first_cell = idx;
         const span = inferredCellSpan(cells, first_cell);
-        if (!scene_damage.includeSpan(normalized_damage, grid_metrics, first_cell, span)) continue;
+        if (!text_damage.includeSpan(normalized_damage, grid_metrics, first_cell, span)) continue;
         var scratch_codepoints: [4]u32 = undefined;
         const cps = cellCodepointsForRenderableOwnership(cell, &scratch_codepoints);
         const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
@@ -371,8 +371,8 @@ pub fn extractClustersWithDamage(
     allocator: std.mem.Allocator,
     cells: []const render.RenderableCell,
     cache: render.LineTextCache,
-    grid_metrics: render.GridMetrics,
-    damage: scene_damage.DamageInput,
+    grid_metrics: render.CellGridMetrics,
+    damage: text_damage.DamageInput,
 ) !OwnedClusters {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
@@ -385,15 +385,15 @@ pub fn extractClustersWithDamageScratch(
     scratch: *RetainedScratch,
     cells: []const render.RenderableCell,
     cache: render.LineTextCache,
-    grid_metrics: render.GridMetrics,
-    damage: scene_damage.DamageInput,
+    grid_metrics: render.CellGridMetrics,
+    damage: text_damage.DamageInput,
 ) !OwnedClusters {
-    const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
+    const normalized_damage = text_damage.normalizeDamage(damage, grid_metrics.rows);
     try scratch.require(count32(cells), 0);
     var cluster_count: u32 = 0;
     for (cells, 0..) |cell, idx| {
         if (cell.continuation) continue;
-        if (!scene_damage.includeSpan(normalized_damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
+        if (!text_damage.includeSpan(normalized_damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
         const text = textForCell(cell, cache);
         if (isBlankText(text)) continue;
         const inferred_span = inferredRenderableCellSpan(cells, @intCast(idx));
@@ -410,8 +410,8 @@ pub fn selectComplexWithDamage(
     cells: []const render.RenderableCell,
     cache: render.LineTextCache,
     clusters: []const render.CellCluster,
-    grid_metrics: render.GridMetrics,
-    damage: scene_damage.DamageInput,
+    grid_metrics: render.CellGridMetrics,
+    damage: text_damage.DamageInput,
 ) !ComplexSelection {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
@@ -445,8 +445,8 @@ pub fn sourceRenderableTextFromPrepared(cells: []const render.RenderableCell, ca
     return .{ .renderable = renderable, .text = textForCell(renderable, cache) };
 }
 
-pub fn includeDamage(grid_metrics: render.GridMetrics, damage: scene_damage.DamageInput, renderable: render.RenderableCell) bool {
-    return scene_damage.includeSpan(scene_damage.normalizeDamage(damage, grid_metrics.rows), grid_metrics, renderable.first_cell, renderable.cell_span);
+pub fn includeDamage(grid_metrics: render.CellGridMetrics, damage: text_damage.DamageInput, renderable: render.RenderableCell) bool {
+    return text_damage.includeSpan(text_damage.normalizeDamage(damage, grid_metrics.rows), grid_metrics, renderable.first_cell, renderable.cell_span);
 }
 
 pub fn selectComplexWithDamageScratch(
@@ -455,16 +455,16 @@ pub fn selectComplexWithDamageScratch(
     cells: []const render.RenderableCell,
     cache: render.LineTextCache,
     clusters: []const render.CellCluster,
-    grid_metrics: render.GridMetrics,
-    damage: scene_damage.DamageInput,
+    grid_metrics: render.CellGridMetrics,
+    damage: text_damage.DamageInput,
 ) !ComplexSelection {
-    const normalized_damage = scene_damage.normalizeDamage(damage, grid_metrics.rows);
+    const normalized_damage = text_damage.normalizeDamage(damage, grid_metrics.rows);
     try scratch.require(@max(count32(cells), count32(clusters)), 0);
     var cell_count: u32 = 0;
     var cluster_count: u32 = 0;
     for (cells) |cell| {
         if (cell.continuation) continue;
-        if (!scene_damage.includeSpan(normalized_damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
+        if (!text_damage.includeSpan(normalized_damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
         if (!classifyComplexCell(cell, cache)) continue;
         scratch.renderable[@intCast(cell_count)] = cell;
         cell_count += 1;
@@ -869,7 +869,7 @@ test "sparse cells intern repeated codepoints" {
     try std.testing.expect(sparse.renderable.cells[2].text_id.value != sparse.renderable.cells[0].text_id.value);
 }
 
-test "sparse cells keep empty background witnesses for scene ownership" {
+test "sparse cells keep empty background witnesses for draw-list ownership" {
     const allocator = std.testing.allocator;
     const white = render.Rgba8{ .r = 255, .g = 255, .b = 255, .a = 255 };
     const black = render.Rgba8{ .r = 0, .g = 0, .b = 0, .a = 255 };

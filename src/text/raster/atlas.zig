@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../grid/scene.zig");
+const render = @import("../draw_primitives.zig");
 const rasterizer = @import("rasterizer.zig");
 
 pub const StoredRaster = struct {

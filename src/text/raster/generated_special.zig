@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../grid/scene.zig");
+const render = @import("../draw_primitives.zig");
 const special_glyphs = @import("../special_glyphs.zig");
 const special_block_braille = @import("special_block_braille.zig");
 const special_box = @import("special_box.zig");

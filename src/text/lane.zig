@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../grid/scene.zig");
+const render = @import("draw_primitives.zig");
 const symbol_map = @import("symbol_map.zig");
 
 pub const TextLane = enum(u1) {
@@ -90,7 +90,7 @@ pub const LegacyPathReport = struct {
     resolved_clusters: LegacyStageCounts = .{},
     shaped_clusters: LegacyStageCounts = .{},
     grouped_groups: LegacyStageCounts = .{},
-    scene_sprite_draws: LegacyStageCounts = .{},
+    draw_list_sprite_draws: LegacyStageCounts = .{},
 };
 
 pub const LaneReport = struct {
@@ -125,7 +125,7 @@ pub const LaneReport = struct {
             self.legacy.resolved_clusters.normal == 0 and
             self.legacy.shaped_clusters.normal == 0 and
             self.legacy.grouped_groups.normal == 0 and
-            self.legacy.scene_sprite_draws.normal == 0;
+            self.legacy.draw_list_sprite_draws.normal == 0;
     }
 
     pub fn recordLegacyResolvedRun(self: *LaneReport, text_cache: render.LineTextCache, clusters: []const render.CellCluster, run: render.ResolvedRun) void {
@@ -161,9 +161,9 @@ pub const LaneReport = struct {
         recordLegacyChoice(&self.legacy.grouped_groups, choice);
     }
 
-    pub fn recordLegacySceneSpriteDraw(self: *LaneReport, text_cache: render.LineTextCache, cells: []const render.RenderableCell, draw: render.TextSpriteDraw) void {
+    pub fn recordLegacyDrawListSpriteDraw(self: *LaneReport, text_cache: render.LineTextCache, cells: []const render.RenderableCell, draw: render.TextSpriteDraw) void {
         const choice = classifyRenderableCell(cellForFirstCell(cells, draw.first_cell), textForFirstCell(text_cache, cells, draw.first_cell));
-        recordLegacyChoice(&self.legacy.scene_sprite_draws, choice);
+        recordLegacyChoice(&self.legacy.draw_list_sprite_draws, choice);
     }
 
     pub fn assertValid(self: LaneReport) void {
@@ -561,7 +561,7 @@ test "lane report flags legacy leakage for normal runs" {
         .font = .{ .face_id = .{ .value = 1 }, .style = .regular, .presentation = .any },
     } });
     report.recordLegacyGroup(.{ .texts = &.{text} }, &.{cell}, .{ .first_cell = 0, .cell_span = 1, .glyphs = &.{}, .sprite_key = .{ .value = 1 }, .kind = .normal });
-    report.recordLegacySceneSpriteDraw(
+    report.recordLegacyDrawListSpriteDraw(
         .{ .texts = &.{text} },
         &.{cell},
         .{ .sprite = .{ .slot = 0, .key = .{ .value = 1 } }, .x_px = 0, .y_px = 0, .width_px = 8, .height_px = 16, .color = cell.fg, .first_cell = 0, .cell_span = 1 },
@@ -570,7 +570,7 @@ test "lane report flags legacy leakage for normal runs" {
     try std.testing.expectEqual(@as(u64, 1), report.legacy.resolved_clusters.normal);
     try std.testing.expectEqual(@as(u64, 1), report.legacy.shaped_clusters.normal);
     try std.testing.expectEqual(@as(u64, 1), report.legacy.grouped_groups.normal);
-    try std.testing.expectEqual(@as(u64, 1), report.legacy.scene_sprite_draws.normal);
+    try std.testing.expectEqual(@as(u64, 1), report.legacy.draw_list_sprite_draws.normal);
     try std.testing.expect(!report.surfaceStayedOutOfLegacyPath());
 }
 

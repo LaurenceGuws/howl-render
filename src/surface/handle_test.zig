@@ -1,5 +1,5 @@
 const std = @import("std");
-const geometry = @import("../geometry.zig");
+const layout = @import("../layout.zig");
 const prepared_buffer = @import("compositor.zig");
 const prepared_handle = @import("handle.zig");
 const prepared_surface = @import("prepared_surface.zig");
@@ -7,7 +7,7 @@ const render_surface_emitter = @import("emitter.zig");
 const render_surface_realizer = @import("realizer.zig");
 const render_session = @import("../render_session.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
-const render = @import("../grid/scene.zig");
+const render = @import("../text/draw_primitives.zig");
 const test_support = @import("../c/test_support.zig");
 
 const PreparedHandle = prepared_handle.PreparedHandle;
@@ -36,9 +36,9 @@ test "create reports missing-sprite diagnostic without double free" {
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
         .text_surface = .{
-            .scene = .{
+            .draw_list = .{
                 .allocator = std.testing.allocator,
-                .scene = .{
+                .draw_list = .{
                     .clear_draws = &.{},
                     .background_draws = &.{},
                     .sprite_draws = &sprite_draws,
@@ -70,9 +70,9 @@ test "prepared surface exports info and required upload count truth" {
         .cell_px = .{ .width = 2, .height = 3 },
         .grid = .{ .cols = 4, .rows = 5 },
         .text_surface = .{
-            .scene = .{
+            .draw_list = .{
                 .allocator = std.testing.allocator,
-                .scene = .{
+                .draw_list = .{
                     .clear_draws = &.{},
                     .background_draws = &.{},
                     .sprite_draws = &.{},
@@ -111,7 +111,7 @@ test "emitter maps every render-surface emission error to local failure" {
 }
 
 test "prepared handle testing validates realized uploads and host surface dimensions before submit" {
-    const render_px = geometry.PixelSize{ .width = 11, .height = 12 };
+    const render_px = layout.PixelSize{ .width = 11, .height = 12 };
 
     try std.testing.expect(prepared_handle.testing.executionMatchesPrepared(render_px, .{
         .host_surface = .{ .host_surface_id = 1, .width = 11, .height = 12 },
@@ -344,10 +344,10 @@ fn ownedCommandOverflowPreparedSurface(allocator: std.mem.Allocator) !prepared_s
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
         .text_surface = .{
-            .scene = .{
+            .draw_list = .{
                 .allocator = allocator,
                 .owned = true,
-                .scene = .{
+                .draw_list = .{
                     .clear_draws = &.{},
                     .background_draws = background_draws,
                     .sprite_draws = &.{},
@@ -385,10 +385,10 @@ fn preparedSurface(options: PreparedOptions) prepared_surface.PreparedSurface {
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = options.width_px, .rows = options.height_px },
         .text_surface = .{
-            .scene = .{
+            .draw_list = .{
                 .allocator = std.testing.allocator,
                 .owned = false,
-                .scene = .{
+                .draw_list = .{
                     .clear_draws = options.clear_draws,
                     .background_draws = options.background_draws,
                     .sprite_draws = options.sprite_draws,

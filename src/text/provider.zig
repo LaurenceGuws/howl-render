@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../grid/scene.zig");
+const render = @import("draw_primitives.zig");
 const face_selection = @import("face_selection.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");

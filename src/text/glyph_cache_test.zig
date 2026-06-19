@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const test_font_options = @import("test_font_options");
-const render = @import("../grid/scene.zig");
+const render = @import("draw_primitives.zig");
 const glyph_cache = @import("glyph_cache.zig");
 
 const InjectedTestFontPaths = struct {

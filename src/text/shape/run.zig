@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("../../grid/scene.zig");
+const render = @import("../draw_primitives.zig");
 const cluster_shape = @import("cluster.zig");
 
 pub const ShapeRunRequest = struct {
