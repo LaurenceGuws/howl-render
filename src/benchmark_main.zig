@@ -10,7 +10,7 @@ const cluster = @import("text/shape/cluster.zig");
 const RunCount = u32;
 
 const OutputFormat = enum { ndjson, text };
-const WorkloadInput = union(enum) {
+const BenchmarkInput = union(enum) {
     cells: []render.CellInput,
     cell_texts: []const cluster.CellTextInput,
 };
@@ -27,7 +27,7 @@ const RunObservation = struct {
     peak_live_bytes: u64,
 };
 
-const WorkloadResult = struct {
+const BenchmarkResult = struct {
     name: []const u8,
     grid_cols: u16,
     grid_rows: u16,
@@ -48,30 +48,30 @@ const WorkloadResult = struct {
     warm_median_fills: u64,
     warm_median_glyphs: u64,
     warm_median_uploads: u64,
-    fn dirtyCellsPerSecond(self: WorkloadResult) f64 {
+    fn dirtyCellsPerSecond(self: BenchmarkResult) f64 {
         const median_seconds = @as(f64, @floatFromInt(self.warm_median_ns)) / 1_000_000_000.0;
         if (median_seconds <= 0) return 0;
         return @as(f64, @floatFromInt(self.dirty_cells_per_run)) / median_seconds;
     }
 };
 
-const WorkloadDamage = struct {
+const BenchmarkDamage = struct {
     full: bool,
     dirty_rows: []const bool,
     dirty_cols_start: []const u16,
     dirty_cols_end: []const u16,
 };
 
-const Workload = struct {
+const BenchmarkCase = struct {
     name: []const u8,
-    input: WorkloadInput,
+    input: BenchmarkInput,
     grid: render.GridMetrics,
-    damage: WorkloadDamage,
+    damage: BenchmarkDamage,
     cell_px: geometry.CellSize,
     dirty_cells_per_run: u32,
 };
 
-const WorkloadPrepareContext = struct {
+const BenchmarkPrepareContext = struct {
     selection: face_selection.FaceSelection,
     options: surface_preparer.PrepareOptions,
     borrowed_cells: []render.CellInput = &.{},
@@ -276,7 +276,7 @@ fn initDirtySparse(allocator: std.mem.Allocator, rows: u16, active_rows: []const
     return .{ .rows = dirty_rows, .starts = dirty_starts, .ends = dirty_ends };
 }
 
-fn workloadDamage(full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16) WorkloadDamage {
+fn benchmarkDamage(full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16) BenchmarkDamage {
     return .{
         .full = full,
         .dirty_rows = dirty_rows,
@@ -285,18 +285,18 @@ fn workloadDamage(full: bool, dirty_rows: []const bool, dirty_cols_start: []cons
     };
 }
 
-fn buildWorkload(name: []const u8, input: WorkloadInput, grid: render.GridMetrics, full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, cell_px: geometry.CellSize, dirty_cells_per_run: u32) Workload {
+fn buildBenchmarkCase(name: []const u8, input: BenchmarkInput, grid: render.GridMetrics, full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, cell_px: geometry.CellSize, dirty_cells_per_run: u32) BenchmarkCase {
     return .{
         .name = name,
         .input = input,
         .grid = grid,
-        .damage = workloadDamage(full, dirty_rows, dirty_cols_start, dirty_cols_end),
+        .damage = benchmarkDamage(full, dirty_rows, dirty_cols_start, dirty_cols_end),
         .cell_px = cell_px,
         .dirty_cells_per_run = dirty_cells_per_run,
     };
 }
 
-fn buildAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildAsciiFullCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 24;
     const cols: u16 = 80;
     const bg = rgba(12, 12, 18);
@@ -313,7 +313,7 @@ fn buildAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
             cells[@intCast(idx)].fg = fg;
         }
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "ascii_full",
         .{ .cells = cells },
         .{ .cols = cols, .rows = rows },
@@ -326,7 +326,7 @@ fn buildAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildAsciiFullLargeWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildAsciiFullLargeCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 120;
     const cols: u16 = 320;
     const bg = rgba(12, 12, 18);
@@ -343,7 +343,7 @@ fn buildAsciiFullLargeWorkload(allocator: std.mem.Allocator) !Workload {
             cells[@intCast(idx)].fg = fg;
         }
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "ascii_full_large",
         .{ .cells = cells },
         .{ .cols = cols, .rows = rows },
@@ -356,7 +356,7 @@ fn buildAsciiFullLargeWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildLsdLikeWorkload(allocator: std.mem.Allocator, colored: bool) !Workload {
+fn buildLsdLikeCase(allocator: std.mem.Allocator, colored: bool) !BenchmarkCase {
     const rows: u16 = 52;
     const cols: u16 = 119;
     const bg = rgba(0, 0, 0);
@@ -406,7 +406,7 @@ fn buildLsdLikeWorkload(allocator: std.mem.Allocator, colored: bool) !Workload {
         padSpaces(cells, row_base, cols, &col, cols -| col, name_fg, bg);
     }
 
-    return buildWorkload(
+    return buildBenchmarkCase(
         if (colored) "lsd_like_color" else "lsd_like_plain",
         .{ .cells = cells },
         .{ .cols = cols, .rows = rows },
@@ -435,7 +435,7 @@ fn padSpaces(cells: []render.CellInput, row_base: u32, cols: u16, col: *u16, cou
     }
 }
 
-fn buildSparseRowsWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildSparseRowsCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 30;
     const cols: u16 = 120;
     const bg = rgba(10, 14, 20);
@@ -453,7 +453,7 @@ fn buildSparseRowsWorkload(allocator: std.mem.Allocator) !Workload {
             cells[@intCast(idx)].bg = if (row == 17) rgba(28, 18, 36) else bg;
         }
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "sparse_rows",
         .{ .cells = cells },
         .{ .cols = cols, .rows = rows },
@@ -466,7 +466,7 @@ fn buildSparseRowsWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildMixedBoxWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildMixedBoxCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 40;
     const cols: u16 = 100;
     const bg = rgba(15, 15, 15);
@@ -484,7 +484,7 @@ fn buildMixedBoxWorkload(allocator: std.mem.Allocator) !Workload {
             cells[@intCast(idx)].bg = if ((row / 4) % 2 == 0) bg else rgba(24, 24, 32);
         }
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "mixed_box_full",
         .{ .cells = cells },
         .{ .cols = cols, .rows = rows },
@@ -497,7 +497,7 @@ fn buildMixedBoxWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildWideDirtySpansWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildWideDirtySpansCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 36;
     const cols: u16 = 132;
     const bg = rgba(7, 10, 13);
@@ -514,7 +514,7 @@ fn buildWideDirtySpansWorkload(allocator: std.mem.Allocator) !Workload {
             cells[@intCast(idx)].bg = if ((col / 8) % 2 == 0) rgba(18, 24, 30) else rgba(32, 18, 18);
         }
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "wide_dirty_spans",
         .{ .cells = cells },
         .{ .cols = cols, .rows = rows },
@@ -527,7 +527,7 @@ fn buildWideDirtySpansWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildComplexTextCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 12;
     const cols: u16 = 32;
     const bg = rgba(14, 12, 18);
@@ -545,7 +545,7 @@ fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
             .presentation = if (idx % 2 == 0) .any else .emoji,
         };
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "complex_text_full",
         .{ .cell_texts = cells },
         .{ .cols = cols, .rows = rows },
@@ -558,7 +558,7 @@ fn buildComplexTextWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildCellTextAsciiFullCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 24;
     const cols: u16 = 80;
     const bg = rgba(12, 12, 18);
@@ -573,7 +573,7 @@ fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
             .bg = bg,
         };
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "cell_text_ascii_full",
         .{ .cell_texts = cells },
         .{ .cols = cols, .rows = rows },
@@ -586,7 +586,7 @@ fn buildCellTextAsciiFullWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildCellTextMixedCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 16;
     const cols: u16 = 48;
     const bg = rgba(16, 14, 22);
@@ -605,7 +605,7 @@ fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
             .presentation = .any,
         };
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "cell_text_mixed",
         .{ .cell_texts = cells },
         .{ .cols = cols, .rows = rows },
@@ -618,7 +618,7 @@ fn buildCellTextMixedWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildCurlyUnderlineMixedWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildCurlyUnderlineMixedCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 18;
     const cols: u16 = 64;
     const bg = rgba(12, 16, 20);
@@ -636,7 +636,7 @@ fn buildCurlyUnderlineMixedWorkload(allocator: std.mem.Allocator) !Workload {
             .underline_style = if (curly) .curly else .straight,
         };
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "curly_underline_mixed",
         .{ .cells = cells },
         .{ .cols = cols, .rows = rows },
@@ -649,7 +649,7 @@ fn buildCurlyUnderlineMixedWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn buildIconPuaMixedWorkload(allocator: std.mem.Allocator) !Workload {
+fn buildIconPuaMixedCase(allocator: std.mem.Allocator) !BenchmarkCase {
     const rows: u16 = 12;
     const cols: u16 = 48;
     const bg = rgba(14, 16, 22);
@@ -665,7 +665,7 @@ fn buildIconPuaMixedWorkload(allocator: std.mem.Allocator) !Workload {
             .bg = bg,
         };
     }
-    return buildWorkload(
+    return buildBenchmarkCase(
         "icon_pua_mixed",
         .{ .cells = cells },
         .{ .cols = cols, .rows = rows },
@@ -678,36 +678,36 @@ fn buildIconPuaMixedWorkload(allocator: std.mem.Allocator) !Workload {
     );
 }
 
-fn initPrepareContext(workload: Workload) WorkloadPrepareContext {
+fn initBenchmarkPrepareContext(benchmark_case: BenchmarkCase) BenchmarkPrepareContext {
     return .{
         .selection = .{
             .primary_face = .{ .value = 1 },
-            .cell_metrics = defaultCellMetrics(workload.cell_px),
+            .cell_metrics = defaultCellMetrics(benchmark_case.cell_px),
         },
         .options = .{
             .scene = .{
                 .damage = .{
-                    .full = workload.damage.full,
-                    .dirty_rows = workload.damage.dirty_rows,
-                    .dirty_cols_start = workload.damage.dirty_cols_start,
-                    .dirty_cols_end = workload.damage.dirty_cols_end,
+                    .full = benchmark_case.damage.full,
+                    .dirty_rows = benchmark_case.damage.dirty_rows,
+                    .dirty_cols_start = benchmark_case.damage.dirty_cols_start,
+                    .dirty_cols_end = benchmark_case.damage.dirty_cols_end,
                 },
             },
         },
     };
 }
 
-fn prepareWorkloadSurface(preparer: *surface_preparer.TextSurfacePreparer, workload: Workload, context: WorkloadPrepareContext) !surface_preparer.OwnedPreparedTextSurface {
-    return switch (workload.input) {
+fn prepareBenchmarkCaseSurface(preparer: *surface_preparer.TextSurfacePreparer, benchmark_case: BenchmarkCase, context: BenchmarkPrepareContext) !surface_preparer.OwnedPreparedTextSurface {
+    return switch (benchmark_case.input) {
         .cells => |cells| preparer.prepareCellsWithFaceSelection(
             cells,
-            workload.grid,
+            benchmark_case.grid,
             context.selection,
             context.options,
         ),
         .cell_texts => |cells| preparer.prepareCellTextInputsWithFaceSelection(
             cells,
-            workload.grid,
+            benchmark_case.grid,
             context.selection,
             context.options,
         ),
@@ -735,10 +735,10 @@ fn markAtlasOutputs(preparer: *surface_preparer.TextSurfacePreparer, analysis: s
     }
 }
 
-fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *surface_preparer.TextSurfacePreparer, workload: Workload, context: WorkloadPrepareContext) !ColdRun {
+fn runBenchmarkCaseCold(io: std.Io, counting: *CountingAllocator, preparer: *surface_preparer.TextSurfacePreparer, benchmark_case: BenchmarkCase, context: BenchmarkPrepareContext) !ColdRun {
     counting.resetWindow();
     const start_ns = nowNs(io);
-    var analysis = try prepareWorkloadSurface(preparer, workload, context);
+    var analysis = try prepareBenchmarkCaseSurface(preparer, benchmark_case, context);
     defer analysis.deinit();
     const duration_ns = nowNs(io) - start_ns;
     const uploads = count64(analysis.raster_plan.outputs);
@@ -752,12 +752,12 @@ fn runWorkloadCold(io: std.Io, counting: *CountingAllocator, preparer: *surface_
     return result;
 }
 
-fn runWorkloadWarm(
+fn runBenchmarkCaseWarm(
     io: std.Io,
     counting: *CountingAllocator,
     preparer: *surface_preparer.TextSurfacePreparer,
-    workload: Workload,
-    context: WorkloadPrepareContext,
+    benchmark_case: BenchmarkCase,
+    context: BenchmarkPrepareContext,
     observations: []RunObservation,
     fill_values: []u64,
     glyph_values: []u64,
@@ -766,7 +766,7 @@ fn runWorkloadWarm(
     for (observations, 0..) |*observation, idx| {
         counting.resetWindow();
         const start_ns = nowNs(io);
-        var analysis = try prepareWorkloadSurface(preparer, workload, context);
+        var analysis = try prepareBenchmarkCaseSurface(preparer, benchmark_case, context);
         defer analysis.deinit();
         const duration_ns = nowNs(io) - start_ns;
         observation.* = extractObservation(duration_ns, counting.*);
@@ -805,18 +805,18 @@ fn summarizeWarmRuns(allocator: std.mem.Allocator, observations: []const RunObse
     };
 }
 
-fn runWorkloadInitState(allocator: std.mem.Allocator, workload: Workload, counting: *CountingAllocator, preparer: *surface_preparer.TextSurfacePreparer, context: *WorkloadPrepareContext) void {
-    context.* = initPrepareContext(workload);
+fn runBenchmarkCaseInitState(allocator: std.mem.Allocator, benchmark_case: BenchmarkCase, counting: *CountingAllocator, preparer: *surface_preparer.TextSurfacePreparer, context: *BenchmarkPrepareContext) void {
+    context.* = initBenchmarkPrepareContext(benchmark_case);
     counting.* = CountingAllocator.init(allocator);
     preparer.* = surface_preparer.TextSurfacePreparer.init(counting.allocator());
 }
 
-fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: WarmSummary) WorkloadResult {
+fn runBenchmarkCaseResult(benchmark_case: BenchmarkCase, runs: RunCount, cold: ColdRun, warm: WarmSummary) BenchmarkResult {
     return .{
-        .name = workload.name,
-        .grid_cols = workload.grid.cols,
-        .grid_rows = workload.grid.rows,
-        .dirty_cells_per_run = workload.dirty_cells_per_run,
+        .name = benchmark_case.name,
+        .grid_cols = benchmark_case.grid.cols,
+        .grid_rows = benchmark_case.grid.rows,
+        .dirty_cells_per_run = benchmark_case.dirty_cells_per_run,
         .runs = runs,
         .cold_ns = cold.observation.ns,
         .cold_alloc_count = cold.observation.alloc_count,
@@ -836,7 +836,7 @@ fn runWorkloadResult(workload: Workload, runs: RunCount, cold: ColdRun, warm: Wa
     };
 }
 
-fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, runs: RunCount) !WorkloadResult {
+fn runBenchmarkCase(io: std.Io, allocator: std.mem.Allocator, benchmark_case: BenchmarkCase, runs: RunCount) !BenchmarkResult {
     const observations = try allocator.alloc(RunObservation, runs);
     defer allocator.free(observations);
     const fill_values = try allocator.alloc(u64, runs);
@@ -846,17 +846,17 @@ fn runWorkload(io: std.Io, allocator: std.mem.Allocator, workload: Workload, run
     const upload_values = try allocator.alloc(u64, runs);
     defer allocator.free(upload_values);
 
-    var context: WorkloadPrepareContext = undefined;
+    var context: BenchmarkPrepareContext = undefined;
     var counting: CountingAllocator = undefined;
     var preparer: surface_preparer.TextSurfacePreparer = undefined;
-    runWorkloadInitState(allocator, workload, &counting, &preparer, &context);
+    runBenchmarkCaseInitState(allocator, benchmark_case, &counting, &preparer, &context);
     defer preparer.deinit();
 
-    const cold = try runWorkloadCold(io, &counting, &preparer, workload, context);
-    try runWorkloadWarm(io, &counting, &preparer, workload, context, observations, fill_values, glyph_values, upload_values);
+    const cold = try runBenchmarkCaseCold(io, &counting, &preparer, benchmark_case, context);
+    try runBenchmarkCaseWarm(io, &counting, &preparer, benchmark_case, context, observations, fill_values, glyph_values, upload_values);
     const warm = try summarizeWarmRuns(allocator, observations, fill_values, glyph_values, upload_values);
     std.debug.assert(cold.uploads >= warm.median_uploads);
-    return runWorkloadResult(workload, runs, cold, warm);
+    return runBenchmarkCaseResult(benchmark_case, runs, cold, warm);
 }
 
 fn parseArgs(argv: []const [:0]const u8) !Options {
@@ -884,11 +884,11 @@ fn parseArgs(argv: []const [:0]const u8) !Options {
     return opts;
 }
 
-fn printTextResult(result: WorkloadResult) void {
+fn printTextResult(result: BenchmarkResult) void {
     const cold_ms = @as(f64, @floatFromInt(result.cold_ns)) / 1_000_000.0;
     const warm_median_ms = @as(f64, @floatFromInt(result.warm_median_ns)) / 1_000_000.0;
     const warm_p95_ms = @as(f64, @floatFromInt(result.warm_p95_ns)) / 1_000_000.0;
-    std.debug.print("workload={s}\n", .{result.name});
+    std.debug.print("benchmark_case={s}\n", .{result.name});
     std.debug.print("grid_cols={d}\n", .{result.grid_cols});
     std.debug.print("grid_rows={d}\n", .{result.grid_rows});
     std.debug.print("runs={d}\n", .{result.runs});
@@ -912,8 +912,8 @@ fn printTextResult(result: WorkloadResult) void {
     std.debug.print("---\n", .{});
 }
 
-fn printNdjsonResult(result: WorkloadResult) void {
-    std.debug.print("{{\"workload\":\"{s}\",\"grid_cols\":{d},\"grid_rows\":{d},", .{
+fn printNdjsonResult(result: BenchmarkResult) void {
+    std.debug.print("{{\"benchmark_case\":\"{s}\",\"grid_cols\":{d},\"grid_rows\":{d},", .{
         result.name,
         result.grid_cols,
         result.grid_rows,
@@ -954,23 +954,23 @@ pub fn main(init: std.process.Init) !void {
     const opts = try parseArgs(argv);
     const io = init.io;
 
-    const workloads = [_]Workload{
-        try buildAsciiFullWorkload(arena),
-        try buildAsciiFullLargeWorkload(arena),
-        try buildLsdLikeWorkload(arena, false),
-        try buildLsdLikeWorkload(arena, true),
-        try buildCellTextAsciiFullWorkload(arena),
-        try buildSparseRowsWorkload(arena),
-        try buildMixedBoxWorkload(arena),
-        try buildWideDirtySpansWorkload(arena),
-        try buildCellTextMixedWorkload(arena),
-        try buildCurlyUnderlineMixedWorkload(arena),
-        try buildIconPuaMixedWorkload(arena),
-        try buildComplexTextWorkload(arena),
+    const benchmark_cases = [_]BenchmarkCase{
+        try buildAsciiFullCase(arena),
+        try buildAsciiFullLargeCase(arena),
+        try buildLsdLikeCase(arena, false),
+        try buildLsdLikeCase(arena, true),
+        try buildCellTextAsciiFullCase(arena),
+        try buildSparseRowsCase(arena),
+        try buildMixedBoxCase(arena),
+        try buildWideDirtySpansCase(arena),
+        try buildCellTextMixedCase(arena),
+        try buildCurlyUnderlineMixedCase(arena),
+        try buildIconPuaMixedCase(arena),
+        try buildComplexTextCase(arena),
     };
 
-    for (workloads) |workload| {
-        const result = try runWorkload(io, arena, workload, opts.runs);
+    for (benchmark_cases) |benchmark_case| {
+        const result = try runBenchmarkCase(io, arena, benchmark_case, opts.runs);
         switch (opts.format) {
             .ndjson => printNdjsonResult(result),
             .text => printTextResult(result),
