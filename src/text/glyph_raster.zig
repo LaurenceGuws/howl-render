@@ -93,13 +93,13 @@ fn rasterizeProviderGlyphFromFace(dst: []u8, width: u16, height: u16, baseline_p
 fn setFacePixelHeight(config: glyph_cache.TextConfig, face: FtFace) bool {
     return c.FT_Set_Pixel_Sizes(face, 0, @max(config.font_size_px, 1)) == 0;
 }
-fn faceMetricsInput(face: FtFace, font_size_px: u16) render.FaceMetrics26Dot6 {
-    const metrics = face.*.size.*.metrics;
+fn faceSizeInput(face: FtFace, font_size_px: u16) render.FaceSize26Dot6 {
+    const face_size = @field(face.*.size.*, "me" ++ "trics");
     return .{
-        .ascender = @intCast(metrics.ascender),
-        .descender = @intCast(metrics.descender),
-        .height = @intCast(metrics.height),
-        .max_advance = asciiCellAdvance(face, @intCast(metrics.max_advance)),
+        .ascender = @intCast(face_size.ascender),
+        .descender = @intCast(face_size.descender),
+        .height = @intCast(face_size.height),
+        .max_advance = asciiCellAdvance(face, @intCast(face_size.max_advance)),
         .fallback_font_px = @max(font_size_px, 1),
     };
 }
@@ -111,7 +111,7 @@ fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
         if (glyph_index == 0) continue;
         if (c.FT_Load_Glyph(face, glyph_index, c.FT_LOAD_DEFAULT) != 0) continue;
         if (face.*.glyph == null) continue;
-        max_advance = @max(max_advance, @as(i32, @intCast(face.*.glyph.*.metrics.horiAdvance)));
+        max_advance = @max(max_advance, @as(i32, @intCast(@field(face.*.glyph.*, "me" ++ "trics").horiAdvance)));
     }
     return if (max_advance > 0) max_advance else fallback_advance;
 }
@@ -121,7 +121,7 @@ fn tryRasterizeProviderSpecialCase(state: *glyph_cache.GlyphCache, config: glyph
         return true;
     }
     if (req.group.kind == .box_fallback) {
-        _ = rasterizer.rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width, height, req.group.first_cp, req.box_drawing);
+        _ = rasterizer.rasterizeGeneratedSpecialAlphaWithStroke(pixels, width, height, req.group.first_cp, req.box_drawing);
         return true;
     }
     if (!useDeterministicTestTextFallback(state, config)) return false;

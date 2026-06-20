@@ -25,7 +25,7 @@ pub fn groupShapedRunsWithPolicy(
     allocator: std.mem.Allocator,
     shaped_runs: []const shape_run.OwnedShapedRun,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
     policy: GroupingPolicy,
 ) !OwnedGlyphGroups {
     var count: u32 = 0;
@@ -66,8 +66,8 @@ pub fn groupShapedRunsWithPolicy(
                 .first_cp = cluster.first_cp,
                 .cell_span = inferred_cell_span,
                 .glyphs = glyph_slice,
-                .placement = groupPlacement(glyph_slice, cell_metrics, inferred_cell_span),
-                .sprite_key = sprite_key.hashGlyphSequence(run.run.run.font.face_id, glyph_slice, inferred_cell_span, cell_metrics),
+                .placement = groupPlacement(glyph_slice, cell_layout, inferred_cell_span),
+                .sprite_key = sprite_key.hashGlyphSequence(run.run.run.font.face_id, glyph_slice, inferred_cell_span, cell_layout),
                 .kind = classifyFontGroup(cluster, glyph_slice, inferred_cell_span),
             };
             out_idx += 1;
@@ -87,10 +87,10 @@ fn applyGroupingPolicy(cell_span: u8, first_cell: u32, policy: GroupingPolicy) u
     return @intCast(@max(cursor_cell - first_cell, 1));
 }
 
-fn groupPlacement(glyphs: []const render.GlyphInstance, cell_metrics: render.CellMetrics, cell_span: u8) render.GlyphPlacement {
+fn groupPlacement(glyphs: []const render.GlyphInstance, cell_layout: render.CellLayout, cell_span: u8) render.GlyphPlacement {
     var advance_px: f32 = 0;
     for (glyphs) |glyph| advance_px += glyph.x_advance_px;
-    const min_advance: f32 = @floatFromInt(@as(u32, @max(cell_span, 1)) * @as(u32, cell_metrics.cell_w_px));
+    const min_advance: f32 = @floatFromInt(@as(u32, @max(cell_span, 1)) * @as(u32, cell_layout.cell_w_px));
     return .{ .advance_px = @max(advance_px, min_advance) };
 }
 
@@ -98,7 +98,7 @@ pub fn groupSpriteRoutes(
     allocator: std.mem.Allocator,
     routes: []const font_resolver.SpriteRouteHit,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
 ) !OwnedGlyphGroups {
     const groups = try allocator.alloc(render.GlyphGroup, routes.len);
     errdefer allocator.free(groups);
@@ -112,8 +112,8 @@ pub fn groupSpriteRoutes(
             .first_cp = cluster.first_cp,
             .cell_span = cell_span,
             .glyphs = &.{},
-            .placement = groupPlacement(&.{}, cell_metrics, cell_span),
-            .sprite_key = routeSpriteKey(route.route, cluster, cell_span, cell_metrics),
+            .placement = groupPlacement(&.{}, cell_layout, cell_span),
+            .sprite_key = routeSpriteKey(route.route, cluster, cell_span, cell_layout),
             .kind = classifySpriteRoute(route.route),
         };
     }
@@ -166,16 +166,16 @@ fn classifySpriteRoute(route: render.SpecialSpriteRoute) render.GlyphGroupKind {
     };
 }
 
-fn routeSpriteKey(route: render.SpecialSpriteRoute, cluster: render.CellCluster, cell_span: u8, cell_metrics: render.CellMetrics) render.SpriteKey {
+fn routeSpriteKey(route: render.SpecialSpriteRoute, cluster: render.CellCluster, cell_span: u8, cell_layout: render.CellLayout) render.SpriteKey {
     var h = std.hash.Wyhash.init(0x484f574c);
     const route_int: u8 = @intFromEnum(route);
     h.update(std.mem.asBytes(&route_int));
     h.update(std.mem.asBytes(&cluster.first_cp));
     h.update(std.mem.asBytes(&cell_span));
-    h.update(std.mem.asBytes(&cell_metrics.cell_w_px));
-    h.update(std.mem.asBytes(&cell_metrics.cell_h_px));
-    h.update(std.mem.asBytes(&cell_metrics.baseline_px));
-    const box = boxDrawingRasterMetrics(cell_metrics);
+    h.update(std.mem.asBytes(&cell_layout.cell_w_px));
+    h.update(std.mem.asBytes(&cell_layout.cell_h_px));
+    h.update(std.mem.asBytes(&cell_layout.baseline_px));
+    const box = boxDrawingStroke(cell_layout);
     h.update(std.mem.asBytes(&box.light_stroke_px));
     h.update(std.mem.asBytes(&box.heavy_stroke_px));
     return .{ .value = h.final() };
@@ -197,8 +197,8 @@ fn spriteRouteCellSpan(route: render.SpecialSpriteRoute, clusters: []const rende
     return @intCast(@min(span, std.math.maxInt(u8)));
 }
 
-fn boxDrawingRasterMetrics(cell_metrics: render.CellMetrics) render.BoxDrawingRasterMetrics {
-    const light = if (cell_metrics.box_thickness_px == 0) @as(u16, 2) else cell_metrics.box_thickness_px;
+fn boxDrawingStroke(cell_layout: render.CellLayout) render.BoxDrawingStroke {
+    const light = if (cell_layout.box_thickness_px == 0) @as(u16, 2) else cell_layout.box_thickness_px;
     return .{ .light_stroke_px = light, .heavy_stroke_px = @intCast(@min(@as(u32, light) * 2, std.math.maxInt(u16))) };
 }
 

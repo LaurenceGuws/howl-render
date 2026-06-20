@@ -58,7 +58,7 @@ pub const FaceSelection = struct {
     primary_face: FaceId = .{ .value = 1 },
     faces: []const FaceRecord = &.{},
     provider: ?FaceProvider = null,
-    cell_metrics: render.CellMetrics = .{ .cell_w_px = 1, .cell_h_px = 1, .baseline_px = 1 },
+    cell_layout: render.CellLayout = .{ .cell_w_px = 1, .cell_h_px = 1, .baseline_px = 1 },
 
     pub fn primary(self: FaceSelection) FaceRecord {
         for (self.faces) |face| {

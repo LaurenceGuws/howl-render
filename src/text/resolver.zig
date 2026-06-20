@@ -183,9 +183,9 @@ pub fn resolveClusters(
     selection: face_selection.FaceSelection,
     clusters: []const render.CellCluster,
     text_cache: render.LineTextCache,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
 ) !OwnedResolvedRuns {
-    const cols = @max(@as(u32, grid_metrics.cols), 1);
+    const cols = @max(@as(u32, cell_grid.cols), 1);
     const cluster_count = count32(clusters);
     try scratch.reset(cluster_count);
     var idx: u32 = 0;

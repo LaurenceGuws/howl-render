@@ -5,7 +5,7 @@ const special_raster = @import("special.zig");
 pub const RasterSpriteRequest = struct {
     key: render.SpriteKey,
     group: render.GlyphGroup,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
 };
 
 pub const RasterSpriteOutput = struct {
@@ -90,22 +90,22 @@ pub const Rasterizer = struct {
     }
 };
 
-pub fn requestForGroup(group: render.GlyphGroup, cell_metrics: render.CellMetrics) render.SpriteRasterRequest {
-    const width_px = spriteWidthPx(group.cell_span, cell_metrics.cell_w_px);
+pub fn requestForGroup(group: render.GlyphGroup, cell_layout: render.CellLayout) render.SpriteRasterRequest {
+    const width_px = spriteWidthPx(group.cell_span, cell_layout.cell_w_px);
     return .{
         .key = group.sprite_key,
         .group = group,
         .placement = group.placement,
         .width_px = width_px,
-        .height_px = cell_metrics.cell_h_px,
-        .baseline_px = cell_metrics.baseline_px,
-        .box_drawing = boxDrawingRasterMetrics(cell_metrics),
+        .height_px = cell_layout.cell_h_px,
+        .baseline_px = cell_layout.baseline_px,
+        .box_drawing = boxDrawingStroke(cell_layout),
         .color_mode = requestColorMode(group.kind),
     };
 }
 
-fn boxDrawingRasterMetrics(cell_metrics: render.CellMetrics) render.BoxDrawingRasterMetrics {
-    const light = if (cell_metrics.box_thickness_px == 0) @as(u16, 2) else cell_metrics.box_thickness_px;
+fn boxDrawingStroke(cell_layout: render.CellLayout) render.BoxDrawingStroke {
+    const light = if (cell_layout.box_thickness_px == 0) @as(u16, 2) else cell_layout.box_thickness_px;
     return .{ .light_stroke_px = light, .heavy_stroke_px = @intCast(@min(@as(u32, light) * 2, std.math.maxInt(u16))) };
 }
 
@@ -133,7 +133,7 @@ test "raster output reports non-empty alpha bounds" {
 pub const requestForUndercurl = special_raster.requestForUndercurl;
 pub const rasterizeUndercurlAlpha = special_raster.rasterizeUndercurlAlpha;
 pub const rasterizeGeneratedSpecialAlpha = special_raster.rasterizeGeneratedSpecialAlpha;
-pub const rasterizeGeneratedSpecialAlphaWithMetrics = special_raster.rasterizeGeneratedSpecialAlphaWithMetrics;
+pub const rasterizeGeneratedSpecialAlphaWithStroke = special_raster.rasterizeGeneratedSpecialAlphaWithStroke;
 
 fn spriteWidthPx(cell_span: u8, cell_w_px: u16) u16 {
     std.debug.assert(cell_w_px > 0);

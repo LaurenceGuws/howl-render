@@ -468,19 +468,19 @@ test "generated special raster draws dashed box lines" {
 test "generated box connectors stop at stroke edges" {
     const width = 10;
     const height = 20;
-    const box = render.BoxDrawingRasterMetrics{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
+    const box = render.BoxDrawingStroke{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
     const h = centeredRange(height, height / 2, box.light_stroke_px);
     const v = centeredRange(width, width / 2, box.light_stroke_px);
 
     var top_right = [_]u8{0} ** (width * height);
-    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithMetrics(&top_right, width, height, 0x2510, box));
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithStroke(&top_right, width, height, 0x2510, box));
     try std.testing.expectEqual(@as(u8, 255), top_right[pixelOffset(width, v.start - 1, h.start)]);
     try std.testing.expectEqual(@as(u8, 255), top_right[pixelOffset(width, v.start, h.start)]);
     try std.testing.expectEqual(@as(u8, 255), top_right[pixelOffset(width, v.end - 1, h.start)]);
     try std.testing.expectEqual(@as(u8, 0), top_right[pixelOffset(width, v.end, h.start)]);
 
     var bottom_left = [_]u8{0} ** (width * height);
-    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithMetrics(&bottom_left, width, height, 0x2514, box));
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithStroke(&bottom_left, width, height, 0x2514, box));
     try std.testing.expectEqual(@as(u8, 0), bottom_left[pixelOffset(width, v.start - 1, h.start)]);
     try std.testing.expectEqual(@as(u8, 255), bottom_left[pixelOffset(width, v.start, h.start)]);
     try std.testing.expectEqual(@as(u8, 255), bottom_left[pixelOffset(width, v.end, h.start)]);
@@ -489,12 +489,12 @@ test "generated box connectors stop at stroke edges" {
 test "generated tee connectors use centered light joins" {
     const width = 10;
     const height = 20;
-    const box = render.BoxDrawingRasterMetrics{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
+    const box = render.BoxDrawingStroke{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
     const h = centeredRange(height, height / 2, box.light_stroke_px);
     const v = centeredRange(width, width / 2, box.light_stroke_px);
 
     var left_tee = [_]u8{0} ** (width * height);
-    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithMetrics(&left_tee, width, height, 0x251c, box));
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithStroke(&left_tee, width, height, 0x251c, box));
     try std.testing.expectEqual(@as(u8, 0), left_tee[pixelOffset(width, v.start - 1, h.start)]);
     try std.testing.expectEqual(@as(u8, 255), left_tee[pixelOffset(width, v.end - 1, h.start)]);
     try std.testing.expectEqual(@as(u8, 255), left_tee[pixelOffset(width, width - 1, h.start)]);
@@ -502,7 +502,7 @@ test "generated tee connectors use centered light joins" {
     try std.testing.expectEqual(@as(u8, 255), left_tee[pixelOffset(width, v.start, h.end)]);
 
     var top_tee = [_]u8{0} ** (width * height);
-    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithMetrics(&top_tee, width, height, 0x252c, box));
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithStroke(&top_tee, width, height, 0x252c, box));
     try std.testing.expectEqual(@as(u8, 255), top_tee[pixelOffset(width, v.start - 1, h.start)]);
     try std.testing.expectEqual(@as(u8, 255), top_tee[pixelOffset(width, v.end, h.start)]);
     try std.testing.expectEqual(@as(u8, 255), top_tee[pixelOffset(width, v.start, h.end)]);
@@ -566,13 +566,13 @@ test "generated special raster draws rounded box corners" {
 test "generated rounded corners align with straight box arms" {
     const width = 10;
     const height = 20;
-    const box = render.BoxDrawingRasterMetrics{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
+    const box = render.BoxDrawingStroke{ .light_stroke_px = 2, .heavy_stroke_px = 4 };
     var corner = [_]u8{0} ** (width * height);
     var hline = [_]u8{0} ** (width * height);
     var vline = [_]u8{0} ** (width * height);
-    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithMetrics(&corner, width, height, 0x256d, box));
-    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithMetrics(&hline, width, height, 0x2500, box));
-    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithMetrics(&vline, width, height, 0x2502, box));
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithStroke(&corner, width, height, 0x256d, box));
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithStroke(&hline, width, height, 0x2500, box));
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithStroke(&vline, width, height, 0x2502, box));
 
     var corner_h_rows: u16 = 0;
     var hline_rows: u16 = 0;
@@ -599,8 +599,8 @@ test "generated rounded corners honor box drawing thickness" {
     const height = 24;
     var thin = [_]u8{0} ** (width * height);
     var thick = [_]u8{0} ** (width * height);
-    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithMetrics(&thin, width, height, 0x256d, .{ .light_stroke_px = 1, .heavy_stroke_px = 2 }));
-    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithMetrics(&thick, width, height, 0x256d, .{ .light_stroke_px = 4, .heavy_stroke_px = 8 }));
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithStroke(&thin, width, height, 0x256d, .{ .light_stroke_px = 1, .heavy_stroke_px = 2 }));
+    try std.testing.expect(special.rasterizeGeneratedSpecialAlphaWithStroke(&thick, width, height, 0x256d, .{ .light_stroke_px = 4, .heavy_stroke_px = 8 }));
 
     const thin_lit = countLit(&thin);
     const thick_lit = countLit(&thick);

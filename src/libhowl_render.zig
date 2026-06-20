@@ -17,12 +17,12 @@ pub const FontStyle = effects.FontStyle;
 pub const TextPresentation = effects.TextPresentation;
 pub const DecorationKind = effects.DecorationKind;
 
-pub const FontMetrics = draw_primitives.FontMetrics;
-pub const FaceMetrics26Dot6 = draw_primitives.FaceMetrics26Dot6;
+pub const FontCellLayout = draw_primitives.FontCellLayout;
+pub const FaceSize26Dot6 = draw_primitives.FaceSize26Dot6;
 pub const DecorationGeometry = draw_primitives.DecorationGeometry;
 pub const CursorGeometry = draw_primitives.CursorGeometry;
-pub const CellMetrics = draw_primitives.CellMetrics;
-pub const CellGridMetrics = draw_primitives.CellGridMetrics;
+pub const CellLayout = draw_primitives.CellLayout;
+pub const CellGrid = draw_primitives.CellGrid;
 
 pub const CellInput = cell_input.CellInput;
 pub const max_extra_cursors = cursor_presentation.max_extra_cursors;
@@ -60,7 +60,7 @@ pub const TextCursorDraw = draw_primitives.TextCursorDraw;
 pub const TextDecorationDraw = draw_primitives.TextDecorationDraw;
 pub const SpriteRasterKind = draw_primitives.SpriteRasterKind;
 pub const DecorationSpriteRaster = draw_primitives.DecorationSpriteRaster;
-pub const BoxDrawingRasterMetrics = draw_primitives.BoxDrawingRasterMetrics;
+pub const BoxDrawingStroke = draw_primitives.BoxDrawingStroke;
 pub const SpriteRasterRequest = draw_primitives.SpriteRasterRequest;
 pub const TextDrawList = draw_primitives.TextDrawList;
 pub const SpecialSpriteRoute = draw_primitives.SpecialSpriteRoute;

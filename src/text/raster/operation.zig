@@ -5,7 +5,7 @@ pub const RasterizeRequest = struct {
     face_id: u32,
     glyph_id: u32,
     atlas_key: u64,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
     cell_span: u8 = 1,
     sprite_key: ?render.SpriteKey = null,
 };
@@ -46,16 +46,16 @@ test "rasterize glyph op dispatches and owns output buffer" {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             self.hits += 1;
 
-            const area: u32 = @as(u32, req.cell_metrics.cell_w_px) * @as(u32, req.cell_metrics.cell_h_px);
+            const area: u32 = @as(u32, req.cell_layout.cell_w_px) * @as(u32, req.cell_layout.cell_h_px);
             const alpha = try gpa.alloc(u8, @intCast(area));
             @memset(alpha, 0x7f);
             return .{
                 .allocator = gpa,
-                .width_px = req.cell_metrics.cell_w_px,
-                .height_px = req.cell_metrics.cell_h_px,
+                .width_px = req.cell_layout.cell_w_px,
+                .height_px = req.cell_layout.cell_h_px,
                 .bearing_x_px = 0,
                 .bearing_y_px = 0,
-                .advance_px = @floatFromInt(req.cell_metrics.cell_w_px),
+                .advance_px = @floatFromInt(req.cell_layout.cell_w_px),
                 .alpha_mask = alpha,
             };
         }
@@ -75,7 +75,7 @@ test "rasterize glyph op dispatches and owns output buffer" {
         .face_id = 7,
         .glyph_id = 'A',
         .atlas_key = 123,
-        .cell_metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
+        .cell_layout = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
     });
     defer raster.deinit();
     try std.testing.expectEqual(@as(u32, 8 * 16), count32.of(raster.alpha_mask));

@@ -117,19 +117,19 @@ pub fn prepare(
     driver: Driver,
     source: Source,
     policy: Policy,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     selection: face_selection.FaceSelection,
     damage_input: text_damage.DamageInput,
     cursor: ?render.CursorPresentation,
     lane_report: *lane.LaneReport,
     rejected_complex_cells_out: ?*u64,
 ) !?Product {
-    const damage = direct_draw.Damage.init(damage_input, grid_metrics.rows);
-    const decoration_layout = rect_primitives.rectDecorationLayout(selection.cell_metrics, grid_metrics);
+    const damage = direct_draw.Damage.init(damage_input, cell_grid.rows);
+    const decoration_layout = rect_primitives.rectDecorationLayout(selection.cell_layout, cell_grid);
     const source_len = sourceLen(source);
     var rejected_complex_cells: u64 = 0;
-    try driver.scratch.reset(driver.allocator, source_len, source_len, grid_metrics.rows);
-    const appended_visible = try appendVisible(driver, source, damage, grid_metrics, decoration_layout, selection, policy, lane_report, &rejected_complex_cells);
+    try driver.scratch.reset(driver.allocator, source_len, source_len, cell_grid.rows);
+    const appended_visible = try appendVisible(driver, source, damage, cell_grid, decoration_layout, selection, policy, lane_report, &rejected_complex_cells);
     if (!appended_visible) {
         std.debug.assert(policy == .require_all_normal);
         std.debug.assert(rejected_complex_cells != 0);
@@ -144,12 +144,12 @@ pub fn prepare(
         &driver.scratch.clear_draws,
         driver.scratch.clear_row_colors.items,
         driver.scratch.clear_row_matches.items,
-        selection.cell_metrics,
-        grid_metrics,
+        selection.cell_layout,
+        cell_grid,
         damage,
     );
-    direct_draw.appendCursor(&driver.scratch.cursor_draws, cursor, selection.cell_metrics, damage);
-    direct_draw.appendCursorTrails(&driver.scratch.cursor_trail_rects, cursor, grid_metrics, selection.cell_metrics);
+    direct_draw.appendCursor(&driver.scratch.cursor_draws, cursor, selection.cell_layout, damage);
+    direct_draw.appendCursorTrails(&driver.scratch.cursor_trail_rects, cursor, cell_grid, selection.cell_layout);
     const product = try finishDrawList(driver, damage, lane_report);
     return product;
 }
@@ -191,7 +191,7 @@ fn appendVisible(
     driver: Driver,
     source: Source,
     damage: direct_draw.Damage,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     decoration_layout: rect_primitives.RectDecorationLayout,
     selection: face_selection.FaceSelection,
     policy: Policy,
@@ -205,7 +205,7 @@ fn appendVisible(
 
     var idx: u32 = 0;
     while (idx < sourceLen(source)) : (idx += 1) {
-        const candidate = sourceCandidate(source, idx, damage, grid_metrics);
+        const candidate = sourceCandidate(source, idx, damage, cell_grid);
         const candidate_value = candidate orelse continue;
         if (rejecting) {
             if (candidate_value.choice.renderableClass() != .normal) rejected_complex_cells.* += 1;
@@ -213,7 +213,7 @@ fn appendVisible(
         }
         switch (candidateDecision(policy, lane_report, candidate_value)) {
             .include => {
-                try appendRenderable(driver, candidate_value.item.renderable, candidate_value.item.text, damage, grid_metrics, decoration_layout, selection, lane_report);
+                try appendRenderable(driver, candidate_value.item.renderable, candidate_value.item.text, damage, cell_grid, decoration_layout, selection, lane_report);
             },
             .skip => continue,
             .reject => {
@@ -245,9 +245,9 @@ fn candidateDecision(policy: Policy, lane_report: *lane.LaneReport, candidate: C
     return action;
 }
 
-fn sourceCandidate(source: Source, idx: u32, damage: direct_draw.Damage, grid_metrics: render.CellGridMetrics) ?Candidate {
+fn sourceCandidate(source: Source, idx: u32, damage: direct_draw.Damage, cell_grid: render.CellGrid) ?Candidate {
     const item = sourceItem(source, idx) orelse return null;
-    if (!cluster.includeDamage(grid_metrics, damageInput(damage), item.renderable)) return null;
+    if (!cluster.includeDamage(cell_grid, damageInput(damage), item.renderable)) return null;
     return .{ .item = item, .choice = lane.classifyRenderableCell(item.renderable, item.text) };
 }
 
@@ -287,7 +287,7 @@ fn appendRenderable(
     renderable: render.RenderableCell,
     text: render.CellText,
     damage: direct_draw.Damage,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     decoration_layout: rect_primitives.RectDecorationLayout,
     selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
@@ -300,27 +300,27 @@ fn appendRenderable(
         driver.scratch.clear_row_matches.items,
         &driver.scratch.decoration_draws,
         renderable,
-        selection.cell_metrics,
-        grid_metrics,
+        selection.cell_layout,
+        cell_grid,
         decoration_layout,
         damage,
     );
 
-    try renderableAppend(driver, renderable, text, grid_metrics, selection, lane_report);
+    try renderableAppend(driver, renderable, text, cell_grid, selection, lane_report);
 }
 
 fn renderableAppend(
     driver: Driver,
     renderable: render.RenderableCell,
     text: render.CellText,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
 ) !void {
     if (blankFastReturn(driver, text)) return;
 
     const face = resolveFaceOrAppendMissing(driver, renderable, text, selection) orelse return;
-    appendResolvedGlyph(driver, renderable, text, grid_metrics, selection, lane_report, face);
+    appendResolvedGlyph(driver, renderable, text, cell_grid, selection, lane_report, face);
 }
 
 fn resolveFaceOrAppendMissing(driver: Driver, renderable: render.RenderableCell, text: render.CellText, selection: face_selection.FaceSelection) ?face_selection.FaceRecord {
@@ -341,7 +341,7 @@ fn appendResolvedGlyph(
     driver: Driver,
     renderable: render.RenderableCell,
     text: render.CellText,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
     face: face_selection.FaceRecord,
@@ -349,16 +349,16 @@ fn appendResolvedGlyph(
     const lookup = lookupGlyph(driver, text, selection, face);
     const resolved = deriveResolvedGlyphKey(renderable, selection, face, lookup);
     const residency = reserveAtlasOrAppendPendingRaster(driver, selection, face, resolved);
-    spriteAppend(driver, renderable, grid_metrics, selection, lane_report, resolved.lookup, residency, resolved.span);
+    spriteAppend(driver, renderable, cell_grid, selection, lane_report, resolved.lookup, residency, resolved.span);
 }
 
 fn lookupGlyph(driver: Driver, text: CellText, selection: FaceSelection, face: FaceRecord) LookupGlyphResult {
-    return driver.glyph_lookup.lookupGlyph(face.id, text.first_cp, selection.cell_metrics);
+    return driver.glyph_lookup.lookupGlyph(face.id, text.first_cp, selection.cell_layout);
 }
 
 fn deriveResolvedGlyphKey(renderable: RenderableCell, selection: FaceSelection, face: FaceRecord, lookup: LookupGlyphResult) ResolvedGlyphKey {
     const span = @max(renderable.cell_span, 1);
-    const key = sprite_key.hashGlyphLocal(face.id, lookup.glyph_id, span, selection.cell_metrics);
+    const key = sprite_key.hashGlyphLocal(face.id, lookup.glyph_id, span, selection.cell_layout);
     return .{ .lookup = lookup, .span = span, .key = key };
 }
 
@@ -369,7 +369,7 @@ fn reserveAtlasOrAppendPendingRaster(driver: Driver, selection: face_selection.F
             .face_id = face.id.value,
             .glyph_id = resolved.lookup.glyph_id,
             .atlas_key = resolved.key.value,
-            .cell_metrics = selection.cell_metrics,
+            .cell_layout = selection.cell_layout,
             .cell_span = resolved.span,
         });
     }
@@ -388,23 +388,23 @@ fn blankFastReturn(driver: Driver, text: render.CellText) bool {
 fn spriteAppend(
     driver: Driver,
     renderable: render.RenderableCell,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     selection: face_selection.FaceSelection,
     lane_report: *lane.LaneReport,
     lookup: provider.LookupGlyphResult,
     residency: atlas_cache.ReserveResult,
     span: u8,
 ) void {
-    const cols = @max(@as(u32, grid_metrics.cols), 1);
+    const cols = @max(@as(u32, cell_grid.cols), 1);
     const col = renderable.first_cell % cols;
     const row = renderable.first_cell / cols;
     driver.scratch.sprite_draws.appendAssumeCapacity(.{
         .sprite = residency.position,
-        .x_px = @as(i32, @intCast(col * @as(u32, selection.cell_metrics.cell_w_px))),
-        .y_px = @as(i32, @intCast(row * @as(u32, selection.cell_metrics.cell_h_px))),
-        .width_px = @intCast(@as(u32, span) * @as(u32, selection.cell_metrics.cell_w_px)),
-        .height_px = selection.cell_metrics.cell_h_px,
-        .placement = .{ .advance_px = @max(lookup.advance_px, @as(f32, @floatFromInt(@as(u32, span) * @as(u32, selection.cell_metrics.cell_w_px)))) },
+        .x_px = @as(i32, @intCast(col * @as(u32, selection.cell_layout.cell_w_px))),
+        .y_px = @as(i32, @intCast(row * @as(u32, selection.cell_layout.cell_h_px))),
+        .width_px = @intCast(@as(u32, span) * @as(u32, selection.cell_layout.cell_w_px)),
+        .height_px = selection.cell_layout.cell_h_px,
+        .placement = .{ .advance_px = @max(lookup.advance_px, @as(f32, @floatFromInt(@as(u32, span) * @as(u32, selection.cell_layout.cell_w_px)))) },
         .color = draw_list.spriteDrawColor(renderable),
         .first_cell = renderable.first_cell,
         .cell_span = span,
@@ -525,7 +525,7 @@ fn testCellText(codepoint: u32, codepoints: []const u32) render.CellText {
 fn testFaceSelection(faces: []const face_selection.FaceRecord) face_selection.FaceSelection {
     return .{
         .faces = faces,
-        .cell_metrics = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
+        .cell_layout = .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 },
     };
 }
 
@@ -640,9 +640,9 @@ test "direct normal renderable append pending atlas reserve appends matching ras
 
     try renderableAppend(driver, renderable, text, .{ .cols = 1, .rows = 1 }, selection, &lane_report);
 
-    const lookup = driver.glyph_lookup.lookupGlyph(faces[0].id, text.first_cp, selection.cell_metrics);
+    const lookup = driver.glyph_lookup.lookupGlyph(faces[0].id, text.first_cp, selection.cell_layout);
     const span = @max(renderable.cell_span, 1);
-    const key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, span, selection.cell_metrics);
+    const key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, span, selection.cell_layout);
 
     try std.testing.expectEqual(@as(usize, 1), scratch.sprite_draws.items.len);
     try std.testing.expectEqual(@as(usize, 1), scratch.raster_reqs.items.len);
@@ -651,7 +651,7 @@ test "direct normal renderable append pending atlas reserve appends matching ras
     try std.testing.expectEqual(faces[0].id.value, scratch.raster_reqs.items[0].face_id);
     try std.testing.expectEqual(lookup.glyph_id, scratch.raster_reqs.items[0].glyph_id);
     try std.testing.expectEqual(key.value, scratch.raster_reqs.items[0].atlas_key);
-    try std.testing.expectEqualDeep(selection.cell_metrics, scratch.raster_reqs.items[0].cell_metrics);
+    try std.testing.expectEqualDeep(selection.cell_layout, scratch.raster_reqs.items[0].cell_layout);
     try std.testing.expectEqual(span, scratch.raster_reqs.items[0].cell_span);
 }
 
@@ -682,7 +682,7 @@ test "direct normal renderable append widened span preserves key raster request 
 
     const lookup = lookupGlyph(driver, text, selection, faces[0]);
     const resolved = deriveResolvedGlyphKey(renderable, selection, faces[0], lookup);
-    const expected_key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, renderable.cell_span, selection.cell_metrics);
+    const expected_key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, renderable.cell_span, selection.cell_layout);
 
     try std.testing.expectEqual(@as(u8, 3), resolved.span);
     try std.testing.expectEqual(expected_key.value, resolved.key.value);
@@ -722,9 +722,9 @@ test "direct normal renderable append rendered atlas hit appends sprite draw wit
 
     try renderableAppend(driver, renderable, text, .{ .cols = 1, .rows = 1 }, selection, &lane_report);
 
-    const lookup = driver.glyph_lookup.lookupGlyph(faces[0].id, text.first_cp, selection.cell_metrics);
+    const lookup = driver.glyph_lookup.lookupGlyph(faces[0].id, text.first_cp, selection.cell_layout);
     const span = @max(renderable.cell_span, 1);
-    const key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, span, selection.cell_metrics);
+    const key = sprite_key.hashGlyphLocal(faces[0].id, lookup.glyph_id, span, selection.cell_layout);
 
     try std.testing.expectEqual(@as(usize, 1), scratch.raster_reqs.items.len);
     try std.testing.expectEqual(@as(usize, 1), scratch.sprite_draws.items.len);

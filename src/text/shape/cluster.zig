@@ -200,22 +200,22 @@ pub fn buildLineTextCacheFromCells(allocator: std.mem.Allocator, cells: []const 
     return .{ .allocator = allocator, .texts = texts, .codepoints = codepoints };
 }
 
-pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const render.CellInput, grid_metrics: render.CellGridMetrics, damage: text_damage.DamageInput) !SparseCells {
+pub fn buildSparseCellsWithDamage(allocator: std.mem.Allocator, cells: []const render.CellInput, cell_grid: render.CellGrid, damage: text_damage.DamageInput) !SparseCells {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     const total_cells = count32(cells);
     try scratch.configure(allocator, total_cells, countCellInputCodepoints(cells));
-    return buildSparseCellsWithDamageScratch(allocator, &scratch, cells, grid_metrics, damage);
+    return buildSparseCellsWithDamageScratch(allocator, &scratch, cells, cell_grid, damage);
 }
 
 pub fn buildSparseCellsWithDamageScratch(
     allocator: std.mem.Allocator,
     scratch: *RetainedScratch,
     cells: []const render.CellInput,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     damage: text_damage.DamageInput,
 ) !SparseCells {
-    const normalized_damage = text_damage.normalizeDamage(damage, grid_metrics.rows);
+    const normalized_damage = text_damage.normalizeDamage(damage, cell_grid.rows);
     const total_cells = count32(cells);
     try scratch.require(total_cells, countCellInputCodepoints(cells));
 
@@ -224,7 +224,7 @@ pub fn buildSparseCellsWithDamageScratch(
     var renderable_count: u32 = 0;
     var cell_idx: u32 = 0;
     while (cell_idx < total_cells) {
-        if (text_damage.cleanRowSkip(normalized_damage, grid_metrics, cell_idx, total_cells)) |next_idx| {
+        if (text_damage.cleanRowSkip(normalized_damage, cell_grid, cell_idx, total_cells)) |next_idx| {
             cell_idx = next_idx;
             continue;
         }
@@ -234,7 +234,7 @@ pub fn buildSparseCellsWithDamageScratch(
         if (cell.continuation) continue;
         const first_cell = idx;
         const span = inferredCellSpan(cells, first_cell);
-        if (!text_damage.includeSpan(normalized_damage, grid_metrics, first_cell, span)) continue;
+        if (!text_damage.includeSpan(normalized_damage, cell_grid, first_cell, span)) continue;
         var scratch_codepoints: [4]u32 = undefined;
         const cps = cellCodepointsForRenderableOwnership(cell, &scratch_codepoints);
         const text_id = findText(scratch.texts[0..@intCast(text_count)], cps) orelse blk: {
@@ -372,13 +372,13 @@ pub fn extractClustersWithDamage(
     allocator: std.mem.Allocator,
     cells: []const render.RenderableCell,
     cache: render.LineTextCache,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     damage: text_damage.DamageInput,
 ) !OwnedClusters {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     try scratch.configure(allocator, count32(cells), 0);
-    return extractClustersWithDamageScratch(allocator, &scratch, cells, cache, grid_metrics, damage);
+    return extractClustersWithDamageScratch(allocator, &scratch, cells, cache, cell_grid, damage);
 }
 
 pub fn extractClustersWithDamageScratch(
@@ -386,15 +386,15 @@ pub fn extractClustersWithDamageScratch(
     scratch: *RetainedScratch,
     cells: []const render.RenderableCell,
     cache: render.LineTextCache,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     damage: text_damage.DamageInput,
 ) !OwnedClusters {
-    const normalized_damage = text_damage.normalizeDamage(damage, grid_metrics.rows);
+    const normalized_damage = text_damage.normalizeDamage(damage, cell_grid.rows);
     try scratch.require(count32(cells), 0);
     var cluster_count: u32 = 0;
     for (cells, 0..) |cell, idx| {
         if (cell.continuation) continue;
-        if (!text_damage.includeSpan(normalized_damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
+        if (!text_damage.includeSpan(normalized_damage, cell_grid, cell.first_cell, cell.cell_span)) continue;
         const text = textForCell(cell, cache);
         if (isBlankText(text)) continue;
         const inferred_span = inferredRenderableCellSpan(cells, @intCast(idx));
@@ -411,13 +411,13 @@ pub fn selectComplexWithDamage(
     cells: []const render.RenderableCell,
     cache: render.LineTextCache,
     clusters: []const render.CellCluster,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     damage: text_damage.DamageInput,
 ) !ComplexSelection {
     var scratch = RetainedScratch{};
     defer scratch.deinit(allocator);
     try scratch.configure(allocator, count32(cells), 0);
-    return selectComplexWithDamageScratch(allocator, &scratch, cells, cache, clusters, grid_metrics, damage);
+    return selectComplexWithDamageScratch(allocator, &scratch, cells, cache, clusters, cell_grid, damage);
 }
 
 pub fn sourceRenderableTextFromCells(cells: []const render.CellInput, idx: u32) ?RenderableText {
@@ -447,8 +447,8 @@ pub fn sourceRenderableTextFromPrepared(cells: []const render.RenderableCell, ca
     return .{ .renderable = renderable, .text = textForCell(renderable, cache) };
 }
 
-pub fn includeDamage(grid_metrics: render.CellGridMetrics, damage: text_damage.DamageInput, renderable: render.RenderableCell) bool {
-    return text_damage.includeSpan(text_damage.normalizeDamage(damage, grid_metrics.rows), grid_metrics, renderable.first_cell, renderable.cell_span);
+pub fn includeDamage(cell_grid: render.CellGrid, damage: text_damage.DamageInput, renderable: render.RenderableCell) bool {
+    return text_damage.includeSpan(text_damage.normalizeDamage(damage, cell_grid.rows), cell_grid, renderable.first_cell, renderable.cell_span);
 }
 
 pub fn selectComplexWithDamageScratch(
@@ -457,16 +457,16 @@ pub fn selectComplexWithDamageScratch(
     cells: []const render.RenderableCell,
     cache: render.LineTextCache,
     clusters: []const render.CellCluster,
-    grid_metrics: render.CellGridMetrics,
+    cell_grid: render.CellGrid,
     damage: text_damage.DamageInput,
 ) !ComplexSelection {
-    const normalized_damage = text_damage.normalizeDamage(damage, grid_metrics.rows);
+    const normalized_damage = text_damage.normalizeDamage(damage, cell_grid.rows);
     try scratch.require(@max(count32(cells), count32(clusters)), 0);
     var cell_count: u32 = 0;
     var cluster_count: u32 = 0;
     for (cells) |cell| {
         if (cell.continuation) continue;
-        if (!text_damage.includeSpan(normalized_damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
+        if (!text_damage.includeSpan(normalized_damage, cell_grid, cell.first_cell, cell.cell_span)) continue;
         if (!classifyComplexCell(cell, cache)) continue;
         scratch.renderable[@intCast(cell_count)] = cell;
         cell_count += 1;

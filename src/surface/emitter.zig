@@ -236,10 +236,10 @@ pub fn Emitter(comptime limits: Limits) type {
                 .dirty_cols_start = prepared.dirty_cols_start,
                 .dirty_cols_end = prepared.dirty_cols_end,
             };
-            const grid_metrics = render.CellGridMetrics{ .cols = prepared.grid.cols, .rows = prepared.grid.rows };
+            const cell_grid = render.CellGrid{ .cols = prepared.grid.cols, .rows = prepared.grid.rows };
             var row: u16 = 0;
             while (row < prepared.grid.rows) : (row += 1) {
-                const dirty = text_damage.dirtyRowSpan(damage, grid_metrics, row) orelse continue;
+                const dirty = text_damage.dirtyRowSpan(damage, cell_grid, row) orelse continue;
                 const rect = damageRectForDirtySpan(prepared, dirty) orelse continue;
                 self.appendDamageRect(rect) catch |err| switch (err) {
                     error.DamageBoundOverflow => return self.replaceDamageWithFull(pixelSizeOut(prepared.render_px)),

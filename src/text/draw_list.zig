@@ -113,13 +113,13 @@ pub fn buildDrawListWithOptions(
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     missing: []const render.MissingGlyph,
-    cell_metrics: render.CellMetrics,
-    grid_metrics: render.CellGridMetrics,
+    cell_layout: render.CellLayout,
+    cell_grid: render.CellGrid,
     options: DrawListOptions,
 ) !OwnedTextDrawList {
     var cache = try atlas_cache.OwnedAtlasCache.init(allocator, @intCast(groups.len + cells.len));
     defer cache.deinit();
-    return buildDrawListWithAtlasCacheOptions(allocator, cells, groups, missing, cell_metrics, grid_metrics, &cache, options);
+    return buildDrawListWithAtlasCacheOptions(allocator, cells, groups, missing, cell_layout, cell_grid, &cache, options);
 }
 
 pub fn buildDrawListWithAtlasCacheOptions(
@@ -127,16 +127,16 @@ pub fn buildDrawListWithAtlasCacheOptions(
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     missing: []const render.MissingGlyph,
-    cell_metrics: render.CellMetrics,
-    grid_metrics: render.CellGridMetrics,
+    cell_layout: render.CellLayout,
+    cell_grid: render.CellGrid,
     cache: *atlas_cache.OwnedAtlasCache,
     options: DrawListOptions,
 ) !OwnedTextDrawList {
-    const damage = text_damage.normalizeDamage(options.damage, grid_metrics.rows);
+    const damage = text_damage.normalizeDamage(options.damage, cell_grid.rows);
     var assembly = DrawListAssembly{ .allocator = allocator };
     assembly.cursor_presentation = options.cursor;
     errdefer assembly.deinit();
-    try appendDrawListAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
+    try appendDrawListAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_layout, cell_grid, damage, options.cursor);
     return assembly.toOwnedDrawList(damage);
 }
 
@@ -146,20 +146,20 @@ pub fn buildBorrowedDrawListWithAtlasCacheOptions(
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     missing: []const render.MissingGlyph,
-    cell_metrics: render.CellMetrics,
-    grid_metrics: render.CellGridMetrics,
+    cell_layout: render.CellLayout,
+    cell_grid: render.CellGrid,
     cache: *atlas_cache.OwnedAtlasCache,
     options: DrawListOptions,
 ) !BorrowedTextDrawList {
-    const damage = text_damage.normalizeDamage(options.damage, grid_metrics.rows);
-    const capacities = drawCapacities(cells, groups, cell_metrics, grid_metrics, damage, options.cursor);
+    const damage = text_damage.normalizeDamage(options.damage, cell_grid.rows);
+    const capacities = drawCapacities(cells, groups, cell_layout, cell_grid, damage, options.cursor);
     try scratch.reset(allocator, capacities);
 
     var assembly = DrawListAssembly{ .allocator = allocator };
     assembly.cursor_presentation = options.cursor;
     assembly.adoptRetainedDrawScratch(scratch);
     errdefer assembly.deinit();
-    try appendDrawListAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_metrics, grid_metrics, damage, options.cursor);
+    try appendDrawListAssemblyPopulation(&assembly, cache, cells, groups, missing, cell_layout, cell_grid, damage, options.cursor);
     return assembly.toBorrowedDrawList(damage);
 }
 
@@ -169,14 +169,14 @@ fn appendDrawListAssemblyPopulation(
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
     missing: []const render.MissingGlyph,
-    cell_metrics: render.CellMetrics,
-    grid_metrics: render.CellGridMetrics,
+    cell_layout: render.CellLayout,
+    cell_grid: render.CellGrid,
     damage: text_damage.NormalizedDamage,
     cursor: ?render.CursorPresentation,
 ) !void {
     try assembly.missing.appendSlice(assembly.allocator, missing);
 
-    try appendGroupSpriteDraws(assembly, cache, cells, groups, cell_metrics, grid_metrics, damage);
+    try appendGroupSpriteDraws(assembly, cache, cells, groups, cell_layout, cell_grid, damage);
     try rect_primitives.appendCursorPrimitives(
         assembly.allocator,
         &assembly.cursor_draws,
@@ -184,15 +184,15 @@ fn appendDrawListAssemblyPopulation(
         &assembly.cursor_text_recolor_spans,
         &assembly.cursor_trail_rects,
         cells,
-        grid_metrics,
+        cell_grid,
         cursor,
         damage,
-        cell_metrics,
+        cell_layout,
     );
-    try rect_primitives.appendClearDraws(assembly.allocator, &assembly.clear_draws, cells, cell_metrics, grid_metrics, damage);
-    try rect_primitives.appendBackgroundDraws(assembly.allocator, &assembly.background_draws, cells, cell_metrics, grid_metrics, damage);
-    try rect_primitives.appendRectDecorationDraws(underlineDrawColor, spriteDrawColor, assembly.allocator, &assembly.decoration_draws, cells, cell_metrics, grid_metrics, damage);
-    try appendCurlyUnderlineSprites(assembly, cache, cells, cell_metrics, grid_metrics, damage);
+    try rect_primitives.appendClearDraws(assembly.allocator, &assembly.clear_draws, cells, cell_layout, cell_grid, damage);
+    try rect_primitives.appendBackgroundDraws(assembly.allocator, &assembly.background_draws, cells, cell_layout, cell_grid, damage);
+    try rect_primitives.appendRectDecorationDraws(underlineDrawColor, spriteDrawColor, assembly.allocator, &assembly.decoration_draws, cells, cell_layout, cell_grid, damage);
+    try appendCurlyUnderlineSprites(assembly, cache, cells, cell_layout, cell_grid, damage);
 }
 
 const DrawCapacities = struct {
@@ -335,10 +335,10 @@ const DrawListAssembly = struct {
         row_y: i32,
         width: u16,
         deco: render.DecorationGeometry,
-        cell_metrics: render.CellMetrics,
+        cell_layout: render.CellLayout,
         color: render.Rgba8,
     ) !void {
-        const cell_h = @max(cell_metrics.cell_h_px, 1);
+        const cell_h = @max(cell_layout.cell_h_px, 1);
         const underline_position: u16 = @intCast(std.math.clamp(deco.underline_y_px, 0, @as(i32, @intCast(cell_h - 1))));
         const underline_thickness = deco.underline_h_px;
         const half_thickness = underline_thickness / 2;
@@ -350,7 +350,7 @@ const DrawListAssembly = struct {
         const stroke: u16 = if (bounded_thickness < 3) 0 else bounded_thickness - 2;
         var y_px: u16 = @intCast(@min(@as(u32, position_base) + @as(u32, amplitude) * 2, @as(u32, cell_h - 1)));
         if (y_px + amplitude > cell_h - 1) y_px = saturatingSub(cell_h - 1, amplitude);
-        const period: u16 = @max(saturatingSub(cell_metrics.cell_w_px, 1), 1);
+        const period: u16 = @max(saturatingSub(cell_layout.cell_w_px, 1), 1);
         const decoration = render.DecorationSpriteRaster{ .stroke_px = stroke, .amplitude_px = amplitude, .period_px = period, .y_px = y_px };
         const key = sprite_key.hashUndercurl(width, cell_h, stroke, amplitude, period, y_px);
         const req = rasterizer.requestForUndercurl(key, width, cell_h, decoration);
@@ -369,16 +369,16 @@ const DrawListAssembly = struct {
 fn drawCapacities(
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
-    cell_metrics: render.CellMetrics,
-    grid_metrics: render.CellGridMetrics,
+    cell_layout: render.CellLayout,
+    cell_grid: render.CellGrid,
     damage: text_damage.NormalizedDamage,
     cursor: ?render.CursorPresentation,
 ) DrawCapacities {
     return .{
-        .sprite_draws = countGroupSpriteDraws(groups, grid_metrics, damage) + countCurlyUnderlineSprites(cells, grid_metrics, damage),
+        .sprite_draws = countGroupSpriteDraws(groups, cell_grid, damage) + countCurlyUnderlineSprites(cells, cell_grid, damage),
         .background_draws = cells.len,
-        .clear_draws = rect_primitives.countClearDraws(grid_metrics, damage),
-        .decoration_draws = rect_primitives.countRectDecorationDraws(cells, cell_metrics, grid_metrics, damage),
+        .clear_draws = rect_primitives.countClearDraws(cell_grid, damage),
+        .decoration_draws = rect_primitives.countRectDecorationDraws(cells, cell_layout, cell_grid, damage),
         .cursor_draws = rect_primitives.countCursorDraws(cursor, damage),
         .cursor_fill_rects = rect_primitives.countCursorFillRects(cursor, damage),
         .cursor_text_recolor_spans = rect_primitives.countCursorTextRecolorSpans(cursor, damage),
@@ -421,20 +421,20 @@ fn testCursorPresentation(shape: render.CursorShape, col: u16, row: u16, rgb: re
     };
 }
 
-fn countGroupSpriteDraws(groups: []const render.GlyphGroup, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) usize {
+fn countGroupSpriteDraws(groups: []const render.GlyphGroup, cell_grid: render.CellGrid, damage: text_damage.NormalizedDamage) usize {
     var count: usize = 0;
     for (groups) |group| {
-        if (classifyGroupLead(damage, grid_metrics, group) != .draw) continue;
+        if (classifyGroupLead(damage, cell_grid, group) != .draw) continue;
         count += 1;
     }
     return count;
 }
 
-fn countCurlyUnderlineSprites(cells: []const render.RenderableCell, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) usize {
+fn countCurlyUnderlineSprites(cells: []const render.RenderableCell, cell_grid: render.CellGrid, damage: text_damage.NormalizedDamage) usize {
     var count: usize = 0;
     for (cells) |cell| {
         if (cell.continuation) continue;
-        if (!text_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
+        if (!text_damage.includeSpan(damage, cell_grid, cell.first_cell, cell.cell_span)) continue;
         if (!cell.underline) continue;
         if (cell.underline_style != .curly) continue;
         count += 1;
@@ -442,13 +442,13 @@ fn countCurlyUnderlineSprites(cells: []const render.RenderableCell, grid_metrics
     return count;
 }
 
-fn classifyIconSpan(group: render.GlyphGroup, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, next_group_cell: ?u32) IconSpan {
+fn classifyIconSpan(group: render.GlyphGroup, cell_layout: render.CellLayout, cell_grid: render.CellGrid, next_group_cell: ?u32) IconSpan {
     if (group.kind != .icon) return .keep_kind;
-    if (cell_metrics.cell_w_px == 0) return .keep_zero_width;
-    const desired = desiredIconCells(group, cell_metrics.cell_w_px);
+    if (cell_layout.cell_w_px == 0) return .keep_zero_width;
+    const desired = desiredIconCells(group, cell_layout.cell_w_px);
     if (desired <= group.cell_span) return .keep_current_span;
 
-    const cols = @max(@as(u32, grid_metrics.cols), 1);
+    const cols = @max(@as(u32, cell_grid.cols), 1);
     const row_end = ((group.first_cell / cols) + 1) * cols;
     const next = next_group_cell orelse row_end;
     const available_end = @min(row_end, next);
@@ -480,8 +480,8 @@ const IconSpan = enum(u3) {
     expand,
 };
 
-fn classifyGroupLead(damage: text_damage.NormalizedDamage, grid_metrics: render.CellGridMetrics, group: render.GlyphGroup) GroupLead {
-    if (!text_damage.includeSpan(damage, grid_metrics, group.first_cell, group.cell_span)) return .skip;
+fn classifyGroupLead(damage: text_damage.NormalizedDamage, cell_grid: render.CellGrid, group: render.GlyphGroup) GroupLead {
+    if (!text_damage.includeSpan(damage, cell_grid, group.first_cell, group.cell_span)) return .skip;
     return .draw;
 }
 
@@ -490,27 +490,27 @@ fn appendGroupSpriteDraws(
     cache: *atlas_cache.OwnedAtlasCache,
     cells: []const render.RenderableCell,
     groups: []const render.GlyphGroup,
-    cell_metrics: render.CellMetrics,
-    grid_metrics: render.CellGridMetrics,
+    cell_layout: render.CellLayout,
+    cell_grid: render.CellGrid,
     damage: text_damage.NormalizedDamage,
 ) !void {
-    const cols = @max(@as(u32, grid_metrics.cols), 1);
-    const cell_w = @as(i32, @intCast(cell_metrics.cell_w_px));
-    const cell_h = @as(i32, @intCast(cell_metrics.cell_h_px));
+    const cols = @max(@as(u32, cell_grid.cols), 1);
+    const cell_w = @as(i32, @intCast(cell_layout.cell_w_px));
+    const cell_h = @as(i32, @intCast(cell_layout.cell_h_px));
     for (groups, 0..) |group, group_idx| {
-        if (classifyGroupLead(damage, grid_metrics, group) != .draw) continue;
+        if (classifyGroupLead(damage, cell_grid, group) != .draw) continue;
         const next_group_cell = if (group_idx + 1 < groups.len) groups[group_idx + 1].first_cell else null;
-        const draw_group = iconGroupWithAvailableSpace(group, cell_metrics, grid_metrics, next_group_cell);
+        const draw_group = iconGroupWithAvailableSpace(group, cell_layout, cell_grid, next_group_cell);
         const first_cell = draw_group.first_cell;
         const width_cells = @max(draw_group.cell_span, 1);
-        const req = rasterizer.requestForGroup(draw_group, cell_metrics);
+        const req = rasterizer.requestForGroup(draw_group, cell_layout);
         const col = first_cell % cols;
         const row = first_cell / cols;
         try assembly.appendRasterizedSpriteDraw(cache, req, .{
             .x_px = @as(i32, @intCast(col)) * cell_w,
             .y_px = @as(i32, @intCast(row)) * cell_h,
-            .width_px = @intCast(@as(u32, width_cells) * @as(u32, cell_metrics.cell_w_px)),
-            .height_px = cell_metrics.cell_h_px,
+            .width_px = @intCast(@as(u32, width_cells) * @as(u32, cell_layout.cell_w_px)),
+            .height_px = cell_layout.cell_h_px,
             .placement = group.placement,
             .color = spriteColorForGroup(cells, group.first_cell),
             .first_cell = group.first_cell,
@@ -519,20 +519,20 @@ fn appendGroupSpriteDraws(
     }
 }
 
-fn appendCurlyUnderlineSprites(assembly: *DrawListAssembly, cache: *atlas_cache.OwnedAtlasCache, cells: []const render.RenderableCell, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, damage: text_damage.NormalizedDamage) !void {
-    const deco = rect_primitives.decorationGeometryForCellMetrics(cell_metrics);
-    const cols = @max(@as(u32, grid_metrics.cols), 1);
+fn appendCurlyUnderlineSprites(assembly: *DrawListAssembly, cache: *atlas_cache.OwnedAtlasCache, cells: []const render.RenderableCell, cell_layout: render.CellLayout, cell_grid: render.CellGrid, damage: text_damage.NormalizedDamage) !void {
+    const deco = rect_primitives.decorationGeometryForCellLayout(cell_layout);
+    const cols = @max(@as(u32, cell_grid.cols), 1);
     for (cells) |cell| {
         if (cell.continuation) continue;
         if (!cell.underline) continue;
         if (cell.underline_style != .curly) continue;
-        if (!text_damage.includeSpan(damage, grid_metrics, cell.first_cell, cell.cell_span)) continue;
+        if (!text_damage.includeSpan(damage, cell_grid, cell.first_cell, cell.cell_span)) continue;
         const col = cell.first_cell % cols;
         const row = cell.first_cell / cols;
-        const base_x = @as(i32, @intCast(col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
-        const base_y = @as(i32, @intCast(row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
-        const width_px: u16 = @intCast(@as(u32, @max(cell.cell_span, 1)) * @as(u32, cell_metrics.cell_w_px));
-        try assembly.appendUndercurl(cache, cell, base_x, base_y, width_px, deco, cell_metrics, underlineDrawColor(cell));
+        const base_x = @as(i32, @intCast(col)) * @as(i32, @intCast(cell_layout.cell_w_px));
+        const base_y = @as(i32, @intCast(row)) * @as(i32, @intCast(cell_layout.cell_h_px));
+        const width_px: u16 = @intCast(@as(u32, @max(cell.cell_span, 1)) * @as(u32, cell_layout.cell_w_px));
+        try assembly.appendUndercurl(cache, cell, base_x, base_y, width_px, deco, cell_layout, underlineDrawColor(cell));
     }
 }
 
@@ -582,11 +582,11 @@ fn findCellByFirstCell(cells: []const render.RenderableCell, first_cell: u32) ?r
     return null;
 }
 
-fn iconGroupWithAvailableSpace(group: render.GlyphGroup, cell_metrics: render.CellMetrics, grid_metrics: render.CellGridMetrics, next_group_cell: ?u32) render.GlyphGroup {
-    if (classifyIconSpan(group, cell_metrics, grid_metrics, next_group_cell) != .expand) return group;
+fn iconGroupWithAvailableSpace(group: render.GlyphGroup, cell_layout: render.CellLayout, cell_grid: render.CellGrid, next_group_cell: ?u32) render.GlyphGroup {
+    if (classifyIconSpan(group, cell_layout, cell_grid, next_group_cell) != .expand) return group;
 
-    const desired = desiredIconCells(group, cell_metrics.cell_w_px);
-    const cols = @max(@as(u32, grid_metrics.cols), 1);
+    const desired = desiredIconCells(group, cell_layout.cell_w_px);
+    const cols = @max(@as(u32, cell_grid.cols), 1);
     const row_end = ((group.first_cell / cols) + 1) * cols;
     const next = next_group_cell orelse row_end;
     const available_end = @min(row_end, next);
@@ -596,8 +596,8 @@ fn iconGroupWithAvailableSpace(group: render.GlyphGroup, cell_metrics: render.Ce
 
     var out = group;
     out.cell_span = cell_span;
-    out.placement.advance_px = @max(out.placement.advance_px, @as(f32, @floatFromInt(@as(u32, cell_span) * @as(u32, cell_metrics.cell_w_px))));
-    if (out.glyphs.len > 0) out.sprite_key = sprite_key.hashGlyphSequence(out.glyphs[0].face_id, out.glyphs, cell_span, cell_metrics);
+    out.placement.advance_px = @max(out.placement.advance_px, @as(f32, @floatFromInt(@as(u32, cell_span) * @as(u32, cell_layout.cell_w_px))));
+    if (out.glyphs.len > 0) out.sprite_key = sprite_key.hashGlyphSequence(out.glyphs[0].face_id, out.glyphs, cell_span, cell_layout);
     return out;
 }
 
@@ -732,9 +732,9 @@ test "draw list emits explicit clears for transparent default backgrounds on par
 
 test "draw list cursor draws emit shared cursor geometry" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cell_metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    const cell_layout = render.CellLayout{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
     const underline_cursor = testCursorPresentation(.underline, 2, 1, color);
-    const underline = try rect_primitives.cursorDraws(std.testing.allocator, underline_cursor, cell_metrics);
+    const underline = try rect_primitives.cursorDraws(std.testing.allocator, underline_cursor, cell_layout);
     defer std.testing.allocator.free(underline);
     try std.testing.expectEqual(@as(u32, @intCast(rect_primitives.cursorDrawCount(.underline))), count32(underline));
     try std.testing.expectEqual(@as(i32, 16), underline[0].x_px);
@@ -742,7 +742,7 @@ test "draw list cursor draws emit shared cursor geometry" {
     try std.testing.expectEqual(color.r, underline[0].color.r);
 
     const hollow_cursor = testCursorPresentation(.hollow, 0, 0, color);
-    const hollow = try rect_primitives.cursorDraws(std.testing.allocator, hollow_cursor, cell_metrics);
+    const hollow = try rect_primitives.cursorDraws(std.testing.allocator, hollow_cursor, cell_layout);
     defer std.testing.allocator.free(hollow);
     try std.testing.expectEqual(@as(u32, @intCast(rect_primitives.cursorDrawCount(.hollow))), count32(hollow));
 }
@@ -900,8 +900,8 @@ test "draw list merges contiguous straight underline spans" {
 
 test "draw list double underline count and geometry stay aligned" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cell_metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 };
-    const deco = rect_primitives.decorationGeometryForCellMetrics(cell_metrics);
+    const cell_layout = render.CellLayout{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13 };
+    const deco = rect_primitives.decorationGeometryForCellLayout(cell_layout);
     const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
@@ -913,10 +913,10 @@ test "draw list double underline count and geometry stay aligned" {
         .underline = true,
         .underline_style = .double,
     }};
-    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 2, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_layout, .{ .cols = 2, .rows = 1 }, .{});
     defer owned.deinit();
 
-    try std.testing.expectEqual(@as(usize, 2), rect_primitives.countUnderlineDecorationDraws(cell_metrics.cell_w_px * 2, deco.underline_h_px, .double));
+    try std.testing.expectEqual(@as(usize, 2), rect_primitives.countUnderlineDecorationDraws(cell_layout.cell_w_px * 2, deco.underline_h_px, .double));
     try std.testing.expectEqual(@as(u32, 2), count32(owned.draw_list.decoration_draws));
     try std.testing.expectEqual(render.DecorationKind.underline, owned.draw_list.decoration_draws[0].kind);
     try std.testing.expectEqual(render.DecorationKind.underline, owned.draw_list.decoration_draws[1].kind);
@@ -952,8 +952,8 @@ test "draw list emits undercurl sprite for curly underline" {
 
 test "draw list dotted underline geometry stays aligned with counted capacity" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cell_metrics = render.CellMetrics{ .cell_w_px = 9, .cell_h_px = 16, .baseline_px = 13 };
-    const deco = rect_primitives.decorationGeometryForCellMetrics(cell_metrics);
+    const cell_layout = render.CellLayout{ .cell_w_px = 9, .cell_h_px = 16, .baseline_px = 13 };
+    const deco = rect_primitives.decorationGeometryForCellLayout(cell_layout);
     const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
@@ -965,10 +965,10 @@ test "draw list dotted underline geometry stays aligned with counted capacity" {
         .underline = true,
         .underline_style = .dotted,
     }};
-    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 2, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_layout, .{ .cols = 2, .rows = 1 }, .{});
     defer owned.deinit();
 
-    const width_px: u16 = cell_metrics.cell_w_px * 2;
+    const width_px: u16 = cell_layout.cell_w_px * 2;
     try std.testing.expectEqual(rect_primitives.countUnderlineDecorationDraws(width_px, deco.underline_h_px, .dotted), owned.draw_list.decoration_draws.len);
     try std.testing.expectEqual(@as(u32, 9), count32(owned.draw_list.decoration_draws));
     for (owned.draw_list.decoration_draws, 0..) |draw, index| {
@@ -982,8 +982,8 @@ test "draw list dotted underline geometry stays aligned with counted capacity" {
 
 test "draw list dashed underline geometry stays aligned with counted capacity" {
     const color = render.Rgba8{ .r = 9, .g = 8, .b = 7, .a = 255 };
-    const cell_metrics = render.CellMetrics{ .cell_w_px = 17, .cell_h_px = 16, .baseline_px = 13 };
-    const deco = rect_primitives.decorationGeometryForCellMetrics(cell_metrics);
+    const cell_layout = render.CellLayout{ .cell_w_px = 17, .cell_h_px = 16, .baseline_px = 13 };
+    const deco = rect_primitives.decorationGeometryForCellLayout(cell_layout);
     const cells = [_]render.RenderableCell{.{
         .text_id = .{ .value = 0 },
         .first_cell = 0,
@@ -995,10 +995,10 @@ test "draw list dashed underline geometry stays aligned with counted capacity" {
         .underline = true,
         .underline_style = .dashed,
     }};
-    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_metrics, .{ .cols = 1, .rows = 1 }, .{});
+    var owned = try buildDrawListWithOptions(std.testing.allocator, &cells, &.{}, &.{}, cell_layout, .{ .cols = 1, .rows = 1 }, .{});
     defer owned.deinit();
 
-    try std.testing.expectEqual(rect_primitives.countUnderlineDecorationDraws(cell_metrics.cell_w_px, deco.underline_h_px, .dashed), owned.draw_list.decoration_draws.len);
+    try std.testing.expectEqual(rect_primitives.countUnderlineDecorationDraws(cell_layout.cell_w_px, deco.underline_h_px, .dashed), owned.draw_list.decoration_draws.len);
     try std.testing.expectEqual(@as(u32, 3), count32(owned.draw_list.decoration_draws));
     try std.testing.expectEqual(render.DecorationKind.underline_dashed, owned.draw_list.decoration_draws[0].kind);
     try std.testing.expectEqual(@as(i32, 0), owned.draw_list.decoration_draws[0].x_px);

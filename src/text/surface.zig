@@ -189,7 +189,7 @@ pub const TextSurface = struct {
         const preparer = try self.ensurePreparer(input.grid);
         var faces: [max_font_faces]face_selection.FaceRecord = undefined;
         var resolve: font_resolver.ResolveObservability = .{};
-        const cell = cell_layout.CellLayout.fromCellSize(input.cell_px, glyph_cache.deriveCellMetricsWithConfig(&self.glyph_cache, self.textConfig()));
+        const cell = cell_layout.CellLayout.fromCellSize(input.cell_px, glyph_cache.deriveCellLayoutWithConfig(&self.glyph_cache, self.textConfig()));
         var owned_text = try preparer.prepareCellTextInputsWithFaceSelection(cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve, cell), .{});
         errdefer owned_text.deinit();
         self.prepared = .{
@@ -379,17 +379,17 @@ pub const TextSurface = struct {
             .primary_face = .{ .value = glyph_cache.primary_face_id },
             .faces = faces[0..@intCast(glyph_cache.fallbackFontLen(len))],
             .provider = .{ .ctx = self, .has_cell_text = providerHasCellTextThunk },
-            .cell_metrics = cellFactsFromLayout(cell),
+            .cell_layout = cellFactsFromLayout(cell),
         };
     }
 
     fn layoutForSurface(self: *TextSurface, surface_px: c.HowlRenderPixelSize) cell_layout.SurfaceLayout {
-        const cell = cell_layout.CellLayout.fromLegacyCellFacts(glyph_cache.deriveCellMetricsWithConfig(&self.glyph_cache, self.textConfig()));
+        const cell = cell_layout.CellLayout.fromLegacyCellFacts(glyph_cache.deriveCellLayoutWithConfig(&self.glyph_cache, self.textConfig()));
         return cell_layout.SurfaceLayout.init(cell_layout.pixelSizeIn(surface_px), cell);
     }
 };
 
-fn cellFactsFromLayout(cell: cell_layout.CellLayout) render.CellMetrics {
+fn cellFactsFromLayout(cell: cell_layout.CellLayout) render.CellLayout {
     cell.assertValid();
     return .{
         .cell_w_px = cell.cell_width_px,
@@ -802,10 +802,10 @@ fn providerShapeRunThunk(
     run: render.ResolvedRun,
     text_cache_view: render.LineTextCache,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    glyph_cell_layout: render.CellLayout,
 ) anyerror!shape_run.OwnedShapedRun {
     const surface: *TextSurface = @ptrCast(@alignCast(ctx));
-    return glyph_cache.providerShapeRunWithConfig(&surface.glyph_cache, surface.textConfig(), allocator, run, text_cache_view, clusters, cell_metrics);
+    return glyph_cache.providerShapeRunWithConfig(&surface.glyph_cache, surface.textConfig(), allocator, run, text_cache_view, clusters, glyph_cell_layout);
 }
 
 fn providerRasterizeSpriteThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: render.SpriteRasterRequest) anyerror!rasterizer.RasterSpriteOutput {
@@ -813,15 +813,15 @@ fn providerRasterizeSpriteThunk(ctx: *anyopaque, allocator: std.mem.Allocator, r
     return glyph_raster.providerRasterizeSpriteWithConfig(&surface.glyph_cache, surface.textConfig(), allocator, req);
 }
 
-fn providerLookupGlyphThunk(ctx: *anyopaque, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) @import("provider.zig").LookupGlyphResult {
+fn providerLookupGlyphThunk(ctx: *anyopaque, face_id: render.FontFaceId, codepoint: u32, glyph_cell_layout: render.CellLayout) @import("provider.zig").LookupGlyphResult {
     const surface: *TextSurface = @ptrCast(@alignCast(ctx));
-    return glyph_cache.providerLookupGlyphWithConfig(&surface.glyph_cache, surface.textConfig(), face_id, codepoint, cell_metrics);
+    return glyph_cache.providerLookupGlyphWithConfig(&surface.glyph_cache, surface.textConfig(), face_id, codepoint, glyph_cell_layout);
 }
 
 fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, req: raster_operation.RasterizeRequest) anyerror!raster_operation.RasterizeOutput {
     const surface: *TextSurface = @ptrCast(@alignCast(ctx));
-    const width = @as(u16, @intCast(@as(u32, @max(req.cell_span, 1)) * @as(u32, @max(req.cell_metrics.cell_w_px, 1))));
-    const height = @max(req.cell_metrics.cell_h_px, 1);
+    const width = @as(u16, @intCast(@as(u32, @max(req.cell_span, 1)) * @as(u32, @max(req.cell_layout.cell_w_px, 1))));
+    const height = @max(req.cell_layout.cell_h_px, 1);
     const alpha_len: u32 = @as(u32, width) * @as(u32, height);
     const alpha = try allocator.alloc(u8, @intCast(alpha_len));
     errdefer allocator.free(alpha);
@@ -832,7 +832,7 @@ fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, re
         alpha,
         width,
         height,
-        req.cell_metrics.baseline_px,
+        req.cell_layout.baseline_px,
         .{ .value = req.face_id },
         req.glyph_id,
         0,
@@ -845,7 +845,7 @@ fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, re
         .height_px = height,
         .bearing_x_px = 0,
         .bearing_y_px = 0,
-        .advance_px = glyph_cache.providerGlyphAdvanceWithConfig(&surface.glyph_cache, surface.textConfig(), .{ .value = req.face_id }, req.glyph_id, req.cell_metrics),
+        .advance_px = glyph_cache.providerGlyphAdvanceWithConfig(&surface.glyph_cache, surface.textConfig(), .{ .value = req.face_id }, req.glyph_id, req.cell_layout),
         .alpha_mask = alpha,
     };
 }

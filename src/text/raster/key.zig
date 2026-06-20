@@ -1,13 +1,13 @@
 const std = @import("std");
 const render = @import("../draw_primitives.zig");
 
-pub fn hashGlyphSequence(face: render.FontFaceId, glyphs: []const render.GlyphInstance, cell_span: u8, cell_metrics: render.CellMetrics) render.SpriteKey {
+pub fn hashGlyphSequence(face: render.FontFaceId, glyphs: []const render.GlyphInstance, cell_span: u8, cell_layout: render.CellLayout) render.SpriteKey {
     var h = std.hash.Wyhash.init(0);
     h.update(std.mem.asBytes(&face.value));
     h.update(std.mem.asBytes(&cell_span));
-    h.update(std.mem.asBytes(&cell_metrics.cell_w_px));
-    h.update(std.mem.asBytes(&cell_metrics.cell_h_px));
-    h.update(std.mem.asBytes(&cell_metrics.baseline_px));
+    h.update(std.mem.asBytes(&cell_layout.cell_w_px));
+    h.update(std.mem.asBytes(&cell_layout.cell_h_px));
+    h.update(std.mem.asBytes(&cell_layout.baseline_px));
     for (glyphs) |glyph| {
         h.update(std.mem.asBytes(&glyph.face_id.value));
         h.update(std.mem.asBytes(&glyph.glyph_id));
@@ -15,18 +15,18 @@ pub fn hashGlyphSequence(face: render.FontFaceId, glyphs: []const render.GlyphIn
     return .{ .value = h.final() };
 }
 
-pub fn hashGlyphLocal(face: render.FontFaceId, glyph_id: u32, cell_span: u8, cell_metrics: render.CellMetrics) render.SpriteKey {
+pub fn hashGlyphLocal(face: render.FontFaceId, glyph_id: u32, cell_span: u8, cell_layout: render.CellLayout) render.SpriteKey {
     var h = std.hash.Wyhash.init(0x474c5946484f574c);
     h.update(std.mem.asBytes(&face.value));
     h.update(std.mem.asBytes(&glyph_id));
     h.update(std.mem.asBytes(&cell_span));
-    h.update(std.mem.asBytes(&cell_metrics.cell_w_px));
-    h.update(std.mem.asBytes(&cell_metrics.cell_h_px));
-    h.update(std.mem.asBytes(&cell_metrics.baseline_px));
+    h.update(std.mem.asBytes(&cell_layout.cell_w_px));
+    h.update(std.mem.asBytes(&cell_layout.cell_h_px));
+    h.update(std.mem.asBytes(&cell_layout.baseline_px));
     return .{ .value = h.final() };
 }
 
-/// Returns a cache key for a generated undercurl sprite with fixed metrics.
+/// Returns a cache key for a generated undercurl sprite with fixed cell layout.
 pub fn hashUndercurl(width_px: u16, height_px: u16, stroke_px: u16, amplitude_px: u16, period_px: u16, y_px: u16) render.SpriteKey {
     var h = std.hash.Wyhash.init(0x756e646572637572);
     h.update(std.mem.asBytes(&width_px));
@@ -39,26 +39,26 @@ pub fn hashUndercurl(width_px: u16, height_px: u16, stroke_px: u16, amplitude_px
 }
 
 test "sprite key changes by face" {
-    const metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
-    const a = hashGlyphSequence(.{ .value = 1 }, &.{}, 1, metrics);
-    const b = hashGlyphSequence(.{ .value = 2 }, &.{}, 1, metrics);
+    const cell_layout = render.CellLayout{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    const a = hashGlyphSequence(.{ .value = 1 }, &.{}, 1, cell_layout);
+    const b = hashGlyphSequence(.{ .value = 2 }, &.{}, 1, cell_layout);
     try std.testing.expect(a.value != b.value);
 }
 
 test "local glyph key changes by glyph id" {
-    const metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
-    const a = hashGlyphLocal(.{ .value = 1 }, 10, 1, metrics);
-    const b = hashGlyphLocal(.{ .value = 1 }, 11, 1, metrics);
+    const cell_layout = render.CellLayout{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    const a = hashGlyphLocal(.{ .value = 1 }, 10, 1, cell_layout);
+    const b = hashGlyphLocal(.{ .value = 1 }, 11, 1, cell_layout);
     try std.testing.expect(a.value != b.value);
 }
 
-test "sprite key changes by cell metrics" {
+test "sprite key changes by cell layout" {
     const a = hashGlyphSequence(.{ .value = 1 }, &.{}, 1, .{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 });
     const b = hashGlyphSequence(.{ .value = 1 }, &.{}, 1, .{ .cell_w_px = 12, .cell_h_px = 24, .baseline_px = 18 });
     try std.testing.expect(a.value != b.value);
 }
 
-test "undercurl sprite key changes by metrics" {
+test "undercurl sprite key changes by dimensions" {
     const a = hashUndercurl(16, 20, 2, 3, 12, 14);
     const b = hashUndercurl(16, 24, 2, 3, 12, 14);
     try std.testing.expect(a.value != b.value);

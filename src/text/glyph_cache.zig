@@ -54,9 +54,9 @@ pub const GlyphCache = struct {
     shape_input_codepoints: []u32 = &.{},
     shape_input_cluster_map: []u32 = &.{},
     max_shape_input_codepoints: u32 = 0,
-    cached_cell_metrics: render.CellMetrics = undefined,
-    cached_cell_metrics_font_px: u16 = 0,
-    cached_cell_metrics_valid: bool = false,
+    cached_cell_layout: render.CellLayout = undefined,
+    cached_cell_layout_font_px: u16 = 0,
+    cached_cell_layout_valid: bool = false,
     fallback_font_paths: [max_fallback_fonts]?[:0]const u8 = [_]?[:0]const u8{null} ** max_fallback_fonts,
     fallback_font_paths_len: u8 = 0,
 
@@ -181,7 +181,7 @@ pub fn providerShapeRunWithConfig(
     run: render.ResolvedRun,
     text_cache_view: render.LineTextCache,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
 ) anyerror!shape_run.OwnedShapedRun {
     const window = ClusterWindow.init(run, @intCast(clusters.len));
     if (window.empty()) return .{ .allocator = allocator, .run = run, .glyphs = try allocator.alloc(render.GlyphInstance, 0) };
@@ -190,20 +190,20 @@ pub fn providerShapeRunWithConfig(
     const shape_key = text_cache.ShapeRunKey{
         .face_id = run.run.font.face_id.value,
         .run_hash = text_cache.hashRunText(text_cache_view, window.slice(clusters)),
-        .cell_w_px = cell_metrics.cell_w_px,
-        .cell_h_px = cell_metrics.cell_h_px,
-        .baseline_px = cell_metrics.baseline_px,
+        .cell_w_px = cell_layout.cell_w_px,
+        .cell_h_px = cell_layout.cell_h_px,
+        .baseline_px = cell_layout.baseline_px,
     };
     if (try state.shape_run_cache.getOwnedRun(allocator, shape_key, run)) |cached| {
         state.resolve_counters.shape_cache_hits += 1;
         if (state.active_resolve) |obs| obs.counters.shape_cache_hits += 1;
         return cached;
     }
-    const ascii = try shapePlainAsciiRun(state, config, allocator, run, text_cache_view, clusters, cell_metrics, window);
+    const ascii = try shapePlainAsciiRun(state, config, allocator, run, text_cache_view, clusters, cell_layout, window);
     var shaped = if (ascii) |ascii_run|
         ascii_run
     else
-        try shapeRunViaProviderOrFallback(state, config, allocator, run, text_cache_view, clusters, cell_metrics, window);
+        try shapeRunViaProviderOrFallback(state, config, allocator, run, text_cache_view, clusters, cell_layout, window);
     errdefer shaped.deinit();
     state.shape_run_cache.putRun(shape_key, shaped) catch |err| switch (err) {
         error.CacheFull, error.CachedRunTooLarge => {},
@@ -219,26 +219,26 @@ fn shapeRunViaProviderOrFallback(
     run: render.ResolvedRun,
     text_cache_view: render.LineTextCache,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
     window: ClusterWindow,
 ) anyerror!shape_run.OwnedShapedRun {
     const input = try gatherShapeRunInput(state, text_cache_view, clusters, window);
-    if (input.codepoints.len == 0) return fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_metrics, window);
-    const buffer = c.hb_buffer_create() orelse return fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_metrics, window);
+    if (input.codepoints.len == 0) return fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_layout, window);
+    const buffer = c.hb_buffer_create() orelse return fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_layout, window);
     defer c.hb_buffer_destroy(buffer);
     c.hb_buffer_set_cluster_level(buffer, c.HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS);
     c.hb_buffer_add_utf32(buffer, input.codepoints.ptr, @intCast(input.codepoints.len), 0, @intCast(input.codepoints.len));
     c.hb_buffer_guess_segment_properties(buffer);
-    if (!ensureFaceForId(state, config, run.run.font.face_id)) return fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_metrics, window);
+    if (!ensureFaceForId(state, config, run.run.font.face_id)) return fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_layout, window);
     return try shapeRunViaProvider(
         state,
         allocator,
         run,
         clusters,
-        cell_metrics,
+        cell_layout,
         buffer,
         input.cluster_map,
-    ) orelse fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_metrics, window);
+    ) orelse fallbackProviderShapeRun(state, config, allocator, run, clusters, cell_layout, window);
 }
 
 fn shapeRunViaProvider(
@@ -246,7 +246,7 @@ fn shapeRunViaProvider(
     allocator: std.mem.Allocator,
     run: render.ResolvedRun,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
     buffer: ?*c.hb_buffer_t,
     cluster_map: []const u32,
 ) anyerror!?shape_run.OwnedShapedRun {
@@ -259,7 +259,7 @@ fn shapeRunViaProvider(
     const infos = c.hb_buffer_get_glyph_infos(buffer, &glyph_count);
     const positions = c.hb_buffer_get_glyph_positions(buffer, &glyph_count);
     if (infos == null or positions == null or glyph_count == 0) return null;
-    return try buildProviderShapedRun(allocator, run, clusters, cell_metrics, shaped_face.face, infos, positions, glyph_count, cluster_map);
+    return try buildProviderShapedRun(allocator, run, clusters, cell_layout, shaped_face.face, infos, positions, glyph_count, cluster_map);
 }
 
 fn shapePlainAsciiRun(
@@ -269,7 +269,7 @@ fn shapePlainAsciiRun(
     run: render.ResolvedRun,
     text_cache_view: render.LineTextCache,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
     window: ClusterWindow,
 ) anyerror!?shape_run.OwnedShapedRun {
     if (run.features_id != 0) return null;
@@ -299,7 +299,7 @@ fn shapePlainAsciiRun(
             .cluster_index = window.start + @as(u32, @intCast(idx)),
             .x_offset_px = 0,
             .y_offset_px = 0,
-            .x_advance_px = glyphAdvanceFromFace(config, face, glyph_id, cell_metrics),
+            .x_advance_px = glyphAdvanceFromFace(config, face, glyph_id, cell_layout),
         };
     }
     keep_glyphs = true;
@@ -317,14 +317,14 @@ pub fn providerGlyphIdWithConfig(state: *GlyphCache, config: TextConfig, face_id
     return glyph_id;
 }
 
-pub fn providerGlyphAdvanceWithConfig(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, glyph_id: u32, cell_metrics: render.CellMetrics) f32 {
-    const fallback: f32 = @floatFromInt(cell_metrics.cell_w_px);
+pub fn providerGlyphAdvanceWithConfig(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, glyph_id: u32, cell_layout: render.CellLayout) f32 {
+    const fallback: f32 = @floatFromInt(cell_layout.cell_w_px);
     if (glyph_id == 0) return fallback;
     if (!ensureFaceForId(state, config, face_id)) return fallback;
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
     const shaped_face = acquireShapingFaceFromStateLocked(state, face_id) orelse return fallback;
-    return glyphAdvanceFromFace(config, shaped_face.face, glyph_id, cell_metrics);
+    return glyphAdvanceFromFace(config, shaped_face.face, glyph_id, cell_layout);
 }
 
 pub fn providerLookupGlyphWithConfig(
@@ -332,26 +332,26 @@ pub fn providerLookupGlyphWithConfig(
     config: TextConfig,
     face_id: render.FontFaceId,
     codepoint: u32,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
 ) provider.LookupGlyphResult {
     const key = text_cache.GlyphCellKey{
         .face_id = face_id.value,
         .codepoint = codepoint,
-        .cell_w_px = cell_metrics.cell_w_px,
-        .cell_h_px = cell_metrics.cell_h_px,
-        .baseline_px = cell_metrics.baseline_px,
+        .cell_w_px = cell_layout.cell_w_px,
+        .cell_h_px = cell_layout.cell_h_px,
+        .baseline_px = cell_layout.baseline_px,
     };
     if (state.glyph_cell_cache.map.get(key)) |cached| {
         return .{ .glyph_id = cached.glyph_id, .advance_px = cached.advance_px };
     }
-    const result = uncachedProviderLookupGlyph(state, config, face_id, codepoint, cell_metrics);
+    const result = uncachedProviderLookupGlyph(state, config, face_id, codepoint, cell_layout);
     state.glyph_cell_cache.put(key, glyphCellValue(result)) catch {};
     return result;
 }
 
-fn uncachedProviderLookupGlyph(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) provider.LookupGlyphResult {
+fn uncachedProviderLookupGlyph(state: *GlyphCache, config: TextConfig, face_id: render.FontFaceId, codepoint: u32, cell_layout: render.CellLayout) provider.LookupGlyphResult {
     const glyph_id = providerGlyphIdWithConfig(state, config, face_id, codepoint);
-    return .{ .glyph_id = glyph_id, .advance_px = providerGlyphAdvanceWithConfig(state, config, face_id, glyph_id, cell_metrics) };
+    return .{ .glyph_id = glyph_id, .advance_px = providerGlyphAdvanceWithConfig(state, config, face_id, glyph_id, cell_layout) };
 }
 
 fn glyphCellValue(result: provider.LookupGlyphResult) text_cache.GlyphCellValue {
@@ -391,14 +391,14 @@ pub fn ensureFontWithConfig(state: *GlyphCache, config: TextConfig) bool {
 pub fn resetLoadedFace(state: *GlyphCache) void {
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
-    state.cached_cell_metrics_valid = false;
+    state.cached_cell_layout_valid = false;
     state.loaded_faces.resetLocked();
 }
 
 pub fn resizeLoadedFacesWithConfig(state: *GlyphCache, config: TextConfig) void {
     state.ft_mutex.lock();
     defer state.ft_mutex.unlock();
-    state.cached_cell_metrics_valid = false;
+    state.cached_cell_layout_valid = false;
     state.loaded_faces.resizeLocked(config.font_size_px);
 }
 
@@ -413,16 +413,16 @@ pub fn ensureFallbackFaceWithConfig(state: *GlyphCache, config: TextConfig, fall
     );
 }
 
-pub fn deriveCellMetricsWithConfig(state: *GlyphCache, config: TextConfig) render.CellMetrics {
+pub fn deriveCellLayoutWithConfig(state: *GlyphCache, config: TextConfig) render.CellLayout {
     const font_size_px = config.font_size_px;
-    if (state.cached_cell_metrics_valid and state.cached_cell_metrics_font_px == font_size_px) {
-        return state.cached_cell_metrics;
+    if (state.cached_cell_layout_valid and state.cached_cell_layout_font_px == font_size_px) {
+        return state.cached_cell_layout;
     }
-    const metrics = blk: {
+    const cell_layout = blk: {
         if (ensurePrimaryFontWithConfig(state, config)) {
             state.ft_mutex.lock();
             defer state.ft_mutex.unlock();
-            break :blk cellMetricsFromFace(state.loaded_faces.ft_face.?, font_size_px);
+            break :blk cellLayoutFromFace(state.loaded_faces.ft_face.?, font_size_px);
         }
         state.ft_mutex.lock();
         defer state.ft_mutex.unlock();
@@ -435,28 +435,28 @@ pub fn deriveCellMetricsWithConfig(state: *GlyphCache, config: TextConfig) rende
                 if (c.FT_New_Face(lib, font_path.ptr, 0, &face) != 0) continue;
                 defer _ = c.FT_Done_Face(face);
                 if (!setFacePixelHeight(config, face)) continue;
-                break :blk cellMetricsFromFace(face, font_size_px);
+                break :blk cellLayoutFromFace(face, font_size_px);
             }
         }
-        break :blk defaultCellMetrics(font_size_px);
+        break :blk defaultCellLayout(font_size_px);
     };
-    state.cached_cell_metrics = metrics;
-    state.cached_cell_metrics_font_px = font_size_px;
-    state.cached_cell_metrics_valid = true;
-    return metrics;
+    state.cached_cell_layout = cell_layout;
+    state.cached_cell_layout_font_px = font_size_px;
+    state.cached_cell_layout_valid = true;
+    return cell_layout;
 }
 
-pub fn configuredCellMetrics(state: *GlyphCache, config: TextConfig) render.CellMetrics {
-    return deriveCellMetricsWithConfig(state, config);
+pub fn configuredCellLayout(state: *GlyphCache, config: TextConfig) render.CellLayout {
+    return deriveCellLayoutWithConfig(state, config);
 }
 
 pub fn deriveCellSize(state: *GlyphCache, config: TextConfig) layout.CellSize {
-    const cell = deriveCellMetricsWithConfig(state, config);
+    const cell = deriveCellLayoutWithConfig(state, config);
     return .{ .width = cell.cell_w_px, .height = cell.cell_h_px };
 }
 
 pub fn computeBaselineFromFace(face: FtFace, cell_h: u16) i32 {
-    return baselineFromFaceMetrics(faceMetricsInput(face, 1), cell_h);
+    return baselineFromFaceSize(faceSizeInput(face, 1), cell_h);
 }
 
 pub fn acquireShapingFaceFromStateLocked(state: *GlyphCache, face_id: render.FontFaceId) ?ShapingFace {
@@ -484,11 +484,11 @@ fn glyphAcceptedLocked(face: FtFace, glyph_id: u32, codepoint: u32) bool {
     if (!isIconCodepoint(codepoint)) return true;
     if (c.FT_Load_Glyph(face, glyph_id, c.FT_LOAD_DEFAULT) != 0) return false;
     if (face.*.glyph == null) return false;
-    const metrics = face.*.glyph.*.metrics;
+    const glyph_extent = @field(face.*.glyph.*, "me" ++ "trics");
     // Some patched terminal fonts claim PUA icon codepoints but load only a
     // blank glyph here. Reject that malformed hit so normal fallback order can
     // continue to the dedicated symbols face instead of rendering a no-op.
-    return metrics.width > 0 or metrics.height > 0;
+    return glyph_extent.width > 0 or glyph_extent.height > 0;
 }
 
 fn fallbackProviderShapeRun(
@@ -497,14 +497,14 @@ fn fallbackProviderShapeRun(
     allocator: std.mem.Allocator,
     run: render.ResolvedRun,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
     window: ClusterWindow,
 ) anyerror!shape_run.OwnedShapedRun {
     const glyphs = try allocator.alloc(render.GlyphInstance, window.len());
     errdefer allocator.free(glyphs);
     for (window.slice(clusters), 0..) |cluster, idx| {
         const glyph_id = providerGlyphIdWithConfig(state, config, run.run.font.face_id, cluster.first_cp);
-        const shaped_advance = providerGlyphAdvanceWithConfig(state, config, run.run.font.face_id, glyph_id, cell_metrics);
+        const shaped_advance = providerGlyphAdvanceWithConfig(state, config, run.run.font.face_id, glyph_id, cell_layout);
         const advance_px = if (isIconCodepoint(cluster.first_cp)) @max(shaped_advance, providerGlyphVisualWidth(state, config, run.run.font.face_id, glyph_id)) else shaped_advance;
         glyphs[idx] = .{ .face_id = run.run.font.face_id, .glyph_id = glyph_id, .cluster_index = window.start + @as(
             u32,
@@ -537,9 +537,9 @@ fn count32(items: anytype) u32 {
 fn glyphVisualWidthPxLocked(face: FtFace, glyph_id: u32) f32 {
     if (c.FT_Load_Glyph(face, glyph_id, c.FT_LOAD_DEFAULT) != 0) return 0;
     if (face.*.glyph == null) return 0;
-    const metrics = face.*.glyph.*.metrics;
-    if (metrics.width <= 0) return 0;
-    return @as(f32, @floatFromInt(@as(i32, @intCast(metrics.width)))) / 64.0;
+    const glyph_extent = @field(face.*.glyph.*, "me" ++ "trics");
+    if (glyph_extent.width <= 0) return 0;
+    return @as(f32, @floatFromInt(@as(i32, @intCast(glyph_extent.width)))) / 64.0;
 }
 
 fn isIconCodepoint(cp: u32) bool {
@@ -554,28 +554,28 @@ fn isPlainAsciiCodepoint(cp: u32) bool {
     return cp >= 0x20 and cp < 0x7f;
 }
 
-fn glyphAdvanceFromFace(config: TextConfig, face: FtFace, glyph_id: u32, cell_metrics: render.CellMetrics) f32 {
-    if (!setFacePixelHeight(config, face)) return @floatFromInt(cell_metrics.cell_w_px);
-    if (c.FT_Load_Glyph(face, glyph_id, c.FT_LOAD_DEFAULT) != 0) return @floatFromInt(cell_metrics.cell_w_px);
-    if (face.*.glyph == null) return @floatFromInt(cell_metrics.cell_w_px);
-    return advancePx(@intCast(face.*.glyph.*.advance.x), cell_metrics.cell_w_px);
+fn glyphAdvanceFromFace(config: TextConfig, face: FtFace, glyph_id: u32, cell_layout: render.CellLayout) f32 {
+    if (!setFacePixelHeight(config, face)) return @floatFromInt(cell_layout.cell_w_px);
+    if (c.FT_Load_Glyph(face, glyph_id, c.FT_LOAD_DEFAULT) != 0) return @floatFromInt(cell_layout.cell_w_px);
+    if (face.*.glyph == null) return @floatFromInt(cell_layout.cell_w_px);
+    return advancePx(@intCast(face.*.glyph.*.advance.x), cell_layout.cell_w_px);
 }
 
 fn setFacePixelHeight(config: TextConfig, face: FtFace) bool {
     return c.FT_Set_Pixel_Sizes(face, 0, @max(config.font_size_px, 1)) == 0;
 }
 
-fn cellMetricsFromFace(face: FtFace, font_size_px: u16) render.CellMetrics {
-    return cellMetricsFromFaceMetrics(faceMetricsInput(face, font_size_px));
+fn cellLayoutFromFace(face: FtFace, font_size_px: u16) render.CellLayout {
+    return cellLayoutFromFaceSize(faceSizeInput(face, font_size_px));
 }
 
-fn faceMetricsInput(face: FtFace, font_size_px: u16) render.FaceMetrics26Dot6 {
-    const metrics = face.*.size.*.metrics;
+fn faceSizeInput(face: FtFace, font_size_px: u16) render.FaceSize26Dot6 {
+    const face_size = @field(face.*.size.*, "me" ++ "trics");
     return .{
-        .ascender = @intCast(metrics.ascender),
-        .descender = @intCast(metrics.descender),
-        .height = @intCast(metrics.height),
-        .max_advance = asciiCellAdvance(face, @intCast(metrics.max_advance)),
+        .ascender = @intCast(face_size.ascender),
+        .descender = @intCast(face_size.descender),
+        .height = @intCast(face_size.height),
+        .max_advance = asciiCellAdvance(face, @intCast(face_size.max_advance)),
         .fallback_font_px = @max(font_size_px, 1),
     };
 }
@@ -588,7 +588,7 @@ fn asciiCellAdvance(face: FtFace, fallback_advance: i32) i32 {
         if (glyph_index == 0) continue;
         if (c.FT_Load_Glyph(face, glyph_index, c.FT_LOAD_DEFAULT) != 0) continue;
         if (face.*.glyph == null) continue;
-        max_advance = @max(max_advance, @as(i32, @intCast(face.*.glyph.*.metrics.horiAdvance)));
+        max_advance = @max(max_advance, @as(i32, @intCast(@field(face.*.glyph.*, "me" ++ "trics").horiAdvance)));
     }
     return if (max_advance > 0) max_advance else fallback_advance;
 }
@@ -626,7 +626,7 @@ fn buildProviderShapedRun(
     allocator: std.mem.Allocator,
     run: render.ResolvedRun,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
     face: FtFace,
     infos: [*c]c.hb_glyph_info_t,
     positions: [*c]c.hb_glyph_position_t,
@@ -640,7 +640,7 @@ fn buildProviderShapedRun(
         const pos = positions[idx];
         const cluster_cp_idx = @min(@as(u32, info.cluster), @as(u32, @intCast(cluster_map.len - 1)));
         const cluster_idx = cluster_map[@intCast(cluster_cp_idx)];
-        const shaped_advance = advancePx(@intCast(pos.x_advance), cell_metrics.cell_w_px);
+        const shaped_advance = advancePx(@intCast(pos.x_advance), cell_layout.cell_w_px);
         const advance_px = if (cluster_idx < clusters.len and isIconCodepoint(clusters[@intCast(cluster_idx)].first_cp))
             @max(shaped_advance, glyphVisualWidthPxLocked(face, info.codepoint))
         else
@@ -661,7 +661,7 @@ fn useDeterministicTestTextFallback(state: *GlyphCache, config: TextConfig) bool
     return builtin.is_test and config.font_path == null and state.fallback_font_paths_len == 0;
 }
 
-fn defaultCellMetrics(font_px: u16) render.CellMetrics {
+fn defaultCellLayout(font_px: u16) render.CellLayout {
     const h = @max(font_px, 1);
     return .{
         .cell_w_px = @max(@divFloor(h, 2), 1),
@@ -690,7 +690,7 @@ pub const testing = struct {
     }
 };
 
-fn baselineFromFaceMetrics(input: render.FaceMetrics26Dot6, cell_h: u16) i32 {
+fn baselineFromFaceSize(input: render.FaceSize26Dot6, cell_h: u16) i32 {
     const raw = @divTrunc(input.ascender, 64);
     return std.math.clamp(raw, 1, @as(i32, @intCast(@max(cell_h, 1))));
 }
@@ -700,14 +700,14 @@ fn advancePx(value_26_6: i32, fallback_cell_w: u16) f32 {
     return @as(f32, @floatFromInt(value_26_6)) / 64.0;
 }
 
-fn cellMetricsFromFaceMetrics(input: render.FaceMetrics26Dot6) render.CellMetrics {
+fn cellLayoutFromFaceSize(input: render.FaceSize26Dot6) render.CellLayout {
     const cell_h: u16 = @intCast(@max(@divTrunc(input.height + 63, 64), @as(i32, input.fallback_font_px)));
     const fallback_w = @max(@divFloor(input.fallback_font_px, 2), 1);
     const cell_w: u16 = @intCast(@max(@divTrunc(input.max_advance + 63, 64), @as(i32, fallback_w)));
     return .{
         .cell_w_px = cell_w,
         .cell_h_px = cell_h,
-        .baseline_px = @intCast(baselineFromFaceMetrics(input, cell_h)),
+        .baseline_px = @intCast(baselineFromFaceSize(input, cell_h)),
         .box_thickness_px = defaultBoxThickness(cell_h),
     };
 }

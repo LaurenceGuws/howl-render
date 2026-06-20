@@ -24,7 +24,7 @@ pub const CursorTrailRect = cursor_presentation.CursorTrailRect;
 pub const CursorTrailSource = cursor_presentation.CursorTrailSource;
 pub const CursorPresentation = cursor_presentation.CursorPresentation;
 
-pub const FontMetrics = struct {
+pub const FontCellLayout = struct {
     ascent_px: f32,
     descent_px: f32,
     line_gap_px: f32,
@@ -34,7 +34,7 @@ pub const FontMetrics = struct {
     strikethrough_thickness_px: f32,
 };
 
-pub const FaceMetrics26Dot6 = struct {
+pub const FaceSize26Dot6 = struct {
     ascender: i32,
     descender: i32,
     height: i32,
@@ -55,14 +55,14 @@ pub const CursorGeometry = struct {
     hollow_stroke_px: u16,
 };
 
-pub const CellMetrics = struct {
+pub const CellLayout = struct {
     cell_w_px: u16,
     cell_h_px: u16,
     baseline_px: i16,
     box_thickness_px: u16 = 0,
 };
 
-pub const CellGridMetrics = struct {
+pub const CellGrid = struct {
     cols: u16,
     rows: u16 = 1,
 };
@@ -250,7 +250,7 @@ pub const DecorationSpriteRaster = struct {
     y_px: u16 = 0,
 };
 
-pub const BoxDrawingRasterMetrics = struct {
+pub const BoxDrawingStroke = struct {
     light_stroke_px: u16 = 1,
     heavy_stroke_px: u16 = 2,
 };
@@ -260,7 +260,7 @@ pub const SpriteRasterRequest = struct {
     key: SpriteKey,
     group: GlyphGroup,
     decoration: DecorationSpriteRaster = .{},
-    box_drawing: BoxDrawingRasterMetrics = .{},
+    box_drawing: BoxDrawingStroke = .{},
     placement: GlyphPlacement = .{},
     width_px: u16,
     height_px: u16,

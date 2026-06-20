@@ -107,13 +107,13 @@ pub const CursorTrail = struct {
     }
 };
 
-pub fn targetFromCursor(cursor: anytype, cell_metrics: render.CellMetrics) ?Target {
+pub fn targetFromCursor(cursor: anytype, cell_layout: render.CellLayout) ?Target {
     if (cursor.shape == .none) return null;
-    const base_left: f32 = @floatFromInt(@as(u32, cursor.primary_extent.col) * @as(u32, cell_metrics.cell_w_px));
-    const base_top: f32 = @floatFromInt(@as(u32, cursor.primary_extent.row) * @as(u32, cell_metrics.cell_h_px));
-    const full_width: f32 = @floatFromInt(@as(u32, cursor.primary_extent.cols) * @as(u32, cell_metrics.cell_w_px));
-    const full_height: f32 = @floatFromInt(@as(u32, cursor.primary_extent.rows) * @as(u32, cell_metrics.cell_h_px));
-    const geom = cursorGeometry(cell_metrics, cursor.beam_thickness, cursor.underline_thickness);
+    const base_left: f32 = @floatFromInt(@as(u32, cursor.primary_extent.col) * @as(u32, cell_layout.cell_w_px));
+    const base_top: f32 = @floatFromInt(@as(u32, cursor.primary_extent.row) * @as(u32, cell_layout.cell_h_px));
+    const full_width: f32 = @floatFromInt(@as(u32, cursor.primary_extent.cols) * @as(u32, cell_layout.cell_w_px));
+    const full_height: f32 = @floatFromInt(@as(u32, cursor.primary_extent.rows) * @as(u32, cell_layout.cell_h_px));
+    const geom = cursorGeometry(cell_layout, cursor.beam_thickness, cursor.underline_thickness);
     return switch (cursor.shape) {
         .none => null,
         .block, .hollow => .{ .left_px = base_left, .right_px = base_left + full_width, .top_px = base_top, .bottom_px = base_top + full_height, .visible = cursor.visible },
@@ -132,10 +132,10 @@ fn norm(x: f32, y: f32) f32 {
     return @sqrt(x * x + y * y);
 }
 
-fn cursorGeometry(cell_metrics: render.CellMetrics, beam_thickness: f32, underline_thickness: f32) render.CursorGeometry {
+fn cursorGeometry(cell_layout: render.CellLayout, beam_thickness: f32, underline_thickness: f32) render.CursorGeometry {
     return .{
-        .beam_w_px = configuredThicknessPx(cell_metrics.cell_w_px, beam_thickness),
-        .underline_h_px = configuredThicknessPx(cell_metrics.cell_h_px, underline_thickness),
+        .beam_w_px = configuredThicknessPx(cell_layout.cell_w_px, beam_thickness),
+        .underline_h_px = configuredThicknessPx(cell_layout.cell_h_px, underline_thickness),
         .hollow_stroke_px = 2,
     };
 }
@@ -181,10 +181,10 @@ test "cursor trail opacity follows cursor visibility" {
 }
 
 test "cursor trail target follows cursor shape geometry" {
-    const cell_metrics = render.CellMetrics{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
+    const cell_layout = render.CellLayout{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 12 };
     var cursor = testCursor(.block);
 
-    var target = targetFromCursor(cursor, cell_metrics).?;
+    var target = targetFromCursor(cursor, cell_layout).?;
     try std.testing.expectEqual(@as(f32, 16), target.left_px);
     try std.testing.expectEqual(@as(f32, 24), target.right_px);
     try std.testing.expectEqual(@as(f32, 16), target.top_px);
@@ -192,18 +192,18 @@ test "cursor trail target follows cursor shape geometry" {
 
     cursor.shape = .beam;
     cursor.beam_thickness = 3.5;
-    target = targetFromCursor(cursor, cell_metrics).?;
+    target = targetFromCursor(cursor, cell_layout).?;
     try std.testing.expect(target.right_px - target.left_px > 1);
     try std.testing.expect(target.right_px - target.left_px < 8);
 
     cursor.shape = .underline;
     cursor.underline_thickness = 4.0;
-    target = targetFromCursor(cursor, cell_metrics).?;
+    target = targetFromCursor(cursor, cell_layout).?;
     try std.testing.expect(target.top_px > 16);
     try std.testing.expectEqual(@as(f32, 32), target.bottom_px);
 
     cursor.shape = .none;
-    try std.testing.expect(targetFromCursor(cursor, cell_metrics) == null);
+    try std.testing.expect(targetFromCursor(cursor, cell_layout) == null);
 }
 
 fn testCursor(shape: render.CursorShape) struct {

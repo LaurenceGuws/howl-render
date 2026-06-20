@@ -39,14 +39,14 @@ pub const LookupGlyphResult = struct {
     advance_px: f32,
 };
 
-pub const LookupGlyphFn = *const fn (ctx: *anyopaque, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) LookupGlyphResult;
+pub const LookupGlyphFn = *const fn (ctx: *anyopaque, face_id: render.FontFaceId, codepoint: u32, cell_layout: render.CellLayout) LookupGlyphResult;
 
 pub const LookupGlyphOp = struct {
     ctx: *anyopaque,
     lookup_glyph: LookupGlyphFn,
 
-    pub fn lookupGlyph(self: LookupGlyphOp, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) LookupGlyphResult {
-        return self.lookup_glyph(self.ctx, face_id, codepoint, cell_metrics);
+    pub fn lookupGlyph(self: LookupGlyphOp, face_id: render.FontFaceId, codepoint: u32, cell_layout: render.CellLayout) LookupGlyphResult {
+        return self.lookup_glyph(self.ctx, face_id, codepoint, cell_layout);
     }
 };
 
@@ -76,17 +76,17 @@ pub fn defaultGlyphRaster() raster_operation.RasterizeGlyphOp {
     return .{ .ctx = undefined, .call = defaultGlyphRasterThunk };
 }
 
-fn defaultLookupGlyphThunk(_: *anyopaque, face_id: render.FontFaceId, codepoint: u32, cell_metrics: render.CellMetrics) LookupGlyphResult {
+fn defaultLookupGlyphThunk(_: *anyopaque, face_id: render.FontFaceId, codepoint: u32, cell_layout: render.CellLayout) LookupGlyphResult {
     _ = face_id;
     return .{
         .glyph_id = codepoint,
-        .advance_px = @floatFromInt(@as(u32, @max(cell_metrics.cell_w_px, 1))),
+        .advance_px = @floatFromInt(@as(u32, @max(cell_layout.cell_w_px, 1))),
     };
 }
 
 fn defaultGlyphRasterThunk(_: *anyopaque, allocator: std.mem.Allocator, req: raster_operation.RasterizeRequest) anyerror!raster_operation.RasterizeOutput {
-    const width = @as(u16, @intCast(@as(u32, @max(req.cell_span, 1)) * @as(u32, @max(req.cell_metrics.cell_w_px, 1))));
-    const height = @max(req.cell_metrics.cell_h_px, 1);
+    const width = @as(u16, @intCast(@as(u32, @max(req.cell_span, 1)) * @as(u32, @max(req.cell_layout.cell_w_px, 1))));
+    const height = @max(req.cell_layout.cell_h_px, 1);
     const area = @as(u32, width) * @as(u32, height);
     const alpha = try allocator.alloc(u8, @intCast(area));
     @memset(alpha, 0x7f);
@@ -96,7 +96,7 @@ fn defaultGlyphRasterThunk(_: *anyopaque, allocator: std.mem.Allocator, req: ras
         .height_px = height,
         .bearing_x_px = 0,
         .bearing_y_px = 0,
-        .advance_px = @floatFromInt(@as(u32, @max(req.cell_metrics.cell_w_px, 1))),
+        .advance_px = @floatFromInt(@as(u32, @max(req.cell_layout.cell_w_px, 1))),
         .alpha_mask = alpha,
     };
 }

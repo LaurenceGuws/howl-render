@@ -17,7 +17,7 @@ pub const ShapeRunFn = *const fn (
     run: render.ResolvedRun,
     text_cache: render.LineTextCache,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
 ) anyerror!OwnedShapedRun;
 
 pub const Shaper = struct {
@@ -30,9 +30,9 @@ pub const Shaper = struct {
         run: render.ResolvedRun,
         text_cache: render.LineTextCache,
         clusters: []const render.CellCluster,
-        cell_metrics: render.CellMetrics,
+        cell_layout: render.CellLayout,
     ) !OwnedShapedRun {
-        return self.shape_run(self.ctx, allocator, run, text_cache, clusters, cell_metrics);
+        return self.shape_run(self.ctx, allocator, run, text_cache, clusters, cell_layout);
     }
 };
 
@@ -137,7 +137,7 @@ pub fn shapeResolvedRunsWithShaper(
     runs: []const render.ResolvedRun,
     text_cache: render.LineTextCache,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
 ) !OwnedShapedRuns {
     const shaped = try allocator.alloc(OwnedShapedRun, runs.len);
     errdefer allocator.free(shaped);
@@ -148,7 +148,7 @@ pub fn shapeResolvedRunsWithShaper(
     }
 
     for (runs, 0..) |run, idx| {
-        shaped[idx] = try shaper.shapeRun(allocator, run, text_cache, clusters, cell_metrics);
+        shaped[idx] = try shaper.shapeRun(allocator, run, text_cache, clusters, cell_layout);
         initialized += 1;
     }
 
@@ -165,9 +165,9 @@ fn shapeRunThunk(
     run: render.ResolvedRun,
     text_cache: render.LineTextCache,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
 ) anyerror!OwnedShapedRun {
-    return shapeRun(allocator, run, text_cache, clusters, cell_metrics);
+    return shapeRun(allocator, run, text_cache, clusters, cell_layout);
 }
 
 pub fn shapeRun(
@@ -175,7 +175,7 @@ pub fn shapeRun(
     run: render.ResolvedRun,
     text_cache: render.LineTextCache,
     clusters: []const render.CellCluster,
-    cell_metrics: render.CellMetrics,
+    cell_layout: render.CellLayout,
 ) !OwnedShapedRun {
     const window = runClusterWindow(run, clusters);
     const glyphs = try allocator.alloc(render.GlyphInstance, @intCast(window.end - window.start));
@@ -189,7 +189,7 @@ pub fn shapeRun(
             .cluster_index = window.start + @as(u32, @intCast(idx)),
             .x_offset_px = 0,
             .y_offset_px = 0,
-            .x_advance_px = @floatFromInt(@as(u32, @max(cluster.cell_span, 1)) * @as(u32, cell_metrics.cell_w_px)),
+            .x_advance_px = @floatFromInt(@as(u32, @max(cluster.cell_span, 1)) * @as(u32, cell_layout.cell_w_px)),
         };
     }
 

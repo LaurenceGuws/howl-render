@@ -5,4 +5,4 @@ pub const requestForUndercurl = undercurl.requestForUndercurl;
 pub const rasterizeUndercurlAlpha = undercurl.rasterizeUndercurlAlpha;
 
 pub const rasterizeGeneratedSpecialAlpha = generated_special.rasterizeGeneratedSpecialAlpha;
-pub const rasterizeGeneratedSpecialAlphaWithMetrics = generated_special.rasterizeGeneratedSpecialAlphaWithMetrics;
+pub const rasterizeGeneratedSpecialAlphaWithStroke = generated_special.rasterizeGeneratedSpecialAlphaWithStroke;

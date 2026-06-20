@@ -3,7 +3,7 @@ const render = @import("../draw_primitives.zig");
 const generated_special = @import("generated_special.zig");
 const special_box = @import("special_box.zig");
 
-pub fn rasterizeGeneratedPowerlineAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: render.BoxDrawingRasterMetrics) void {
+pub fn rasterizeGeneratedPowerlineAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: render.BoxDrawingStroke) void {
     switch (codepoint) {
         0xe0b0 => rasterizePowerlineTriangle(pixels, width, height, true, false),
         0xe0b2 => rasterizePowerlineTriangle(pixels, width, height, false, false),
@@ -45,7 +45,7 @@ fn rasterizePowerlineTriangle(pixels: []u8, width: u16, height: u16, left: bool,
     }
 }
 
-fn rasterizePowerlineHalfDiagonal(pixels: []u8, width: u16, height: u16, left: bool, box_drawing: render.BoxDrawingRasterMetrics) void {
+fn rasterizePowerlineHalfDiagonal(pixels: []u8, width: u16, height: u16, left: bool, box_drawing: render.BoxDrawingStroke) void {
     const mid = @as(f64, @floatFromInt(height - 1)) / 2.0;
     const line_w = @as(f64, @floatFromInt(@max(box_drawing.light_stroke_px, 1)));
     if (left) {
@@ -57,7 +57,7 @@ fn rasterizePowerlineHalfDiagonal(pixels: []u8, width: u16, height: u16, left: b
     }
 }
 
-fn rasterizePowerlineD(pixels: []u8, width: u16, height: u16, left: bool, filled: bool, box_drawing: render.BoxDrawingRasterMetrics) void {
+fn rasterizePowerlineD(pixels: []u8, width: u16, height: u16, left: bool, filled: bool, box_drawing: render.BoxDrawingStroke) void {
     if (filled) {
         rasterizePowerlineFilledD(pixels, width, height, left);
     } else {
@@ -118,7 +118,7 @@ fn filledDContains(px_raw: f64, py: f64, ctx: FilledDCoverageCtx) bool {
     return py >= upper and py <= lower;
 }
 
-fn rasterizePowerlineRoundedD(pixels: []u8, width: u16, height: u16, left: bool, box_drawing: render.BoxDrawingRasterMetrics) void {
+fn rasterizePowerlineRoundedD(pixels: []u8, width: u16, height: u16, left: bool, box_drawing: render.BoxDrawingStroke) void {
     const gap = @max(box_drawing.light_stroke_px, 1);
     const half_gap = @as(f64, @floatFromInt(gap)) / 2.0;
     const curve_w = if (width > gap) width - gap else width;

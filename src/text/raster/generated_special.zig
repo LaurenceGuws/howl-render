@@ -8,13 +8,13 @@ const special_powerline = @import("special_powerline.zig");
 
 pub fn rasterizeGeneratedSpecialAlpha(pixels: []u8, width_px: u16, height_px: u16, codepoint: u32) bool {
     const light = @as(u16, 2);
-    return rasterizeGeneratedSpecialAlphaWithMetrics(pixels, width_px, height_px, codepoint, .{
+    return rasterizeGeneratedSpecialAlphaWithStroke(pixels, width_px, height_px, codepoint, .{
         .light_stroke_px = light,
         .heavy_stroke_px = @intCast(@min(@as(u32, light) * 2, std.math.maxInt(u16))),
     });
 }
 
-pub fn rasterizeGeneratedSpecialAlphaWithMetrics(pixels: []u8, width_px: u16, height_px: u16, codepoint: u32, box_drawing: render.BoxDrawingRasterMetrics) bool {
+pub fn rasterizeGeneratedSpecialAlphaWithStroke(pixels: []u8, width_px: u16, height_px: u16, codepoint: u32, box_drawing: render.BoxDrawingStroke) bool {
     std.debug.assert(pixels.len <= std.math.maxInt(u32));
     std.debug.assert(@as(u32, @intCast(pixels.len)) >= @as(u32, width_px) * @as(u32, height_px));
     if (!special_glyphs.isGeneratedSpecialSupported(codepoint)) return false;
@@ -28,7 +28,7 @@ pub fn rasterizeGeneratedSpecialAlphaWithMetrics(pixels: []u8, width_px: u16, he
     return false;
 }
 
-fn rasterizeSupportedGeneratedSpecialAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: render.BoxDrawingRasterMetrics, family: GeneratedSpecialFamily) void {
+fn rasterizeSupportedGeneratedSpecialAlpha(pixels: []u8, width: u16, height: u16, codepoint: u32, box_drawing: render.BoxDrawingStroke, family: GeneratedSpecialFamily) void {
     switch (family) {
         .box => special_box.rasterizeGeneratedBoxAlpha(pixels, width, height, codepoint, box_drawing),
         .powerline => special_powerline.rasterizeGeneratedPowerlineAlpha(pixels, width, height, codepoint, box_drawing),

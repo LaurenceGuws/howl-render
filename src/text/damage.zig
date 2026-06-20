@@ -20,8 +20,8 @@ pub const DirtyRowSpan = struct {
     start_col: u16,
     end_col: u16,
 
-    pub fn firstCell(self: DirtyRowSpan, grid_metrics: render.CellGridMetrics) u32 {
-        return @as(u32, self.row) * @as(u32, @max(grid_metrics.cols, 1)) + @as(u32, self.start_col);
+    pub fn firstCell(self: DirtyRowSpan, cell_grid: render.CellGrid) u32 {
+        return @as(u32, self.row) * @as(u32, @max(cell_grid.cols, 1)) + @as(u32, self.start_col);
     }
 
     pub fn cellSpan(self: DirtyRowSpan) u8 {
@@ -35,8 +35,8 @@ const CellSpan = struct {
     start_col: u16,
     end_col: u16,
 
-    fn init(grid_metrics: render.CellGridMetrics, first_cell: u32, cell_span: u8) CellSpan {
-        const cols = @max(@as(u32, grid_metrics.cols), 1);
+    fn init(cell_grid: render.CellGrid, first_cell: u32, cell_span: u8) CellSpan {
+        const cols = @max(@as(u32, cell_grid.cols), 1);
         const start_col_u32 = first_cell % cols;
         const span_u32 = @as(u32, @max(cell_span, 1));
         return .{
@@ -85,11 +85,11 @@ pub fn rowDirty(damage: NormalizedDamage, row: u16) bool {
     return row < count16(damage.dirty_rows) and damage.dirty_rows[@intCast(row)];
 }
 
-pub fn dirtyRowSpan(damage: NormalizedDamage, grid_metrics: render.CellGridMetrics, row: u16) ?DirtyRowSpan {
+pub fn dirtyRowSpan(damage: NormalizedDamage, cell_grid: render.CellGrid, row: u16) ?DirtyRowSpan {
     if (damage.full) return null;
     if (!rowDirty(damage, row)) return null;
 
-    const cols = @max(grid_metrics.cols, 1);
+    const cols = @max(cell_grid.cols, 1);
     const last_col: u16 = cols - 1;
     const start_col = @min(damage.dirty_cols_start[@intCast(row)], last_col);
     const end_col = @min(damage.dirty_cols_end[@intCast(row)], last_col);
@@ -102,25 +102,25 @@ pub fn dirtyRowSpan(damage: NormalizedDamage, grid_metrics: render.CellGridMetri
     };
 }
 
-pub fn includeSpan(damage: NormalizedDamage, grid_metrics: render.CellGridMetrics, first_cell: u32, cell_span: u8) bool {
+pub fn includeSpan(damage: NormalizedDamage, cell_grid: render.CellGrid, first_cell: u32, cell_span: u8) bool {
     if (damage.full) return true;
-    const cell = CellSpan.init(grid_metrics, first_cell, cell_span);
-    const dirty = dirtyRowSpan(damage, grid_metrics, cell.row) orelse return false;
+    const cell = CellSpan.init(cell_grid, first_cell, cell_span);
+    const dirty = dirtyRowSpan(damage, cell_grid, cell.row) orelse return false;
     return !(cell.end_col < dirty.start_col or cell.start_col > dirty.end_col);
 }
 
-pub fn cleanRowSkip(damage: NormalizedDamage, grid_metrics: render.CellGridMetrics, idx: u32, cells_len: u32) ?u32 {
+pub fn cleanRowSkip(damage: NormalizedDamage, cell_grid: render.CellGrid, idx: u32, cells_len: u32) ?u32 {
     if (damage.full) return null;
-    const cols = @max(@as(u32, grid_metrics.cols), 1);
+    const cols = @max(@as(u32, cell_grid.cols), 1);
     const row = idx / cols;
     if (row >= count32(damage.dirty_rows)) return cells_len;
     if (damage.dirty_rows[@intCast(row)]) return null;
     return @min((row + 1) * cols, cells_len);
 }
 
-pub fn dirtySpanOverlapsCellSpan(grid_metrics: render.CellGridMetrics, dirty: DirtyRowSpan, cell: render.RenderableCell) bool {
+pub fn dirtySpanOverlapsCellSpan(cell_grid: render.CellGrid, dirty: DirtyRowSpan, cell: render.RenderableCell) bool {
     const dirty_span = CellSpan{ .row = dirty.row, .start_col = dirty.start_col, .end_col = dirty.end_col };
-    return CellSpan.init(grid_metrics, cell.first_cell, cell.cell_span).overlaps(dirty_span);
+    return CellSpan.init(cell_grid, cell.first_cell, cell.cell_span).overlaps(dirty_span);
 }
 
 fn count16(items: anytype) u16 {

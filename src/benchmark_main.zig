@@ -65,7 +65,7 @@ const BenchmarkDamage = struct {
 const BenchmarkCase = struct {
     name: []const u8,
     input: BenchmarkInput,
-    grid: render.CellGridMetrics,
+    grid: render.CellGrid,
     damage: BenchmarkDamage,
     cell_px: layout.CellSize,
     dirty_cells_per_run: u32,
@@ -212,7 +212,7 @@ fn rgba(r: u8, g: u8, b: u8) render.Rgba8 {
     return .{ .r = r, .g = g, .b = b, .a = 255 };
 }
 
-fn defaultCellMetrics(cell_px: layout.CellSize) render.CellMetrics {
+fn defaultCellLayout(cell_px: layout.CellSize) render.CellLayout {
     const h = @max(cell_px.height, 1);
     return .{
         .cell_w_px = @max(cell_px.width, 1),
@@ -285,7 +285,7 @@ fn benchmarkDamage(full: bool, dirty_rows: []const bool, dirty_cols_start: []con
     };
 }
 
-fn buildBenchmarkCase(name: []const u8, input: BenchmarkInput, grid: render.CellGridMetrics, full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, cell_px: layout.CellSize, dirty_cells_per_run: u32) BenchmarkCase {
+fn buildBenchmarkCase(name: []const u8, input: BenchmarkInput, grid: render.CellGrid, full: bool, dirty_rows: []const bool, dirty_cols_start: []const u16, dirty_cols_end: []const u16, cell_px: layout.CellSize, dirty_cells_per_run: u32) BenchmarkCase {
     return .{
         .name = name,
         .input = input,
@@ -682,7 +682,7 @@ fn initBenchmarkPrepareContext(benchmark_case: BenchmarkCase) BenchmarkPrepareCo
     return .{
         .selection = .{
             .primary_face = .{ .value = 1 },
-            .cell_metrics = defaultCellMetrics(benchmark_case.cell_px),
+            .cell_layout = defaultCellLayout(benchmark_case.cell_px),
         },
         .options = .{
             .draw_list = .{

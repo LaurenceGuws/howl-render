@@ -39,34 +39,34 @@ pub fn appendBackground(
     merge_live: *bool,
     merge_end_cell: *u32,
     cell: render.RenderableCell,
-    cell_metrics: render.CellMetrics,
-    grid_metrics: render.CellGridMetrics,
+    cell_layout: render.CellLayout,
+    cell_grid: render.CellGrid,
     damage: Damage,
 ) void {
-    rect_primitives.appendBackgroundDrawCellUnmanaged(out, merge_live, merge_end_cell, cell, cell_metrics, grid_metrics, toDrawListDamage(damage));
+    rect_primitives.appendBackgroundDrawCellUnmanaged(out, merge_live, merge_end_cell, cell, cell_layout, cell_grid, toDrawListDamage(damage));
 }
 
 pub fn appendClears(
     out: *std.ArrayListUnmanaged(render.TextClearDraw),
     clear_row_colors: []const render.Rgba8,
     clear_row_matches: []const bool,
-    cell_metrics: render.CellMetrics,
-    grid_metrics: render.CellGridMetrics,
+    cell_layout: render.CellLayout,
+    cell_grid: render.CellGrid,
     damage: Damage,
 ) void {
-    rect_primitives.appendClearRowDrawsUnmanaged(out, clear_row_colors, clear_row_matches, cell_metrics, grid_metrics, toDrawListDamage(damage));
+    rect_primitives.appendClearRowDrawsUnmanaged(out, clear_row_colors, clear_row_matches, cell_layout, cell_grid, toDrawListDamage(damage));
 }
 
-pub fn appendCursor(out: *std.ArrayListUnmanaged(render.TextCursorDraw), cursor: ?render.CursorPresentation, cell_metrics: render.CellMetrics, damage: Damage) void {
-    rect_primitives.appendCursorDrawsUnmanaged(out, cursor, toDrawListDamage(damage), cell_metrics);
+pub fn appendCursor(out: *std.ArrayListUnmanaged(render.TextCursorDraw), cursor: ?render.CursorPresentation, cell_layout: render.CellLayout, damage: Damage) void {
+    rect_primitives.appendCursorDrawsUnmanaged(out, cursor, toDrawListDamage(damage), cell_layout);
 }
 
-pub fn appendCursorTrails(out: *std.ArrayListUnmanaged(draw_list.CursorTrailRect), cursor: ?render.CursorPresentation, grid_metrics: render.CellGridMetrics, cell_metrics: render.CellMetrics) void {
-    rect_primitives.appendCursorTrailRectsUnmanaged(out, grid_metrics, cursor, cell_metrics);
+pub fn appendCursorTrails(out: *std.ArrayListUnmanaged(draw_list.CursorTrailRect), cursor: ?render.CursorPresentation, cell_grid: render.CellGrid, cell_layout: render.CellLayout) void {
+    rect_primitives.appendCursorTrailRectsUnmanaged(out, cell_grid, cursor, cell_layout);
 }
 
-pub fn noteClearColor(clear_row_colors: []render.Rgba8, clear_row_matches: []bool, cell: render.RenderableCell, grid_metrics: render.CellGridMetrics, damage: Damage) void {
-    rect_primitives.noteClearColorCell(clear_row_colors, clear_row_matches, cell, grid_metrics, toDrawListDamage(damage));
+pub fn noteClearColor(clear_row_colors: []render.Rgba8, clear_row_matches: []bool, cell: render.RenderableCell, cell_grid: render.CellGrid, damage: Damage) void {
+    rect_primitives.noteClearColorCell(clear_row_colors, clear_row_matches, cell, cell_grid, toDrawListDamage(damage));
 }
 
 pub fn appendDecorations(
@@ -86,13 +86,13 @@ pub fn appendRenderableRects(
     clear_row_matches: []bool,
     decoration_draws: *std.ArrayListUnmanaged(render.TextDecorationDraw),
     cell: render.RenderableCell,
-    cell_metrics: render.CellMetrics,
-    grid_metrics: render.CellGridMetrics,
+    cell_layout: render.CellLayout,
+    cell_grid: render.CellGrid,
     decoration_layout: rect_primitives.RectDecorationLayout,
     damage: Damage,
 ) void {
-    appendBackground(background_draws, background_merge_live, background_merge_end_cell, cell, cell_metrics, grid_metrics, damage);
-    noteClearColor(clear_row_colors, clear_row_matches, cell, grid_metrics, damage);
+    appendBackground(background_draws, background_merge_live, background_merge_end_cell, cell, cell_layout, cell_grid, damage);
+    noteClearColor(clear_row_colors, clear_row_matches, cell, cell_grid, damage);
     appendDecorations(decoration_draws, cell, decoration_layout, damage);
 }
 
