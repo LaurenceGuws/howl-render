@@ -26,7 +26,7 @@ test "render text ABI emits foreground commands from VT render state" {
     var render_state: c.HowlVtRenderStateHandle = null;
     try std.testing.expectEqual(c.HOWL_VT_CALL_OK, c.howl_vt_render_state_init(&render_state));
     defer c.howl_vt_render_state_deinit(render_state);
-    try std.testing.expectEqual(c.HOWL_VT_CALL_OK, c.howl_vt_render_state_update(render_state, terminal, 0));
+    try std.testing.expectEqual(c.HOWL_VT_CALL_OK, c.howl_vt_render_state_update(render_state, terminal));
 
     var text: c.HowlRenderTextHandle = null;
     const config = c.HowlRenderTextConfig{
