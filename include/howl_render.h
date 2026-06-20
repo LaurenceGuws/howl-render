@@ -75,6 +75,11 @@ typedef struct {
 } HowlRenderCellSize;
 
 typedef struct {
+    int32_t x_px;
+    int32_t y_px;
+} HowlRenderSurfacePoint;
+
+typedef struct {
     uint16_t row;
     uint16_t col;
     uint16_t rows;
@@ -100,6 +105,16 @@ typedef struct {
     uint16_t cols;
     uint16_t rows;
 } HowlRenderCellGrid;
+
+typedef struct {
+    HowlRenderCellSize cell_px;
+    uint16_t baseline_px;
+    uint16_t underline_y_px;
+    uint16_t underline_height_px;
+    uint16_t strikethrough_y_px;
+    uint16_t strikethrough_height_px;
+    uint16_t sprite_slot_height_px;
+} HowlRenderCellLayout;
 
 typedef struct {
     int32_t x_px;
@@ -152,6 +167,15 @@ typedef struct {
     HowlRenderCellSize cell_px;
     HowlRenderCellGrid grid;
 } HowlRenderLayoutResult;
+
+typedef struct {
+    int32_t status;
+    uint8_t inside;
+    uint8_t reserved0;
+    uint16_t reserved1;
+    uint16_t row;
+    uint16_t col;
+} HowlRenderSurfacePointCell;
 
 typedef struct {
     uint8_t *ptr;
@@ -309,7 +333,8 @@ typedef struct {
     uint32_t reserved3;
     HowlRenderPixelSize render_px;
     HowlRenderPixelSize grid_px;
-    HowlRenderCellSize cell_px;
+    HowlRenderCellGrid grid;
+    HowlRenderCellLayout cell_layout;
     uint64_t layout_epoch;
 } HowlRenderLayoutResponse;
 
@@ -355,9 +380,6 @@ typedef struct {
 typedef struct {
     HowlVtRenderStateHandle render_state;
     HowlRenderPixelSize render_px;
-    HowlRenderPixelSize grid_px;
-    HowlRenderCellSize cell_px;
-    HowlRenderCellGrid grid;
     uint64_t layout_epoch;
     uint8_t focused;
     uint8_t cursor_opacity;
@@ -402,6 +424,8 @@ typedef struct {
 
 HowlRenderCallStatus howl_render_text_init(HowlRenderTextHandle *out_handle, const HowlRenderTextConfig *config);
 void howl_render_text_deinit(HowlRenderTextHandle handle);
+HowlRenderCallStatus howl_render_surface_layout(HowlRenderTextHandle handle, HowlRenderPixelSize surface_px, HowlRenderLayoutResponse *out_layout);
+HowlRenderCallStatus howl_render_surface_point_cell(HowlRenderTextHandle handle, HowlRenderPixelSize surface_px, HowlRenderSurfacePoint point, HowlRenderSurfacePointCell *out_cell);
 HowlRenderCallStatus howl_render_text_prepare(HowlRenderTextHandle handle, const HowlRenderTextPrepare *prepare, HowlRenderTextPreparedUpload *out_upload);
 HowlRenderCallStatus howl_render_cell_surface_prepare(HowlRenderTextHandle handle, const HowlRenderCellSurfacePrepare *prepare, HowlRenderCellSurfacePreparedUpload *out_upload);
 HowlRenderCallStatus howl_render_text_submit(HowlRenderTextHandle handle, HowlRenderHostTexture host_texture, HowlRenderHostTexture *out_host_texture);

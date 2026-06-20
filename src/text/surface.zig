@@ -16,6 +16,7 @@ const rasterizer = @import("raster/rasterizer.zig");
 const shape_cluster = @import("shape/cluster.zig");
 const shape_run = @import("shape/run.zig");
 const glyph_cache = @import("glyph_cache.zig");
+const cell_layout = @import("cell_layout.zig");
 
 const max_font_faces = glyph_cache.fallbackFontLen(glyph_cache.max_fallback_fonts) + 1;
 const face_text_cache_entry_cap: u32 = 4096;
@@ -50,6 +51,8 @@ pub const TextSurface = struct {
     fallback_font_path_count: glyph_cache.FallbackFontCount = 0,
     font_size_px: u16,
     next_cell_snapshot_seq: u64 = 1,
+    surface_layout_epoch: u64 = 1,
+    surface_layout_last: ?cell_layout.SurfaceLayout = null,
 
     pub fn create(allocator: std.mem.Allocator, config: *const c.HowlRenderTextConfig) !*TextSurface {
         if (config.font_size_px == 0) return error.InvalidArgument;
@@ -98,23 +101,24 @@ pub const TextSurface = struct {
     pub fn prepare(self: *TextSurface, input: *const c.HowlRenderTextPrepare, out: *PreparedUpload) !void {
         if (input.render_state == null) return error.InvalidArgument;
         if (input.render_px.width == 0 or input.render_px.height == 0) return error.InvalidArgument;
-        if (input.cell_px.width == 0 or input.cell_px.height == 0) return error.InvalidArgument;
-        if (input.grid.cols == 0 or input.grid.rows == 0) return error.InvalidArgument;
         self.releasePrepared();
+
+        const surface_layout = self.layoutForSurface(input.render_px);
+        const grid = surface_layout.grid;
 
         const token = try readRenderStateToken(input.render_state.?);
         _ = try renderStateDirty(input.render_state.?);
         // The C text ABI has no submitted-base input yet. Rect damage is unsafe across skipped frames without that base.
         const full_damage = true;
-        const text = try self.readRenderState(input.render_state.?, input.grid, full_damage);
+        const text = try self.readRenderState(input.render_state.?, grid, full_damage);
         const options = surface_preparer.PrepareOptions{ .draw_list = .{
             .cursor = try readCursorPresentation(input.render_state.?, text.colors, input),
             .damage = .{ .full = full_damage, .dirty_rows = text.dirty_rows, .dirty_cols_start = text.dirty_cols_start, .dirty_cols_end = text.dirty_cols_end },
         } };
-        const preparer = try self.ensurePreparer(input.grid);
+        const preparer = try self.ensurePreparer(grid);
         var faces: [max_font_faces]face_selection.FaceRecord = undefined;
         var resolve: font_resolver.ResolveObservability = .{};
-        var owned_text = try preparer.prepareCellsWithFaceSelection(text.cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve, input.cell_px), options);
+        var owned_text = try preparer.prepareCellsWithFaceSelection(text.cells, .{ .cols = grid.cols, .rows = grid.rows }, self.faceSelection(&faces, &resolve, surface_layout.cell), options);
         errdefer owned_text.deinit();
         self.prepared = .{
             .allocator = self.allocator,
@@ -126,9 +130,9 @@ pub const TextSurface = struct {
                 .damage_kind = if (full_damage) .full else .partial,
             } },
             .layout_epoch = input.layout_epoch,
-            .render_px = pixelSizeIn(input.render_px),
-            .cell_px = cellSizeIn(input.cell_px),
-            .grid = .{ .cols = input.grid.cols, .rows = input.grid.rows },
+            .render_px = surface_layout.render_px,
+            .cell_px = surface_layout.cell.cellSize(),
+            .grid = .{ .cols = grid.cols, .rows = grid.rows },
             .dirty_rows = text.dirty_rows,
             .dirty_cols_start = text.dirty_cols_start,
             .dirty_cols_end = text.dirty_cols_end,
@@ -142,9 +146,26 @@ pub const TextSurface = struct {
             .surface_frame_status = 0,
             .reserved0 = 0,
             .snapshot_seq = token.snapshot_seq,
-            .render_px = input.render_px,
+            .render_px = .{ .width = surface_layout.render_px.width, .height = surface_layout.render_px.height },
             .surface_frame = self.emitter.surface(),
         };
+    }
+
+    pub fn surfaceLayout(self: *TextSurface, surface_px: c.HowlRenderPixelSize, out: *c.HowlRenderLayoutResponse) !void {
+        if (surface_px.width == 0 or surface_px.height == 0) return error.InvalidArgument;
+        const next = self.layoutForSurface(surface_px);
+        const changed = if (self.surface_layout_last) |current| surfaceLayoutChanged(current, next) else true;
+        if (changed) {
+            self.surface_layout_epoch +%= 1;
+            if (self.surface_layout_epoch == 0) self.surface_layout_epoch = 1;
+            self.surface_layout_last = next;
+        }
+        out.* = next.toCResponse(changed, self.surface_layout_epoch);
+    }
+
+    pub fn surfacePointCell(self: *TextSurface, surface_px: c.HowlRenderPixelSize, point: c.HowlRenderSurfacePoint, out: *c.HowlRenderSurfacePointCell) !void {
+        if (surface_px.width == 0 or surface_px.height == 0) return error.InvalidArgument;
+        out.* = self.layoutForSurface(surface_px).pointCell(point);
     }
 
     pub fn prepareCellSurface(self: *TextSurface, input: *const c.HowlRenderCellSurfacePrepare, out: *CellSurfacePreparedUpload) !void {
@@ -168,7 +189,8 @@ pub const TextSurface = struct {
         const preparer = try self.ensurePreparer(input.grid);
         var faces: [max_font_faces]face_selection.FaceRecord = undefined;
         var resolve: font_resolver.ResolveObservability = .{};
-        var owned_text = try preparer.prepareCellTextInputsWithFaceSelection(cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve, input.cell_px), .{});
+        const cell = cell_layout.CellLayout.fromCellSize(input.cell_px, glyph_cache.deriveCellMetricsWithConfig(&self.glyph_cache, self.textConfig()));
+        var owned_text = try preparer.prepareCellTextInputsWithFaceSelection(cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve, cell), .{});
         errdefer owned_text.deinit();
         self.prepared = .{
             .allocator = self.allocator,
@@ -340,7 +362,7 @@ pub const TextSurface = struct {
         };
     }
 
-    fn faceSelection(self: *TextSurface, faces: []face_selection.FaceRecord, active_resolve: ?*font_resolver.ResolveObservability, cell_px: c.HowlRenderCellSize) face_selection.FaceSelection {
+    fn faceSelection(self: *TextSurface, faces: []face_selection.FaceRecord, active_resolve: ?*font_resolver.ResolveObservability, cell: cell_layout.CellLayout) face_selection.FaceSelection {
         self.glyph_cache.active_resolve = active_resolve;
         var len: glyph_cache.FallbackFontCount = 0;
         if (faces.len > glyph_cache.fallbackFontLen(len)) {
@@ -357,28 +379,50 @@ pub const TextSurface = struct {
             .primary_face = .{ .value = glyph_cache.primary_face_id },
             .faces = faces[0..@intCast(glyph_cache.fallbackFontLen(len))],
             .provider = .{ .ctx = self, .has_cell_text = providerHasCellTextThunk },
-            .cell_metrics = abiCellMetrics(glyph_cache.deriveCellMetricsWithConfig(&self.glyph_cache, self.textConfig()), cell_px),
+            .cell_metrics = cellFactsFromLayout(cell),
         };
+    }
+
+    fn layoutForSurface(self: *TextSurface, surface_px: c.HowlRenderPixelSize) cell_layout.SurfaceLayout {
+        const cell = cell_layout.CellLayout.fromLegacyCellFacts(glyph_cache.deriveCellMetricsWithConfig(&self.glyph_cache, self.textConfig()));
+        return cell_layout.SurfaceLayout.init(cell_layout.pixelSizeIn(surface_px), cell);
     }
 };
 
-fn abiCellMetrics(font_metrics: render.CellMetrics, cell_px: c.HowlRenderCellSize) render.CellMetrics {
-    std.debug.assert(cell_px.width > 0);
-    std.debug.assert(cell_px.height > 0);
+fn cellFactsFromLayout(cell: cell_layout.CellLayout) render.CellMetrics {
+    cell.assertValid();
     return .{
-        .cell_w_px = cell_px.width,
-        .cell_h_px = cell_px.height,
-        .baseline_px = @intCast(std.math.clamp(@as(i32, font_metrics.baseline_px), 1, @as(i32, @intCast(cell_px.height)))),
-        .box_thickness_px = @min(font_metrics.box_thickness_px, cell_px.height),
+        .cell_w_px = cell.cell_width_px,
+        .cell_h_px = cell.cell_height_px,
+        .baseline_px = @intCast(cell.baseline_px),
+        .box_thickness_px = cell.underline_height_px,
     };
 }
 
-test "text surface cell metrics honor ABI grid size" {
-    const metrics = abiCellMetrics(.{ .cell_w_px = 11, .cell_h_px = 23, .baseline_px = 30, .box_thickness_px = 7 }, .{ .width = 8, .height = 16 });
-    try std.testing.expectEqual(@as(u16, 8), metrics.cell_w_px);
-    try std.testing.expectEqual(@as(u16, 16), metrics.cell_h_px);
-    try std.testing.expectEqual(@as(i16, 16), metrics.baseline_px);
-    try std.testing.expectEqual(@as(u16, 7), metrics.box_thickness_px);
+fn surfaceLayoutChanged(current: cell_layout.SurfaceLayout, next: cell_layout.SurfaceLayout) bool {
+    return current.render_px.width != next.render_px.width or
+        current.render_px.height != next.render_px.height or
+        current.grid_px.width != next.grid_px.width or
+        current.grid_px.height != next.grid_px.height or
+        current.grid.cols != next.grid.cols or
+        current.grid.rows != next.grid.rows or
+        current.cell.cell_width_px != next.cell.cell_width_px or
+        current.cell.cell_height_px != next.cell.cell_height_px or
+        current.cell.baseline_px != next.cell.baseline_px or
+        current.cell.underline_y_px != next.cell.underline_y_px or
+        current.cell.underline_height_px != next.cell.underline_height_px or
+        current.cell.strikethrough_y_px != next.cell.strikethrough_y_px or
+        current.cell.strikethrough_height_px != next.cell.strikethrough_height_px or
+        current.cell.sprite_slot_height_px != next.cell.sprite_slot_height_px;
+}
+
+test "text surface converts render-owned cell layout to legacy draw facts" {
+    const cell = cell_layout.CellLayout.fromLegacyCellFacts(.{ .cell_w_px = 8, .cell_h_px = 16, .baseline_px = 13, .box_thickness_px = 2 });
+    const facts = cellFactsFromLayout(cell);
+    try std.testing.expectEqual(@as(u16, 8), facts.cell_w_px);
+    try std.testing.expectEqual(@as(u16, 16), facts.cell_h_px);
+    try std.testing.expectEqual(@as(i16, 13), facts.baseline_px);
+    try std.testing.expectEqual(@as(u16, 2), facts.box_thickness_px);
 }
 
 const RenderStateToken = struct {

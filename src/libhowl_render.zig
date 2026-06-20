@@ -83,6 +83,20 @@ export fn howl_render_text_deinit(handle: c.HowlRenderTextHandle) void {
     surface.destroy();
 }
 
+export fn howl_render_surface_layout(handle: c.HowlRenderTextHandle, surface_px: c.HowlRenderPixelSize, out_layout: ?*c.HowlRenderLayoutResponse) c.HowlRenderCallStatus {
+    const surface = textSurfaceFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
+    const layout = out_layout orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    surface.surfaceLayout(surface_px, layout) catch |err| return callStatusFromError(err);
+    return c.HOWL_RENDER_CALL_OK;
+}
+
+export fn howl_render_surface_point_cell(handle: c.HowlRenderTextHandle, surface_px: c.HowlRenderPixelSize, point: c.HowlRenderSurfacePoint, out_cell: ?*c.HowlRenderSurfacePointCell) c.HowlRenderCallStatus {
+    const surface = textSurfaceFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
+    const cell = out_cell orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    surface.surfacePointCell(surface_px, point, cell) catch |err| return callStatusFromError(err);
+    return c.HOWL_RENDER_CALL_OK;
+}
+
 export fn howl_render_text_prepare(handle: c.HowlRenderTextHandle, prepare: ?*const c.HowlRenderTextPrepare, out_upload: ?*c.HowlRenderTextPreparedUpload) c.HowlRenderCallStatus {
     const surface = textSurfaceFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const prepare_value = prepare orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;

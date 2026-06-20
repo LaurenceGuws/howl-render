@@ -16,6 +16,62 @@ test "render c enum values remain stable" {
     try std.testing.expectEqual(@as(c_int, 3), c.HOWL_RENDER_DAMAGE_FULL);
 }
 
+test "render surface layout ABI returns render-owned cell facts and grid" {
+    var text: c.HowlRenderTextHandle = null;
+    const config = c.HowlRenderTextConfig{
+        .font_size_px = 16,
+        .fallback_font_path_count = 0,
+        .reserved0 = 0,
+        .primary_font_path = test_font_options.primary_path.ptr,
+        .fallback_font_paths = null,
+    };
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
+    defer c.howl_render_text_deinit(text);
+
+    var response = std.mem.zeroes(c.HowlRenderLayoutResponse);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_layout(text, .{ .width = 81, .height = 49 }, &response));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, response.status);
+    try std.testing.expect(response.cell_layout.cell_px.width > 0);
+    try std.testing.expect(response.cell_layout.cell_px.height > 0);
+    try std.testing.expect(response.cell_layout.baseline_px < response.cell_layout.cell_px.height);
+    try std.testing.expect(response.cell_layout.underline_height_px > 0);
+    try std.testing.expect(response.cell_layout.strikethrough_height_px > 0);
+    try std.testing.expectEqual(response.cell_layout.cell_px.height + 1, response.cell_layout.sprite_slot_height_px);
+    try std.testing.expectEqual(response.grid.cols * response.cell_layout.cell_px.width, response.grid_px.width);
+    try std.testing.expectEqual(response.grid.rows * response.cell_layout.cell_px.height, response.grid_px.height);
+}
+
+test "render surface point cell ABI returns inside flag and clamped cell" {
+    var text: c.HowlRenderTextHandle = null;
+    const config = c.HowlRenderTextConfig{
+        .font_size_px = 16,
+        .fallback_font_path_count = 0,
+        .reserved0 = 0,
+        .primary_font_path = test_font_options.primary_path.ptr,
+        .fallback_font_paths = null,
+    };
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
+    defer c.howl_render_text_deinit(text);
+
+    var layout_response = std.mem.zeroes(c.HowlRenderLayoutResponse);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_layout(text, .{ .width = 81, .height = 49 }, &layout_response));
+
+    var inside = std.mem.zeroes(c.HowlRenderSurfacePointCell);
+    const cell_width = layout_response.cell_layout.cell_px.width;
+    const cell_height = layout_response.cell_layout.cell_px.height;
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_point_cell(text, .{ .width = 81, .height = 49 }, .{ .x_px = cell_width, .y_px = cell_height }, &inside));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, inside.status);
+    try std.testing.expectEqual(@as(u8, 1), inside.inside);
+    try std.testing.expectEqual(@as(u16, 1), inside.col);
+    try std.testing.expectEqual(@as(u16, 1), inside.row);
+
+    var leftover = std.mem.zeroes(c.HowlRenderSurfacePointCell);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_point_cell(text, .{ .width = 81, .height = 49 }, .{ .x_px = layout_response.render_px.width, .y_px = layout_response.render_px.height }, &leftover));
+    try std.testing.expectEqual(@as(u8, 0), leftover.inside);
+    try std.testing.expectEqual(layout_response.grid.cols - 1, leftover.col);
+    try std.testing.expectEqual(layout_response.grid.rows - 1, leftover.row);
+}
+
 test "render text ABI emits foreground commands from VT render state" {
     const terminal = c.howl_vt_terminal_init(1, 2, 16) orelse return error.TestUnexpectedResult;
     defer c.howl_vt_terminal_deinit(terminal);
@@ -39,14 +95,15 @@ test "render text ABI emits foreground commands from VT render state" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
+    var layout_response = std.mem.zeroes(c.HowlRenderLayoutResponse);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_layout(text, .{ .width = 64, .height = 32 }, &layout_response));
+    try std.testing.expect(layout_response.grid.cols >= 2);
+
     var upload = std.mem.zeroes(c.HowlRenderTextPreparedUpload);
     var prepare = std.mem.zeroes(c.HowlRenderTextPrepare);
     prepare = .{
         .render_state = render_state,
-        .render_px = .{ .width = 16, .height = 16 },
-        .grid_px = .{ .width = 16, .height = 16 },
-        .cell_px = .{ .width = 8, .height = 16 },
-        .grid = .{ .cols = 2, .rows = 1 },
+        .render_px = .{ .width = layout_response.cell_layout.cell_px.width * 2, .height = layout_response.cell_layout.cell_px.height },
         .layout_epoch = 1,
         .focused = 1,
         .cursor_opacity = 255,
