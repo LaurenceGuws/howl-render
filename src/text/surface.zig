@@ -114,7 +114,7 @@ pub const TextSurface = struct {
         const preparer = try self.ensurePreparer(input.grid);
         var faces: [max_font_faces]face_selection.FaceRecord = undefined;
         var resolve: font_resolver.ResolveObservability = .{};
-        var owned_text = try preparer.prepareCellsWithFaceSelection(text.cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve), options);
+        var owned_text = try preparer.prepareCellsWithFaceSelection(text.cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve, input.cell_px), options);
         errdefer owned_text.deinit();
         self.prepared = .{
             .allocator = self.allocator,
@@ -168,7 +168,7 @@ pub const TextSurface = struct {
         const preparer = try self.ensurePreparer(input.grid);
         var faces: [max_font_faces]face_selection.FaceRecord = undefined;
         var resolve: font_resolver.ResolveObservability = .{};
-        var owned_text = try preparer.prepareCellTextInputsWithFaceSelection(cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve), .{});
+        var owned_text = try preparer.prepareCellTextInputsWithFaceSelection(cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve, input.cell_px), .{});
         errdefer owned_text.deinit();
         self.prepared = .{
             .allocator = self.allocator,
@@ -340,7 +340,7 @@ pub const TextSurface = struct {
         };
     }
 
-    fn faceSelection(self: *TextSurface, faces: []face_selection.FaceRecord, active_resolve: ?*font_resolver.ResolveObservability) face_selection.FaceSelection {
+    fn faceSelection(self: *TextSurface, faces: []face_selection.FaceRecord, active_resolve: ?*font_resolver.ResolveObservability, cell_px: c.HowlRenderCellSize) face_selection.FaceSelection {
         self.glyph_cache.active_resolve = active_resolve;
         var len: glyph_cache.FallbackFontCount = 0;
         if (faces.len > glyph_cache.fallbackFontLen(len)) {
@@ -357,10 +357,29 @@ pub const TextSurface = struct {
             .primary_face = .{ .value = glyph_cache.primary_face_id },
             .faces = faces[0..@intCast(glyph_cache.fallbackFontLen(len))],
             .provider = .{ .ctx = self, .has_cell_text = providerHasCellTextThunk },
-            .cell_metrics = glyph_cache.deriveCellMetricsWithConfig(&self.glyph_cache, self.textConfig()),
+            .cell_metrics = abiCellMetrics(glyph_cache.deriveCellMetricsWithConfig(&self.glyph_cache, self.textConfig()), cell_px),
         };
     }
 };
+
+fn abiCellMetrics(font_metrics: render.CellMetrics, cell_px: c.HowlRenderCellSize) render.CellMetrics {
+    std.debug.assert(cell_px.width > 0);
+    std.debug.assert(cell_px.height > 0);
+    return .{
+        .cell_w_px = cell_px.width,
+        .cell_h_px = cell_px.height,
+        .baseline_px = @intCast(std.math.clamp(@as(i32, font_metrics.baseline_px), 1, @as(i32, @intCast(cell_px.height)))),
+        .box_thickness_px = @min(font_metrics.box_thickness_px, cell_px.height),
+    };
+}
+
+test "text surface cell metrics honor ABI grid size" {
+    const metrics = abiCellMetrics(.{ .cell_w_px = 11, .cell_h_px = 23, .baseline_px = 30, .box_thickness_px = 7 }, .{ .width = 8, .height = 16 });
+    try std.testing.expectEqual(@as(u16, 8), metrics.cell_w_px);
+    try std.testing.expectEqual(@as(u16, 16), metrics.cell_h_px);
+    try std.testing.expectEqual(@as(i16, 16), metrics.baseline_px);
+    try std.testing.expectEqual(@as(u16, 7), metrics.box_thickness_px);
+}
 
 const RenderStateToken = struct {
     snapshot_seq: u64,
