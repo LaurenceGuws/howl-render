@@ -24,6 +24,8 @@ extern "C" {
 #define HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX 256
 #define HOWL_RENDER_SURFACE_FRAME_HOST_ACKS_MAX 256
 #define HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX 16
+#define HOWL_RENDER_CELL_SURFACE_CELLS_MAX 4096
+#define HOWL_RENDER_CELL_TEXT_COMBINING_MAX 3
 
 #define HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT 1
 #define HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL 2
@@ -37,6 +39,17 @@ extern "C" {
 #define HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT 2
 #define HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN 3
 #define HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE 4
+#define HOWL_RENDER_FONT_STYLE_REGULAR 0
+#define HOWL_RENDER_FONT_STYLE_BOLD 1
+#define HOWL_RENDER_FONT_STYLE_ITALIC 2
+#define HOWL_RENDER_FONT_STYLE_BOLD_ITALIC 3
+#define HOWL_RENDER_TEXT_PRESENTATION_ANY 0
+#define HOWL_RENDER_TEXT_PRESENTATION_TEXT 1
+#define HOWL_RENDER_TEXT_PRESENTATION_EMOJI 2
+#define HOWL_RENDER_CELL_TEXT_UNDERLINE 0x01
+#define HOWL_RENDER_CELL_TEXT_STRIKETHROUGH 0x02
+#define HOWL_RENDER_CELL_TEXT_CONTINUATION 0x04
+#define HOWL_RENDER_CELL_TEXT_EMPTY 0x08
 
 typedef enum {
     HOWL_RENDER_CALL_OK = 0,
@@ -306,8 +319,30 @@ typedef struct {
     uint16_t height;
 } HowlRenderHostTexture;
 
+/* Owns font resolution, shaping, raster cache, and surface resources for both VT text and bounded cell-text surfaces. */
 typedef struct HowlRenderText HowlRenderText;
 typedef HowlRenderText *HowlRenderTextHandle;
+
+typedef struct {
+    uint32_t codepoint;
+    uint32_t combining[HOWL_RENDER_CELL_TEXT_COMBINING_MAX];
+    uint8_t combining_len;
+    uint8_t style;
+    uint8_t presentation;
+    uint8_t flags;
+    HowlRenderRgba8 foreground;
+    HowlRenderRgba8 background;
+    HowlRenderRgba8 underline_color;
+    uint8_t underline_style;
+    uint8_t reserved0;
+    uint16_t reserved1;
+} HowlRenderCellText;
+
+typedef struct {
+    const HowlRenderCellText *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderCellTextSpan;
 
 typedef struct {
     uint16_t font_size_px;
@@ -347,9 +382,28 @@ typedef struct {
     const HowlRenderSurfaceFrame *surface_frame;
 } HowlRenderTextPreparedUpload;
 
+typedef struct {
+    HowlRenderPixelSize render_px;
+    HowlRenderPixelSize grid_px;
+    HowlRenderCellSize cell_px;
+    HowlRenderCellGrid grid;
+    uint64_t layout_epoch;
+    HowlRenderCellTextSpan cells;
+} HowlRenderCellSurfacePrepare;
+
+typedef struct {
+    int32_t status;
+    uint32_t surface_frame_status;
+    uint32_t reserved0;
+    uint64_t snapshot_seq;
+    HowlRenderPixelSize render_px;
+    const HowlRenderSurfaceFrame *surface_frame;
+} HowlRenderCellSurfacePreparedUpload;
+
 HowlRenderCallStatus howl_render_text_init(HowlRenderTextHandle *out_handle, const HowlRenderTextConfig *config);
 void howl_render_text_deinit(HowlRenderTextHandle handle);
 HowlRenderCallStatus howl_render_text_prepare(HowlRenderTextHandle handle, const HowlRenderTextPrepare *prepare, HowlRenderTextPreparedUpload *out_upload);
+HowlRenderCallStatus howl_render_cell_surface_prepare(HowlRenderTextHandle handle, const HowlRenderCellSurfacePrepare *prepare, HowlRenderCellSurfacePreparedUpload *out_upload);
 HowlRenderCallStatus howl_render_text_submit(HowlRenderTextHandle handle, HowlRenderHostTexture host_texture, HowlRenderHostTexture *out_host_texture);
 
 #ifdef __cplusplus

@@ -13,6 +13,7 @@ const font_resolver = @import("resolver.zig");
 const glyph_raster = @import("glyph_raster.zig");
 const raster_operation = @import("raster/operation.zig");
 const rasterizer = @import("raster/rasterizer.zig");
+const shape_cluster = @import("shape/cluster.zig");
 const shape_run = @import("shape/run.zig");
 const glyph_cache = @import("glyph_cache.zig");
 
@@ -22,8 +23,13 @@ const glyph_cell_cache_entry_cap: u32 = 4096;
 const shape_run_cache_entry_cap: u32 = 64;
 const shape_input_codepoints_per_cluster_cap: u32 = 16;
 const cached_glyphs_per_run_cap: u32 = 512;
+const cell_text_flags_known = c.HOWL_RENDER_CELL_TEXT_UNDERLINE |
+    c.HOWL_RENDER_CELL_TEXT_STRIKETHROUGH |
+    c.HOWL_RENDER_CELL_TEXT_CONTINUATION |
+    c.HOWL_RENDER_CELL_TEXT_EMPTY;
 
 pub const PreparedUpload = c.HowlRenderTextPreparedUpload;
+pub const CellSurfacePreparedUpload = c.HowlRenderCellSurfacePreparedUpload;
 const Emitter = surface_emitter.Emitter(.{});
 
 pub const TextSurface = struct {
@@ -34,6 +40,8 @@ pub const TextSurface = struct {
     emitter: Emitter = .init(),
     prepared: ?prepared_surface.PreparedSurface = null,
     cell_input_scratch: []render.CellInput = &.{},
+    cell_text_scratch: []shape_cluster.CellTextInput = &.{},
+    cell_codepoints_scratch: [][4]u32 = &.{},
     dirty_rows_scratch: []bool = &.{},
     dirty_cols_start_scratch: []u16 = &.{},
     dirty_cols_end_scratch: []u16 = &.{},
@@ -41,6 +49,7 @@ pub const TextSurface = struct {
     fallback_font_paths: [glyph_cache.max_fallback_fonts]?[:0]u8 = [_]?[:0]u8{null} ** glyph_cache.max_fallback_fonts,
     fallback_font_path_count: glyph_cache.FallbackFontCount = 0,
     font_size_px: u16,
+    next_cell_snapshot_seq: u64 = 1,
 
     pub fn create(allocator: std.mem.Allocator, config: *const c.HowlRenderTextConfig) !*TextSurface {
         if (config.font_size_px == 0) return error.InvalidArgument;
@@ -72,6 +81,8 @@ pub const TextSurface = struct {
         if (self.preparer) |*preparer| preparer.deinit();
         self.preparer = null;
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
+        if (self.cell_text_scratch.len > 0) self.allocator.free(self.cell_text_scratch);
+        if (self.cell_codepoints_scratch.len > 0) self.allocator.free(self.cell_codepoints_scratch);
         if (self.dirty_rows_scratch.len > 0) self.allocator.free(self.dirty_rows_scratch);
         if (self.dirty_cols_start_scratch.len > 0) self.allocator.free(self.dirty_cols_start_scratch);
         if (self.dirty_cols_end_scratch.len > 0) self.allocator.free(self.dirty_cols_end_scratch);
@@ -136,6 +147,53 @@ pub const TextSurface = struct {
         };
     }
 
+    pub fn prepareCellSurface(self: *TextSurface, input: *const c.HowlRenderCellSurfacePrepare, out: *CellSurfacePreparedUpload) !void {
+        if (input.render_px.width == 0 or input.render_px.height == 0) return error.InvalidArgument;
+        if (input.cell_px.width == 0 or input.cell_px.height == 0) return error.InvalidArgument;
+        if (input.grid.cols == 0 or input.grid.rows == 0) return error.InvalidArgument;
+        if (!cellTextSpanValid(input.cells, input.grid)) return error.InvalidArgument;
+        self.releasePrepared();
+
+        const cell_count = input.cells.count;
+        try self.ensureCellTextScratchCapacity(cell_count);
+        try self.ensureDamageScratchCapacity(input.grid.rows);
+        const cells = self.cell_text_scratch[0..cell_count];
+        for (input.cells.ptr[0..cell_count], cells, self.cell_codepoints_scratch[0..cell_count]) |source, *target, *codepoints| target.* = try cellTextIn(source, codepoints);
+        const dirty_rows = self.dirty_rows_scratch[0..input.grid.rows];
+        const dirty_cols_start = self.dirty_cols_start_scratch[0..input.grid.rows];
+        const dirty_cols_end = self.dirty_cols_end_scratch[0..input.grid.rows];
+        markFullDamage(dirty_rows, dirty_cols_start, dirty_cols_end, input.grid.cols);
+
+        const snapshot_seq = self.nextCellSnapshotSeq();
+        const preparer = try self.ensurePreparer(input.grid);
+        var faces: [max_font_faces]face_selection.FaceRecord = undefined;
+        var resolve: font_resolver.ResolveObservability = .{};
+        var owned_text = try preparer.prepareCellTextInputsWithFaceSelection(cells, .{ .cols = input.grid.cols, .rows = input.grid.rows }, self.faceSelection(&faces, &resolve), .{});
+        errdefer owned_text.deinit();
+        self.prepared = .{
+            .allocator = self.allocator,
+            .request = .{ .token = .{ .snapshot_seq = snapshot_seq, .dirty_epoch = snapshot_seq, .layout_epoch = input.layout_epoch, .damage_base_seq = 0, .damage_kind = .full } },
+            .layout_epoch = input.layout_epoch,
+            .render_px = pixelSizeIn(input.render_px),
+            .cell_px = cellSizeIn(input.cell_px),
+            .grid = .{ .cols = input.grid.cols, .rows = input.grid.rows },
+            .dirty_rows = dirty_rows,
+            .dirty_cols_start = dirty_cols_start,
+            .dirty_cols_end = dirty_cols_end,
+            .text_surface = owned_text,
+            .resolve = resolve,
+        };
+        _ = try self.emitter.emitPreparedFresh(&self.resources, &self.prepared.?);
+        out.* = .{
+            .status = c.HOWL_RENDER_CALL_OK,
+            .surface_frame_status = 0,
+            .reserved0 = 0,
+            .snapshot_seq = snapshot_seq,
+            .render_px = input.render_px,
+            .surface_frame = self.emitter.surface(),
+        };
+    }
+
     pub fn submit(self: *TextSurface, host_texture: c.HowlRenderHostTexture, out_host_texture: *c.HowlRenderHostTexture) void {
         out_host_texture.* = host_texture;
         self.releasePrepared();
@@ -167,6 +225,14 @@ pub const TextSurface = struct {
             .max_shape_input_codepoints = @as(u32, @max(grid.cols, 1)) * shape_input_codepoints_per_cluster_cap,
             .max_glyphs_per_run = cached_glyphs_per_run_cap,
         };
+    }
+
+    fn nextCellSnapshotSeq(self: *TextSurface) u64 {
+        const snapshot_seq = self.next_cell_snapshot_seq;
+        std.debug.assert(snapshot_seq != 0);
+        self.next_cell_snapshot_seq +%= 1;
+        if (self.next_cell_snapshot_seq == 0) self.next_cell_snapshot_seq = 1;
+        return snapshot_seq;
     }
 
     fn readRenderState(self: *TextSurface, state: c.HowlVtRenderStateHandle, grid: c.HowlRenderCellGrid, full_damage: bool) !RenderStateTextInput {
@@ -228,6 +294,19 @@ pub const TextSurface = struct {
         const scratch = try self.allocator.alloc(render.CellInput, cell_count);
         if (self.cell_input_scratch.len > 0) self.allocator.free(self.cell_input_scratch);
         self.cell_input_scratch = scratch;
+    }
+
+    fn ensureCellTextScratchCapacity(self: *TextSurface, cell_count: usize) !void {
+        if (self.cell_text_scratch.len < cell_count) {
+            const scratch = try self.allocator.alloc(shape_cluster.CellTextInput, cell_count);
+            if (self.cell_text_scratch.len > 0) self.allocator.free(self.cell_text_scratch);
+            self.cell_text_scratch = scratch;
+        }
+        if (self.cell_codepoints_scratch.len < cell_count) {
+            const scratch = try self.allocator.alloc([4]u32, cell_count);
+            if (self.cell_codepoints_scratch.len > 0) self.allocator.free(self.cell_codepoints_scratch);
+            self.cell_codepoints_scratch = scratch;
+        }
     }
 
     fn ensureDamageScratchCapacity(self: *TextSurface, rows: usize) !void {
@@ -304,6 +383,94 @@ const RenderStateTextInput = struct {
     colors: RenderStateColors,
 };
 
+fn cellTextSpanValid(span: c.HowlRenderCellTextSpan, grid: c.HowlRenderCellGrid) bool {
+    const grid_cells = std.math.mul(u32, grid.cols, grid.rows) catch return false;
+    if (grid_cells == 0) return false;
+    if (grid_cells > c.HOWL_RENDER_CELL_SURFACE_CELLS_MAX) return false;
+    if (span.count != grid_cells) return false;
+    if (span.count > span.count_max) return false;
+    if (span.count_max > c.HOWL_RENDER_CELL_SURFACE_CELLS_MAX) return false;
+    if (span.ptr == null) return false;
+    return true;
+}
+
+fn cellTextIn(value: c.HowlRenderCellText, codepoints: *[4]u32) !shape_cluster.CellTextInput {
+    if (value.combining_len > value.combining.len) return error.InvalidArgument;
+    if ((value.flags & ~cell_text_flags_known) != 0) return error.InvalidArgument;
+    if (!validCodepoint(value.codepoint)) return error.InvalidArgument;
+    for (value.combining[0..value.combining_len]) |codepoint| if (!validCodepoint(codepoint)) return error.InvalidArgument;
+    if ((value.flags & c.HOWL_RENDER_CELL_TEXT_EMPTY) != 0) return emptyCellTextIn(value, codepoints);
+    codepoints[0] = value.codepoint;
+    var i: usize = 0;
+    while (i < value.combining_len) : (i += 1) codepoints[i + 1] = value.combining[i];
+    const codepoint_count = @as(usize, value.combining_len) + 1;
+    return .{
+        .codepoints = codepoints[0..codepoint_count],
+        .style = fontStyleIn(value.style),
+        .presentation = presentationIn(value.presentation),
+        .fg = rgba8In(value.foreground),
+        .bg = rgba8In(value.background),
+        .underline_color = rgba8In(value.underline_color),
+        .underline_style = underlineStyle(value.underline_style),
+        .underline = (value.flags & c.HOWL_RENDER_CELL_TEXT_UNDERLINE) != 0,
+        .strikethrough = (value.flags & c.HOWL_RENDER_CELL_TEXT_STRIKETHROUGH) != 0,
+        .continuation = (value.flags & c.HOWL_RENDER_CELL_TEXT_CONTINUATION) != 0,
+    };
+}
+
+fn emptyCellTextIn(value: c.HowlRenderCellText, codepoints: *[4]u32) !shape_cluster.CellTextInput {
+    if (value.codepoint != ' ') return error.InvalidArgument;
+    if (value.combining_len != 0) return error.InvalidArgument;
+    if ((value.flags & c.HOWL_RENDER_CELL_TEXT_UNDERLINE) != 0) return error.InvalidArgument;
+    if ((value.flags & c.HOWL_RENDER_CELL_TEXT_STRIKETHROUGH) != 0) return error.InvalidArgument;
+    if ((value.flags & c.HOWL_RENDER_CELL_TEXT_CONTINUATION) != 0) return error.InvalidArgument;
+    codepoints[0] = ' ';
+    return .{
+        .codepoints = codepoints[0..1],
+        .empty = true,
+        .fg = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+        .bg = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
+    };
+}
+
+fn validCodepoint(value: u32) bool {
+    if (value == 0) return false;
+    if (value > std.math.maxInt(u21)) return false;
+    return true;
+}
+
+fn markFullDamage(dirty_rows: []bool, dirty_cols_start: []u16, dirty_cols_end: []u16, cols: u16) void {
+    std.debug.assert(cols > 0);
+    std.debug.assert(dirty_rows.len == dirty_cols_start.len);
+    std.debug.assert(dirty_rows.len == dirty_cols_end.len);
+    for (dirty_rows, dirty_cols_start, dirty_cols_end) |*dirty, *start, *end| {
+        dirty.* = true;
+        start.* = 0;
+        end.* = cols - 1;
+    }
+}
+
+fn rgba8In(value: c.HowlRenderRgba8) render.Rgba8 {
+    return .{ .r = value.r, .g = value.g, .b = value.b, .a = value.a };
+}
+
+fn fontStyleIn(value: u8) render.FontStyle {
+    return switch (value) {
+        c.HOWL_RENDER_FONT_STYLE_BOLD => .bold,
+        c.HOWL_RENDER_FONT_STYLE_ITALIC => .italic,
+        c.HOWL_RENDER_FONT_STYLE_BOLD_ITALIC => .bold_italic,
+        else => .regular,
+    };
+}
+
+fn presentationIn(value: u8) render.TextPresentation {
+    return switch (value) {
+        c.HOWL_RENDER_TEXT_PRESENTATION_TEXT => .text,
+        c.HOWL_RENDER_TEXT_PRESENTATION_EMOJI => .emoji,
+        else => .any,
+    };
+}
+
 fn copyPath(allocator: std.mem.Allocator, path: [*:0]const u8) ![:0]u8 {
     return try allocator.dupeZ(u8, std.mem.span(path));
 }
@@ -352,7 +519,7 @@ fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateC
         .underline_thickness = input.cursor_underline_thickness,
         .cursor_opacity = input.cursor_opacity,
         .text_blink_opacity = input.text_blink_opacity,
-        .cursor_color = if (input.cursor_color.kind != 0) cursorColorIn(input.cursor_color) else .{ .kind = if (colors.cursor_has_value) .rgb else .default, .value = if (colors.cursor_has_value) rgbValue(colors.cursor) else 0 },
+        .cursor_color = if (input.cursor_color.kind != 0) cursorColorIn(input.cursor_color) else defaultCursorColor(colors),
         .cursor_text_color = cursorColorIn(input.cursor_text_color),
         .cursor_trail_color = cursorColorIn(input.cursor_trail_color),
         .default_foreground = rgb8(colors.foreground),
@@ -447,8 +614,20 @@ fn rgbValue(value: c.HowlVtRgb8) u32 {
     return (@as(u32, value.r) << 16) | (@as(u32, value.g) << 8) | value.b;
 }
 
+fn defaultCursorColor(colors: RenderStateColors) render.CursorColor {
+    return .{ .kind = if (colors.cursor_has_value) .rgb else .default, .value = if (colors.cursor_has_value) rgbValue(colors.cursor) else 0 };
+}
+
 fn emptyExtraCursor() render.ExtraCursorPresentation {
-    return .{ .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 }, .shape = .none, .mode = .point, .shape_follows_main = false, .color_follows_main = false, .cursor_color = .{ .kind = .default, .value = 0 }, .text_color = .{ .kind = .default, .value = 0 } };
+    return .{
+        .extent = .{ .row = 0, .col = 0, .rows = 1, .cols = 1 },
+        .shape = .none,
+        .mode = .point,
+        .shape_follows_main = false,
+        .color_follows_main = false,
+        .cursor_color = .{ .kind = .default, .value = 0 },
+        .text_color = .{ .kind = .default, .value = 0 },
+    };
 }
 
 fn emptyCursorTrailRect() render.CursorTrailRect {
@@ -503,7 +682,13 @@ fn mapCell(cell: c.HowlVtRenderStateCell, colors: RenderStateColors, selected: b
     const default_fg = cell.fg_color.kind == 0;
     const default_bg = cell.bg_color.kind == 0;
     const blank = cell.codepoint == ' ' or cell.codepoint == '\t';
-    const visible_flags = cell.flags.continuation != 0 or cell.attrs.inverse != 0 or cell.attrs.underline != 0 or cell.attrs.strikethrough != 0 or cell.attrs.invisible != 0 or selected or highlighted;
+    const visible_flags = cell.flags.continuation != 0 or
+        cell.attrs.inverse != 0 or
+        cell.attrs.underline != 0 or
+        cell.attrs.strikethrough != 0 or
+        cell.attrs.invisible != 0 or
+        selected or
+        highlighted;
     var out = render.CellInput{
         .codepoint = @intCast(cell.codepoint),
         .combining_len = cell.combining_len,
@@ -548,7 +733,14 @@ fn providerHasCellTextThunk(ctx: *anyopaque, face_id: render.FontFaceId, text_va
     return glyph_cache.providerHasCellTextWithConfig(&surface.glyph_cache, surface.textConfig(), face_id, text_value);
 }
 
-fn providerShapeRunThunk(ctx: *anyopaque, allocator: std.mem.Allocator, run: render.ResolvedRun, text_cache_view: render.LineTextCache, clusters: []const render.CellCluster, cell_metrics: render.CellMetrics) anyerror!shape_run.OwnedShapedRun {
+fn providerShapeRunThunk(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    run: render.ResolvedRun,
+    text_cache_view: render.LineTextCache,
+    clusters: []const render.CellCluster,
+    cell_metrics: render.CellMetrics,
+) anyerror!shape_run.OwnedShapedRun {
     const surface: *TextSurface = @ptrCast(@alignCast(ctx));
     return glyph_cache.providerShapeRunWithConfig(&surface.glyph_cache, surface.textConfig(), allocator, run, text_cache_view, clusters, cell_metrics);
 }
@@ -571,7 +763,19 @@ fn providerRasterizeGlyphThunk(ctx: *anyopaque, allocator: std.mem.Allocator, re
     const alpha = try allocator.alloc(u8, @intCast(alpha_len));
     errdefer allocator.free(alpha);
     @memset(alpha, 0);
-    _ = glyph_raster.rasterizeProviderGlyphWithConfig(&surface.glyph_cache, surface.textConfig(), alpha, width, height, req.cell_metrics.baseline_px, .{ .value = req.face_id }, req.glyph_id, 0, 0, 0);
+    _ = glyph_raster.rasterizeProviderGlyphWithConfig(
+        &surface.glyph_cache,
+        surface.textConfig(),
+        alpha,
+        width,
+        height,
+        req.cell_metrics.baseline_px,
+        .{ .value = req.face_id },
+        req.glyph_id,
+        0,
+        0,
+        0,
+    );
     return .{
         .allocator = allocator,
         .width_px = width,

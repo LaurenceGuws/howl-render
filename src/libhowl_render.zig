@@ -91,6 +91,18 @@ export fn howl_render_text_prepare(handle: c.HowlRenderTextHandle, prepare: ?*co
     return c.HOWL_RENDER_CALL_OK;
 }
 
+export fn howl_render_cell_surface_prepare(
+    handle: c.HowlRenderTextHandle,
+    prepare: ?*const c.HowlRenderCellSurfacePrepare,
+    out_upload: ?*c.HowlRenderCellSurfacePreparedUpload,
+) c.HowlRenderCallStatus {
+    const surface = textSurfaceFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
+    const prepare_value = prepare orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    const upload = out_upload orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    surface.prepareCellSurface(prepare_value, upload) catch |err| return callStatusFromError(err);
+    return c.HOWL_RENDER_CALL_OK;
+}
+
 export fn howl_render_text_submit(handle: c.HowlRenderTextHandle, host_texture: c.HowlRenderHostTexture, out_host_texture: ?*c.HowlRenderHostTexture) c.HowlRenderCallStatus {
     const surface = textSurfaceFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const out = out_host_texture orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;

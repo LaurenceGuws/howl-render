@@ -9,6 +9,7 @@ const blank_codepoints = [_]u32{0};
 
 pub const CellTextInput = struct {
     codepoints: []const u32,
+    empty: bool = false,
     semantic_fg: render.SemanticColor = .{},
     semantic_bg: render.SemanticColor = .{},
     fg: render.Rgba8,
@@ -428,6 +429,7 @@ pub fn sourceRenderableTextFromCells(cells: []const render.CellInput, idx: u32) 
 
 pub fn sourceRenderableTextFromInputs(inputs: []const CellTextInput, idx: u32) ?RenderableText {
     const input = inputs[idx];
+    if (input.empty) return null;
     if (input.continuation) return null;
     const text = inputCellText(input);
     const cell_span = @max(@max(input.cell_span, 1), inferredInputCellSpan(inputs, idx));
@@ -558,7 +560,26 @@ fn renderableFromInput(text_id: render.CellTextId, first_cell: u32, cell_span: u
     );
 }
 
-fn renderableCell(text_id: render.CellTextId, first_cell: u32, cell_span: u8, style: render.FontStyle, presentation: render.TextPresentation, dim: bool, invisible: bool, semantic_fg: render.SemanticColor, semantic_bg: render.SemanticColor, fg: render.Rgba8, bg: render.Rgba8, underline_color_set: bool, semantic_underline_color: render.SemanticColor, underline_color: render.Rgba8, underline_style: render.UnderlineStyle, underline: bool, strikethrough: bool, continuation: bool) render.RenderableCell {
+fn renderableCell(
+    text_id: render.CellTextId,
+    first_cell: u32,
+    cell_span: u8,
+    style: render.FontStyle,
+    presentation: render.TextPresentation,
+    dim: bool,
+    invisible: bool,
+    semantic_fg: render.SemanticColor,
+    semantic_bg: render.SemanticColor,
+    fg: render.Rgba8,
+    bg: render.Rgba8,
+    underline_color_set: bool,
+    semantic_underline_color: render.SemanticColor,
+    underline_color: render.Rgba8,
+    underline_style: render.UnderlineStyle,
+    underline: bool,
+    strikethrough: bool,
+    continuation: bool,
+) render.RenderableCell {
     return .{
         .text_id = text_id,
         .first_cell = first_cell,
