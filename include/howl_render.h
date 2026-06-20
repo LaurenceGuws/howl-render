@@ -339,10 +339,10 @@ typedef struct {
 } HowlRenderLayoutResponse;
 
 typedef struct {
-    uint64_t host_texture_id;
+    uint64_t host_surface_id;
     uint16_t width;
     uint16_t height;
-} HowlRenderHostTexture;
+} HowlRenderHostSurface;
 
 /* Owns font resolution, shaping, raster cache, and surface resources for both VT text and bounded cell-text surfaces. */
 typedef struct HowlRenderText HowlRenderText;
@@ -428,7 +428,7 @@ HowlRenderCallStatus howl_render_surface_layout(HowlRenderTextHandle handle, How
 HowlRenderCallStatus howl_render_surface_point_cell(HowlRenderTextHandle handle, HowlRenderPixelSize surface_px, HowlRenderSurfacePoint point, HowlRenderSurfacePointCell *out_cell);
 HowlRenderCallStatus howl_render_text_prepare(HowlRenderTextHandle handle, const HowlRenderTextPrepare *prepare, HowlRenderTextPreparedUpload *out_upload);
 HowlRenderCallStatus howl_render_cell_surface_prepare(HowlRenderTextHandle handle, const HowlRenderCellSurfacePrepare *prepare, HowlRenderCellSurfacePreparedUpload *out_upload);
-HowlRenderCallStatus howl_render_text_submit(HowlRenderTextHandle handle, HowlRenderHostTexture host_texture, HowlRenderHostTexture *out_host_texture);
+HowlRenderCallStatus howl_render_text_submit(HowlRenderTextHandle handle, HowlRenderHostSurface host_surface, HowlRenderHostSurface *out_host_surface);
 
 #ifdef __cplusplus
 }
