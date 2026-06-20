@@ -325,6 +325,8 @@ pub const TextSurfacePreparer = struct {
         errdefer self.allocator.free(merged_sprite_draws);
         const merged_decoration_draws = try mergeFirstCellSlices(render.TextDecorationDraw, self.allocator, self.direct_normal.decoration_draws.items, text_draw_list.draw_list.decoration_draws);
         errdefer self.allocator.free(merged_decoration_draws);
+        const merged_cursor_trail_rects = try self.allocator.dupe(draw_list.CursorTrailRect, text_draw_list.cursor_trail_rects);
+        errdefer self.allocator.free(merged_cursor_trail_rects);
         const merged_missing = try mergeSlices(render.MissingGlyph, self.allocator, self.direct_normal.missing.items, text_draw_list.draw_list.missing);
         errdefer self.allocator.free(merged_missing);
         var merged_raster_plan = try mergeRasterPlans(self.allocator, direct.outputs, direct.outputs_owned, raster_plan);
@@ -343,6 +345,7 @@ pub const TextSurfacePreparer = struct {
                 .missing = merged_missing,
             },
             .cursor_presentation = cursor,
+            .cursor_trail_rects = merged_cursor_trail_rects,
         };
         text_draw_list.draw_list.raster_requests = &.{};
         text_draw_list.draw_list.missing = &.{};

@@ -40,7 +40,8 @@ test "render text ABI emits foreground commands from VT render state" {
     defer c.howl_render_text_deinit(text);
 
     var upload = std.mem.zeroes(c.HowlRenderTextPreparedUpload);
-    const prepare = c.HowlRenderTextPrepare{
+    var prepare = std.mem.zeroes(c.HowlRenderTextPrepare);
+    prepare = .{
         .render_state = render_state,
         .render_px = .{ .width = 16, .height = 16 },
         .grid_px = .{ .width = 16, .height = 16 },
@@ -51,10 +52,14 @@ test "render text ABI emits foreground commands from VT render state" {
         .cursor_opacity = 255,
         .text_blink_opacity = 255,
         .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
+        .cursor_trail_count = 0,
+        .reserved0 = 0,
         .cursor_color = .{ .kind = 0, .value = 0 },
         .cursor_text_color = .{ .kind = 0, .value = 0 },
+        .cursor_trail_color = .{ .kind = 0, .value = 0 },
         .cursor_beam_thickness = 1.5,
         .cursor_underline_thickness = 2.0,
+        .cursor_trail_rects = [_]c.HowlRenderCursorTrailRect{std.mem.zeroes(c.HowlRenderCursorTrailRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
     };
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &prepare, &upload));
     const surface_ptr = upload.surface_frame orelse return error.TestUnexpectedResult;
@@ -88,4 +93,30 @@ test "render text ABI emits foreground commands from VT render state" {
     }
     try std.testing.expect(hidden_has_foreground);
     try std.testing.expect(hidden_fill_count < fill_count);
+
+    var trail_upload = std.mem.zeroes(c.HowlRenderTextPreparedUpload);
+    var trail_prepare = hidden_prepare;
+    trail_prepare.cursor_trail_count = 1;
+    trail_prepare.cursor_trail_color = .{ .kind = 2, .value = 0x102030 };
+    trail_prepare.cursor_trail_rects[0] = .{
+        .row = 0,
+        .col = 0,
+        .rows = 1,
+        .cols = 1,
+        .opacity = 128,
+        .pixel_rect = 1,
+        .reserved0 = 0,
+        .color = .{ .r = 0, .g = 0, .b = 0 },
+        .x_px = 3,
+        .y_px = 4,
+        .width_px = 5,
+        .height_px = 6,
+    };
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &trail_prepare, &trail_upload));
+    const trail_surface = (trail_upload.surface_frame orelse return error.TestUnexpectedResult).*;
+    var saw_trail = false;
+    for (trail_surface.commands.ptr[0..trail_surface.commands.count]) |command| {
+        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT and command.rect.x_px == 3 and command.rect.y_px == 4 and command.rect.width_px == 5 and command.rect.height_px == 6) saw_trail = true;
+    }
+    try std.testing.expect(saw_trail);
 }

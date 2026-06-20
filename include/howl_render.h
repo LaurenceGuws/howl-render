@@ -62,6 +62,21 @@ typedef struct {
 } HowlRenderCellSize;
 
 typedef struct {
+    uint16_t row;
+    uint16_t col;
+    uint16_t rows;
+    uint16_t cols;
+    uint8_t opacity;
+    uint8_t pixel_rect;
+    uint16_t reserved0;
+    HowlVtRgb8 color;
+    int32_t x_px;
+    int32_t y_px;
+    uint16_t width_px;
+    uint16_t height_px;
+} HowlRenderCursorTrailRect;
+
+typedef struct {
     uint8_t r;
     uint8_t g;
     uint8_t b;
@@ -313,10 +328,14 @@ typedef struct {
     uint8_t cursor_opacity;
     uint8_t text_blink_opacity;
     uint8_t effective_shape;
+    uint8_t cursor_trail_count;
+    uint16_t reserved0;
     HowlVtColor cursor_color;
     HowlVtColor cursor_text_color;
+    HowlVtColor cursor_trail_color;
     float cursor_beam_thickness;
     float cursor_underline_thickness;
+    HowlRenderCursorTrailRect cursor_trail_rects[HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX];
 } HowlRenderTextPrepare;
 
 typedef struct {

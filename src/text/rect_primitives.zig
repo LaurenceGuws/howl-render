@@ -404,24 +404,24 @@ fn appendCursorTextRecolorSpans(allocator: std.mem.Allocator, out: *std.ArrayLis
 
 fn appendCursorTrailRects(allocator: std.mem.Allocator, out: *std.ArrayList(@import("draw_list.zig").CursorTrailRect), grid_metrics: render.CellGridMetrics, cursor: anytype, cell_metrics: render.CellMetrics) !void {
     for (cursor.trail.rects[0..cursor.trail.count]) |rect| {
-        const first_cell: u32 = if (rect.pixel_rect) pixelRectFirstCell(rect, grid_metrics, cell_metrics) else @as(u32, rect.extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, rect.extent.col);
-        const x_px: i32 = if (rect.pixel_rect) rect.x_px else @as(i32, @intCast(rect.extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
-        const y_px: i32 = if (rect.pixel_rect) rect.y_px else @as(i32, @intCast(rect.extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
-        const width_px: u16 = if (rect.pixel_rect) rect.width_px else @intCast(@as(u32, rect.extent.cols) * @as(u32, cell_metrics.cell_w_px));
-        const height_px: u16 = if (rect.pixel_rect) rect.height_px else @intCast(@as(u32, rect.extent.rows) * @as(u32, cell_metrics.cell_h_px));
-        const cell_span: u8 = if (rect.pixel_rect) 1 else @intCast(@min(@as(u32, rect.extent.cols) * @as(u32, rect.extent.rows), @as(u32, std.math.maxInt(u8))));
-        const color_value = resolveCursorTrailColor(cursor, rect);
-        try out.append(allocator, .{
-            .x_px = x_px,
-            .y_px = y_px,
-            .width_px = width_px,
-            .height_px = height_px,
-            .opacity = rect.opacity,
-            .color = .{ .r = color_value.r, .g = color_value.g, .b = color_value.b, .a = rect.opacity },
-            .first_cell = first_cell,
-            .cell_span = cell_span,
-        });
+        try out.append(allocator, cursorTrailDrawRect(grid_metrics, cursor, rect, cell_metrics));
     }
+}
+
+pub fn appendCursorTrailRectsUnmanaged(out: *std.ArrayListUnmanaged(@import("draw_list.zig").CursorTrailRect), grid_metrics: render.CellGridMetrics, cursor: ?render.CursorPresentation, cell_metrics: render.CellMetrics) void {
+    const cursor_value = cursor orelse return;
+    for (cursor_value.trail.rects[0..cursor_value.trail.count]) |rect| out.appendAssumeCapacity(cursorTrailDrawRect(grid_metrics, cursor_value, rect, cell_metrics));
+}
+
+fn cursorTrailDrawRect(grid_metrics: render.CellGridMetrics, cursor: anytype, rect: anytype, cell_metrics: render.CellMetrics) @import("draw_list.zig").CursorTrailRect {
+    const first_cell: u32 = if (rect.pixel_rect) pixelRectFirstCell(rect, grid_metrics, cell_metrics) else @as(u32, rect.extent.row) * @max(@as(u32, 1), @as(u32, grid_metrics.cols)) + @as(u32, rect.extent.col);
+    const x_px: i32 = if (rect.pixel_rect) rect.x_px else @as(i32, @intCast(rect.extent.col)) * @as(i32, @intCast(cell_metrics.cell_w_px));
+    const y_px: i32 = if (rect.pixel_rect) rect.y_px else @as(i32, @intCast(rect.extent.row)) * @as(i32, @intCast(cell_metrics.cell_h_px));
+    const width_px: u16 = if (rect.pixel_rect) rect.width_px else @intCast(@as(u32, rect.extent.cols) * @as(u32, cell_metrics.cell_w_px));
+    const height_px: u16 = if (rect.pixel_rect) rect.height_px else @intCast(@as(u32, rect.extent.rows) * @as(u32, cell_metrics.cell_h_px));
+    const cell_span: u8 = if (rect.pixel_rect) 1 else @intCast(@min(@as(u32, rect.extent.cols) * @as(u32, rect.extent.rows), @as(u32, std.math.maxInt(u8))));
+    const color_value = resolveCursorTrailColor(cursor, rect);
+    return .{ .x_px = x_px, .y_px = y_px, .width_px = width_px, .height_px = height_px, .opacity = rect.opacity, .color = .{ .r = color_value.r, .g = color_value.g, .b = color_value.b, .a = rect.opacity }, .first_cell = first_cell, .cell_span = cell_span };
 }
 
 fn pixelRectFirstCell(rect: anytype, grid_metrics: render.CellGridMetrics, cell_metrics: render.CellMetrics) u32 {

@@ -55,6 +55,7 @@ pub const Scratch = struct {
     clear_draws: std.ArrayListUnmanaged(render.TextClearDraw) = .{ .items = &.{}, .capacity = 0 },
     decoration_draws: std.ArrayListUnmanaged(render.TextDecorationDraw) = .{ .items = &.{}, .capacity = 0 },
     cursor_draws: std.ArrayListUnmanaged(render.TextCursorDraw) = .{ .items = &.{}, .capacity = 0 },
+    cursor_trail_rects: std.ArrayListUnmanaged(draw_list.CursorTrailRect) = .{ .items = &.{}, .capacity = 0 },
     raster_reqs: std.ArrayListUnmanaged(raster_operation.RasterizeRequest) = .{ .items = &.{}, .capacity = 0 },
     clear_row_colors: std.ArrayListUnmanaged(render.Rgba8) = .{ .items = &.{}, .capacity = 0 },
     clear_row_matches: std.ArrayListUnmanaged(bool) = .{ .items = &.{}, .capacity = 0 },
@@ -65,6 +66,7 @@ pub const Scratch = struct {
         self.clear_row_matches.deinit(allocator);
         self.clear_row_colors.deinit(allocator);
         self.raster_reqs.deinit(allocator);
+        self.cursor_trail_rects.deinit(allocator);
         self.cursor_draws.deinit(allocator);
         self.decoration_draws.deinit(allocator);
         self.clear_draws.deinit(allocator);
@@ -82,6 +84,7 @@ pub const Scratch = struct {
         try self.clear_draws.ensureTotalCapacity(allocator, @intCast(rows));
         try self.decoration_draws.ensureTotalCapacity(allocator, @intCast(cell_count * 2));
         try self.cursor_draws.ensureTotalCapacity(allocator, 4);
+        try self.cursor_trail_rects.ensureTotalCapacity(allocator, render.max_cursor_trail_rects);
         try self.raster_reqs.ensureTotalCapacity(allocator, @intCast(cell_count));
         try self.clear_row_colors.ensureTotalCapacity(allocator, @intCast(rows));
         try self.clear_row_matches.ensureTotalCapacity(allocator, @intCast(rows));
@@ -91,6 +94,7 @@ pub const Scratch = struct {
         self.clear_draws.clearRetainingCapacity();
         self.decoration_draws.clearRetainingCapacity();
         self.cursor_draws.clearRetainingCapacity();
+        self.cursor_trail_rects.clearRetainingCapacity();
         self.raster_reqs.clearRetainingCapacity();
         self.clear_row_colors.items.len = rows;
         self.clear_row_matches.items.len = rows;
@@ -145,6 +149,7 @@ pub fn prepare(
         damage,
     );
     direct_draw.appendCursor(&driver.scratch.cursor_draws, cursor, selection.cell_metrics, damage);
+    direct_draw.appendCursorTrails(&driver.scratch.cursor_trail_rects, cursor, grid_metrics, selection.cell_metrics);
     const product = try finishDrawList(driver, damage, lane_report);
     return product;
 }
@@ -444,6 +449,7 @@ fn scratchEmpty(scratch: *const Scratch) bool {
     std.debug.assert(scratch.clear_draws.items.len == 0);
     std.debug.assert(scratch.decoration_draws.items.len == 0);
     std.debug.assert(scratch.cursor_draws.items.len == 0);
+    std.debug.assert(scratch.cursor_trail_rects.items.len == 0);
     std.debug.assert(scratch.raster_reqs.items.len == 0);
     return true;
 }

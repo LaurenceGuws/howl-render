@@ -31,7 +31,7 @@ pub fn borrowDrawList(allocator: std.mem.Allocator, damage: Damage, direct: anyt
         .cursor_draws = direct.cursor_draws.items,
         .raster_requests = &.{},
         .missing = direct.missing.items,
-    }, .owned = false };
+    }, .cursor_trail_rects = direct.cursor_trail_rects.items, .owned = false };
 }
 
 pub fn appendBackground(
@@ -59,6 +59,10 @@ pub fn appendClears(
 
 pub fn appendCursor(out: *std.ArrayListUnmanaged(render.TextCursorDraw), cursor: ?render.CursorPresentation, cell_metrics: render.CellMetrics, damage: Damage) void {
     rect_primitives.appendCursorDrawsUnmanaged(out, cursor, toDrawListDamage(damage), cell_metrics);
+}
+
+pub fn appendCursorTrails(out: *std.ArrayListUnmanaged(draw_list.CursorTrailRect), cursor: ?render.CursorPresentation, grid_metrics: render.CellGridMetrics, cell_metrics: render.CellMetrics) void {
+    rect_primitives.appendCursorTrailRectsUnmanaged(out, grid_metrics, cursor, cell_metrics);
 }
 
 pub fn noteClearColor(clear_row_colors: []render.Rgba8, clear_row_matches: []bool, cell: render.RenderableCell, grid_metrics: render.CellGridMetrics, damage: Damage) void {

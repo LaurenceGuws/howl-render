@@ -4,6 +4,7 @@ const c = @import("howl_render_c");
 const render = @import("../text/draw_primitives.zig");
 const text_damage = @import("../text/damage.zig");
 const layout = @import("../layout.zig");
+const cursor_presentation = @import("../cursor/presentation.zig");
 const prepared_surface = @import("prepared_surface.zig");
 const sprite_resource_store = @import("resource_store.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
@@ -13,6 +14,7 @@ const Rect = c.HowlRenderSurfaceRect;
 const GlyphRef = c.HowlRenderGlyphRef;
 pub const Surface = c.HowlRenderSurfaceFrame;
 const SpriteResourceStore = sprite_resource_store.SpriteResourceStore;
+const CursorTrailDrawRect = cursor_presentation.CursorTrailDrawRect;
 
 // Glyph refs are data-plane payload; commands are control-plane payload.
 const glyph_refs_max: u32 = 32 * 1024;
@@ -147,6 +149,7 @@ pub fn Emitter(comptime limits: Limits) type {
             try self.appendPreparedBackgrounds(prepared.text_surface.draw_list.draw_list.background_draws);
             try self.appendPreparedDecorations(prepared.text_surface.draw_list.draw_list.decoration_draws);
             try self.appendPreparedSprites(resources, prepared);
+            try self.appendPreparedCursorTrails(prepared.text_surface.draw_list.cursor_trail_rects);
             try self.appendPreparedCursors(prepared.text_surface.draw_list.draw_list.cursor_draws);
             try self.appendPreparedDamage(prepared);
         }
@@ -353,6 +356,17 @@ pub fn Emitter(comptime limits: Limits) type {
         }
 
         fn appendPreparedCursors(self: *Self, draws: []const render.TextCursorDraw) Error!void {
+            for (draws) |draw| try self.appendPreparedFillCommand(
+                draw.x_px,
+                draw.y_px,
+                draw.width_px,
+                draw.height_px,
+                draw.color,
+                c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT,
+            );
+        }
+
+        fn appendPreparedCursorTrails(self: *Self, draws: []const CursorTrailDrawRect) Error!void {
             for (draws) |draw| try self.appendPreparedFillCommand(
                 draw.x_px,
                 draw.y_px,

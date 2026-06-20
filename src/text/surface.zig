@@ -354,12 +354,35 @@ fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateC
         .text_blink_opacity = input.text_blink_opacity,
         .cursor_color = if (input.cursor_color.kind != 0) cursorColorIn(input.cursor_color) else .{ .kind = if (colors.cursor_has_value) .rgb else .default, .value = if (colors.cursor_has_value) rgbValue(colors.cursor) else 0 },
         .cursor_text_color = cursorColorIn(input.cursor_text_color),
+        .cursor_trail_color = cursorColorIn(input.cursor_trail_color),
         .default_foreground = rgb8(colors.foreground),
         .default_background = rgb8(colors.background),
         .primary_extent = .{ .row = row, .col = col, .rows = 1, .cols = if (wide_tail) 2 else 1 },
         .extra_cursors = [_]render.ExtraCursorPresentation{emptyExtraCursor()} ** render.max_extra_cursors,
         .extra_cursor_count = 0,
-        .trail = .{ .rects = [_]render.CursorTrailRect{emptyCursorTrailRect()} ** render.max_cursor_trail_rects, .count = 0 },
+        .trail = cursorTrailSourceIn(input),
+    };
+}
+
+fn cursorTrailSourceIn(input: *const c.HowlRenderTextPrepare) render.CursorTrailSource {
+    var trail = render.CursorTrailSource{
+        .rects = [_]render.CursorTrailRect{emptyCursorTrailRect()} ** render.max_cursor_trail_rects,
+        .count = @intCast(@min(input.cursor_trail_count, render.max_cursor_trail_rects)),
+    };
+    for (0..trail.count) |i| trail.rects[i] = cursorTrailRectIn(input.cursor_trail_rects[i]);
+    return trail;
+}
+
+fn cursorTrailRectIn(rect: c.HowlRenderCursorTrailRect) render.CursorTrailRect {
+    return .{
+        .extent = .{ .row = rect.row, .col = rect.col, .rows = rect.rows, .cols = rect.cols },
+        .opacity = rect.opacity,
+        .color = .{ .r = rect.color.r, .g = rect.color.g, .b = rect.color.b },
+        .pixel_rect = rect.pixel_rect != 0,
+        .x_px = rect.x_px,
+        .y_px = rect.y_px,
+        .width_px = rect.width_px,
+        .height_px = rect.height_px,
     };
 }
 
