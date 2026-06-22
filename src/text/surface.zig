@@ -143,11 +143,11 @@ pub const TextSurface = struct {
         _ = try self.emitter.emitPreparedFresh(&self.resources, prepared);
         out.* = .{
             .status = c.HOWL_RENDER_CALL_OK,
-            .surface_frame_status = 0,
+            .term_surface_status = 0,
             .reserved0 = 0,
             .snapshot_seq = token.snapshot_seq,
             .render_px = .{ .width = surface_layout.render_px.width, .height = surface_layout.render_px.height },
-            .surface_frame = self.emitter.surface(),
+            .term_surface_prepared = self.emitter.surface(),
         };
     }
 
@@ -163,7 +163,7 @@ pub const TextSurface = struct {
         out.* = next.toCResponse(changed, self.surface_layout_epoch);
     }
 
-    pub fn surfacePointCell(self: *TextSurface, surface_px: c.HowlRenderPixelSize, point: c.HowlRenderSurfacePoint, out: *c.HowlRenderSurfacePointCell) !void {
+    pub fn surfacePointCell(self: *TextSurface, surface_px: c.HowlRenderPixelSize, point: c.HowlRenderTermSurfacePoint, out: *c.HowlRenderTermSurfacePointCell) !void {
         if (surface_px.width == 0 or surface_px.height == 0) return error.InvalidArgument;
         out.* = self.layoutForSurface(surface_px).pointCell(point);
     }
@@ -208,11 +208,11 @@ pub const TextSurface = struct {
         _ = try self.emitter.emitPreparedFresh(&self.resources, &self.prepared.?);
         out.* = .{
             .status = c.HOWL_RENDER_CALL_OK,
-            .surface_frame_status = 0,
+            .tab_bar_surface_status = 0,
             .reserved0 = 0,
             .snapshot_seq = snapshot_seq,
             .render_px = input.render_px,
-            .surface_frame = self.emitter.surface(),
+            .tab_bar_surface_prepared = @ptrCast(self.emitter.surface()),
         };
     }
 

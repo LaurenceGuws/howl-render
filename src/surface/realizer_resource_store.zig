@@ -6,11 +6,11 @@ const ResourceId = c.HowlRenderResourceId;
 const Upload = c.HowlRenderResourceUpload;
 const Create = c.HowlRenderResourceCreate;
 const Retire = c.HowlRenderResourceRetire;
-const Surface = c.HowlRenderSurfaceFrame;
+const Surface = c.HowlRenderTermSurfacePrepared;
 
 pub const ResourceStore = struct {
-    entries: [c.HOWL_RENDER_SURFACE_RESOURCES_MAX]Entry = undefined,
-    bytes: [c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX]u8 = undefined,
+    entries: [c.HOWL_RENDER_TEXT_RESOURCES_MAX]Entry = undefined,
+    bytes: [c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOAD_BYTES_MAX]u8 = undefined,
     count: u32 = 0,
     bytes_count: u32 = 0,
 
@@ -19,7 +19,7 @@ pub const ResourceStore = struct {
         width_px: u32,
         height_px: u32,
         format: u32,
-        upload_rect: c.HowlRenderSurfaceRect = .{ .x_px = 0, .y_px = 0, .width_px = 0, .height_px = 0 },
+        upload_rect: c.HowlRenderTermSurfaceRect = .{ .x_px = 0, .y_px = 0, .width_px = 0, .height_px = 0 },
         upload_offset: u32 = 0,
         upload_count: u32 = 0,
         stride_bytes: u32 = 0,
@@ -51,26 +51,26 @@ pub const ResourceStore = struct {
             surface.creates.ptr,
             surface.creates.count,
             surface.creates.count_max,
-            c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX,
+            c.HOWL_RENDER_TERM_SURFACE_PREPARED_CREATES_MAX,
         );
         try validateSpan(
             surface.uploads.ptr,
             surface.uploads.count,
             surface.uploads.count_max,
-            c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX,
+            c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOADS_MAX,
         );
         try validateSpan(
             surface.retires.ptr,
             surface.retires.count,
             surface.retires.count_max,
-            c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX,
+            c.HOWL_RENDER_TERM_SURFACE_PREPARED_RETIRES_MAX,
         );
         const creates = spanSlice(Create, surface.creates.ptr, surface.creates.count);
         const uploads = spanSlice(Upload, surface.uploads.ptr, surface.uploads.count);
         const retires = spanSlice(Retire, surface.retires.ptr, surface.retires.count);
 
         const resource_count = std.math.add(u32, self.count, surface.creates.count) catch return invalid_resource;
-        if (resource_count > c.HOWL_RENDER_SURFACE_RESOURCES_MAX) return invalid_resource;
+        if (resource_count > c.HOWL_RENDER_TEXT_RESOURCES_MAX) return invalid_resource;
         for (creates, 0..) |create_value, create_index| {
             if (self.hasValue(create_value.resource.value)) return invalid_resource;
             for (creates[create_index + 1 ..]) |next| {
@@ -85,7 +85,7 @@ pub const ResourceStore = struct {
                 return missing_resource;
             }
             bytes_count = std.math.add(u32, bytes_count, upload_value.bytes_count) catch return invalid_upload;
-            if (bytes_count > c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX) return invalid_upload;
+            if (bytes_count > c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOAD_BYTES_MAX) return invalid_upload;
         }
 
         for (retires, 0..) |retire_value, retire_index| {
@@ -121,7 +121,7 @@ pub const ResourceStore = struct {
     fn create(self: *ResourceStore, create_value: Create) void {
         std.debug.assert(self.findIndex(create_value.resource) == null);
         std.debug.assert(!self.hasValue(create_value.resource.value));
-        std.debug.assert(self.count < c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
+        std.debug.assert(self.count < c.HOWL_RENDER_TEXT_RESOURCES_MAX);
         self.entries[@intCast(self.count)] = .{
             .resource = create_value.resource,
             .width_px = create_value.width_px,
@@ -135,7 +135,7 @@ pub const ResourceStore = struct {
         const index = self.findIndex(upload_value.resource) orelse unreachable;
         std.debug.assert(!self.entries[index].retired);
         const next_bytes_count = std.math.add(u32, self.bytes_count, upload_value.bytes_count) catch unreachable;
-        std.debug.assert(next_bytes_count <= c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX);
+        std.debug.assert(next_bytes_count <= c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOAD_BYTES_MAX);
         const bytes_ptr = upload_value.bytes_ptr orelse unreachable;
         @memcpy(self.bytes[self.bytes_count..next_bytes_count], bytes_ptr[0..upload_value.bytes_count]);
         self.entries[index].upload_rect = upload_value.rect;

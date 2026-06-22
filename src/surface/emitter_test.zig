@@ -14,7 +14,7 @@ const Limits = render_surface_emitter.Limits;
 const Emitter = render_surface_emitter.Emitter;
 const Surface = render_surface_emitter.Surface;
 const Error = render_surface_emitter.Error;
-const Rect = c.HowlRenderSurfaceRect;
+const Rect = c.HowlRenderTermSurfaceRect;
 const ResourceId = c.HowlRenderResourceId;
 const emitter_testing = render_surface_emitter.testing;
 
@@ -42,9 +42,9 @@ const Fixture = struct {
     render_px: c.HowlRenderPixelSize,
     cell_px: c.HowlRenderCellSize = .{ .width = 1, .height = 1 },
     grid: c.HowlRenderCellGrid = .{ .cols = 1, .rows = 1 },
-    token: c.HowlRenderSurfaceFrameToken = .{
+    token: c.HowlRenderTermSurfacePreparedToken = .{
         .snapshot_seq = 0,
-        .frame_seq = 0,
+        .prepare_seq = 0,
         .layout_epoch = 0,
         .resource_epoch = 0,
     },
@@ -55,7 +55,7 @@ const Fixture = struct {
     cursor_fills: []const Fill = &.{},
 };
 
-fn rect(x_px: i32, y_px: i32, width_px: u16, height_px: u16) c.HowlRenderSurfaceRect {
+fn rect(x_px: i32, y_px: i32, width_px: u16, height_px: u16) c.HowlRenderTermSurfaceRect {
     return .{ .x_px = x_px, .y_px = y_px, .width_px = width_px, .height_px = height_px };
 }
 
@@ -79,7 +79,7 @@ fn rasterOutput(allocator: std.mem.Allocator, key: u64, width_px: u16, height_px
 }
 
 fn fillResourcesForTest(resources: *sprite_resource_store.SpriteResourceStore, count: u32) void {
-    std.debug.assert(count <= c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
+    std.debug.assert(count <= c.HOWL_RENDER_TEXT_RESOURCES_MAX);
     resources.count = count;
     resources.bytes_count = 0;
     resources.value_next = @as(u64, count) + 1;
@@ -113,11 +113,11 @@ fn emitTesting(comptime limits: Limits, emitter: *Emitter(limits), fixture: *con
     var next = emitter.*;
     resetTesting(limits, &next, fixture);
     try appendFullDamage(limits, &next, fixture.render_px);
-    try appendTestingFillPass(limits, &next, fixture.clear_fills, c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT);
-    try appendTestingFillPass(limits, &next, fixture.background_fills, c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT);
-    try appendTestingFillPass(limits, &next, fixture.decoration_fills, c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT);
+    try appendTestingFillPass(limits, &next, fixture.clear_fills, c.HOWL_RENDER_TERM_SURFACE_COMMAND_CLEAR_RECT);
+    try appendTestingFillPass(limits, &next, fixture.background_fills, c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT);
+    try appendTestingFillPass(limits, &next, fixture.decoration_fills, c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT);
     try appendTestingSprites(limits, &next, fixture.sprites);
-    try appendTestingFillPass(limits, &next, fixture.cursor_fills, c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT);
+    try appendTestingFillPass(limits, &next, fixture.cursor_fills, c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT);
     emitter.* = next;
     emitter_testing.publishSurface(limits, emitter);
     return emitter.surface();
@@ -141,7 +141,7 @@ fn resetTesting(comptime limits: Limits, emitter: *Emitter(limits), fixture: *co
 fn appendFullDamage(comptime limits: Limits, emitter: *Emitter(limits), render_px: c.HowlRenderPixelSize) Error!void {
     if (emitter.damage_count >= limits.damage_max) return error.DamageBoundOverflow;
     emitter.damage[emitter.damage_count] = .{
-        .kind = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL,
+        .kind = c.HOWL_RENDER_TERM_SURFACE_DAMAGE_FULL,
         .reserved0 = 0,
         .reserved1 = 0,
         .rect = .{ .x_px = 0, .y_px = 0, .width_px = render_px.width, .height_px = render_px.height },
@@ -167,7 +167,7 @@ fn appendTestingSprites(comptime limits: Limits, emitter: *Emitter(limits), spri
         try appendTestingCreate(limits, emitter, resource, sprite);
         try appendTestingUpload(limits, emitter, resource, sprite);
         try appendCommand(limits, emitter, .{
-            .kind = c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE,
+            .kind = c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_SPRITE,
             .reserved0 = 0,
             .reserved1 = 0,
             .rect = sprite.rect,
@@ -211,7 +211,7 @@ fn appendTestingUpload(comptime limits: Limits, emitter: *Emitter(limits), resou
     emitter.upload_count += 1;
 }
 
-fn appendCommand(comptime limits: Limits, emitter: *Emitter(limits), command: c.HowlRenderSurfaceFrameCommand) Error!void {
+fn appendCommand(comptime limits: Limits, emitter: *Emitter(limits), command: c.HowlRenderTermSurfaceCommand) Error!void {
     if (emitter.command_count >= limits.commands_max) return error.CommandBoundOverflow;
     emitter.commands[emitter.command_count] = command;
     emitter.command_count += 1;
@@ -225,22 +225,22 @@ fn appendRetire(comptime limits: Limits, emitter: *Emitter(limits), resource: Re
 
 fn emptySurface() Surface {
     return .{
-        .frame_version = c.HOWL_RENDER_SURFACE_FRAME_VERSION,
+        .prepared_version = c.HOWL_RENDER_TERM_SURFACE_PREPARED_VERSION,
         .reserved0 = 0,
-        .token = .{ .snapshot_seq = 0, .frame_seq = 0, .layout_epoch = 0, .resource_epoch = 0 },
+        .token = .{ .snapshot_seq = 0, .prepare_seq = 0, .layout_epoch = 0, .resource_epoch = 0 },
         .render_px = .{ .width = 1, .height = 1 },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
-        .damage = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX },
-        .creates = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX },
-        .uploads = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX, .bytes_count_total = 0, .bytes_count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX },
-        .commands = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX },
-        .retires = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX },
+        .damage = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_DAMAGE_ITEMS_MAX },
+        .creates = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_CREATES_MAX },
+        .uploads = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOADS_MAX, .bytes_count_total = 0, .bytes_count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOAD_BYTES_MAX },
+        .commands = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX },
+        .retires = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_RETIRES_MAX },
     };
 }
 
 fn emptyGlyphs() c.HowlRenderGlyphRunSpan {
-    return .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX };
+    return .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX };
 }
 
 fn zeroResource() ResourceId {
@@ -346,14 +346,14 @@ test "render surface surface emitter batches two glyph refs into one run command
 
     const surface_value = emitter.surface();
     try std.testing.expectEqual(@as(u32, 1), surface_value.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN, surface_value.commands.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface_value.commands.ptr[0].kind);
     try std.testing.expectEqual(@as(u32, 2), surface_value.commands.ptr[0].glyphs.count);
     try std.testing.expectEqual(@as(u32, 1), surface_value.commands.ptr[0].glyphs.ptr[0].glyph_id);
     try std.testing.expectEqual(@as(u32, 2), surface_value.commands.ptr[0].glyphs.ptr[1].glyph_id);
 }
 
 test "render surface surface emitter starts a second glyph run after run capacity" {
-    const glyphs_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX + 1;
+    const glyphs_max: u32 = c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX + 1;
     const limits = Limits{ .commands_max = 2, .glyph_refs_max = glyphs_max };
     var emitter = Emitter(limits).init();
     var glyph_index: u32 = 0;
@@ -364,9 +364,9 @@ test "render surface surface emitter starts a second glyph run after run capacit
 
     const surface_value = emitter.surface();
     try std.testing.expectEqual(@as(u32, 2), surface_value.commands.count);
-    try std.testing.expectEqual(@as(u32, c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX), surface_value.commands.ptr[0].glyphs.count);
+    try std.testing.expectEqual(@as(u32, c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX), surface_value.commands.ptr[0].glyphs.count);
     try std.testing.expectEqual(@as(u32, 1), surface_value.commands.ptr[1].glyphs.count);
-    try std.testing.expectEqual(@as(u32, c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX), surface_value.commands.ptr[0].glyphs.ptr[c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX - 1].glyph_id);
+    try std.testing.expectEqual(@as(u32, c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX), surface_value.commands.ptr[0].glyphs.ptr[c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX - 1].glyph_id);
     try std.testing.expectEqual(glyphs_max, surface_value.commands.ptr[1].glyphs.ptr[0].glyph_id);
 }
 
@@ -532,9 +532,9 @@ test "render surface surface emitter fresh emission initializes undefined storag
     var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPreparedFresh(&resources, &prepared);
 
-    try std.testing.expectEqual(@as(@TypeOf(surface.frame_version), c.HOWL_RENDER_SURFACE_FRAME_VERSION), surface.frame_version);
+    try std.testing.expectEqual(@as(@TypeOf(surface.prepared_version), c.HOWL_RENDER_TERM_SURFACE_PREPARED_VERSION), surface.prepared_version);
     try std.testing.expectEqual(@as(u64, 1), surface.token.snapshot_seq);
-    try std.testing.expectEqual(@as(u64, 1), surface.token.frame_seq);
+    try std.testing.expectEqual(@as(u64, 1), surface.token.prepare_seq);
     try std.testing.expectEqual(@as(u64, 1), surface.token.layout_epoch);
     try std.testing.expectEqual(@as(u16, 2), surface.render_px.width);
     try std.testing.expectEqual(@as(u16, 1), surface.render_px.height);
@@ -544,23 +544,23 @@ test "render surface surface emitter fresh emission initializes undefined storag
     try std.testing.expectEqual(@as(u16, 1), surface.grid.rows);
     try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
     try std.testing.expect(surface.damage.ptr != null);
-    try std.testing.expectEqual(@as(@TypeOf(surface.damage.count_max), c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX), surface.damage.count_max);
+    try std.testing.expectEqual(@as(@TypeOf(surface.damage.count_max), c.HOWL_RENDER_TERM_SURFACE_DAMAGE_ITEMS_MAX), surface.damage.count_max);
     try std.testing.expectEqual(@as(u32, 0), surface.creates.count);
     try std.testing.expect(surface.creates.ptr == null);
-    try std.testing.expectEqual(@as(@TypeOf(surface.creates.count_max), c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX), surface.creates.count_max);
+    try std.testing.expectEqual(@as(@TypeOf(surface.creates.count_max), c.HOWL_RENDER_TERM_SURFACE_PREPARED_CREATES_MAX), surface.creates.count_max);
     try std.testing.expectEqual(@as(u32, 0), surface.uploads.count);
     try std.testing.expect(surface.uploads.ptr == null);
-    try std.testing.expectEqual(@as(@TypeOf(surface.uploads.count_max), c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX), surface.uploads.count_max);
+    try std.testing.expectEqual(@as(@TypeOf(surface.uploads.count_max), c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOADS_MAX), surface.uploads.count_max);
     try std.testing.expectEqual(@as(u32, 0), surface.uploads.bytes_count_total);
-    try std.testing.expectEqual(@as(@TypeOf(surface.uploads.bytes_count_max), c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX), surface.uploads.bytes_count_max);
+    try std.testing.expectEqual(@as(@TypeOf(surface.uploads.bytes_count_max), c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOAD_BYTES_MAX), surface.uploads.bytes_count_max);
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
     try std.testing.expect(surface.commands.ptr != null);
-    try std.testing.expectEqual(@as(@TypeOf(surface.commands.count_max), c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX), surface.commands.count_max);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(@as(@TypeOf(surface.commands.count_max), c.HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX), surface.commands.count_max);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
     try std.testing.expectEqual(@as(u32, 0), surface.retires.count);
     try std.testing.expect(surface.retires.ptr == null);
-    try std.testing.expectEqual(@as(@TypeOf(surface.retires.count_max), c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX), surface.retires.count_max);
+    try std.testing.expectEqual(@as(@TypeOf(surface.retires.count_max), c.HOWL_RENDER_TERM_SURFACE_PREPARED_RETIRES_MAX), surface.retires.count_max);
 
     const realized = try allocator.alloc(u8, oracle.len);
     defer allocator.free(realized);
@@ -581,12 +581,12 @@ test "render surface surface emitter emits full prepared surface clear before fi
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
     try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[0].rect.x_px);
     try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[0].rect.y_px);
     try std.testing.expectEqual(@as(u16, 2), surface.commands.ptr[0].rect.width_px);
     try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[0].rect.height_px);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
     try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
 
@@ -603,10 +603,10 @@ test "render surface surface emitter falls back to full damage for partial frame
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL, surface.damage.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_DAMAGE_FULL, surface.damage.ptr[0].kind);
     try std.testing.expectEqual(rect(0, 0, 2, 1), surface.damage.ptr[0].rect);
     try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[0].kind);
 }
 
 test "render surface surface emitter overdamages dirty column span and clamps edges" {
@@ -622,7 +622,7 @@ test "render surface surface emitter overdamages dirty column span and clamps ed
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT, surface.damage.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_DAMAGE_RECT, surface.damage.ptr[0].kind);
     try std.testing.expectEqual(rect(0, 0, 2, 1), surface.damage.ptr[0].rect);
 }
 
@@ -671,7 +671,7 @@ test "render surface surface emitter falls back to full damage when partial span
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL, surface.damage.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_DAMAGE_FULL, surface.damage.ptr[0].kind);
     try std.testing.expectEqual(rect(0, 0, 2, 1), surface.damage.ptr[0].rect);
 }
 
@@ -688,7 +688,7 @@ test "render surface surface emitter falls back to full damage on damage bound o
 
     const surface = try emitter.emitPrepared(&resources, &prepared);
     try std.testing.expectEqual(@as(u32, 1), surface.damage.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL, surface.damage.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_DAMAGE_FULL, surface.damage.ptr[0].kind);
     try std.testing.expectEqual(rect(0, 0, 4, 2), surface.damage.ptr[0].rect);
 }
 
@@ -709,8 +709,8 @@ test "render surface surface emitter skips zero area prepared fills" {
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
     try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[1].rect.width_px);
     try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[1].rect.height_px);
 }
@@ -731,10 +731,10 @@ test "render surface surface emitter clips prepared fills to surface" {
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 3), surface.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
     try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[1].rect.x_px);
     try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[1].rect.width_px);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, surface.commands.ptr[2].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[2].kind);
     try std.testing.expectEqual(@as(i32, 1), surface.commands.ptr[2].rect.x_px);
     try std.testing.expectEqual(@as(u16, 1), surface.commands.ptr[2].rect.width_px);
     try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
@@ -759,7 +759,7 @@ test "render surface surface emitter coalesces adjacent prepared fill commands" 
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, surface.commands.ptr[1].kind);
     try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[1].rect.x_px);
     try std.testing.expectEqual(@as(i32, 0), surface.commands.ptr[1].rect.y_px);
     try std.testing.expectEqual(@as(u16, 4), surface.commands.ptr[1].rect.width_px);
@@ -819,7 +819,7 @@ test "render surface surface emitter batches prepared alpha sprite glyph command
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
     try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
     try std.testing.expectEqual(@as(u32, 2), surface.commands.ptr[1].glyphs.count);
     try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
@@ -842,7 +842,7 @@ test "render surface surface emitter skips fully offscreen prepared alpha sprite
     try std.testing.expectEqual(@as(u32, 0), surface.creates.count);
     try std.testing.expectEqual(@as(u32, 0), surface.uploads.count);
     try std.testing.expectEqual(@as(u32, 1), surface.commands.count);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_CLEAR_RECT, surface.commands.ptr[0].kind);
     try std.testing.expectEqual(@as(u32, 0), resources.atlas_count);
     try expectPreparedEmissionEqualsCompose(allocator, &prepared, null);
 }
@@ -850,7 +850,7 @@ test "render surface surface emitter skips fully offscreen prepared alpha sprite
 test "render surface surface emitter emits over command bound alpha draws with batched glyph runs" {
     const allocator = std.testing.allocator;
 
-    const draws_len: usize = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX + 1;
+    const draws_len: usize = c.HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX + 1;
     const sprite_draws = try allocator.alloc(render.TextSpriteDraw, draws_len);
     defer allocator.free(sprite_draws);
     for (sprite_draws, 0..) |*draw, index| {
@@ -860,7 +860,7 @@ test "render surface surface emitter emits over command bound alpha draws with b
     var raster_outputs = [_]rasterizer.RasterSpriteOutput{rasterOutput(allocator, 112, 1, 1, .alpha, &sprite_bytes, .{})};
     const prepared = preparedSurface(.{ .sprite_draws = sprite_draws, .raster_outputs = &raster_outputs, .width_px = @intCast(draws_len), .height_px = 1 });
 
-    const glyphs_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX + 1;
+    const glyphs_max: u32 = c.HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX + 1;
     const PreparedEmitter = Emitter(.{});
     const emitter = try allocator.create(PreparedEmitter);
     defer allocator.destroy(emitter);
@@ -868,18 +868,18 @@ test "render surface surface emitter emits over command bound alpha draws with b
     var resources = sprite_resource_store.SpriteResourceStore.init();
     const surface = try emitter.emitPrepared(&resources, &prepared);
 
-    const commands_expected = std.math.divCeil(u32, glyphs_max, c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX) catch unreachable;
+    const commands_expected = std.math.divCeil(u32, glyphs_max, c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX) catch unreachable;
     try std.testing.expectEqual(commands_expected + 1, surface.commands.count);
-    try std.testing.expect(surface.commands.count < c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX + 1);
-    try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
-    try std.testing.expectEqual(@as(u32, c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX), surface.commands.ptr[1].glyphs.count);
+    try std.testing.expect(surface.commands.count < c.HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX + 1);
+    try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
+    try std.testing.expectEqual(@as(u32, c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX), surface.commands.ptr[1].glyphs.count);
     try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
 }
 
 test "render surface surface emitter preserves command overflow after batched glyph runs" {
     const allocator = std.testing.allocator;
 
-    const draws_len: usize = c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX + 1;
+    const draws_len: usize = c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX + 1;
     const sprite_draws = try allocator.alloc(render.TextSpriteDraw, draws_len);
     defer allocator.free(sprite_draws);
     for (sprite_draws, 0..) |*draw, index| {
@@ -917,7 +917,7 @@ test "render surface surface emitter emits more than old alpha atlas entry cap" 
         const surface = try emitter.emitPrepared(&resources, &prepared);
         try std.testing.expectEqual(@as(u32, 1), surface.uploads.count);
         try std.testing.expectEqual(@as(u32, 2), surface.commands.count);
-        try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
+        try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
     }
     try std.testing.expectEqual(sprite_resource_store.persistent_sprite_resources_max + 1, resources.atlas_count);
 }
@@ -939,7 +939,7 @@ test "render surface surface emitter emits more than old alpha atlas hard cap" {
         const prepared = preparedSurface(.{ .sprite_draws = &sprite_draws, .raster_outputs = &raster_outputs, .width_px = 1, .height_px = 1 });
 
         const surface = try emitter.emitPrepared(&resources, &prepared);
-        try std.testing.expectEqual(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
+        try std.testing.expectEqual(c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_GLYPH_RUN, surface.commands.ptr[1].kind);
     }
     try std.testing.expectEqual(old_alpha_atlas_entry_limit + 1, resources.atlas_count);
 }

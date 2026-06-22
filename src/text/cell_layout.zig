@@ -118,7 +118,7 @@ pub const SurfaceLayout = struct {
         };
     }
 
-    pub fn pointCell(self: SurfaceLayout, point: c.HowlRenderSurfacePoint) c.HowlRenderSurfacePointCell {
+    pub fn pointCell(self: SurfaceLayout, point: c.HowlRenderTermSurfacePoint) c.HowlRenderTermSurfacePointCell {
         self.assertValid();
         const inside_x = point.x_px >= 0 and point.x_px < self.render_px.width;
         const inside_y = point.y_px >= 0 and point.y_px < self.render_px.height;

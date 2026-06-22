@@ -3,14 +3,14 @@ const std = @import("std");
 const c = @import("howl_render_c");
 const render_surface_realizer = @import("realizer.zig");
 
-const DamageItem = c.HowlRenderSurfaceFrameDamageItem;
+const DamageItem = c.HowlRenderTermSurfaceDamageItem;
 const ResourceId = c.HowlRenderResourceId;
 const Upload = c.HowlRenderResourceUpload;
 const Create = c.HowlRenderResourceCreate;
 const GlyphRef = c.HowlRenderGlyphRef;
-const Command = c.HowlRenderSurfaceFrameCommand;
+const Command = c.HowlRenderTermSurfaceCommand;
 const Retire = c.HowlRenderResourceRetire;
-const Surface = c.HowlRenderSurfaceFrame;
+const Surface = c.HowlRenderTermSurfacePrepared;
 
 const ResourceStore = render_surface_realizer.ResourceStore;
 const Error = render_surface_realizer.Error;
@@ -23,24 +23,24 @@ const glyph_atlas_height_px = 1024;
 const Rgba = struct { r: u8, g: u8, b: u8, a: u8 };
 
 test "render surface constants match documented kind values" {
-    try std.testing.expectEqual(@as(u8, 1), c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT);
-    try std.testing.expectEqual(@as(u8, 2), c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL);
+    try std.testing.expectEqual(@as(u8, 1), c.HOWL_RENDER_TERM_SURFACE_DAMAGE_RECT);
+    try std.testing.expectEqual(@as(u8, 2), c.HOWL_RENDER_TERM_SURFACE_DAMAGE_FULL);
     try std.testing.expectEqual(@as(u32, 1), c.HOWL_RENDER_RESOURCE_GLYPH_ATLAS_ALPHA);
     try std.testing.expectEqual(@as(u32, 2), c.HOWL_RENDER_RESOURCE_GLYPH_ATLAS_COLOR);
     try std.testing.expectEqual(@as(u32, 3), c.HOWL_RENDER_RESOURCE_SPRITE_ALPHA);
     try std.testing.expectEqual(@as(u32, 4), c.HOWL_RENDER_RESOURCE_SPRITE_COLOR);
     try std.testing.expectEqual(@as(u32, 1), c.HOWL_RENDER_UPLOAD_ALPHA8);
     try std.testing.expectEqual(@as(u32, 2), c.HOWL_RENDER_UPLOAD_RGBA8);
-    try std.testing.expectEqual(@as(u8, 1), c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT);
-    try std.testing.expectEqual(@as(u8, 2), c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT);
-    try std.testing.expectEqual(@as(u8, 3), c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN);
-    try std.testing.expectEqual(@as(u8, 4), c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE);
+    try std.testing.expectEqual(@as(u8, 1), c.HOWL_RENDER_TERM_SURFACE_COMMAND_CLEAR_RECT);
+    try std.testing.expectEqual(@as(u8, 2), c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT);
+    try std.testing.expectEqual(@as(u8, 3), c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_GLYPH_RUN);
+    try std.testing.expectEqual(@as(u8, 4), c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_SPRITE);
 }
 
 test "render-surface surface realizer clears and fills in command order" {
     var commands = [_]Command{
-        fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 2, 1), 0xff0000ff),
-        fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(1, 0, 1, 1), 0x0000ffff),
+        fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 2, 1), 0xff0000ff),
+        fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(1, 0, 1, 1), 0x0000ffff),
     };
     var pixels: [8]u8 = undefined;
     var surface = testSurface(2, 1);
@@ -52,7 +52,7 @@ test "render-surface surface realizer clears and fills in command order" {
 
 test "render-surface surface realizer preserves retained base outside commands" {
     var commands = [_]Command{
-        fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0x010203ff),
+        fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0x010203ff),
     };
     var base = [_]u8{ 9, 8, 7, 6, 5, 4, 3, 2 };
     var pixels: [8]u8 = undefined;
@@ -155,31 +155,31 @@ test "render-surface surface rejects unknown command kind" {
 test "render-surface surface rejects unknown damage kind" {
     var damage = [_]DamageItem{.{ .kind = 255, .rect = makeRect(0, 0, 1, 1) }};
     var surface = testSurface(1, 1);
-    surface.damage = damageSpan(&damage, c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX);
+    surface.damage = damageSpan(&damage, c.HOWL_RENDER_TERM_SURFACE_DAMAGE_ITEMS_MAX);
     try expectReject(&surface, error.UnknownDamageKind);
 }
 
 test "render-surface surface accepts shaped rect damage" {
-    var damage = [_]DamageItem{.{ .kind = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT, .rect = makeRect(1, 0, 1, 1) }};
-    var commands = [_]Command{fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 2, 1), 0xff0000ff)};
+    var damage = [_]DamageItem{.{ .kind = c.HOWL_RENDER_TERM_SURFACE_DAMAGE_RECT, .rect = makeRect(1, 0, 1, 1) }};
+    var commands = [_]Command{fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 2, 1), 0xff0000ff)};
     var pixels: [8]u8 = undefined;
     var surface = testSurface(2, 1);
-    surface.damage = damageSpan(&damage, c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX);
+    surface.damage = damageSpan(&damage, c.HOWL_RENDER_TERM_SURFACE_DAMAGE_ITEMS_MAX);
     surface.commands = commandSpan(&commands);
     try realize(&surface, &pixels, null);
 }
 
 test "render-surface surface rejects zero-area rect damage" {
-    var damage = [_]DamageItem{.{ .kind = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT, .rect = makeRect(0, 0, 0, 1) }};
+    var damage = [_]DamageItem{.{ .kind = c.HOWL_RENDER_TERM_SURFACE_DAMAGE_RECT, .rect = makeRect(0, 0, 0, 1) }};
     var surface = testSurface(1, 1);
-    surface.damage = damageSpan(&damage, c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX);
+    surface.damage = damageSpan(&damage, c.HOWL_RENDER_TERM_SURFACE_DAMAGE_ITEMS_MAX);
     try expectReject(&surface, error.InvalidDamage);
 }
 
 test "render-surface surface rejects out-of-bounds rect damage" {
-    var damage = [_]DamageItem{.{ .kind = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT, .rect = makeRect(1, 0, 1, 1) }};
+    var damage = [_]DamageItem{.{ .kind = c.HOWL_RENDER_TERM_SURFACE_DAMAGE_RECT, .rect = makeRect(1, 0, 1, 1) }};
     var surface = testSurface(1, 1);
-    surface.damage = damageSpan(&damage, c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX);
+    surface.damage = damageSpan(&damage, c.HOWL_RENDER_TERM_SURFACE_DAMAGE_ITEMS_MAX);
     try expectReject(&surface, error.InvalidDamage);
 }
 
@@ -201,41 +201,41 @@ test "render-surface surface rejects unknown upload format" {
 
 test "render-surface surface rejects zero command width" {
     var commands = [_]Command{
-        fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT, makeRect(0, 0, 0, 1), 0),
+        fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_CLEAR_RECT, makeRect(0, 0, 0, 1), 0),
     };
     try expectRejectWithCommands(&commands, error.InvalidDamage);
 }
 
 test "render-surface surface rejects zero command height" {
     var commands = [_]Command{
-        fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 0), 0),
+        fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 0), 0),
     };
     try expectRejectWithCommands(&commands, error.InvalidDamage);
 }
 
 test "render-surface surface rejects damage span overflow" {
     var surface = testSurface(1, 1);
-    surface.damage.count = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX + 1;
+    surface.damage.count = c.HOWL_RENDER_TERM_SURFACE_DAMAGE_ITEMS_MAX + 1;
     try expectReject(&surface, error.InvalidSpan);
 }
 
 test "render-surface surface rejects upload span overflow" {
     var surface = testSurface(1, 1);
-    surface.uploads.count = c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX + 1;
+    surface.uploads.count = c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOADS_MAX + 1;
     try expectReject(&surface, error.InvalidSpan);
 }
 
 test "render-surface surface rejects command span overflow" {
     var surface = testSurface(1, 1);
-    surface.commands.count = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX + 1;
+    surface.commands.count = c.HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX + 1;
     try expectReject(&surface, error.InvalidSpan);
 }
 
 test "render-surface surface rejects glyph span overflow" {
     var commands = [_]Command{
-        fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0),
+        fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0),
     };
-    commands[0].glyphs.count = c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX + 1;
+    commands[0].glyphs.count = c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX + 1;
     try expectRejectWithCommands(&commands, error.InvalidSpan);
 }
 
@@ -320,14 +320,14 @@ test "render-surface surface rejects sprite command glyph span" {
     commands[0].glyphs = .{
         .ptr = &glyphs,
         .count = 1,
-        .count_max = c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX,
+        .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX,
     };
     try expectRejectWithCommands(&commands, error.InvalidDamage);
 }
 
 test "render-surface surface rejects fill command resource" {
     var commands = [_]Command{
-        fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0),
+        fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0),
     };
     commands[0].resource.value = 1;
     try expectRejectWithCommands(&commands, error.InvalidResource);
@@ -577,7 +577,7 @@ test "render-surface surface realizer accepts late sprite create upload use reti
     var uploads = [_]Upload{uploadResource(resource, makeRect(0, 0, 1, 1), &bytes, 1)};
     uploads[0].upload_seq = 1;
     var commands = [_]Command{
-        fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0x00000000),
+        fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0x00000000),
         spriteCommand(resource, makeRect(0, 0, 1, 1), 0xffffffff),
     };
     var retires = [_]Retire{.{ .resource = resource, .retire_seq = 2 }};
@@ -597,7 +597,7 @@ test "render-surface surface realizer rejects upload after same surface retire" 
     var bytes = [_]u8{255};
     var uploads = [_]Upload{uploadResource(resource, makeRect(0, 0, 1, 1), &bytes, 1)};
     uploads[0].upload_seq = 1;
-    var commands = [_]Command{fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
+    var commands = [_]Command{fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
     var retires = [_]Retire{.{ .resource = resource, .retire_seq = 1 }};
     var surface = testSurface(1, 1);
     surface.creates = createSpan(&creates);
@@ -613,7 +613,7 @@ test "render-surface surface realizer rejects upload before same surface create"
     creates[0].create_seq = 1;
     var bytes = [_]u8{255};
     var uploads = [_]Upload{uploadResource(resource, makeRect(0, 0, 1, 1), &bytes, 1)};
-    var commands = [_]Command{fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
+    var commands = [_]Command{fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
     var surface = testSurface(1, 1);
     surface.creates = createSpan(&creates);
     surface.uploads = uploadSpan(&uploads, bytes.len);
@@ -789,7 +789,7 @@ test "render-surface surface realizer uses latest visible same surface upload" {
     uploads[0].upload_seq = 0;
     uploads[1].upload_seq = 1;
     var commands = [_]Command{
-        fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0),
+        fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0),
         spriteCommand(resource, makeRect(0, 0, 1, 1), 0xffffffff),
     };
     var surface = testSurface(1, 1);
@@ -842,7 +842,7 @@ test "render-surface surface realizer rejects create sequence outside surface" {
     const resource = spriteAlphaResource(98, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_UPLOAD_ALPHA8)};
     creates[0].create_seq = 2;
-    var commands = [_]Command{fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
+    var commands = [_]Command{fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
     var surface = testSurface(1, 1);
     surface.creates = createSpan(&creates);
     surface.commands = commandSpan(&commands);
@@ -855,7 +855,7 @@ test "render-surface surface realizer rejects upload sequence outside surface" {
     var bytes = [_]u8{255};
     var uploads = [_]Upload{uploadResource(resource, makeRect(0, 0, 1, 1), &bytes, 1)};
     uploads[0].upload_seq = 2;
-    var commands = [_]Command{fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
+    var commands = [_]Command{fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
     var surface = testSurface(1, 1);
     surface.creates = createSpan(&creates);
     surface.uploads = uploadSpan(&uploads, bytes.len);
@@ -866,7 +866,7 @@ test "render-surface surface realizer rejects upload sequence outside surface" {
 test "render-surface surface realizer rejects retire sequence outside surface" {
     const resource = spriteAlphaResource(100, 1);
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_UPLOAD_ALPHA8)};
-    var commands = [_]Command{fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
+    var commands = [_]Command{fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT, makeRect(0, 0, 1, 1), 0)};
     var retires = [_]Retire{.{ .resource = resource, .retire_seq = 2 }};
     var surface = testSurface(1, 1);
     surface.creates = createSpan(&creates);
@@ -925,7 +925,7 @@ test "render-surface surface rejects upload byte total overflow" {
     var bytes = [_]u8{255};
     var creates = [_]Create{createResource(resource, 1, 1, c.HOWL_RENDER_UPLOAD_ALPHA8)};
     var uploads = [_]Upload{uploadResource(resource, makeRect(0, 0, 1, 1), &bytes, 1)};
-    uploads[0].bytes_count = c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX + 1;
+    uploads[0].bytes_count = c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOAD_BYTES_MAX + 1;
     var surface = testSurface(1, 1);
     surface.creates = createSpan(&creates);
     surface.uploads = uploadSpan(&uploads, uploads[0].bytes_count);
@@ -943,7 +943,7 @@ test "render-surface surface rejects nonzero sprite upload origin" {
 test "render-surface surface realizer clips fill coordinate overflow" {
     var commands = [_]Command{
         fillCommand(
-            c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT,
+            c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT,
             makeRect(std.math.maxInt(i32), std.math.maxInt(i32), 2, 2),
             0xffffffff,
         ),
@@ -974,27 +974,27 @@ test "render-surface surface realizer clips sprite coordinate overflow" {
 
 fn testSurface(width: u16, height: u16) Surface {
     return .{
-        .frame_version = c.HOWL_RENDER_SURFACE_FRAME_VERSION,
+        .prepared_version = c.HOWL_RENDER_TERM_SURFACE_PREPARED_VERSION,
         .reserved0 = 0,
-        .token = .{ .snapshot_seq = 0, .frame_seq = 0, .layout_epoch = 0, .resource_epoch = 0 },
+        .token = .{ .snapshot_seq = 0, .prepare_seq = 0, .layout_epoch = 0, .resource_epoch = 0 },
         .render_px = .{ .width = width, .height = height },
         .cell_px = .{ .width = 1, .height = 1 },
         .grid = .{ .cols = 1, .rows = 1 },
-        .damage = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX },
-        .creates = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX },
+        .damage = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_DAMAGE_ITEMS_MAX },
+        .creates = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_CREATES_MAX },
         .uploads = .{
             .ptr = null,
             .count = 0,
-            .count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX,
+            .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOADS_MAX,
             .bytes_count_total = 0,
-            .bytes_count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX,
+            .bytes_count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOAD_BYTES_MAX,
         },
-        .commands = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX },
-        .retires = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX },
+        .commands = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX },
+        .retires = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_RETIRES_MAX },
     };
 }
 
-fn makeRect(x_px: i32, y_px: i32, width_px: u16, height_px: u16) c.HowlRenderSurfaceRect {
+fn makeRect(x_px: i32, y_px: i32, width_px: u16, height_px: u16) c.HowlRenderTermSurfaceRect {
     return .{ .x_px = x_px, .y_px = y_px, .width_px = width_px, .height_px = height_px };
 }
 
@@ -1030,7 +1030,7 @@ fn glyphAtlasColorResource(value: u64, generation: u32) ResourceId {
     };
 }
 
-fn fillCommand(kind: u8, command_rect: c.HowlRenderSurfaceRect, color_rgba: u32) Command {
+fn fillCommand(kind: u8, command_rect: c.HowlRenderTermSurfaceRect, color_rgba: u32) Command {
     return .{
         .kind = kind,
         .reserved0 = 0,
@@ -1038,27 +1038,27 @@ fn fillCommand(kind: u8, command_rect: c.HowlRenderSurfaceRect, color_rgba: u32)
         .rect = command_rect,
         .color_rgba = color_rgba,
         .resource = .{ .value = 0, .generation = 0, .kind = 0 },
-        .glyphs = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX },
+        .glyphs = .{ .ptr = null, .count = 0, .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX },
     };
 }
 
-fn spriteCommand(resource: ResourceId, command_rect: c.HowlRenderSurfaceRect, color_rgba: u32) Command {
-    var command = fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE, command_rect, color_rgba);
+fn spriteCommand(resource: ResourceId, command_rect: c.HowlRenderTermSurfaceRect, color_rgba: u32) Command {
+    var command = fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_SPRITE, command_rect, color_rgba);
     command.resource = resource;
     return command;
 }
 
 fn glyphCommand(glyphs: []const GlyphRef) Command {
-    var command = fillCommand(c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN, makeRect(0, 0, 0, 0), 0);
+    var command = fillCommand(c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_GLYPH_RUN, makeRect(0, 0, 0, 0), 0);
     command.glyphs = .{
         .ptr = glyphs.ptr,
         .count = @intCast(glyphs.len),
-        .count_max = c.HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX,
+        .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX,
     };
     return command;
 }
 
-fn glyphRef(resource: ResourceId, atlas_rect: c.HowlRenderSurfaceRect, x_px: i32, y_px: i32, color_rgba: u32) GlyphRef {
+fn glyphRef(resource: ResourceId, atlas_rect: c.HowlRenderTermSurfaceRect, x_px: i32, y_px: i32, color_rgba: u32) GlyphRef {
     return .{
         .atlas_resource = resource,
         .atlas_rect = atlas_rect,
@@ -1088,7 +1088,7 @@ fn createGlyphAtlasAlpha(resource: ResourceId) Create {
     );
 }
 
-fn uploadResource(resource: ResourceId, upload_rect: c.HowlRenderSurfaceRect, bytes: []const u8, stride_bytes: u32) Upload {
+fn uploadResource(resource: ResourceId, upload_rect: c.HowlRenderTermSurfaceRect, bytes: []const u8, stride_bytes: u32) Upload {
     return uploadResourceWithFormat(
         resource,
         upload_rect,
@@ -1098,7 +1098,7 @@ fn uploadResource(resource: ResourceId, upload_rect: c.HowlRenderSurfaceRect, by
     );
 }
 
-fn uploadResourceWithFormat(resource: ResourceId, upload_rect: c.HowlRenderSurfaceRect, bytes: []const u8, stride_bytes: u32, format: u32) Upload {
+fn uploadResourceWithFormat(resource: ResourceId, upload_rect: c.HowlRenderTermSurfaceRect, bytes: []const u8, stride_bytes: u32, format: u32) Upload {
     return .{
         .resource = resource,
         .rect = upload_rect,
@@ -1122,7 +1122,7 @@ fn uploadFormatForResource(resource_kind: u32) u32 {
     };
 }
 
-fn damageSpan(items: []const DamageItem, count_max: u32) c.HowlRenderSurfaceFrameDamageSpan {
+fn damageSpan(items: []const DamageItem, count_max: u32) c.HowlRenderTermSurfaceDamageSpan {
     return .{ .ptr = items.ptr, .count = @intCast(items.len), .count_max = count_max };
 }
 
@@ -1130,7 +1130,7 @@ fn createSpan(items: []const Create) c.HowlRenderResourceCreateSpan {
     return .{
         .ptr = items.ptr,
         .count = @intCast(items.len),
-        .count_max = c.HOWL_RENDER_SURFACE_FRAME_CREATES_MAX,
+        .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_CREATES_MAX,
     };
 }
 
@@ -1138,17 +1138,17 @@ fn uploadSpan(items: []const Upload, bytes_count_total: usize) c.HowlRenderResou
     return .{
         .ptr = items.ptr,
         .count = @intCast(items.len),
-        .count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX,
+        .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOADS_MAX,
         .bytes_count_total = @intCast(bytes_count_total),
-        .bytes_count_max = c.HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX,
+        .bytes_count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOAD_BYTES_MAX,
     };
 }
 
-fn commandSpan(items: []const Command) c.HowlRenderSurfaceFrameCommandSpan {
+fn commandSpan(items: []const Command) c.HowlRenderTermSurfaceCommandSpan {
     return .{
         .ptr = items.ptr,
         .count = @intCast(items.len),
-        .count_max = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX,
+        .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX,
     };
 }
 
@@ -1156,7 +1156,7 @@ fn retireSpan(items: []const Retire) c.HowlRenderResourceRetireSpan {
     return .{
         .ptr = items.ptr,
         .count = @intCast(items.len),
-        .count_max = c.HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX,
+        .count_max = c.HOWL_RENDER_TERM_SURFACE_PREPARED_RETIRES_MAX,
     };
 }
 

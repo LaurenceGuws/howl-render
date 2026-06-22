@@ -10,35 +10,49 @@ extern "C" {
 
 #define HOWL_RENDER_MAX_FALLBACK_FONTS 24
 
-#define HOWL_RENDER_SURFACE_FRAME_VERSION 0
-#define HOWL_RENDER_SURFACE_FRAME_IN_FLIGHT_MAX 2
-#define HOWL_RENDER_SURFACE_FRAME_SNAPSHOTS_IN_FLIGHT_MAX 2
-#define HOWL_RENDER_SURFACE_FRAME_DAMAGE_ITEMS_MAX 1024
-#define HOWL_RENDER_SURFACE_FRAME_UPLOADS_MAX 256
-#define HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX 8192
-#define HOWL_RENDER_SURFACE_FRAME_GLYPHS_PER_RUN_MAX 256
-#define HOWL_RENDER_SURFACE_FRAME_UPLOAD_BYTES_MAX 8388608
-#define HOWL_RENDER_SURFACE_ATLAS_PAGES_MAX 64
-#define HOWL_RENDER_SURFACE_RESOURCES_MAX 4096
-#define HOWL_RENDER_SURFACE_FRAME_CREATES_MAX 256
-#define HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX 256
-#define HOWL_RENDER_SURFACE_FRAME_HOST_ACKS_MAX 256
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_VERSION 0
+#define HOWL_RENDER_TAB_BAR_SURFACE_PREPARED_VERSION 0
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_IN_FLIGHT_MAX 2
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_SNAPSHOTS_IN_FLIGHT_MAX 2
+#define HOWL_RENDER_TERM_SURFACE_DAMAGE_ITEMS_MAX 1024
+#define HOWL_RENDER_TAB_BAR_SURFACE_DAMAGE_ITEMS_MAX 1024
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOADS_MAX 256
+#define HOWL_RENDER_TAB_BAR_SURFACE_PREPARED_UPLOADS_MAX 256
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX 8192
+#define HOWL_RENDER_TAB_BAR_SURFACE_PREPARED_COMMANDS_MAX 8192
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX 256
+#define HOWL_RENDER_TAB_BAR_SURFACE_PREPARED_GLYPHS_PER_RUN_MAX 256
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_UPLOAD_BYTES_MAX 8388608
+#define HOWL_RENDER_TAB_BAR_SURFACE_PREPARED_UPLOAD_BYTES_MAX 8388608
+#define HOWL_RENDER_TEXT_ATLAS_PAGES_MAX 64
+#define HOWL_RENDER_TEXT_RESOURCES_MAX 4096
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_CREATES_MAX 256
+#define HOWL_RENDER_TAB_BAR_SURFACE_PREPARED_CREATES_MAX 256
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_RETIRES_MAX 256
+#define HOWL_RENDER_TAB_BAR_SURFACE_PREPARED_RETIRES_MAX 256
+#define HOWL_RENDER_TERM_SURFACE_PREPARED_HOST_ACKS_MAX 256
 #define HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX 16
 #define HOWL_RENDER_TAB_BAR_SURFACE_CELLS_MAX 4096
 #define HOWL_RENDER_CELL_TEXT_COMBINING_MAX 3
 
-#define HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT 1
-#define HOWL_RENDER_SURFACE_FRAME_DAMAGE_FULL 2
+#define HOWL_RENDER_TERM_SURFACE_DAMAGE_RECT 1
+#define HOWL_RENDER_TERM_SURFACE_DAMAGE_FULL 2
+#define HOWL_RENDER_TAB_BAR_SURFACE_DAMAGE_RECT 1
+#define HOWL_RENDER_TAB_BAR_SURFACE_DAMAGE_FULL 2
 #define HOWL_RENDER_RESOURCE_GLYPH_ATLAS_ALPHA 1
 #define HOWL_RENDER_RESOURCE_GLYPH_ATLAS_COLOR 2
 #define HOWL_RENDER_RESOURCE_SPRITE_ALPHA 3
 #define HOWL_RENDER_RESOURCE_SPRITE_COLOR 4
 #define HOWL_RENDER_UPLOAD_ALPHA8 1
 #define HOWL_RENDER_UPLOAD_RGBA8 2
-#define HOWL_RENDER_SURFACE_FRAME_COMMAND_CLEAR_RECT 1
-#define HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT 2
-#define HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN 3
-#define HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE 4
+#define HOWL_RENDER_TERM_SURFACE_COMMAND_CLEAR_RECT 1
+#define HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT 2
+#define HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_GLYPH_RUN 3
+#define HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_SPRITE 4
+#define HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_CLEAR_RECT 1
+#define HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_FILL_RECT 2
+#define HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_DRAW_GLYPH_RUN 3
+#define HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_DRAW_SPRITE 4
 #define HOWL_RENDER_FONT_STYLE_REGULAR 0
 #define HOWL_RENDER_FONT_STYLE_BOLD 1
 #define HOWL_RENDER_FONT_STYLE_ITALIC 2
@@ -77,7 +91,7 @@ typedef struct {
 typedef struct {
     int32_t x_px;
     int32_t y_px;
-} HowlRenderSurfacePoint;
+} HowlRenderTermSurfacePoint;
 
 typedef struct {
     uint16_t row;
@@ -175,7 +189,7 @@ typedef struct {
     uint16_t reserved1;
     uint16_t row;
     uint16_t col;
-} HowlRenderSurfacePointCell;
+} HowlRenderTermSurfacePointCell;
 
 typedef struct {
     uint8_t *ptr;
@@ -192,32 +206,32 @@ typedef struct {
     HowlRenderPixelSize grid_px;
 } HowlRenderLayout;
 
-typedef struct HowlRenderSurfaceFrameToken {
+typedef struct HowlRenderTermSurfacePreparedToken {
     uint64_t snapshot_seq;
-    uint64_t frame_seq;
+    uint64_t prepare_seq;
     uint64_t layout_epoch;
     uint64_t resource_epoch;
-} HowlRenderSurfaceFrameToken;
+} HowlRenderTermSurfacePreparedToken;
 
-typedef struct HowlRenderSurfaceRect {
+typedef struct HowlRenderTermSurfaceRect {
     int32_t x_px;
     int32_t y_px;
     uint16_t width_px;
     uint16_t height_px;
-} HowlRenderSurfaceRect;
+} HowlRenderTermSurfaceRect;
 
-typedef struct HowlRenderSurfaceFrameDamageItem {
+typedef struct HowlRenderTermSurfaceDamageItem {
     uint8_t kind;
     uint8_t reserved0;
     uint16_t reserved1;
-    HowlRenderSurfaceRect rect;
-} HowlRenderSurfaceFrameDamageItem;
+    HowlRenderTermSurfaceRect rect;
+} HowlRenderTermSurfaceDamageItem;
 
-typedef struct HowlRenderSurfaceFrameDamageSpan {
-    const HowlRenderSurfaceFrameDamageItem *ptr;
+typedef struct HowlRenderTermSurfaceDamageSpan {
+    const HowlRenderTermSurfaceDamageItem *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderSurfaceFrameDamageSpan;
+} HowlRenderTermSurfaceDamageSpan;
 
 typedef struct HowlRenderResourceId {
     uint64_t value;
@@ -227,7 +241,7 @@ typedef struct HowlRenderResourceId {
 
 typedef struct HowlRenderResourceUpload {
     HowlRenderResourceId resource;
-    HowlRenderSurfaceRect rect;
+    HowlRenderTermSurfaceRect rect;
     const uint8_t *bytes_ptr;
     uint32_t bytes_count;
     uint32_t stride_bytes;
@@ -259,7 +273,7 @@ typedef struct HowlRenderResourceCreateSpan {
 
 typedef struct HowlRenderGlyphRef {
     HowlRenderResourceId atlas_resource;
-    HowlRenderSurfaceRect atlas_rect;
+    HowlRenderTermSurfaceRect atlas_rect;
     int32_t x_px;
     int32_t y_px;
     uint32_t glyph_id;
@@ -272,21 +286,97 @@ typedef struct HowlRenderGlyphRunSpan {
     uint32_t count_max;
 } HowlRenderGlyphRunSpan;
 
-typedef struct HowlRenderSurfaceFrameCommand {
+typedef struct HowlRenderTermSurfaceCommand {
     uint8_t kind;
     uint8_t reserved0;
     uint16_t reserved1;
-    HowlRenderSurfaceRect rect;
+    HowlRenderTermSurfaceRect rect;
     uint32_t color_rgba;
     HowlRenderResourceId resource;
     HowlRenderGlyphRunSpan glyphs;
-} HowlRenderSurfaceFrameCommand;
+} HowlRenderTermSurfaceCommand;
 
-typedef struct HowlRenderSurfaceFrameCommandSpan {
-    const HowlRenderSurfaceFrameCommand *ptr;
+typedef struct HowlRenderTermSurfaceCommandSpan {
+    const HowlRenderTermSurfaceCommand *ptr;
     uint32_t count;
     uint32_t count_max;
-} HowlRenderSurfaceFrameCommandSpan;
+} HowlRenderTermSurfaceCommandSpan;
+
+typedef struct HowlRenderTabBarSurfacePreparedToken {
+    uint64_t snapshot_seq;
+    uint64_t prepare_seq;
+    uint64_t layout_epoch;
+    uint64_t resource_epoch;
+} HowlRenderTabBarSurfacePreparedToken;
+
+typedef struct HowlRenderTabBarSurfaceRect {
+    int32_t x_px;
+    int32_t y_px;
+    uint16_t width_px;
+    uint16_t height_px;
+} HowlRenderTabBarSurfaceRect;
+
+typedef struct HowlRenderTabBarSurfaceDamageItem {
+    uint8_t kind;
+    uint8_t reserved0;
+    uint16_t reserved1;
+    HowlRenderTabBarSurfaceRect rect;
+} HowlRenderTabBarSurfaceDamageItem;
+
+typedef struct HowlRenderTabBarSurfaceDamageSpan {
+    const HowlRenderTabBarSurfaceDamageItem *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderTabBarSurfaceDamageSpan;
+
+typedef struct HowlRenderTabBarResourceUpload {
+    HowlRenderResourceId resource;
+    HowlRenderTabBarSurfaceRect rect;
+    const uint8_t *bytes_ptr;
+    uint32_t bytes_count;
+    uint32_t stride_bytes;
+    uint32_t format;
+    uint32_t upload_seq;
+} HowlRenderTabBarResourceUpload;
+
+typedef struct HowlRenderTabBarResourceUploadSpan {
+    const HowlRenderTabBarResourceUpload *ptr;
+    uint32_t count;
+    uint32_t count_max;
+    uint32_t bytes_count_total;
+    uint32_t bytes_count_max;
+} HowlRenderTabBarResourceUploadSpan;
+
+typedef struct HowlRenderTabBarGlyphRef {
+    HowlRenderResourceId atlas_resource;
+    HowlRenderTabBarSurfaceRect atlas_rect;
+    int32_t x_px;
+    int32_t y_px;
+    uint32_t glyph_id;
+    uint32_t color_rgba;
+} HowlRenderTabBarGlyphRef;
+
+typedef struct HowlRenderTabBarGlyphRunSpan {
+    const HowlRenderTabBarGlyphRef *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderTabBarGlyphRunSpan;
+
+typedef struct HowlRenderTabBarSurfaceCommand {
+    uint8_t kind;
+    uint8_t reserved0;
+    uint16_t reserved1;
+    HowlRenderTabBarSurfaceRect rect;
+    uint32_t color_rgba;
+    HowlRenderResourceId resource;
+    HowlRenderTabBarGlyphRunSpan glyphs;
+} HowlRenderTabBarSurfaceCommand;
+
+typedef struct HowlRenderTabBarSurfaceCommandSpan {
+    const HowlRenderTabBarSurfaceCommand *ptr;
+    uint32_t count;
+    uint32_t count_max;
+} HowlRenderTabBarSurfaceCommandSpan;
 
 typedef struct HowlRenderResourceRetire {
     HowlRenderResourceId resource;
@@ -310,19 +400,33 @@ typedef struct HowlRenderResourceAckSpan {
     uint32_t count_max;
 } HowlRenderResourceAckSpan;
 
-typedef struct HowlRenderSurfaceFrame {
-    uint32_t frame_version;
+typedef struct HowlRenderTermSurfacePrepared {
+    uint32_t prepared_version;
     uint32_t reserved0;
-    HowlRenderSurfaceFrameToken token;
+    HowlRenderTermSurfacePreparedToken token;
     HowlRenderPixelSize render_px;
     HowlRenderCellSize cell_px;
     HowlRenderCellGrid grid;
-    HowlRenderSurfaceFrameDamageSpan damage;
+    HowlRenderTermSurfaceDamageSpan damage;
     HowlRenderResourceCreateSpan creates;
     HowlRenderResourceUploadSpan uploads;
-    HowlRenderSurfaceFrameCommandSpan commands;
+    HowlRenderTermSurfaceCommandSpan commands;
     HowlRenderResourceRetireSpan retires;
-} HowlRenderSurfaceFrame;
+} HowlRenderTermSurfacePrepared;
+
+typedef struct HowlRenderTabBarSurfacePrepared {
+    uint32_t prepared_version;
+    uint32_t reserved0;
+    HowlRenderTabBarSurfacePreparedToken token;
+    HowlRenderPixelSize render_px;
+    HowlRenderCellSize cell_px;
+    HowlRenderCellGrid grid;
+    HowlRenderTabBarSurfaceDamageSpan damage;
+    HowlRenderResourceCreateSpan creates;
+    HowlRenderTabBarResourceUploadSpan uploads;
+    HowlRenderTabBarSurfaceCommandSpan commands;
+    HowlRenderResourceRetireSpan retires;
+} HowlRenderTabBarSurfacePrepared;
 
 typedef struct {
     int32_t status;
@@ -350,7 +454,7 @@ typedef struct {
     uint16_t height;
 } HowlRenderTabBarSurface;
 
-/* Owns font resolution, shaping, raster cache, and surface resources for both VT text and bounded cell-text surfaces. */
+/* Owns font resolution, shaping, raster cache, and text resources for terminal text and tab_bar_surface preparation. */
 typedef struct HowlRenderText HowlRenderText;
 typedef HowlRenderText *HowlRenderTextHandle;
 
@@ -403,11 +507,11 @@ typedef struct {
 
 typedef struct {
     int32_t status;
-    uint32_t surface_frame_status;
+    uint32_t term_surface_status;
     uint32_t reserved0;
     uint64_t snapshot_seq;
     HowlRenderPixelSize render_px;
-    const HowlRenderSurfaceFrame *surface_frame;
+    const HowlRenderTermSurfacePrepared *term_surface_prepared;
 } HowlRenderTextPreparedUpload;
 
 typedef struct {
@@ -421,17 +525,17 @@ typedef struct {
 
 typedef struct {
     int32_t status;
-    uint32_t surface_frame_status;
+    uint32_t tab_bar_surface_status;
     uint32_t reserved0;
     uint64_t snapshot_seq;
     HowlRenderPixelSize render_px;
-    const HowlRenderSurfaceFrame *surface_frame;
+    const HowlRenderTabBarSurfacePrepared *tab_bar_surface_prepared;
 } HowlRenderTabBarSurfacePreparedUpload;
 
 HowlRenderCallStatus howl_render_text_init(HowlRenderTextHandle *out_handle, const HowlRenderTextConfig *config);
 void howl_render_text_deinit(HowlRenderTextHandle handle);
-HowlRenderCallStatus howl_render_surface_layout(HowlRenderTextHandle handle, HowlRenderPixelSize surface_px, HowlRenderLayoutResponse *out_layout);
-HowlRenderCallStatus howl_render_surface_point_cell(HowlRenderTextHandle handle, HowlRenderPixelSize surface_px, HowlRenderSurfacePoint point, HowlRenderSurfacePointCell *out_cell);
+HowlRenderCallStatus howl_render_term_surface_layout(HowlRenderTextHandle handle, HowlRenderPixelSize term_surface_px, HowlRenderLayoutResponse *out_layout);
+HowlRenderCallStatus howl_render_term_surface_point_cell(HowlRenderTextHandle handle, HowlRenderPixelSize term_surface_px, HowlRenderTermSurfacePoint point, HowlRenderTermSurfacePointCell *out_cell);
 HowlRenderCallStatus howl_render_text_prepare(HowlRenderTextHandle handle, const HowlRenderTextPrepare *prepare, HowlRenderTextPreparedUpload *out_upload);
 HowlRenderCallStatus howl_render_tab_bar_surface_prepare(HowlRenderTextHandle handle, const HowlRenderTabBarSurfacePrepare *prepare, HowlRenderTabBarSurfacePreparedUpload *out_upload);
 HowlRenderCallStatus howl_render_text_submit_term_surface(HowlRenderTextHandle handle, HowlRenderTermSurface term_surface, HowlRenderTermSurface *out_term_surface);

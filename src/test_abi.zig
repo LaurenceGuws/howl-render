@@ -29,7 +29,7 @@ test "render surface layout ABI returns render-owned cell facts and grid" {
     defer c.howl_render_text_deinit(text);
 
     var response = std.mem.zeroes(c.HowlRenderLayoutResponse);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_layout(text, .{ .width = 81, .height = 49 }, &response));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_term_surface_layout(text, .{ .width = 81, .height = 49 }, &response));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, response.status);
     try std.testing.expect(response.cell_layout.cell_px.width > 0);
     try std.testing.expect(response.cell_layout.cell_px.height > 0);
@@ -54,19 +54,19 @@ test "render surface point cell ABI returns inside flag and clamped cell" {
     defer c.howl_render_text_deinit(text);
 
     var layout_response = std.mem.zeroes(c.HowlRenderLayoutResponse);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_layout(text, .{ .width = 81, .height = 49 }, &layout_response));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_term_surface_layout(text, .{ .width = 81, .height = 49 }, &layout_response));
 
-    var inside = std.mem.zeroes(c.HowlRenderSurfacePointCell);
+    var inside = std.mem.zeroes(c.HowlRenderTermSurfacePointCell);
     const cell_width = layout_response.cell_layout.cell_px.width;
     const cell_height = layout_response.cell_layout.cell_px.height;
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_point_cell(text, .{ .width = 81, .height = 49 }, .{ .x_px = cell_width, .y_px = cell_height }, &inside));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_term_surface_point_cell(text, .{ .width = 81, .height = 49 }, .{ .x_px = cell_width, .y_px = cell_height }, &inside));
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, inside.status);
     try std.testing.expectEqual(@as(u8, 1), inside.inside);
     try std.testing.expectEqual(@as(u16, 1), inside.col);
     try std.testing.expectEqual(@as(u16, 1), inside.row);
 
-    var leftover = std.mem.zeroes(c.HowlRenderSurfacePointCell);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_point_cell(text, .{ .width = 81, .height = 49 }, .{ .x_px = layout_response.render_px.width, .y_px = layout_response.render_px.height }, &leftover));
+    var leftover = std.mem.zeroes(c.HowlRenderTermSurfacePointCell);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_term_surface_point_cell(text, .{ .width = 81, .height = 49 }, .{ .x_px = layout_response.render_px.width, .y_px = layout_response.render_px.height }, &leftover));
     try std.testing.expectEqual(@as(u8, 0), leftover.inside);
     try std.testing.expectEqual(layout_response.grid.cols - 1, leftover.col);
     try std.testing.expectEqual(layout_response.grid.rows - 1, leftover.row);
@@ -96,7 +96,7 @@ test "render text ABI emits foreground commands from VT render state" {
     defer c.howl_render_text_deinit(text);
 
     var layout_response = std.mem.zeroes(c.HowlRenderLayoutResponse);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_surface_layout(text, .{ .width = 64, .height = 32 }, &layout_response));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_term_surface_layout(text, .{ .width = 64, .height = 32 }, &layout_response));
     try std.testing.expect(layout_response.grid.cols >= 2);
 
     var upload = std.mem.zeroes(c.HowlRenderTextPreparedUpload);
@@ -119,7 +119,7 @@ test "render text ABI emits foreground commands from VT render state" {
         .cursor_trail_rects = [_]c.HowlRenderCursorTrailRect{std.mem.zeroes(c.HowlRenderCursorTrailRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
     };
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &prepare, &upload));
-    const surface_ptr = upload.surface_frame orelse return error.TestUnexpectedResult;
+    const surface_ptr = upload.term_surface_prepared orelse return error.TestUnexpectedResult;
     const surface = surface_ptr.*;
     try std.testing.expectEqual(@as(u64, 1), upload.snapshot_seq);
     try std.testing.expect(surface.commands.count > 1);
@@ -128,8 +128,8 @@ test "render text ABI emits foreground commands from VT render state" {
     var has_cursor = false;
     var fill_count: u32 = 0;
     for (surface.commands.ptr[0..surface.commands.count]) |command| {
-        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE) has_foreground = true;
-        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT and command.rect.width_px > 0 and command.rect.height_px > 0) {
+        if (command.kind == c.HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_DRAW_SPRITE) has_foreground = true;
+        if (command.kind == c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT and command.rect.width_px > 0 and command.rect.height_px > 0) {
             has_cursor = true;
             fill_count += 1;
         }
@@ -141,12 +141,12 @@ test "render text ABI emits foreground commands from VT render state" {
     var hidden_prepare = prepare;
     hidden_prepare.cursor_opacity = 0;
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &hidden_prepare, &hidden_upload));
-    const hidden_surface = (hidden_upload.surface_frame orelse return error.TestUnexpectedResult).*;
+    const hidden_surface = (hidden_upload.term_surface_prepared orelse return error.TestUnexpectedResult).*;
     var hidden_has_foreground = false;
     var hidden_fill_count: u32 = 0;
     for (hidden_surface.commands.ptr[0..hidden_surface.commands.count]) |command| {
-        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE) hidden_has_foreground = true;
-        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT and command.rect.width_px > 0 and command.rect.height_px > 0) hidden_fill_count += 1;
+        if (command.kind == c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_TERM_SURFACE_COMMAND_DRAW_SPRITE) hidden_has_foreground = true;
+        if (command.kind == c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT and command.rect.width_px > 0 and command.rect.height_px > 0) hidden_fill_count += 1;
     }
     try std.testing.expect(hidden_has_foreground);
     try std.testing.expect(hidden_fill_count < fill_count);
@@ -170,10 +170,10 @@ test "render text ABI emits foreground commands from VT render state" {
         .height_px = 6,
     };
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &trail_prepare, &trail_upload));
-    const trail_surface = (trail_upload.surface_frame orelse return error.TestUnexpectedResult).*;
+    const trail_surface = (trail_upload.term_surface_prepared orelse return error.TestUnexpectedResult).*;
     var saw_trail = false;
     for (trail_surface.commands.ptr[0..trail_surface.commands.count]) |command| {
-        if (command.kind != c.HOWL_RENDER_SURFACE_FRAME_COMMAND_FILL_RECT) continue;
+        if (command.kind != c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT) continue;
         if (command.rect.x_px != 3) continue;
         if (command.rect.y_px != 4) continue;
         if (command.rect.width_px != 5) continue;
@@ -209,14 +209,16 @@ test "tab bar surface ABI emits glyph frame facts" {
         .cells = .{ .ptr = cells[0..].ptr, .count = cells.len, .count_max = cells.len },
     };
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_tab_bar_surface_prepare(text, &prepare, &upload));
-    const surface = (upload.surface_frame orelse return error.TestUnexpectedResult).*;
+    const surface = (upload.tab_bar_surface_prepared orelse return error.TestUnexpectedResult).*;
+    try std.testing.expectEqual(@as(u32, 0), upload.tab_bar_surface_status);
+    try std.testing.expectEqual(@as(@TypeOf(surface.prepared_version), c.HOWL_RENDER_TAB_BAR_SURFACE_PREPARED_VERSION), surface.prepared_version);
     try std.testing.expectEqual(@as(u64, 1), upload.snapshot_seq);
     try std.testing.expectEqual(@as(u16, 2), surface.grid.cols);
     try std.testing.expectEqual(@as(u16, 1), surface.grid.rows);
 
     var has_foreground = false;
     for (surface.commands.ptr[0..surface.commands.count]) |command| {
-        if (command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE) has_foreground = true;
+        if (command.kind == c.HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_DRAW_GLYPH_RUN or command.kind == c.HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_DRAW_SPRITE) has_foreground = true;
     }
     try std.testing.expect(has_foreground);
 
@@ -294,10 +296,10 @@ test "tab bar surface ABI gives empty cells transparent blank semantics" {
     const cells = [_]c.HowlRenderCellText{emptyCellText()};
     const prepare = tabBarSurfacePrepare(cells[0..]);
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_tab_bar_surface_prepare(text, &prepare, &upload));
-    const surface = (upload.surface_frame orelse return error.TestUnexpectedResult).*;
+    const surface = (upload.tab_bar_surface_prepared orelse return error.TestUnexpectedResult).*;
     for (surface.commands.ptr[0..surface.commands.count]) |command| {
-        try std.testing.expect(command.kind != c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN);
-        try std.testing.expect(command.kind != c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_SPRITE);
+        try std.testing.expect(command.kind != c.HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_DRAW_GLYPH_RUN);
+        try std.testing.expect(command.kind != c.HOWL_RENDER_TAB_BAR_SURFACE_COMMAND_DRAW_SPRITE);
     }
 
     var invalid_empty = [_]c.HowlRenderCellText{emptyCellText()};

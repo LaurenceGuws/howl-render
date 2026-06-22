@@ -4,16 +4,16 @@ const render = @import("../text/draw_primitives.zig");
 const rasterizer = @import("../text/raster/rasterizer.zig");
 
 const ResourceId = c.HowlRenderResourceId;
-const Rect = c.HowlRenderSurfaceRect;
+const Rect = c.HowlRenderTermSurfaceRect;
 
 pub const persistent_sprite_resources_max: u32 = 384;
-pub const alpha_atlas_entries_max: u32 = c.HOWL_RENDER_SURFACE_FRAME_COMMANDS_MAX;
+pub const alpha_atlas_entries_max: u32 = c.HOWL_RENDER_TERM_SURFACE_PREPARED_COMMANDS_MAX;
 const persistent_sprite_resource_bytes_max: u32 = 64 * 1024;
 pub const glyph_atlas_width_px: u16 = 1024;
 pub const glyph_atlas_height_px: u16 = 1024;
 
 comptime {
-    std.debug.assert(persistent_sprite_resources_max < c.HOWL_RENDER_SURFACE_RESOURCES_MAX);
+    std.debug.assert(persistent_sprite_resources_max < c.HOWL_RENDER_TEXT_RESOURCES_MAX);
     std.debug.assert(alpha_atlas_entries_max > persistent_sprite_resources_max);
     std.debug.assert(alpha_atlas_entries_max <=
         @as(u32, glyph_atlas_width_px) * @as(u32, glyph_atlas_height_px));
@@ -35,7 +35,7 @@ pub const PreparedSprite = struct {
 };
 
 pub const SpriteResourceStore = struct {
-    entries: [c.HOWL_RENDER_SURFACE_RESOURCES_MAX]Entry = undefined,
+    entries: [c.HOWL_RENDER_TEXT_RESOURCES_MAX]Entry = undefined,
     bytes: [persistent_sprite_resource_bytes_max]u8 = undefined,
     count: u32 = 0,
     bytes_count: u32 = 0,
