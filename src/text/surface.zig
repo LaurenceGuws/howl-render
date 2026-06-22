@@ -216,8 +216,8 @@ pub const TextSurface = struct {
         };
     }
 
-    pub fn submit(self: *TextSurface, host_surface: c.HowlRenderHostSurface, out_host_surface: *c.HowlRenderHostSurface) void {
-        out_host_surface.* = host_surface;
+    pub fn submitTermSurface(self: *TextSurface, term_surface: c.HowlRenderTermSurface, out_term_surface: *c.HowlRenderTermSurface) void {
+        out_term_surface.* = term_surface;
         self.releasePrepared();
     }
 

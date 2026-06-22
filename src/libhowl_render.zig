@@ -117,10 +117,10 @@ export fn howl_render_cell_surface_prepare(
     return c.HOWL_RENDER_CALL_OK;
 }
 
-export fn howl_render_text_submit(handle: c.HowlRenderTextHandle, host_surface: c.HowlRenderHostSurface, out_host_surface: ?*c.HowlRenderHostSurface) c.HowlRenderCallStatus {
+export fn howl_render_text_submit_term_surface(handle: c.HowlRenderTextHandle, term_surface: c.HowlRenderTermSurface, out_term_surface: ?*c.HowlRenderTermSurface) c.HowlRenderCallStatus {
     const surface = textSurfaceFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
-    const out = out_host_surface orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    surface.submit(host_surface, out);
+    const out = out_term_surface orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
+    surface.submitTermSurface(term_surface, out);
     return c.HOWL_RENDER_CALL_OK;
 }
 

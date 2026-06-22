@@ -114,13 +114,13 @@ test "prepared handle testing validates realized uploads and host surface dimens
     const render_px = layout.PixelSize{ .width = 11, .height = 12 };
 
     try std.testing.expect(prepared_handle.testing.executionMatchesPrepared(render_px, .{
-        .host_surface = .{ .host_surface_id = 1, .width = 11, .height = 12 },
+        .term_surface = .{ .term_surface_id = 1, .width = 11, .height = 12 },
     }));
     try std.testing.expect(!prepared_handle.testing.executionMatchesPrepared(render_px, .{
-        .host_surface = .{ .host_surface_id = 1, .width = 10, .height = 12 },
+        .term_surface = .{ .term_surface_id = 1, .width = 10, .height = 12 },
     }));
     try std.testing.expect(!prepared_handle.testing.executionMatchesPrepared(render_px, .{
-        .host_surface = .{ .host_surface_id = 1, .width = 11, .height = 13 },
+        .term_surface = .{ .term_surface_id = 1, .width = 11, .height = 13 },
     }));
 }
 

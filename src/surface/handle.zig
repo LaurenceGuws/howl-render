@@ -179,6 +179,6 @@ fn emptyPreparedSurface(allocator: std.mem.Allocator) prepared_surface.PreparedS
 
 pub const testing = struct {
     pub fn executionMatchesPrepared(render_px: layout.PixelSize, execution: render_session.TextSession.SubmitExecution) bool {
-        return execution.host_surface.width == render_px.width and execution.host_surface.height == render_px.height;
+        return execution.term_surface.width == render_px.width and execution.term_surface.height == render_px.height;
     }
 };
