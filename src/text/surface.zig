@@ -30,7 +30,7 @@ const cell_text_flags_known = c.HOWL_RENDER_CELL_TEXT_UNDERLINE |
     c.HOWL_RENDER_CELL_TEXT_EMPTY;
 
 pub const PreparedUpload = c.HowlRenderTextPreparedUpload;
-pub const CellSurfacePreparedUpload = c.HowlRenderCellSurfacePreparedUpload;
+pub const TabBarSurfacePreparedUpload = c.HowlRenderTabBarSurfacePreparedUpload;
 const Emitter = surface_emitter.Emitter(.{});
 
 pub const TextSurface = struct {
@@ -168,7 +168,7 @@ pub const TextSurface = struct {
         out.* = self.layoutForSurface(surface_px).pointCell(point);
     }
 
-    pub fn prepareCellSurface(self: *TextSurface, input: *const c.HowlRenderCellSurfacePrepare, out: *CellSurfacePreparedUpload) !void {
+    pub fn prepareTabBarSurface(self: *TextSurface, input: *const c.HowlRenderTabBarSurfacePrepare, out: *TabBarSurfacePreparedUpload) !void {
         if (input.render_px.width == 0 or input.render_px.height == 0) return error.InvalidArgument;
         if (input.cell_px.width == 0 or input.cell_px.height == 0) return error.InvalidArgument;
         if (input.grid.cols == 0 or input.grid.rows == 0) return error.InvalidArgument;
@@ -449,10 +449,10 @@ const RenderStateTextInput = struct {
 fn cellTextSpanValid(span: c.HowlRenderCellTextSpan, grid: c.HowlRenderCellGrid) bool {
     const grid_cells = std.math.mul(u32, grid.cols, grid.rows) catch return false;
     if (grid_cells == 0) return false;
-    if (grid_cells > c.HOWL_RENDER_CELL_SURFACE_CELLS_MAX) return false;
+    if (grid_cells > c.HOWL_RENDER_TAB_BAR_SURFACE_CELLS_MAX) return false;
     if (span.count != grid_cells) return false;
     if (span.count > span.count_max) return false;
-    if (span.count_max > c.HOWL_RENDER_CELL_SURFACE_CELLS_MAX) return false;
+    if (span.count_max > c.HOWL_RENDER_TAB_BAR_SURFACE_CELLS_MAX) return false;
     if (span.ptr == null) return false;
     return true;
 }

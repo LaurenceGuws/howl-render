@@ -183,7 +183,7 @@ test "render text ABI emits foreground commands from VT render state" {
     try std.testing.expect(saw_trail);
 }
 
-test "cell surface ABI emits glyph frame facts" {
+test "tab bar surface ABI emits glyph frame facts" {
     var text: c.HowlRenderTextHandle = null;
     const config = c.HowlRenderTextConfig{
         .font_size_px = 16,
@@ -199,8 +199,8 @@ test "cell surface ABI emits glyph frame facts" {
         cellText('A', .{ .r = 240, .g = 240, .b = 240, .a = 255 }, .{ .r = 8, .g = 9, .b = 10, .a = 255 }, 0),
         cellText('B', .{ .r = 200, .g = 210, .b = 220, .a = 255 }, .{ .r = 8, .g = 9, .b = 10, .a = 255 }, c.HOWL_RENDER_FONT_STYLE_BOLD),
     };
-    var upload = std.mem.zeroes(c.HowlRenderCellSurfacePreparedUpload);
-    const prepare = c.HowlRenderCellSurfacePrepare{
+    var upload = std.mem.zeroes(c.HowlRenderTabBarSurfacePreparedUpload);
+    const prepare = c.HowlRenderTabBarSurfacePrepare{
         .render_px = .{ .width = 16, .height = 16 },
         .grid_px = .{ .width = 16, .height = 16 },
         .cell_px = .{ .width = 8, .height = 16 },
@@ -208,7 +208,7 @@ test "cell surface ABI emits glyph frame facts" {
         .layout_epoch = 1,
         .cells = .{ .ptr = cells[0..].ptr, .count = cells.len, .count_max = cells.len },
     };
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_cell_surface_prepare(text, &prepare, &upload));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_tab_bar_surface_prepare(text, &prepare, &upload));
     const surface = (upload.surface_frame orelse return error.TestUnexpectedResult).*;
     try std.testing.expectEqual(@as(u64, 1), upload.snapshot_seq);
     try std.testing.expectEqual(@as(u16, 2), surface.grid.cols);
@@ -220,12 +220,12 @@ test "cell surface ABI emits glyph frame facts" {
     }
     try std.testing.expect(has_foreground);
 
-    var repeated_upload = std.mem.zeroes(c.HowlRenderCellSurfacePreparedUpload);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_cell_surface_prepare(text, &prepare, &repeated_upload));
+    var repeated_upload = std.mem.zeroes(c.HowlRenderTabBarSurfacePreparedUpload);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_tab_bar_surface_prepare(text, &prepare, &repeated_upload));
     try std.testing.expectEqual(@as(u64, 2), repeated_upload.snapshot_seq);
 }
 
-test "cell surface ABI rejects invalid spans" {
+test "tab bar surface ABI rejects invalid spans" {
     var text: c.HowlRenderTextHandle = null;
     const config = c.HowlRenderTextConfig{
         .font_size_px = 16,
@@ -238,8 +238,8 @@ test "cell surface ABI rejects invalid spans" {
     defer c.howl_render_text_deinit(text);
 
     const cells = [_]c.HowlRenderCellText{cellText('A', .{ .r = 255, .g = 255, .b = 255, .a = 255 }, .{ .r = 0, .g = 0, .b = 0, .a = 255 }, 0)};
-    var upload = std.mem.zeroes(c.HowlRenderCellSurfacePreparedUpload);
-    var prepare = c.HowlRenderCellSurfacePrepare{
+    var upload = std.mem.zeroes(c.HowlRenderTabBarSurfacePreparedUpload);
+    var prepare = c.HowlRenderTabBarSurfacePrepare{
         .render_px = .{ .width = 16, .height = 16 },
         .grid_px = .{ .width = 16, .height = 16 },
         .cell_px = .{ .width = 8, .height = 16 },
@@ -247,12 +247,12 @@ test "cell surface ABI rejects invalid spans" {
         .layout_epoch = 1,
         .cells = .{ .ptr = cells[0..].ptr, .count = cells.len, .count_max = cells.len },
     };
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_cell_surface_prepare(text, &prepare, &upload));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_tab_bar_surface_prepare(text, &prepare, &upload));
     prepare.cells = .{ .ptr = null, .count = 2, .count_max = 2 };
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_cell_surface_prepare(text, &prepare, &upload));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_tab_bar_surface_prepare(text, &prepare, &upload));
 }
 
-test "cell surface ABI rejects invalid cell facts" {
+test "tab bar surface ABI rejects invalid cell facts" {
     var text: c.HowlRenderTextHandle = null;
     const config = c.HowlRenderTextConfig{
         .font_size_px = 16,
@@ -264,21 +264,21 @@ test "cell surface ABI rejects invalid cell facts" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
-    var upload = std.mem.zeroes(c.HowlRenderCellSurfacePreparedUpload);
+    var upload = std.mem.zeroes(c.HowlRenderTabBarSurfacePreparedUpload);
     var cells = [_]c.HowlRenderCellText{cellText('A', white(), black(), 0)};
-    var prepare = cellSurfacePrepare(cells[0..]);
+    var prepare = tabBarSurfacePrepare(cells[0..]);
     cells[0].combining_len = c.HOWL_RENDER_CELL_TEXT_COMBINING_MAX + 1;
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_cell_surface_prepare(text, &prepare, &upload));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_tab_bar_surface_prepare(text, &prepare, &upload));
     cells[0] = cellText('A', white(), black(), 0);
     cells[0].combining_len = 1;
     cells[0].combining[0] = std.math.maxInt(u21) + 1;
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_cell_surface_prepare(text, &prepare, &upload));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_tab_bar_surface_prepare(text, &prepare, &upload));
     cells[0] = cellText('A', white(), black(), 0);
     cells[0].flags = 0x80;
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_cell_surface_prepare(text, &prepare, &upload));
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_tab_bar_surface_prepare(text, &prepare, &upload));
 }
 
-test "cell surface ABI gives empty cells transparent blank semantics" {
+test "tab bar surface ABI gives empty cells transparent blank semantics" {
     var text: c.HowlRenderTextHandle = null;
     const config = c.HowlRenderTextConfig{
         .font_size_px = 16,
@@ -290,10 +290,10 @@ test "cell surface ABI gives empty cells transparent blank semantics" {
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
-    var upload = std.mem.zeroes(c.HowlRenderCellSurfacePreparedUpload);
+    var upload = std.mem.zeroes(c.HowlRenderTabBarSurfacePreparedUpload);
     const cells = [_]c.HowlRenderCellText{emptyCellText()};
-    const prepare = cellSurfacePrepare(cells[0..]);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_cell_surface_prepare(text, &prepare, &upload));
+    const prepare = tabBarSurfacePrepare(cells[0..]);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_tab_bar_surface_prepare(text, &prepare, &upload));
     const surface = (upload.surface_frame orelse return error.TestUnexpectedResult).*;
     for (surface.commands.ptr[0..surface.commands.count]) |command| {
         try std.testing.expect(command.kind != c.HOWL_RENDER_SURFACE_FRAME_COMMAND_DRAW_GLYPH_RUN);
@@ -302,8 +302,8 @@ test "cell surface ABI gives empty cells transparent blank semantics" {
 
     var invalid_empty = [_]c.HowlRenderCellText{emptyCellText()};
     invalid_empty[0].codepoint = 'x';
-    const invalid_prepare = cellSurfacePrepare(invalid_empty[0..]);
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_cell_surface_prepare(text, &invalid_prepare, &upload));
+    const invalid_prepare = tabBarSurfacePrepare(invalid_empty[0..]);
+    try std.testing.expectEqual(c.HOWL_RENDER_CALL_INVALID_ARGUMENT, c.howl_render_tab_bar_surface_prepare(text, &invalid_prepare, &upload));
 }
 
 fn cellText(codepoint: u32, foreground: c.HowlRenderRgba8, background: c.HowlRenderRgba8, style: u8) c.HowlRenderCellText {
@@ -329,7 +329,7 @@ fn emptyCellText() c.HowlRenderCellText {
     return cell;
 }
 
-fn cellSurfacePrepare(cells: []const c.HowlRenderCellText) c.HowlRenderCellSurfacePrepare {
+fn tabBarSurfacePrepare(cells: []const c.HowlRenderCellText) c.HowlRenderTabBarSurfacePrepare {
     return .{
         .render_px = .{ .width = 8, .height = 16 },
         .grid_px = .{ .width = 8, .height = 16 },

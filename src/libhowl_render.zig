@@ -105,15 +105,15 @@ export fn howl_render_text_prepare(handle: c.HowlRenderTextHandle, prepare: ?*co
     return c.HOWL_RENDER_CALL_OK;
 }
 
-export fn howl_render_cell_surface_prepare(
+export fn howl_render_tab_bar_surface_prepare(
     handle: c.HowlRenderTextHandle,
-    prepare: ?*const c.HowlRenderCellSurfacePrepare,
-    out_upload: ?*c.HowlRenderCellSurfacePreparedUpload,
+    prepare: ?*const c.HowlRenderTabBarSurfacePrepare,
+    out_upload: ?*c.HowlRenderTabBarSurfacePreparedUpload,
 ) c.HowlRenderCallStatus {
     const surface = textSurfaceFromHandle(handle) orelse return c.HOWL_RENDER_CALL_MISSING_HANDLE;
     const prepare_value = prepare orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
     const upload = out_upload orelse return c.HOWL_RENDER_CALL_INVALID_ARGUMENT;
-    surface.prepareCellSurface(prepare_value, upload) catch |err| return callStatusFromError(err);
+    surface.prepareTabBarSurface(prepare_value, upload) catch |err| return callStatusFromError(err);
     return c.HOWL_RENDER_CALL_OK;
 }
 

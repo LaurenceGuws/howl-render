@@ -24,7 +24,7 @@ extern "C" {
 #define HOWL_RENDER_SURFACE_FRAME_RETIRES_MAX 256
 #define HOWL_RENDER_SURFACE_FRAME_HOST_ACKS_MAX 256
 #define HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX 16
-#define HOWL_RENDER_CELL_SURFACE_CELLS_MAX 4096
+#define HOWL_RENDER_TAB_BAR_SURFACE_CELLS_MAX 4096
 #define HOWL_RENDER_CELL_TEXT_COMBINING_MAX 3
 
 #define HOWL_RENDER_SURFACE_FRAME_DAMAGE_RECT 1
@@ -417,7 +417,7 @@ typedef struct {
     HowlRenderCellGrid grid;
     uint64_t layout_epoch;
     HowlRenderCellTextSpan cells;
-} HowlRenderCellSurfacePrepare;
+} HowlRenderTabBarSurfacePrepare;
 
 typedef struct {
     int32_t status;
@@ -426,14 +426,14 @@ typedef struct {
     uint64_t snapshot_seq;
     HowlRenderPixelSize render_px;
     const HowlRenderSurfaceFrame *surface_frame;
-} HowlRenderCellSurfacePreparedUpload;
+} HowlRenderTabBarSurfacePreparedUpload;
 
 HowlRenderCallStatus howl_render_text_init(HowlRenderTextHandle *out_handle, const HowlRenderTextConfig *config);
 void howl_render_text_deinit(HowlRenderTextHandle handle);
 HowlRenderCallStatus howl_render_surface_layout(HowlRenderTextHandle handle, HowlRenderPixelSize surface_px, HowlRenderLayoutResponse *out_layout);
 HowlRenderCallStatus howl_render_surface_point_cell(HowlRenderTextHandle handle, HowlRenderPixelSize surface_px, HowlRenderSurfacePoint point, HowlRenderSurfacePointCell *out_cell);
 HowlRenderCallStatus howl_render_text_prepare(HowlRenderTextHandle handle, const HowlRenderTextPrepare *prepare, HowlRenderTextPreparedUpload *out_upload);
-HowlRenderCallStatus howl_render_cell_surface_prepare(HowlRenderTextHandle handle, const HowlRenderCellSurfacePrepare *prepare, HowlRenderCellSurfacePreparedUpload *out_upload);
+HowlRenderCallStatus howl_render_tab_bar_surface_prepare(HowlRenderTextHandle handle, const HowlRenderTabBarSurfacePrepare *prepare, HowlRenderTabBarSurfacePreparedUpload *out_upload);
 HowlRenderCallStatus howl_render_text_submit_term_surface(HowlRenderTextHandle handle, HowlRenderTermSurface term_surface, HowlRenderTermSurface *out_term_surface);
 
 #ifdef __cplusplus
