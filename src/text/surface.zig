@@ -28,6 +28,8 @@ const cell_text_flags_known = c.HOWL_RENDER_CELL_TEXT_UNDERLINE |
     c.HOWL_RENDER_CELL_TEXT_STRIKETHROUGH |
     c.HOWL_RENDER_CELL_TEXT_CONTINUATION |
     c.HOWL_RENDER_CELL_TEXT_EMPTY;
+const default_cursor_blink_interval_s: f64 = 0.6;
+const default_cursor_inactivity_s: f64 = 3.0;
 
 pub const PreparedUpload = c.HowlRenderTextPreparedUpload;
 pub const TabBarSurfacePreparedUpload = c.HowlRenderTabBarSurfacePreparedUpload;
@@ -53,6 +55,8 @@ pub const TextSurface = struct {
     next_cell_snapshot_seq: u64 = 1,
     surface_layout_epoch: u64 = 1,
     surface_layout_last: ?cell_layout.SurfaceLayout = null,
+    cursor_config: CursorConfig,
+    cursor_state: CursorState = .{},
 
     pub fn create(allocator: std.mem.Allocator, config: *const c.HowlRenderTextConfig) !*TextSurface {
         if (config.font_size_px == 0) return error.InvalidArgument;
@@ -62,6 +66,7 @@ pub const TextSurface = struct {
             .allocator = allocator,
             .glyph_cache = glyph_cache.GlyphCache.init(allocator),
             .font_size_px = config.font_size_px,
+            .cursor_config = cursorConfigFromAbi(config),
         };
         errdefer surface.destroy();
         if (config.primary_font_path) |path| surface.primary_font_path = try copyPath(allocator, path);
@@ -111,8 +116,9 @@ pub const TextSurface = struct {
         // The C text ABI has no submitted-base input yet. Rect damage is unsafe across skipped frames without that base.
         const full_damage = true;
         const text = try self.readRenderState(input.render_state.?, grid, full_damage);
+        const cursor_frame = try cursorFrame(self, input.render_state.?, input);
         const options = surface_preparer.PrepareOptions{ .draw_list = .{
-            .cursor = try readCursorPresentation(input.render_state.?, text.colors, input),
+            .cursor = try readCursorPresentation(input.render_state.?, text.colors, &self.cursor_config, cursor_frame, input.focused != 0),
             .damage = .{ .full = full_damage, .dirty_rows = text.dirty_rows, .dirty_cols_start = text.dirty_cols_start, .dirty_cols_end = text.dirty_cols_end },
         } };
         const preparer = try self.ensurePreparer(grid);
@@ -565,7 +571,55 @@ fn readRenderStateColors(state: c.HowlVtRenderStateHandle) !RenderStateColors {
     return .{ .background = colors.background, .foreground = colors.foreground, .cursor = colors.cursor, .cursor_has_value = colors.cursor_has_value != 0, .palette = colors.palette };
 }
 
-fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateColors, input: *const c.HowlRenderTextPrepare) !?render.CursorPresentation {
+const CursorConfig = struct {
+    blink_interval_ns: u64,
+    inactivity_ns: u64,
+    cursor_color: c.HowlVtColor,
+    cursor_text_color: c.HowlVtColor,
+    cursor_trail_color: c.HowlVtColor,
+    beam_thickness: f32,
+    underline_thickness: f32,
+    unfocused_shape: u8,
+};
+
+const CursorState = struct {
+    activity_seq: u64 = 0,
+    zero_time_ns: u64 = 0,
+};
+
+const CursorFrame = struct {
+    cursor_opacity: u8,
+    text_blink_opacity: u8,
+};
+
+fn cursorConfigFromAbi(config: *const c.HowlRenderTextConfig) CursorConfig {
+    return .{
+        .blink_interval_ns = secondsToNs(config.cursor_blink_interval_s, default_cursor_blink_interval_s),
+        .inactivity_ns = secondsToNs(config.cursor_blink_inactivity_s, default_cursor_inactivity_s),
+        .cursor_color = config.cursor_color,
+        .cursor_text_color = config.cursor_text_color,
+        .cursor_trail_color = config.cursor_trail_color,
+        .beam_thickness = if (config.cursor_beam_thickness > 0) config.cursor_beam_thickness else 1.5,
+        .underline_thickness = if (config.cursor_underline_thickness > 0) config.cursor_underline_thickness else 2.0,
+        .unfocused_shape = config.cursor_unfocused_shape,
+    };
+}
+
+fn cursorFrame(self: *TextSurface, state: c.HowlVtRenderStateHandle, input: *const c.HowlRenderTextPrepare) !CursorFrame {
+    if (self.cursor_state.activity_seq != input.activity_seq) {
+        self.cursor_state.activity_seq = input.activity_seq;
+        self.cursor_state.zero_time_ns = input.now_ns;
+    }
+    const blinking = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_BLINKING) != 0;
+    const visible = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VISIBLE) != 0;
+    const text_blinking = try blinkingTextUsed(state);
+    const animate = input.focused != 0 and visible and blinking and self.cursor_config.blink_interval_ns != 0;
+    const active = self.cursor_config.inactivity_ns == 0 or input.now_ns -| self.cursor_state.zero_time_ns < self.cursor_config.inactivity_ns;
+    const opacity = if (animate and active) blinkOpacity(input.now_ns, self.cursor_state.zero_time_ns, self.cursor_config.blink_interval_ns) else @as(u8, 255);
+    return .{ .cursor_opacity = opacity, .text_blink_opacity = if (text_blinking and active) opacity else 255 };
+}
+
+fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateColors, config: *const CursorConfig, frame: CursorFrame, focused: bool) !?render.CursorPresentation {
     if (try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE) == 0) return null;
     const row = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y);
     const col = try renderStateU16(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_VIEWPORT_X);
@@ -574,46 +628,28 @@ fn readCursorPresentation(state: c.HowlVtRenderStateHandle, colors: RenderStateC
     const blinking = try renderStateByte(state, c.HOWL_VT_RENDER_STATE_DATA_CURSOR_BLINKING) != 0;
     const shape = try renderStateCursorShape(state);
     return .{
-        .focused = input.focused != 0,
-        .visible = visible and input.cursor_opacity != 0,
+        .focused = focused,
+        .visible = visible and frame.cursor_opacity != 0,
         .blink = blinking,
-        .shape = if (input.effective_shape != 0) cursorShapeIn(input.effective_shape) else shape,
-        .beam_thickness = input.cursor_beam_thickness,
-        .underline_thickness = input.cursor_underline_thickness,
-        .cursor_opacity = input.cursor_opacity,
-        .text_blink_opacity = input.text_blink_opacity,
-        .cursor_color = if (input.cursor_color.kind != 0) cursorColorIn(input.cursor_color) else defaultCursorColor(colors),
-        .cursor_text_color = cursorColorIn(input.cursor_text_color),
-        .cursor_trail_color = cursorColorIn(input.cursor_trail_color),
+        .shape = if (focused) shape else cursorShapeIn(config.unfocused_shape),
+        .beam_thickness = config.beam_thickness,
+        .underline_thickness = config.underline_thickness,
+        .cursor_opacity = frame.cursor_opacity,
+        .text_blink_opacity = frame.text_blink_opacity,
+        .cursor_color = if (config.cursor_color.kind != 0) cursorColorIn(config.cursor_color) else defaultCursorColor(colors),
+        .cursor_text_color = cursorColorIn(config.cursor_text_color),
+        .cursor_trail_color = cursorColorIn(config.cursor_trail_color),
         .default_foreground = rgb8(colors.foreground),
         .default_background = rgb8(colors.background),
         .primary_extent = .{ .row = row, .col = col, .rows = 1, .cols = if (wide_tail) 2 else 1 },
         .extra_cursors = [_]render.ExtraCursorPresentation{emptyExtraCursor()} ** render.max_extra_cursors,
         .extra_cursor_count = 0,
-        .trail = cursorTrailSourceIn(input),
+        .trail = emptyCursorTrailSource(),
     };
 }
 
-fn cursorTrailSourceIn(input: *const c.HowlRenderTextPrepare) render.CursorTrailSource {
-    var trail = render.CursorTrailSource{
-        .rects = [_]render.CursorTrailRect{emptyCursorTrailRect()} ** render.max_cursor_trail_rects,
-        .count = @intCast(@min(input.cursor_trail_count, render.max_cursor_trail_rects)),
-    };
-    for (0..trail.count) |i| trail.rects[i] = cursorTrailRectIn(input.cursor_trail_rects[i]);
-    return trail;
-}
-
-fn cursorTrailRectIn(rect: c.HowlRenderCursorTrailRect) render.CursorTrailRect {
-    return .{
-        .extent = .{ .row = rect.row, .col = rect.col, .rows = rect.rows, .cols = rect.cols },
-        .opacity = rect.opacity,
-        .color = .{ .r = rect.color.r, .g = rect.color.g, .b = rect.color.b },
-        .pixel_rect = rect.pixel_rect != 0,
-        .x_px = rect.x_px,
-        .y_px = rect.y_px,
-        .width_px = rect.width_px,
-        .height_px = rect.height_px,
-    };
+fn emptyCursorTrailSource() render.CursorTrailSource {
+    return .{ .rects = [_]render.CursorTrailRect{emptyCursorTrailRect()} ** render.max_cursor_trail_rects, .count = 0 };
 }
 
 fn cursorColorIn(value: c.HowlVtColor) render.CursorColor {
@@ -646,6 +682,37 @@ fn renderStateByte(state: c.HowlVtRenderStateHandle, key: c.HowlVtRenderStateDat
     var value: u8 = 0;
     try requireVtOk(c.howl_vt_render_state_get(state, key, &value));
     return value;
+}
+
+fn blinkingTextUsed(state: c.HowlVtRenderStateHandle) !bool {
+    var iterator: c.HowlVtRenderStateRowIteratorHandle = null;
+    try requireVtOk(c.howl_vt_render_state_row_iterator_init(&iterator));
+    defer c.howl_vt_render_state_row_iterator_deinit(iterator);
+    try requireVtOk(c.howl_vt_render_state_get(state, c.HOWL_VT_RENDER_STATE_DATA_ROW_ITERATOR, @ptrCast(&iterator)));
+    var cells: c.HowlVtRenderStateRowCellsHandle = null;
+    try requireVtOk(c.howl_vt_render_state_row_cells_init(&cells));
+    defer c.howl_vt_render_state_row_cells_deinit(cells);
+    while (c.howl_vt_render_state_row_iterator_next(iterator) != 0) {
+        try requireVtOk(c.howl_vt_render_state_row_get(iterator, c.HOWL_VT_RENDER_STATE_ROW_DATA_CELLS, @ptrCast(&cells)));
+        while (c.howl_vt_render_state_row_cells_next(cells) != 0) {
+            var cell: c.HowlVtRenderStateCell = std.mem.zeroes(c.HowlVtRenderStateCell);
+            try requireVtOk(c.howl_vt_render_state_row_cells_get(cells, c.HOWL_VT_RENDER_STATE_ROW_CELLS_DATA_CELL, @ptrCast(&cell)));
+            if (cell.attrs.blink != 0) return true;
+        }
+    }
+    return false;
+}
+
+fn secondsToNs(value: f64, default_value: f64) u64 {
+    const seconds = if (value < 0) default_value else value;
+    if (seconds == 0) return 0;
+    return @max(@as(u64, 1), @as(u64, @intFromFloat(@round(seconds * @as(f64, @floatFromInt(std.time.ns_per_s))))));
+}
+
+fn blinkOpacity(now_ns: u64, zero_time_ns: u64, interval_ns: u64) u8 {
+    if (interval_ns == 0) return 255;
+    const phase = ((now_ns -| zero_time_ns) / interval_ns) % 2;
+    return if (phase == 0) 255 else 0;
 }
 
 fn renderStateCursorShape(state: c.HowlVtRenderStateHandle) !render.CursorShape {

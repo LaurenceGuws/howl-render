@@ -18,13 +18,7 @@ test "render c enum values remain stable" {
 
 test "render surface layout ABI returns render-owned cell facts and grid" {
     var text: c.HowlRenderTextHandle = null;
-    const config = c.HowlRenderTextConfig{
-        .font_size_px = 16,
-        .fallback_font_path_count = 0,
-        .reserved0 = 0,
-        .primary_font_path = test_font_options.primary_path.ptr,
-        .fallback_font_paths = null,
-    };
+    const config = testTextConfig();
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
@@ -43,13 +37,7 @@ test "render surface layout ABI returns render-owned cell facts and grid" {
 
 test "render surface point cell ABI returns inside flag and clamped cell" {
     var text: c.HowlRenderTextHandle = null;
-    const config = c.HowlRenderTextConfig{
-        .font_size_px = 16,
-        .fallback_font_path_count = 0,
-        .reserved0 = 0,
-        .primary_font_path = test_font_options.primary_path.ptr,
-        .fallback_font_paths = null,
-    };
+    const config = testTextConfig();
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
@@ -85,13 +73,7 @@ test "render text ABI emits foreground commands from VT render state" {
     try std.testing.expectEqual(c.HOWL_VT_CALL_OK, c.howl_vt_render_state_update(render_state, terminal));
 
     var text: c.HowlRenderTextHandle = null;
-    const config = c.HowlRenderTextConfig{
-        .font_size_px = 16,
-        .fallback_font_path_count = 0,
-        .reserved0 = 0,
-        .primary_font_path = test_font_options.primary_path.ptr,
-        .fallback_font_paths = null,
-    };
+    const config = testTextConfig();
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
@@ -105,18 +87,10 @@ test "render text ABI emits foreground commands from VT render state" {
         .render_state = render_state,
         .render_px = .{ .width = layout_response.cell_layout.cell_px.width * 2, .height = layout_response.cell_layout.cell_px.height },
         .layout_epoch = 1,
+        .now_ns = 0,
+        .activity_seq = 0,
         .focused = 1,
-        .cursor_opacity = 255,
-        .text_blink_opacity = 255,
-        .effective_shape = c.HOWL_VT_CURSOR_SHAPE_BLOCK,
-        .cursor_trail_count = 0,
-        .reserved0 = 0,
-        .cursor_color = .{ .kind = 0, .value = 0 },
-        .cursor_text_color = .{ .kind = 0, .value = 0 },
-        .cursor_trail_color = .{ .kind = 0, .value = 0 },
-        .cursor_beam_thickness = 1.5,
-        .cursor_underline_thickness = 2.0,
-        .cursor_trail_rects = [_]c.HowlRenderCursorTrailRect{std.mem.zeroes(c.HowlRenderCursorTrailRect)} ** c.HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX,
+        .reserved0 = [_]u8{0} ** 7,
     };
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &prepare, &upload));
     const surface_ptr = upload.term_surface_prepared orelse return error.TestUnexpectedResult;
@@ -139,7 +113,7 @@ test "render text ABI emits foreground commands from VT render state" {
 
     var hidden_upload = std.mem.zeroes(c.HowlRenderTextPreparedUpload);
     var hidden_prepare = prepare;
-    hidden_prepare.cursor_opacity = 0;
+    hidden_prepare.focused = 0;
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &hidden_prepare, &hidden_upload));
     const hidden_surface = (hidden_upload.term_surface_prepared orelse return error.TestUnexpectedResult).*;
     var hidden_has_foreground = false;
@@ -150,48 +124,11 @@ test "render text ABI emits foreground commands from VT render state" {
     }
     try std.testing.expect(hidden_has_foreground);
     try std.testing.expect(hidden_fill_count < fill_count);
-
-    var trail_upload = std.mem.zeroes(c.HowlRenderTextPreparedUpload);
-    var trail_prepare = hidden_prepare;
-    trail_prepare.cursor_trail_count = 1;
-    trail_prepare.cursor_trail_color = .{ .kind = 2, .value = 0x102030 };
-    trail_prepare.cursor_trail_rects[0] = .{
-        .row = 0,
-        .col = 0,
-        .rows = 1,
-        .cols = 1,
-        .opacity = 128,
-        .pixel_rect = 1,
-        .reserved0 = 0,
-        .color = .{ .r = 0, .g = 0, .b = 0 },
-        .x_px = 3,
-        .y_px = 4,
-        .width_px = 5,
-        .height_px = 6,
-    };
-    try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_prepare(text, &trail_prepare, &trail_upload));
-    const trail_surface = (trail_upload.term_surface_prepared orelse return error.TestUnexpectedResult).*;
-    var saw_trail = false;
-    for (trail_surface.commands.ptr[0..trail_surface.commands.count]) |command| {
-        if (command.kind != c.HOWL_RENDER_TERM_SURFACE_COMMAND_FILL_RECT) continue;
-        if (command.rect.x_px != 3) continue;
-        if (command.rect.y_px != 4) continue;
-        if (command.rect.width_px != 5) continue;
-        if (command.rect.height_px != 6) continue;
-        saw_trail = true;
-    }
-    try std.testing.expect(saw_trail);
 }
 
 test "tab bar surface ABI emits glyph frame facts" {
     var text: c.HowlRenderTextHandle = null;
-    const config = c.HowlRenderTextConfig{
-        .font_size_px = 16,
-        .fallback_font_path_count = 0,
-        .reserved0 = 0,
-        .primary_font_path = test_font_options.primary_path.ptr,
-        .fallback_font_paths = null,
-    };
+    const config = testTextConfig();
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
@@ -229,13 +166,7 @@ test "tab bar surface ABI emits glyph frame facts" {
 
 test "tab bar surface ABI rejects invalid spans" {
     var text: c.HowlRenderTextHandle = null;
-    const config = c.HowlRenderTextConfig{
-        .font_size_px = 16,
-        .fallback_font_path_count = 0,
-        .reserved0 = 0,
-        .primary_font_path = test_font_options.primary_path.ptr,
-        .fallback_font_paths = null,
-    };
+    const config = testTextConfig();
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
@@ -256,13 +187,7 @@ test "tab bar surface ABI rejects invalid spans" {
 
 test "tab bar surface ABI rejects invalid cell facts" {
     var text: c.HowlRenderTextHandle = null;
-    const config = c.HowlRenderTextConfig{
-        .font_size_px = 16,
-        .fallback_font_path_count = 0,
-        .reserved0 = 0,
-        .primary_font_path = test_font_options.primary_path.ptr,
-        .fallback_font_paths = null,
-    };
+    const config = testTextConfig();
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
@@ -282,13 +207,7 @@ test "tab bar surface ABI rejects invalid cell facts" {
 
 test "tab bar surface ABI gives empty cells transparent blank semantics" {
     var text: c.HowlRenderTextHandle = null;
-    const config = c.HowlRenderTextConfig{
-        .font_size_px = 16,
-        .fallback_font_path_count = 0,
-        .reserved0 = 0,
-        .primary_font_path = test_font_options.primary_path.ptr,
-        .fallback_font_paths = null,
-    };
+    const config = testTextConfig();
     try std.testing.expectEqual(c.HOWL_RENDER_CALL_OK, c.howl_render_text_init(&text, &config));
     defer c.howl_render_text_deinit(text);
 
@@ -322,6 +241,30 @@ fn cellText(codepoint: u32, foreground: c.HowlRenderRgba8, background: c.HowlRen
         .underline_style = 0,
         .reserved0 = 0,
         .reserved1 = 0,
+    };
+}
+
+fn testTextConfig() c.HowlRenderTextConfig {
+    return .{
+        .font_size_px = 16,
+        .fallback_font_path_count = 0,
+        .reserved0 = 0,
+        .primary_font_path = test_font_options.primary_path.ptr,
+        .fallback_font_paths = null,
+        .cursor_blink_interval_s = 0,
+        .cursor_blink_inactivity_s = 0,
+        .cursor_trail_delay_s = 0,
+        .cursor_trail_decay_fast_s = 0,
+        .cursor_trail_decay_slow_s = 0,
+        .cursor_trail_start_threshold = 0,
+        .reserved1 = 0,
+        .cursor_color = .{ .kind = 0, .value = 0 },
+        .cursor_text_color = .{ .kind = 0, .value = 0 },
+        .cursor_trail_color = .{ .kind = 0, .value = 0 },
+        .cursor_beam_thickness = 1.5,
+        .cursor_underline_thickness = 2.0,
+        .cursor_unfocused_shape = c.HOWL_VT_CURSOR_SHAPE_NONE,
+        .reserved2 = [_]u8{0} ** 7,
     };
 }
 

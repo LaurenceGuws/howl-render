@@ -485,24 +485,30 @@ typedef struct {
     uint32_t reserved0;
     const char *primary_font_path;
     const char *const *fallback_font_paths;
+    double cursor_blink_interval_s;
+    double cursor_blink_inactivity_s;
+    double cursor_trail_delay_s;
+    double cursor_trail_decay_fast_s;
+    double cursor_trail_decay_slow_s;
+    uint16_t cursor_trail_start_threshold;
+    uint16_t reserved1;
+    HowlVtColor cursor_color;
+    HowlVtColor cursor_text_color;
+    HowlVtColor cursor_trail_color;
+    float cursor_beam_thickness;
+    float cursor_underline_thickness;
+    uint8_t cursor_unfocused_shape;
+    uint8_t reserved2[7];
 } HowlRenderTextConfig;
 
 typedef struct {
     HowlVtRenderStateHandle render_state;
     HowlRenderPixelSize render_px;
     uint64_t layout_epoch;
+    uint64_t now_ns;
+    uint64_t activity_seq;
     uint8_t focused;
-    uint8_t cursor_opacity;
-    uint8_t text_blink_opacity;
-    uint8_t effective_shape;
-    uint8_t cursor_trail_count;
-    uint16_t reserved0;
-    HowlVtColor cursor_color;
-    HowlVtColor cursor_text_color;
-    HowlVtColor cursor_trail_color;
-    float cursor_beam_thickness;
-    float cursor_underline_thickness;
-    HowlRenderCursorTrailRect cursor_trail_rects[HOWL_RENDER_CURSOR_TRAIL_RECTS_MAX];
+    uint8_t reserved0[7];
 } HowlRenderTextPrepare;
 
 typedef struct {
